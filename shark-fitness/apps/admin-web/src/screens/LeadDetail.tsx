@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, api } from '../lib/api';
 import { usePermission } from '../lib/store';
 import { Page } from '../ui/shell';
-import { Button, Chip, ErrorState, Field, Label, Panel, PermissionState, Seam, Skeleton, type Tone } from '../ui/console';
+import { Button, Chip, Display, ErrorState, Field, Label, Panel, PermissionState, Seam, Skeleton, type Tone } from '../ui/console';
 
 interface Activity {
   id: string;
@@ -42,6 +42,8 @@ interface Detail {
 
 const STAGE_TONE: Record<string, Tone> = { won: 'good', lost: 'bad', disqualified: 'bad', nurture: 'warn' };
 
+type LossKind = 'lost' | 'disqualified';
+
 export default function LeadDetailScreen() {
   const { leadId } = useParams({ from: '/console/leads/$leadId' });
   const queryClient = useQueryClient();
@@ -49,6 +51,7 @@ export default function LeadDetailScreen() {
   const canManage = usePermission('lead.manage');
   const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [lossSheet, setLossSheet] = useState<LossKind | null>(null);
 
   const {
     data,
@@ -75,8 +78,13 @@ export default function LeadDetailScreen() {
   };
 
   const moveStage = useMutation({
-    mutationFn: (to: string) => api(`/admin/leads/${leadId}/stage`, { method: 'POST', body: { to } }),
-    onSuccess: invalidate,
+    mutationFn: ({ to, reason }: { to: string; reason?: string }) =>
+      api(`/admin/leads/${leadId}/stage`, { method: 'POST', body: { to, ...(reason ? { reason } : {}) } }),
+    onSuccess: () => {
+      setLossSheet(null);
+      setError(null);
+      invalidate();
+    },
     onError: (e) => setError(e instanceof ApiError ? e.message : 'That did not work.'),
   });
 
@@ -91,7 +99,10 @@ export default function LeadDetailScreen() {
 
   const convert = useMutation({
     mutationFn: () => api<{ memberId: string; message: string }>(`/admin/leads/${leadId}/convert`, { method: 'POST' }),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      setError(null);
+      invalidate();
+    },
     onError: (e) => setError(e instanceof ApiError ? e.message : 'That did not work.'),
   });
 
@@ -116,6 +127,8 @@ export default function LeadDetailScreen() {
   }
 
   const { lead } = data;
+  const canConvert = lead.stage === 'trial_completed' && !lead.convertedMemberId;
+  const moveableStages = data.availableStages.filter((s) => !['lost', 'disqualified'].includes(s));
 
   return (
     <Page title={lead.name} kicker={`${lead.branchName} · ${lead.source.replace(/_/g, ' ')}`}>
@@ -165,29 +178,40 @@ export default function LeadDetailScreen() {
               <div className="mt-1">₹{(lead.expectedValueMinor / 100).toLocaleString('en-IN')}</div>
             </div>
           </div>
+          {lead.lossReason ? (
+            <p className="border-t border-line px-3.5 py-2.5 text-[12px] text-foam-45">Loss reason: {lead.lossReason}</p>
+          ) : null}
         </Panel>
 
         {canManage && !lead.convertedMemberId ? (
           <Panel title="Actions">
             <div className="flex flex-wrap gap-2 p-3.5">
-              {data.availableStages
-                .filter((s) => !['lost', 'disqualified'].includes(s))
-                .map((s) => (
-                  <Button key={s} variant="outline" disabled={moveStage.isPending} onClick={() => moveStage.mutate(s)}>
-                    Move to {s.replace(/_/g, ' ')}
-                  </Button>
-                ))}
+              {moveableStages.map((s) => (
+                <Button key={s} variant="outline" disabled={moveStage.isPending} onClick={() => moveStage.mutate({ to: s })}>
+                  Move to {s.replace(/_/g, ' ')}
+                </Button>
+              ))}
               {data.availableStages.includes('lost') ? (
-                <Button variant="danger" disabled={moveStage.isPending} onClick={() => moveStage.mutate('lost')}>
+                <Button variant="danger" disabled={moveStage.isPending} onClick={() => setLossSheet('lost')}>
                   Mark lost
                 </Button>
               ) : null}
-              {lead.stage === 'trial_completed' || lead.stage === 'won' ? (
+              {data.availableStages.includes('disqualified') ? (
+                <Button variant="danger" disabled={moveStage.isPending} onClick={() => setLossSheet('disqualified')}>
+                  Disqualify
+                </Button>
+              ) : null}
+              {canConvert ? (
                 <Button variant="cta" disabled={convert.isPending} onClick={() => convert.mutate()}>
                   {convert.isPending ? 'Converting…' : 'Convert to member'}
                 </Button>
               ) : null}
             </div>
+            {!canConvert && lead.stage !== 'trial_completed' && !lead.convertedMemberId ? (
+              <p className="border-t border-line px-3.5 py-2.5 text-[12px] text-foam-45">
+                Converting to a member requires the trial completed stage.
+              </p>
+            ) : null}
             {convert.isSuccess ? (
               <Panel tone="good">
                 <p className="px-3.5 py-2.5 text-[12px] leading-relaxed">{convert.data.message}</p>
@@ -235,6 +259,81 @@ export default function LeadDetailScreen() {
           </ul>
         </Panel>
       </Seam>
+
+      {lossSheet ? (
+        <LossSheet
+          kind={lossSheet}
+          leadName={lead.name}
+          isPending={moveStage.isPending}
+          onClose={() => setLossSheet(null)}
+          onConfirm={(reason) => moveStage.mutate({ to: lossSheet, reason })}
+        />
+      ) : null}
     </Page>
+  );
+}
+
+/** Losing or disqualifying a lead is a permanent, reported outcome — it
+ *  always states its impact and always requires a reason (UX-A03 acceptance:
+ *  every consequential action shows impact + scope before it can be confirmed). */
+function LossSheet({
+  kind,
+  leadName,
+  isPending,
+  onClose,
+  onConfirm,
+}: {
+  kind: LossKind;
+  leadName: string;
+  isPending: boolean;
+  onClose: () => void;
+  onConfirm: (reason: string) => void;
+}) {
+  const [reason, setReason] = useState('');
+  const title = kind === 'lost' ? 'Mark this lead lost' : 'Disqualify this lead';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-6" onClick={onClose} role="presentation">
+      <div
+        className="w-[min(480px,100%)] border border-line-strong bg-overlay"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+      >
+        <header className="border-b border-line px-4 py-3">
+          <Display size="sm" as="h2">
+            {title}
+          </Display>
+        </header>
+
+        <div className="flex flex-col gap-3.5 p-4">
+          <Panel tone="warn">
+            <p className="px-3 py-2.5 text-[12px] leading-relaxed text-foam-80">
+              {kind === 'lost'
+                ? `${leadName} moves out of the active pipeline. This can be reversed later by reopening the lead.`
+                : `${leadName} is marked as not a fit for membership. This can be reversed later by reopening the lead.`}
+            </p>
+          </Panel>
+          <Field
+            label="Reason"
+            placeholder="Recorded in the lead's timeline and the audit log"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            hint="Required."
+            autoFocus
+          />
+        </div>
+
+        <footer className="flex justify-end gap-2 border-t border-line px-4 py-3">
+          <Button variant="ghost" onClick={onClose}>
+            Never mind
+          </Button>
+          <Button variant="danger" size="md" disabled={reason.trim().length < 4 || isPending} onClick={() => onConfirm(reason.trim())}>
+            {isPending ? 'Working…' : kind === 'lost' ? 'Mark lost' : 'Disqualify'}
+          </Button>
+        </footer>
+      </div>
+    </div>
   );
 }

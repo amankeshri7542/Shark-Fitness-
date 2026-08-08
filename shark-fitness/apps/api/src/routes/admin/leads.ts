@@ -5,13 +5,21 @@ import { validate } from '../../middleware/validate.js';
 import { channels, LeadStage } from '@shark/contracts';
 import { db, schema, transact } from '../../db/client.js';
 import { ctxOf } from '../../middleware/index.js';
-import { requirePermission } from '../../lib/context.js';
+import { requireBranch, requirePermission } from '../../lib/context.js';
 import { audit } from '../../lib/audit.js';
 import { emit } from '../../lib/events.js';
-import { conflict, notFound } from '../../lib/errors.js';
+import { AppError, conflict } from '../../lib/errors.js';
 import { id, initialsOf, normalizeEmail, normalizePhone } from '../../lib/ids.js';
 import { now } from '../../lib/time.js';
-import { LEAD_STAGE_TRANSITIONS, canTransitionLead, findDuplicateLead, leadSlaBreached } from '../../services/leads.js';
+import {
+  LEAD_STAGE_TRANSITIONS,
+  assertValidOwner,
+  canTransitionLead,
+  findDuplicateLead,
+  findExistingMember,
+  leadSlaBreached,
+  loadLeadInScope,
+} from '../../services/leads.js';
 
 export const leadsRoutes = new Hono();
 
@@ -20,12 +28,18 @@ const ListQuery = z.object({
   stage: LeadStage.optional(),
   ownerId: z.string().optional(),
   slaBreached: z.coerce.boolean().optional(),
-  limit: z.coerce.number().int().min(1).max(200).default(100),
+  limit: z.coerce.number().int().min(1).max(500).default(200),
   offset: z.coerce.number().int().min(0).default(0),
 });
 
-/** Pipeline (UX-A02). Returns every lead in scope plus a per-stage count so
- *  the board can render columns without a second round trip. */
+/**
+ * Pipeline (UX-A02). `total`/`byStage` always reflect the full filtered scope
+ * (search + branch + stage + owner + SLA), never just the returned page —
+ * the board groups `items` by stage, so an aggregate computed only from a
+ * truncated page would silently under-count columns the caller can't see.
+ * `items` is paginated after that full-scope computation; `hasMore` tells the
+ * board when it isn't looking at everything, so nothing is silently omitted.
+ */
 leadsRoutes.get('/', validate('query', ListQuery), (c) => {
   const ctx = ctxOf(c);
   requirePermission(ctx, 'lead.view');
@@ -47,14 +61,9 @@ leadsRoutes.get('/', validate('query', ListQuery), (c) => {
   }
   const where = and(...filters);
 
-  const rows = db
-    .select()
-    .from(schema.leads)
-    .where(where)
-    .orderBy(desc(schema.leads.createdAt))
-    .limit(q.limit)
-    .offset(q.offset)
-    .all();
+  // No limit/offset here — every lead matching the filters is needed to
+  // compute accurate totals and per-stage counts before pagination applies.
+  const rows = db.select().from(schema.leads).where(where).orderBy(desc(schema.leads.createdAt)).all();
 
   const branchNames = new Map(
     db.select({ id: schema.branches.id, name: schema.branches.name }).from(schema.branches).all().map((b) => [b.id, b.name]),
@@ -74,7 +83,7 @@ leadsRoutes.get('/', validate('query', ListQuery), (c) => {
     : new Map<string, string>();
 
   const nowMs = now();
-  const items = rows.map((r) => ({
+  const allItems = rows.map((r) => ({
     id: r.id,
     name: r.name,
     phone: r.phone,
@@ -98,11 +107,40 @@ leadsRoutes.get('/', validate('query', ListQuery), (c) => {
     tags: r.tags,
   }));
 
-  const filtered = q.slaBreached ? items.filter((x) => x.slaBreached) : items;
   const byStage: Record<string, number> = {};
-  for (const item of items) byStage[item.stage] = (byStage[item.stage] ?? 0) + 1;
+  for (const item of allItems) byStage[item.stage] = (byStage[item.stage] ?? 0) + 1;
 
-  return c.json({ total: filtered.length, byStage, items: filtered });
+  const filtered = q.slaBreached ? allItems.filter((x) => x.slaBreached) : allItems;
+  const total = filtered.length;
+  const items = filtered.slice(q.offset, q.offset + q.limit);
+  const hasMore = q.offset + items.length < total;
+
+  return c.json({ total, byStage, items, hasMore, limit: q.limit, offset: q.offset });
+});
+
+/** Assignable owners for the lead-capture form and edit dialog — active staff
+ *  in the given branch. Must be registered before `/:leadId` so "owners"
+ *  isn't captured as a lead id by that route. */
+leadsRoutes.get('/owners', (c) => {
+  const ctx = ctxOf(c);
+  requirePermission(ctx, 'lead.view');
+  const branchId = c.req.query('branchId');
+
+  const rows = db
+    .select({ id: schema.staff.id, name: schema.users.name, branchIds: schema.staff.branchIds })
+    .from(schema.staff)
+    .innerJoin(schema.users, eq(schema.users.id, schema.staff.userId))
+    .where(
+      and(
+        eq(schema.staff.tenantId, ctx.tenantId),
+        eq(schema.staff.employmentStatus, 'active'),
+        eq(schema.users.accountState, 'active'),
+      ),
+    )
+    .all();
+
+  const items = (branchId ? rows.filter((r) => r.branchIds.includes(branchId)) : rows).map((r) => ({ id: r.id, name: r.name }));
+  return c.json({ items });
 });
 
 /** Detail (UX-A03): lead + timeline + duplicate candidate + existing-member check. */
@@ -110,13 +148,7 @@ leadsRoutes.get('/:leadId', (c) => {
   const ctx = ctxOf(c);
   requirePermission(ctx, 'lead.view');
   const leadId = c.req.param('leadId');
-
-  const lead = db
-    .select()
-    .from(schema.leads)
-    .where(and(eq(schema.leads.id, leadId), eq(schema.leads.tenantId, ctx.tenantId)))
-    .get();
-  if (!lead) throw notFound('That lead');
+  const lead = loadLeadInScope(ctx, leadId);
 
   const activities = db
     .select()
@@ -210,6 +242,11 @@ leadsRoutes.post('/', validate('json', CreateBody), (c) => {
   requirePermission(ctx, 'lead.manage');
   const body = c.req.valid('json');
 
+  requireBranch(ctx, body.branchId);
+
+  const ownerId = body.ownerId ?? ctx.staffId;
+  if (ownerId) assertValidOwner(ctx.tenantId, ownerId, body.branchId);
+
   const phoneNormalized = normalizePhone(body.phone);
   const emailNormalized = normalizeEmail(body.email);
   const duplicate = findDuplicateLead(ctx.tenantId, phoneNormalized, emailNormalized);
@@ -229,7 +266,7 @@ leadsRoutes.post('/', validate('json', CreateBody), (c) => {
         source: body.source,
         campaign: body.campaign ?? null,
         stage: 'new',
-        ownerId: body.ownerId ?? ctx.staffId,
+        ownerId,
         expectedValueMinor: body.expectedValueMinor,
         nextActionAt: body.nextActionAt ? Date.parse(body.nextActionAt) : null,
         nextActionLabel: body.nextActionLabel ?? null,
@@ -278,12 +315,9 @@ leadsRoutes.patch('/:leadId', validate('json', EditBody), (c) => {
   const leadId = c.req.param('leadId');
   const body = c.req.valid('json');
 
-  const lead = db
-    .select()
-    .from(schema.leads)
-    .where(and(eq(schema.leads.id, leadId), eq(schema.leads.tenantId, ctx.tenantId)))
-    .get();
-  if (!lead) throw notFound('That lead');
+  const lead = loadLeadInScope(ctx, leadId);
+
+  if (body.ownerId) assertValidOwner(ctx.tenantId, body.ownerId, lead.branchId);
 
   db.update(schema.leads)
     .set({
@@ -317,12 +351,12 @@ leadsRoutes.post('/:leadId/stage', validate('json', StageBody), (c) => {
   const leadId = c.req.param('leadId');
   const { to, reason } = c.req.valid('json');
 
-  const lead = db
-    .select()
-    .from(schema.leads)
-    .where(and(eq(schema.leads.id, leadId), eq(schema.leads.tenantId, ctx.tenantId)))
-    .get();
-  if (!lead) throw notFound('That lead');
+  const lead = loadLeadInScope(ctx, leadId);
+
+  // "won" is reachable only through POST /:leadId/convert, which creates the
+  // member atomically in the same transaction as the stage change — a bare
+  // stage move must never produce a won lead with no member behind it.
+  if (to === 'won') throw conflict('Use "Convert to member" to move a lead to won — a stage move alone cannot create the member.');
 
   const outcome = canTransitionLead({ from: lead.stage as LeadStage, to, reason });
   if (!outcome.ok) throw conflict(outcome.message);
@@ -332,7 +366,9 @@ leadsRoutes.post('/:leadId/stage', validate('json', StageBody), (c) => {
       .set({
         stage: to,
         lastTouchedAt: now(),
-        lossReason: to === 'lost' || to === 'disqualified' ? (reason ?? null) : lead.lossReason,
+        // Leaving lost/disqualified — including via reopened — always clears
+        // the old reason; it no longer describes the lead's current state.
+        lossReason: to === 'lost' || to === 'disqualified' ? (reason ?? null) : null,
         updatedAt: now(),
       })
       .where(eq(schema.leads.id, leadId))
@@ -388,12 +424,7 @@ leadsRoutes.post('/:leadId/activities', validate('json', ActivityBody), (c) => {
   const leadId = c.req.param('leadId');
   const body = c.req.valid('json');
 
-  const lead = db
-    .select()
-    .from(schema.leads)
-    .where(and(eq(schema.leads.id, leadId), eq(schema.leads.tenantId, ctx.tenantId)))
-    .get();
-  if (!lead) throw notFound('That lead');
+  loadLeadInScope(ctx, leadId);
 
   transact(() => {
     db.insert(schema.leadActivities)
@@ -432,29 +463,54 @@ leadsRoutes.post('/:leadId/convert', (c) => {
   requirePermission(ctx, 'lead.manage');
   const leadId = c.req.param('leadId');
 
-  const lead = db
-    .select()
-    .from(schema.leads)
-    .where(and(eq(schema.leads.id, leadId), eq(schema.leads.tenantId, ctx.tenantId)))
-    .get();
-  if (!lead) throw notFound('That lead');
+  const lead = loadLeadInScope(ctx, leadId);
   if (lead.convertedMemberId) throw conflict('This lead has already been converted.');
+  // The canonical pipeline only allows won as a side effect of this endpoint,
+  // and only from trial_completed — see LEAD_STAGE_TRANSITIONS.
+  if (lead.stage !== 'trial_completed') {
+    throw conflict(`This lead is in ${lead.stage.replace(/_/g, ' ')}. Move it to trial completed before converting.`);
+  }
+
+  // Block a duplicate person rather than let a unique-index collision surface
+  // as a raw 500, and rather than silently create a second record for
+  // someone who already exists.
+  const existingMember = findExistingMember(ctx.tenantId, lead.phoneNormalized, lead.emailNormalized);
+  if (existingMember) {
+    throw new AppError(
+      'CONFLICT',
+      `${lead.name} matches an existing member, ${existingMember.name}. Link this lead to that member instead of converting it separately.`,
+      { details: { existingMemberId: existingMember.id } },
+    );
+  }
+  if (lead.emailNormalized) {
+    const orphanUser = db
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(and(eq(schema.users.tenantId, ctx.tenantId), eq(schema.users.email, lead.emailNormalized)))
+      .get();
+    if (orphanUser) throw conflict('That email is already used by another account in this gym. Resolve the conflict before converting.');
+  }
 
   const nameParts = lead.name.trim().split(/\s+/);
   const firstName = nameParts[0] ?? lead.name;
   const lastName = nameParts.slice(1).join(' ') || '—';
 
-  const memberNoRow = db
-    .select({ max: sql<number>`max(cast(substr(${schema.members.memberNo}, 4) as integer))` })
-    .from(schema.members)
-    .where(eq(schema.members.tenantId, ctx.tenantId))
-    .get();
-  const memberNo = `SF-${(memberNoRow?.max ?? 40000) + 1}`;
-
   const userId = id('usr');
   const memberId = id('mbr');
+  let memberNo = '';
 
   transact(() => {
+    // Computed inside the transaction, immediately before the insert that
+    // consumes it, so nothing else in this single-writer process can read a
+    // stale max between the two (see db/client.ts: transact is the sole
+    // concurrency authority here, same pattern as booking capacity).
+    const memberNoRow = db
+      .select({ max: sql<number>`max(cast(substr(${schema.members.memberNo}, 4) as integer))` })
+      .from(schema.members)
+      .where(eq(schema.members.tenantId, ctx.tenantId))
+      .get();
+    memberNo = `SF-${(memberNoRow?.max ?? 40000) + 1}`;
+
     db.insert(schema.users)
       .values({
         id: userId,
@@ -464,7 +520,9 @@ leadsRoutes.post('/:leadId/convert', (c) => {
         name: lead.name,
         initials: initialsOf(lead.name),
         role: 'member',
-        accountState: 'active',
+        // Invited, not active — identity is unverified until the person
+        // completes sign-in themselves (PF member account state machine).
+        accountState: 'invited',
         passwordHash: null,
         preferences: { register: 'predator', theme: 'dark', unitSystem: 'metric', haptics: true, reducedMotion: false },
         lastSeenAt: null,
