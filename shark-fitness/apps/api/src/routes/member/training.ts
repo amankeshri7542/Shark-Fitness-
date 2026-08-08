@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, desc, eq, gte, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { zValidator } from '@hono/zod-validator';
+import { validate } from '../../middleware/validate.js';
 import { WorkoutDraft, type MuscleGroup, type PrescribedSet } from '@shark/contracts';
 import {
   MUSCLE_LABEL,
@@ -975,7 +975,7 @@ const DecisionInput = z.object({
   note: z.string().max(500).optional(),
 });
 
-trainingRoutes.post('/adaptive/:id/decision', zValidator('json', DecisionInput), (c) => {
+trainingRoutes.post('/adaptive/:id/decision', validate('json', DecisionInput), (c) => {
   const ctx = ctxOf(c);
   const scope = scopeOf(ctx);
   const decisionId = c.req.param('id');
@@ -1090,7 +1090,7 @@ const SubstituteInput = z.object({
   reason: z.string().min(1).max(200),
 });
 
-trainingRoutes.post('/substitute', zValidator('json', SubstituteInput), (c) => {
+trainingRoutes.post('/substitute', validate('json', SubstituteInput), (c) => {
   const ctx = ctxOf(c);
   const scope = scopeOf(ctx);
   const { programItemId, toExerciseId, reason } = c.req.valid('json');
@@ -1332,7 +1332,7 @@ function summarise(scope: MemberScope, workoutId: string) {
   };
 }
 
-trainingRoutes.post('/workouts', zValidator('json', WorkoutDraft), (c) => {
+trainingRoutes.post('/workouts', validate('json', WorkoutDraft), (c) => {
   const ctx = ctxOf(c);
   const scope = scopeOf(ctx);
   const draft = c.req.valid('json');

@@ -28,7 +28,12 @@ dashboardRoutes.get('/', (c) => {
   const monthStartMs = Date.parse(`${monthStart}T00:00:00+05:30`);
   const prevMonthStartMs = monthStartMs - 30 * DAY;
 
-  const canSeeMoney = ctx.permissions.includes('billing.view');
+  // Two different money permissions, on purpose. Reception needs to see what a
+  // member owes so they can take payment at the desk; they have no business
+  // seeing the gym's monthly takings. `billing.view` gates the first,
+  // `report.financial` the second.
+  const canSeeBalances = ctx.permissions.includes('billing.view');
+  const canSeeRevenue = ctx.permissions.includes('report.financial');
 
   /* — Live floor ————————————————————————————————————————————— */
 
@@ -243,25 +248,25 @@ dashboardRoutes.get('/', (c) => {
     {
       key: 'revenue_month',
       label: 'Collected this month',
-      value: canSeeMoney ? (revenueThisMonth?.total ?? 0) : 0,
-      display: canSeeMoney ? rupees(revenueThisMonth?.total ?? 0) : '—',
+      value: canSeeRevenue ? (revenueThisMonth?.total ?? 0) : 0,
+      display: canSeeRevenue ? rupees(revenueThisMonth?.total ?? 0) : '—',
       unit: null,
-      previous: canSeeMoney ? (revenuePrevMonth?.total ?? 0) : null,
-      changePct: canSeeMoney ? change(revenueThisMonth?.total ?? 0, revenuePrevMonth?.total ?? 0) : null,
+      previous: canSeeRevenue ? (revenuePrevMonth?.total ?? 0) : null,
+      changePct: canSeeRevenue ? change(revenueThisMonth?.total ?? 0, revenuePrevMonth?.total ?? 0) : null,
       direction: ((revenueThisMonth?.total ?? 0) >= (revenuePrevMonth?.total ?? 0) ? 'up' : 'down') as 'up' | 'down',
       goodDirection: 'up' as const,
       freshness: 'near_realtime' as const,
       asOf: new Date(now()).toISOString(),
       drillTo: '/billing?state=paid',
       // A restricted metric says it is restricted rather than showing a zero.
-      unavailableReason: canSeeMoney ? null : 'Your role does not include financial figures.',
+      unavailableReason: canSeeRevenue ? null : 'Revenue totals are limited to owners, regional managers and accounts.',
       definition: 'Succeeded payments recorded in the current calendar month, tenant-wide.',
     },
     {
       key: 'outstanding',
       label: 'Outstanding',
-      value: canSeeMoney ? (outstanding?.total ?? 0) : 0,
-      display: canSeeMoney ? rupees(outstanding?.total ?? 0) : '—',
+      value: canSeeBalances ? (outstanding?.total ?? 0) : 0,
+      display: canSeeBalances ? rupees(outstanding?.total ?? 0) : '—',
       unit: null,
       previous: null,
       changePct: null,
@@ -270,7 +275,7 @@ dashboardRoutes.get('/', (c) => {
       freshness: 'near_realtime' as const,
       asOf: new Date(now()).toISOString(),
       drillTo: '/billing?state=overdue',
-      unavailableReason: canSeeMoney ? null : 'Your role does not include financial figures.',
+      unavailableReason: canSeeBalances ? null : 'Your role does not include member balances.',
       definition: 'Invoice totals minus amounts paid, for invoices that are open, part-paid or overdue.',
     },
     {
@@ -339,7 +344,7 @@ dashboardRoutes.get('/', (c) => {
     )
     .get();
 
-  if ((failedPayments?.n ?? 0) > 0 && canSeeMoney) {
+  if ((failedPayments?.n ?? 0) > 0 && canSeeBalances) {
     alerts.push({
       id: 'failed_payments',
       severity: 'critical',

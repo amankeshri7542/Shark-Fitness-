@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { deleteCookie, setCookie } from 'hono/cookie';
-import { zValidator } from '@hono/zod-validator';
+import { validate } from '../middleware/validate.js';
 import { PasswordSignInInput, StartOtpInput, VerifyOtpInput } from '@shark/contracts';
 import { SESSION_COOKIE, authenticate, ctxOf, rateLimit } from '../middleware/index.js';
 import { revokeSession, signInWithPassword, startOtp, verifyOtp, viewerFor } from '../services/auth.js';
@@ -30,7 +30,7 @@ authRoutes.get('/tenants', (c) => {
 authRoutes.post(
   '/otp/start',
   rateLimit(10, 60_000),
-  zValidator('json', StartOtpInput),
+  validate('json', StartOtpInput),
   (c) => {
     const body = c.req.valid('json');
     return c.json(
@@ -46,7 +46,7 @@ authRoutes.post(
 authRoutes.post(
   '/otp/verify',
   rateLimit(20, 60_000),
-  zValidator('json', VerifyOtpInput),
+  validate('json', VerifyOtpInput),
   (c) => {
     const body = c.req.valid('json');
     const result = verifyOtp({
@@ -63,7 +63,7 @@ authRoutes.post(
 authRoutes.post(
   '/password',
   rateLimit(10, 60_000),
-  zValidator('json', PasswordSignInInput),
+  validate('json', PasswordSignInInput),
   (c) => {
     const body = c.req.valid('json');
     const result = signInWithPassword({

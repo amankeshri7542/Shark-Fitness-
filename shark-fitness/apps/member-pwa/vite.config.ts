@@ -44,12 +44,16 @@ export default defineConfig({
     }),
   ],
   resolve: {
-    alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url)),
-      '@shark/contracts': fileURLToPath(new URL('../../packages/contracts/src/index.ts', import.meta.url)),
-      '@shark/domain': fileURLToPath(new URL('../../packages/domain/src/index.ts', import.meta.url)),
-      '@shark/design-tokens': fileURLToPath(new URL('../../packages/design-tokens/src/index.ts', import.meta.url)),
-    },
+    alias: [
+      { find: '@', replacement: fileURLToPath(new URL('./src', import.meta.url)) },
+      { find: /^@shark\/contracts$/, replacement: fileURLToPath(new URL('../../packages/contracts/src/index.ts', import.meta.url)) },
+      { find: /^@shark\/domain$/, replacement: fileURLToPath(new URL('../../packages/domain/src/index.ts', import.meta.url)) },
+      { find: /^@shark\/design-tokens$/, replacement: fileURLToPath(new URL('../../packages/design-tokens/src/index.ts', import.meta.url)) },
+    ],
+    // Exact-match only. A plain string alias also rewrites subpath imports, so
+    // `@shark/design-tokens/sonar.css` would resolve inside index.ts. Subpaths
+    // resolve through the workspace link and the package's own exports map.
+    dedupe: ['react', 'react-dom'],
   },
   server: {
     proxy: {

@@ -969,6 +969,20 @@ for (const m of membersSeeded) {
   }
 }
 
+// Takings inside the current calendar month. Without these the revenue KPI
+// reads zero on any day early in a month, which looks like a broken metric
+// rather than a quiet month.
+const daysIntoMonth = Number(TODAY.slice(8, 10));
+for (const m of rng.shuffle(membersSeeded.filter((x) => x.membershipState === 'active')).slice(0, 14)) {
+  seedInvoice({
+    memberId: m.memberId,
+    branchId: m.branchId,
+    productId: m.productId,
+    issuedDaysAgo: rng.int(0, Math.max(0, daysIntoMonth - 1)),
+    paid: true,
+  });
+}
+
 // The grace member's failed renewal — the one the denial screen refers to.
 const graceInvoiceId = seedInvoice({
   memberId: graceMember.memberId,
@@ -1597,7 +1611,7 @@ for (const m of membersSeeded) {
     .run();
 }
 
-let visitCounter = new Map<string, number>();
+const visitCounter = new Map<string, number>();
 
 for (let dayOffset = 90; dayOffset >= 0; dayOffset--) {
   const date = addDays(TODAY, -dayOffset);
@@ -1634,6 +1648,68 @@ for (let dayOffset = 90; dayOffset >= 0; dayOffset--) {
     db.update(schema.members)
       .set({ lastVisitAt: enteredAt })
       .where(sql`${schema.members.id} = ${m.memberId}`)
+      .run();
+  }
+}
+
+// People on the floor right now. Seeded relative to the current clock rather
+// than to a fixed hour, so the occupancy trace and the live door feed have
+// something real in them whenever the seed is run.
+const insideNow = rng.shuffle(membersSeeded.filter((m) => m.membershipState === 'active')).slice(0, rng.int(14, 26));
+for (const m of insideNow) {
+  const enteredAt = NOW - rng.int(8, 150) * MINUTE;
+  const n = (visitCounter.get(m.memberId) ?? 0) + 1;
+  visitCounter.set(m.memberId, n);
+
+  db.insert(schema.checkIns)
+    .values({
+      id: id('chk'),
+      tenantId,
+      branchId: m.branchId,
+      memberId: m.memberId,
+      method: rng.pick(['qr', 'qr', 'qr', 'staff']),
+      decision: 'granted',
+      enteredAt,
+      exitedAt: null,
+      autoClosed: false,
+      overrideById: null,
+      overrideByName: null,
+      overrideReason: null,
+      visitNumber: n,
+    })
+    .run();
+
+  db.update(schema.members)
+    .set({ lastVisitAt: enteredAt })
+    .where(sql`${schema.members.id} = ${m.memberId}`)
+    .run();
+}
+
+// Completed visits earlier today, so today's occupancy trace has a shape and
+// not a single spike at the current hour.
+for (let hoursBack = 14; hoursBack >= 2; hoursBack--) {
+  const arrivals = hoursBack >= 11 && hoursBack <= 13 ? rng.int(3, 7) : hoursBack <= 5 ? rng.int(4, 9) : rng.int(0, 3);
+  for (let i = 0; i < arrivals; i++) {
+    const m = rng.pick(membersSeeded.filter((x) => x.membershipState === 'active'));
+    const enteredAt = NOW - hoursBack * HOUR - rng.int(0, 55) * MINUTE;
+    const n = (visitCounter.get(m.memberId) ?? 0) + 1;
+    visitCounter.set(m.memberId, n);
+    db.insert(schema.checkIns)
+      .values({
+        id: id('chk'),
+        tenantId,
+        branchId: m.branchId,
+        memberId: m.memberId,
+        method: rng.pick(['qr', 'qr', 'kiosk', 'staff']),
+        decision: 'granted',
+        enteredAt,
+        exitedAt: enteredAt + rng.int(38, 92) * MINUTE,
+        autoClosed: false,
+        overrideById: null,
+        overrideByName: null,
+        overrideReason: null,
+        visitNumber: n,
+      })
       .run();
   }
 }

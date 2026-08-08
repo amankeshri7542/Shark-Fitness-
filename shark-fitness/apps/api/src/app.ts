@@ -35,6 +35,7 @@ import { storeRoutes } from './routes/admin/store.js';
 import { facilityRoutes } from './routes/admin/facility.js';
 import { reportsRoutes } from './routes/admin/reports.js';
 import { settingsRoutes } from './routes/admin/settings.js';
+import { supportRoutes } from './routes/admin/support.js';
 
 /**
  * Route adapter layer only. No business logic lives in this file or in the
@@ -110,3 +111,4 @@ app.route('/v1/admin/store', storeRoutes);
 app.route('/v1/admin/facility', facilityRoutes);
 app.route('/v1/admin/reports', reportsRoutes);
 app.route('/v1/admin/settings', settingsRoutes);
+app.route('/v1/admin/support', supportRoutes);

@@ -1,6 +1,6 @@
 @import "tailwindcss";
-@import "@shark/design-tokens/sonar.css";
-@import "@shark/design-tokens/theme.css";
+@import "../../../packages/design-tokens/src/sonar.css";
+@import "../../../packages/design-tokens/src/theme.css";
 
 /* ============================================================================
    THE BRIDGE

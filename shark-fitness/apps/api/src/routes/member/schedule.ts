@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, asc, desc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { zValidator } from '@hono/zod-validator';
+import { validate } from '../../middleware/validate.js';
 import { channels } from '@shark/contracts';
 import {
   classifyCancellation,
@@ -487,7 +487,7 @@ const ListQuery = z.object({
   category: z.string().optional(),
 });
 
-scheduleRoutes.get('/', zValidator('query', ListQuery), (c) => {
+scheduleRoutes.get('/', validate('query', ListQuery), (c) => {
   const ctx = ctxOf(c);
   const memberId = ctx.memberId!;
   const query = c.req.valid('query');
@@ -698,7 +698,7 @@ const BookBody = z.object({
   acceptDropInCharge: z.boolean().default(false),
 });
 
-scheduleRoutes.post('/book', zValidator('json', BookBody), (c) => {
+scheduleRoutes.post('/book', validate('json', BookBody), (c) => {
   const ctx = ctxOf(c);
   const memberId = ctx.memberId!;
   const body = c.req.valid('json');
@@ -1169,7 +1169,7 @@ function promoteWaitlist(
 
 const WaitlistBody = z.object({ sessionId: z.string().min(1) });
 
-scheduleRoutes.post('/waitlist', zValidator('json', WaitlistBody), (c) => {
+scheduleRoutes.post('/waitlist', validate('json', WaitlistBody), (c) => {
   const ctx = ctxOf(c);
   const memberId = ctx.memberId!;
   const { sessionId } = c.req.valid('json');

@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, desc, eq, gte, inArray, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { zValidator } from '@hono/zod-validator';
+import { validate } from '../../middleware/validate.js';
 import { channels } from '@shark/contracts';
 import {
   computeStreak,
@@ -1081,7 +1081,7 @@ engagementRoutes.delete('/challenge/:id/leave', (c) => {
  *  the name shown to other members is. */
 engagementRoutes.patch(
   '/challenge/:id/privacy',
-  zValidator('json', z.object({ anonymous: z.boolean() })),
+  validate('json', z.object({ anonymous: z.boolean() })),
   (c) => {
     const ctx = ctxOf(c);
     const scope = scopeOf(ctx);
@@ -1158,7 +1158,7 @@ const PostInput = z.object({
   visibility: z.enum(['private', 'team', 'branch', 'tenant']).default('branch'),
 });
 
-engagementRoutes.post('/feed', zValidator('json', PostInput), (c) => {
+engagementRoutes.post('/feed', validate('json', PostInput), (c) => {
   const ctx = ctxOf(c);
   const scope = scopeOf(ctx);
   const input = c.req.valid('json');
@@ -1316,7 +1316,7 @@ engagementRoutes.delete('/feed/:id/kudos', (c) => {
 
 engagementRoutes.post(
   '/feed/:id/comment',
-  zValidator('json', z.object({ body: z.string().trim().min(1).max(400) })),
+  validate('json', z.object({ body: z.string().trim().min(1).max(400) })),
   (c) => {
     const ctx = ctxOf(c);
     const postId = c.req.param('id');
@@ -1398,7 +1398,7 @@ const ReportInput = z.object({
   note: z.string().max(1000).optional(),
 });
 
-engagementRoutes.post('/report', zValidator('json', ReportInput), (c) => {
+engagementRoutes.post('/report', validate('json', ReportInput), (c) => {
   const ctx = ctxOf(c);
   const input = c.req.valid('json');
 

@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
-import { zValidator } from '@hono/zod-validator';
+import { validate } from '../middleware/validate.js';
 import { db, schema } from '../db/client.js';
 import { ctxOf } from '../middleware/index.js';
 import { listSessions, revokeSession, viewerFor } from '../services/auth.js';
@@ -51,7 +51,7 @@ const PreferencesInput = z.object({
   reducedMotion: z.boolean().optional(),
 });
 
-meRoutes.patch('/preferences', zValidator('json', PreferencesInput), (c) => {
+meRoutes.patch('/preferences', validate('json', PreferencesInput), (c) => {
   const ctx = ctxOf(c);
   const patch = c.req.valid('json');
   const user = db.select().from(schema.users).where(eq(schema.users.id, ctx.userId)).get();
@@ -106,7 +106,7 @@ const ConsentInput = z.object({
   granted: z.boolean(),
 });
 
-meRoutes.put('/consents', zValidator('json', ConsentInput), (c) => {
+meRoutes.put('/consents', validate('json', ConsentInput), (c) => {
   const ctx = ctxOf(c);
   const { purpose, granted } = c.req.valid('json');
 
@@ -198,7 +198,7 @@ meRoutes.get('/notifications', (c) => {
   return c.json({ items, unread });
 });
 
-meRoutes.post('/notifications/read', zValidator('json', z.object({ ids: z.array(z.string()).optional() })), (c) => {
+meRoutes.post('/notifications/read', validate('json', z.object({ ids: z.array(z.string()).optional() })), (c) => {
   const ctx = ctxOf(c);
   const { ids } = c.req.valid('json');
 
@@ -237,7 +237,7 @@ meRoutes.post('/data-export', (c) => {
   });
 });
 
-meRoutes.post('/deletion-request', zValidator('json', z.object({ reason: z.string().max(500).optional() })), (c) => {
+meRoutes.post('/deletion-request', validate('json', z.object({ reason: z.string().max(500).optional() })), (c) => {
   const ctx = ctxOf(c);
   const { reason } = c.req.valid('json');
 

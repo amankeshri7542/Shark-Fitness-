@@ -1,16 +1,16 @@
 # Shark Fitness
 
-A gym management SaaS and member mobile platform engineered for multi-branch gym chains, independent clubs, and boutique fitness studios.
+A high-performance gym management SaaS and member mobile platform engineered for multi-branch gym chains, independent clubs, and boutique fitness studios.
 
 ---
 
-## 🦈 Overview
+## 🦈 Platform Overview
 
-Shark Fitness provides an end-to-end platform comprising:
-- **Member Mobile PWA:** Member app featuring the industrial "Sonar" dark-mode theme, workout logger with adaptive load calculation, plate calculator, rest timers, and entry pass.
-- **Admin Web Dashboard:** Command center for gym owners, managers, and staff with real-time multi-branch KPIs, occupancy trace canvas, class scheduler, and member CRM.
-- **API Backend:** High-performance Hono server with Drizzle SQLite, transactional outbox, WebSocket hub, audit logging, and background schedulers.
-- **Domain Business Engine:** Pure TypeScript domain rules with 101 unit tests covering membership state machines, 1RM progression, recovery index, plate math, XP tiers, and fair waitlists.
+Shark Fitness provides an end-to-end multi-tenant platform comprising:
+- **Member Mobile PWA (`apps/member-pwa`):** Member app featuring the industrial "Sonar" dark-mode theme (`#04080b` abyss, `#46c8dd` cyan accent, zero border-radius), workout logger with adaptive load calculation, plate calculator, rest timers, rotating 30s security entry pass, training calendar, class booking, progress charts, and gym pack leaderboards.
+- **Admin Web Dashboard (`apps/admin-web`):** Command center for gym owners, managers, and staff with real-time multi-branch KPIs, live animated occupancy trace canvas, searchable member directory, and 360° member detail drawer with lifecycle controls (freeze, cancel, renew).
+- **API Backend (`apps/api`):** High-performance Hono server with Drizzle SQLite, transactional outbox, WebSocket hub, audit logging, rate limiting, and background schedulers.
+- **Domain Business Engine (`packages/domain`):** Pure TypeScript domain rules with **101 unit tests** covering membership state machines, 1RM progression, recovery index, plate math, XP tiers, and fair waitlists.
 
 ---
 
@@ -36,6 +36,23 @@ Shark Fitness provides an end-to-end platform comprising:
 
 ---
 
+## 🚦 Current Implementation Status
+
+### ✅ Completed & Working
+- **Domain Engine:** 101 unit tests passing across membership, access decisions, training algorithms, and fair scheduling.
+- **Database & Migrations:** 86 SQLite tables, 110 indexes, 7 SQL triggers, deterministic seed data.
+- **Type Checking & Build:** `pnpm typecheck` and `pnpm -r build` pass with **0 errors**.
+- **Member PWA:** `SignIn`, `Home`, `Workout` (set logger + plate math + timer), `Pass` (30s dynamic entry QR), `Train` (program syllabus), `Book` (class timetable & reservation), `Progress` (1RM & recovery charts), `Pack` (leaderboard & squad feed).
+- **Admin Web:** `SignIn`, `CommandCenter` (live occupancy trace & alerts), `Members` (searchable grid), `MemberDetail` (360° profile drawer & membership actions).
+- **API Core & Routes:** Auth, profile (`me`), member routes (`home`, `pass`, `training`, `schedule`, `progress`, `habits`, `messages`, `engagement`), admin routes (`dashboard`, `members`, `support`).
+
+### ⏳ Remaining to Implement
+- **Member PWA (10 screens):** `Summary`, `Exercise`, `Library`, `Habits`, `Challenge`, `Messages`, `Conversation`, `Billing`, `Profile`, `Notifications`.
+- **Admin Web (15 screens):** `Leads`, `LeadDetail`, `Floor`, `Schedule`, `Training`, `Billing`, `Plans`, `Staff`, `Store`, `Equipment`, `Automations`, `Reports`, `Support`, `Settings`, `Platform`.
+- **Admin API Route Adapters (10 stubs):** `attendance`, `billing`, `facility`, `leads`, `reports`, `schedule`, `settings`, `staff`, `store`, `training`.
+
+---
+
 ## 🚀 Quick Start
 
 ### 1. Install Dependencies
@@ -48,7 +65,7 @@ pnpm install
 ```bash
 pnpm dev
 ```
-- **API Server:** http://localhost:8787
+- **API Server:** http://localhost:8787 (Health: http://localhost:8787/health)
 - **Member PWA:** http://localhost:5173
 - **Admin Dashboard:** http://localhost:5174
 
@@ -56,20 +73,22 @@ pnpm dev
 
 ## 🔑 Demo Credentials
 
-| Role | Email | Password |
-| :--- | :--- | :--- |
-| **Member** | `aman@sharkfitness.in` | `shark1234` |
-| **Grace Member** | `rohit@sharkfitness.in` | `shark1234` |
-| **Owner** | `owner@sharkfitness.in` | `shark1234` |
-| **Manager** | `manager@sharkfitness.in` | `shark1234` |
-| **Head Coach** | `rehan@sharkfitness.in` | `shark1234` |
-| **Reception** | `reception@sharkfitness.in` | `shark1234` |
+| Role | Email | Password | Details |
+| :--- | :--- | :--- | :--- |
+| **Member** | `aman@sharkfitness.in` | `shark1234` | Level 8 Great White, active plan, mid-workout block. |
+| **Grace Member** | `rohit@sharkfitness.in` | `shark1234` | Membership in grace with failed payment warning. |
+| **Gym Owner** | `owner@sharkfitness.in` | `shark1234` | Full multi-branch permissions. |
+| **Branch Manager** | `manager@sharkfitness.in` | `shark1234` | Branch-specific operational access. |
+| **Head Coach** | `rehan@sharkfitness.in` | `shark1234` | Training programming & coaching. |
+| **Reception** | `reception@sharkfitness.in` | `shark1234` | Front-desk check-in access. |
 
 ---
 
-## 🧪 Testing
+## 🧪 Testing & Verification
 
 ```bash
 cd shark-fitness
-pnpm -F @shark/domain test
+pnpm typecheck              # Verifies TypeScript across all packages (0 errors)
+pnpm -F @shark/domain test   # Runs 101 domain unit tests
+pnpm -r build               # Verifies production bundle builds
 ```

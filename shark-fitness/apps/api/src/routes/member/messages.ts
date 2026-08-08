@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { zValidator } from '@hono/zod-validator';
+import { validate } from '../../middleware/validate.js';
 import { and, asc, desc, eq, isNull, lt, ne, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { channels } from '@shark/contracts';
@@ -396,7 +396,7 @@ const TicketOpenInput = z.object({
   anonymous: z.boolean().optional().default(false),
 });
 
-messagesRoutes.post('/tickets', zValidator('json', TicketOpenInput), (c) => {
+messagesRoutes.post('/tickets', validate('json', TicketOpenInput), (c) => {
   const ctx = ctxOf(c);
   const memberId = ctx.memberId!;
   const input = c.req.valid('json');
@@ -720,7 +720,7 @@ const ThreadQuery = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional().default(30),
 });
 
-messagesRoutes.get('/:conversationId', zValidator('query', ThreadQuery), (c) => {
+messagesRoutes.get('/:conversationId', validate('query', ThreadQuery), (c) => {
   const ctx = ctxOf(c);
   const memberId = ctx.memberId!;
   const conversationId = c.req.param('conversationId');
@@ -840,7 +840,7 @@ const SendInput = z.object({
     .default([]),
 });
 
-messagesRoutes.post('/:conversationId', zValidator('json', SendInput), (c) => {
+messagesRoutes.post('/:conversationId', validate('json', SendInput), (c) => {
   const ctx = ctxOf(c);
   const memberId = ctx.memberId!;
   const conversationId = c.req.param('conversationId');
@@ -1089,7 +1089,7 @@ messagesRoutes.post('/:conversationId/read', (c) => {
 
 const MuteInput = z.object({ muted: z.boolean() });
 
-messagesRoutes.post('/:conversationId/mute', zValidator('json', MuteInput), (c) => {
+messagesRoutes.post('/:conversationId/mute', validate('json', MuteInput), (c) => {
   const ctx = ctxOf(c);
   const memberId = ctx.memberId!;
   const conversationId = c.req.param('conversationId');

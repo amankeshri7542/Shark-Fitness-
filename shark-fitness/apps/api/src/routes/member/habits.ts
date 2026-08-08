@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, desc, eq, gte, inArray } from 'drizzle-orm';
 import { z } from 'zod';
-import { zValidator } from '@hono/zod-validator';
+import { validate } from '../../middleware/validate.js';
 import { channels } from '@shark/contracts';
 import {
   blocksAutomation,
@@ -46,12 +46,6 @@ interface Scope {
   today: string;
   branchId: string;
   gender: 'female' | 'male' | 'unspecified';
-}
-
-function scopeOf(c: Parameters<Parameters<typeof habitsRoutes.get>[1]>[0] extends never ? never : never): never;
-function scopeOf(): never;
-function scopeOf(): never {
-  throw new Error('unreachable');
 }
 
 function memberScope(ctx: ReturnType<typeof ctxOf>): Scope {
@@ -461,7 +455,7 @@ const HabitLogBody = z.object({
   clientId: z.string().min(1).max(120),
 });
 
-habitsRoutes.post('/log', zValidator('json', HabitLogBody), (c) => {
+habitsRoutes.post('/log', validate('json', HabitLogBody), (c) => {
   const ctx = ctxOf(c);
   const scope = memberScope(ctx);
   const input = c.req.valid('json');
@@ -573,7 +567,7 @@ const MetricsBody = z.object({
 
 const MODULE_FIELDS = ['kcal', 'proteinG', 'carbsG', 'fatG', 'mood', 'energy', 'soreness'] as const;
 
-habitsRoutes.post('/metrics', zValidator('json', MetricsBody), (c) => {
+habitsRoutes.post('/metrics', validate('json', MetricsBody), (c) => {
   const ctx = ctxOf(c);
   const scope = memberScope(ctx);
   const body = c.req.valid('json');
@@ -762,7 +756,7 @@ const CheckInBody = z.object({
   note: z.string().max(2_000).default(''),
 });
 
-habitsRoutes.post('/check-in', zValidator('json', CheckInBody), (c) => {
+habitsRoutes.post('/check-in', validate('json', CheckInBody), (c) => {
   const ctx = ctxOf(c);
   const scope = memberScope(ctx);
   const body = c.req.valid('json');
@@ -958,7 +952,7 @@ const OptOutBody = z.object({
   reason: z.string().max(500).optional(),
 });
 
-habitsRoutes.post('/opt-out', zValidator('json', OptOutBody), (c) => {
+habitsRoutes.post('/opt-out', validate('json', OptOutBody), (c) => {
   const ctx = ctxOf(c);
   const scope = memberScope(ctx);
   const { optedOut, reason } = c.req.valid('json');

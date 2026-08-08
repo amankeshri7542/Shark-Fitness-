@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { and, desc, eq, gte, isNull, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { zValidator } from '@hono/zod-validator';
+import { validate } from '../../middleware/validate.js';
 import type { MuscleGroup } from '@shark/contracts';
 import {
   MUSCLE_LABEL,
@@ -61,7 +62,8 @@ interface Scope {
   branchName: string;
 }
 
-function scopeOf(c: Parameters<Parameters<Hono['get']>[1]>[0]): Scope {
+/** Resolves the member, branch and calendar context every handler here needs. */
+function scopeOf(c: Context): Scope {
   const ctx = ctxOf(c);
   const memberId = ctx.memberId!;
 
@@ -155,7 +157,7 @@ const RangeQuery = z.object({
   weeks: z.coerce.number().int().min(4).max(26).optional().default(12),
 });
 
-progressRoutes.get('/', zValidator('query', RangeQuery), (c) => {
+progressRoutes.get('/', validate('query', RangeQuery), (c) => {
   const ctx = ctxOf(c);
   const scope = scopeOf(c);
   const { weeks: rangeWeeks } = c.req.valid('query');
@@ -537,7 +539,7 @@ progressRoutes.get('/recovery', (c) => {
    GET /strength/:exerciseId — one lift, explained not just plotted
    ========================================================================= */
 
-progressRoutes.get('/strength/:exerciseId', zValidator('query', RangeQuery), (c) => {
+progressRoutes.get('/strength/:exerciseId', validate('query', RangeQuery), (c) => {
   const ctx = ctxOf(c);
   const scope = scopeOf(c);
   const exerciseId = c.req.param('exerciseId');
@@ -811,7 +813,7 @@ function detectOutlier(
   return `Saved, and flagged for a second look: ${reasons.join(', ')}. Scales and tapes disagree with each other all the time — check the entry, and the trend line will skip it until you confirm.`;
 }
 
-progressRoutes.post('/measurements', zValidator('json', MeasurementInput), (c) => {
+progressRoutes.post('/measurements', validate('json', MeasurementInput), (c) => {
   const ctx = ctxOf(c);
   const scope = scopeOf(c);
   const body = c.req.valid('json');
@@ -1050,7 +1052,7 @@ const GoalInput = z.object({
   refExerciseId: z.string().nullable().optional(),
 });
 
-progressRoutes.post('/goals', zValidator('json', GoalInput), (c) => {
+progressRoutes.post('/goals', validate('json', GoalInput), (c) => {
   const ctx = ctxOf(c);
   const scope = scopeOf(c);
   const body = c.req.valid('json');
@@ -1120,7 +1122,7 @@ const GoalPatch = z
   })
   .refine((v) => Object.keys(v).length > 0, { message: 'Nothing to change.' });
 
-progressRoutes.patch('/goals/:id', zValidator('json', GoalPatch), (c) => {
+progressRoutes.patch('/goals/:id', validate('json', GoalPatch), (c) => {
   const ctx = ctxOf(c);
   const scope = scopeOf(c);
   const goalId = c.req.param('id');
