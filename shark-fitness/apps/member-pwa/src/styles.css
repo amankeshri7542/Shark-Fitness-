@@ -1,0 +1,57 @@
+@import "tailwindcss";
+@import "@shark/design-tokens/sonar.css";
+@import "@shark/design-tokens/theme.css";
+
+/* The prototype was drawn at 428×908. On a phone the app is full-bleed; on a
+   desktop it sits in that frame so the design is judged at the size it was
+   designed for rather than stretched across a monitor. */
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    overscroll-behavior-y: none;
+  }
+
+  @media (min-width: 520px) {
+    body {
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(120% 80% at 50% 0%, #0b1a24 0%, #02060a 60%);
+      padding: 24px 0;
+    }
+  }
+}
+
+@layer components {
+  .sf-device {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100dvh;
+    overflow: hidden;
+    background: var(--sf-abyss);
+  }
+
+  @media (min-width: 520px) {
+    .sf-device {
+      width: 428px;
+      height: min(908px, calc(100dvh - 48px));
+      border: 1px solid var(--sf-line);
+      box-shadow: 0 0 0 1px rgba(2, 6, 10, 0.9);
+    }
+  }
+
+  /* Safe-area padding for the bottom nav on notched hardware. */
+  .sf-safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .sf-safe-top {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+}

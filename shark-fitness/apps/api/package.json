@@ -1,0 +1,36 @@
+{
+  "name": "@shark/api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "migrate": "tsx src/db/migrate.ts",
+    "seed": "tsx src/db/seed.ts",
+    "reset": "rm -f data/shark.db data/shark.db-shm data/shark.db-wal && tsx src/db/migrate.ts && tsx src/db/seed.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@hono/node-server": "1.13.8",
+    "@hono/zod-validator": "0.4.2",
+    "@shark/contracts": "workspace:*",
+    "@shark/domain": "workspace:*",
+    "better-sqlite3": "11.8.1",
+    "drizzle-orm": "0.38.4",
+    "hono": "4.6.20",
+    "ws": "8.18.0",
+    "zod": "3.24.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "7.6.12",
+    "@types/node": "22.10.7",
+    "@types/ws": "8.5.14",
+    "drizzle-kit": "0.30.2",
+    "tsx": "4.19.2",
+    "typescript": "5.7.3",
+    "vitest": "3.0.5"
+  }
+}

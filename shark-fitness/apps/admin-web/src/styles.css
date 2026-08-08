@@ -1,0 +1,116 @@
+@import "tailwindcss";
+@import "@shark/design-tokens/sonar.css";
+@import "@shark/design-tokens/theme.css";
+
+/* ============================================================================
+   THE BRIDGE
+
+   The dashboard is one continuous hairline-seamed surface. No gaps between
+   panels, no cards floating on a canvas, no `gap-6` grid. Panels share edges
+   and are divided by a single blue-tinted hairline — exactly the idiom the
+   member prototype uses for its stat strip, scaled up to a whole console.
+
+   Most dashboards would look broken doing this. It works because the seam is
+   blue rather than grey and the fill is uniform, so the eye reads a machined
+   instrument panel rather than a collapsed layout. See docs/DESIGN.md.
+   ========================================================================= */
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    font-size: 14px;
+  }
+}
+
+@layer components {
+  /* The console grid: rail | content, with the status strip spanning the top. */
+  .bridge {
+    display: grid;
+    grid-template-columns: 208px 1fr;
+    grid-template-rows: auto 1fr;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  @media (max-width: 1100px) {
+    .bridge {
+      grid-template-columns: 60px 1fr;
+    }
+    .bridge-rail-label {
+      display: none;
+    }
+  }
+
+  @media (max-width: 720px) {
+    .bridge {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto auto 1fr;
+    }
+    .bridge-rail {
+      flex-direction: row;
+      overflow-x: auto;
+      border-right: 0;
+      border-bottom: 1px solid var(--sf-line);
+    }
+  }
+
+  /* A seamed region: children share edges, divided by one hairline. */
+  .seam-x > * + * {
+    border-left: 1px solid var(--sf-line);
+  }
+  .seam-y > * + * {
+    border-top: 1px solid var(--sf-line);
+  }
+
+  /* Dense operational table. Sticky header, hairline rows, tabular figures. */
+  .console-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .console-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--sf-hull);
+    border-bottom: 1px solid var(--sf-line);
+    padding: 9px 12px;
+    text-align: left;
+    font-family: var(--sf-font-utility);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--sf-foam-45);
+    white-space: nowrap;
+  }
+  .console-table tbody td {
+    border-bottom: 1px solid var(--sf-line-10);
+    padding: 10px 12px;
+    vertical-align: middle;
+  }
+  .console-table tbody tr:hover td {
+    background: var(--sf-wash-sonar-soft);
+  }
+  .console-table tbody tr[data-selected="true"] td {
+    background: var(--sf-wash-sonar);
+  }
+  .console-table td[data-numeric] {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Compact density — the PRD allows it, but never below accessible targets. */
+  [data-density="compact"] .console-table tbody td {
+    padding: 6px 10px;
+  }
+  [data-density="compact"] .console-table thead th {
+    padding: 6px 10px;
+  }
+}

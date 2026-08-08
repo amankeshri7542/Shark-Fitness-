@@ -1,0 +1,180 @@
+/* ============================================================================
+   SONAR — Shark Fitness design tokens
+   Extracted verbatim from the v2 member-app prototype. See docs/DESIGN.md.
+   Platform-neutral custom properties; Tailwind bindings live in theme.css.
+   ========================================================================= */
+
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* — Surfaces: the hull ————————————————————————————————————— */
+  --sf-abyss: #04080b;        /* canvas                                    */
+  --sf-hull: #050b10;         /* nav + sticky chrome, darker than canvas   */
+  --sf-panel: #071119;        /* raised panel                              */
+  --sf-overlay: #0a161f;      /* sheets, dialogs, popovers                 */
+  --sf-shelf-top: #0b2331;    /* hero gradient start                       */
+  --sf-shelf-mid: #061119;    /* hero gradient middle                      */
+
+  /* — Ink: the foam ————————————————————————————————————————— */
+  --sf-foam: #e8f1f5;
+  --sf-foam-80: rgba(232, 241, 245, 0.8);
+  --sf-foam-65: rgba(232, 241, 245, 0.65);
+  --sf-foam-50: rgba(232, 241, 245, 0.5);
+  --sf-foam-45: rgba(232, 241, 245, 0.45);
+  --sf-foam-35: rgba(232, 241, 245, 0.35);
+  --sf-foam-25: rgba(232, 241, 245, 0.25);
+  --sf-on-accent: #04080b;    /* text on any saturated fill                */
+
+  /* — Accent + status ——————————————————————————————————————— */
+  --sf-sonar: #46c8dd;
+  --sf-sonar-dim: #2b8ea0;
+  --sf-flare: #e8823c;        /* warning, adaptive rule, waitlist          */
+  --sf-kelp: #7fe0c0;         /* success, paid, checked in                 */
+  --sf-chum: #e5544c;         /* danger, denial, destructive               */
+
+  /* — Hairlines are never grey ——————————————————————————————— */
+  --sf-line-10: rgba(120, 190, 215, 0.1);
+  --sf-line: rgba(120, 190, 215, 0.16);
+  --sf-line-strong: rgba(120, 190, 215, 0.3);
+  --sf-line-accent: rgba(70, 200, 221, 0.4);
+
+  /* — Accent washes ————————————————————————————————————————— */
+  --sf-wash-sonar: rgba(70, 200, 221, 0.09);
+  --sf-wash-sonar-soft: rgba(70, 200, 221, 0.05);
+  --sf-wash-flare: rgba(232, 130, 60, 0.07);
+  --sf-wash-chum: rgba(229, 84, 76, 0.08);
+  --sf-wash-kelp: rgba(127, 224, 192, 0.08);
+  --sf-scrim: rgba(2, 6, 10, 0.72);
+
+  /* — Type ——————————————————————————————————————————————— */
+  --sf-font-display: Anton, "Arial Narrow", system-ui, sans-serif;
+  --sf-font-body: Archivo, system-ui, -apple-system, sans-serif;
+  --sf-font-utility: "Archivo Narrow", "Arial Narrow", system-ui, sans-serif;
+
+  --sf-track-eyebrow: 0.2em;
+  --sf-track-label: 0.14em;
+  --sf-track-display: -0.01em;
+  --sf-leading-display: 0.94;
+  --sf-leading-body: 1.45;
+
+  /* — Space: 4pt grid, prototype's own steps ————————————————— */
+  --sf-space-1: 4px;
+  --sf-space-2: 8px;
+  --sf-space-3: 12px;
+  --sf-space-4: 16px;
+  --sf-space-5: 20px;
+  --sf-space-6: 24px;
+  --sf-space-8: 32px;
+  --sf-space-10: 40px;
+
+  /* — Geometry: nothing rounds, nothing floats ——————————————— */
+  --sf-radius: 0px;
+  --sf-border: 1px;
+  --sf-touch: 44px;
+  --sf-notch: polygon(0 0, 100% 0, 100% 72%, calc(100% - 14px) 100%, 0 100%);
+
+  /* — Motion ————————————————————————————————————————————— */
+  --sf-dur-micro: 140ms;
+  --sf-dur-base: 220ms;
+  --sf-dur-enter: 300ms;
+  --sf-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* — Data viz: cyan-anchored, distinguishable in greyscale ——— */
+  --sf-data-1: #46c8dd;
+  --sf-data-2: #7fe0c0;
+  --sf-data-3: #e8823c;
+  --sf-data-4: #9fb6c6;
+  --sf-data-5: #5f7fd4;
+  --sf-data-6: #e5544c;
+  --sf-data-track: rgba(120, 190, 215, 0.12);
+}
+
+/* ============================================================================
+   Light theme — a token swap, not a second design. Dashboard default.
+   ========================================================================= */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --sf-abyss: #eef2f4;
+  --sf-hull: #e3eaee;
+  --sf-panel: #f7fafb;
+  --sf-overlay: #ffffff;
+  --sf-shelf-top: #d3e2ea;
+  --sf-shelf-mid: #e8eff3;
+
+  --sf-foam: #0b1a22;
+  --sf-foam-80: rgba(11, 26, 34, 0.8);
+  --sf-foam-65: rgba(11, 26, 34, 0.68);
+  --sf-foam-50: rgba(11, 26, 34, 0.58);
+  --sf-foam-45: rgba(11, 26, 34, 0.54);
+  --sf-foam-35: rgba(11, 26, 34, 0.44);
+  --sf-foam-25: rgba(11, 26, 34, 0.3);
+  --sf-on-accent: #ffffff;
+
+  --sf-sonar: #0a6d81;
+  --sf-sonar-dim: #4e93a1;
+  --sf-flare: #a95511;
+  --sf-kelp: #10795c;
+  --sf-chum: #b4241c;
+
+  --sf-line-10: rgba(45, 90, 110, 0.12);
+  --sf-line: rgba(45, 90, 110, 0.18);
+  --sf-line-strong: rgba(45, 90, 110, 0.34);
+  --sf-line-accent: rgba(10, 109, 129, 0.45);
+
+  --sf-wash-sonar: rgba(10, 109, 129, 0.08);
+  --sf-wash-sonar-soft: rgba(10, 109, 129, 0.04);
+  --sf-wash-flare: rgba(169, 85, 17, 0.07);
+  --sf-wash-chum: rgba(180, 36, 28, 0.07);
+  --sf-wash-kelp: rgba(16, 121, 92, 0.08);
+  --sf-scrim: rgba(11, 26, 34, 0.4);
+
+  --sf-data-1: #0a6d81;
+  --sf-data-2: #10795c;
+  --sf-data-3: #a95511;
+  --sf-data-4: #5b7688;
+  --sf-data-5: #3a51a8;
+  --sf-data-6: #b4241c;
+  --sf-data-track: rgba(45, 90, 110, 0.14);
+}
+
+/* ============================================================================
+   Motion primitives
+   ========================================================================= */
+@keyframes sf-surface {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes sf-sonar {
+  0%   { transform: translateY(-6%); opacity: 0; }
+  12%  { opacity: 0.9; }
+  100% { transform: translateY(660%); opacity: 0; }
+}
+@keyframes sf-breath {
+  0%, 100% { opacity: 0.25; }
+  50%      { opacity: 0.85; }
+}
+@keyframes sf-tick {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+@keyframes sf-rise {
+  from { opacity: 0; transform: translateY(100%); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes sf-ping {
+  0%   { transform: scale(0.4); opacity: 1; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

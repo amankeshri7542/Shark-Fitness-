@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build artifacts & caches
+dist/
+build/
+.turbo/
+.cache/
+coverage/
+playwright-report/
+test-results/
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# Logs & Environment
+*.log
+.env
+.env.local
+.env.*.local
+
+# OS files
+.DS_Store
+Thumbs.db

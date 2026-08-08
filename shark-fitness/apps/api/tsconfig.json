@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"],
+    "lib": ["ES2023"],
+    "paths": {
+      "@shark/contracts": ["../../packages/contracts/src/index.ts"],
+      "@shark/domain": ["../../packages/domain/src/index.ts"]
+    },
+    "baseUrl": "."
+  },
+  "include": ["src", "drizzle.config.ts"]
+}

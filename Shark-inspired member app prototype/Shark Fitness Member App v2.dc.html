@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@400;500;600;700&family=Archivo+Narrow:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#02060a;display:grid;place-items:center;min-height:100vh}
+a{color:#46c8dd}a:hover{color:#8ae4f4}
+@keyframes shIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes shSonar{0%{transform:translateY(-6%);opacity:0}12%{opacity:.9}100%{transform:translateY(660%);opacity:0}}
+@keyframes shBreath{0%,100%{opacity:.25}50%{opacity:.85}}
+@keyframes shGlide{from{background-position:0 0}to{background-position:-240px 0}}
+@keyframes shTick{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</helmet>
+
+<x-import component-from-global-scope="AndroidDevice" from="./android-frame.jsx" dark="{{ true }}" hint-size="428,908">
+<div style="position:relative;height:100%;display:flex;flex-direction:column;background:#04080b;color:#e8f1f5;font-family:Archivo,system-ui,sans-serif;font-size:15px;overflow:hidden">
+
+<div style="position:absolute;inset:0;pointer-events:none;opacity:.5;background:radial-gradient(120% 60% at 50% -10%,#0e2c3c 0%,rgba(4,8,11,0) 62%)"></div>
+
+<div style="position:relative;flex:none;display:flex;align-items:center;gap:10px;padding:12px 16px 11px;border-bottom:1px solid rgba(120,190,215,.14)">
+  <div style="font-family:Anton,sans-serif;font-size:22px;letter-spacing:.06em;line-height:1;text-transform:uppercase">SHARK</div>
+  <div style="width:22px;height:6px;background:repeating-linear-gradient(90deg,{{ accent }} 0 2px,transparent 2px 6px)"></div>
+  <div style="flex:1;font-family:'Archivo Narrow',sans-serif;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:rgba(232,241,245,.45);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Koramangala Depot</div>
+  <div style="display:flex;align-items:center;gap:6px;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(232,241,245,.5)">
+    <span style="width:6px;height:6px;background:{{ accent }};animation:shBreath 2.6s ease-in-out infinite"></span>LIVE
+  </div>
+</div>
+
+<div style="position:relative;flex:1;overflow-y:auto;overflow-x:hidden">
+
+<sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
+<div style="animation:shIn .3s ease-out">
+
+  <div style="position:relative;padding:22px 16px 20px;overflow:hidden;background:linear-gradient(180deg,#0b2331 0%,#061119 55%,#04080b 100%);border-bottom:1px solid rgba(120,190,215,.12)">
+    <div style="position:absolute;inset:0;opacity:.16;background:repeating-linear-gradient(180deg,rgba(120,190,215,.5) 0 1px,transparent 1px 26px)"></div>
+    <div style="position:absolute;left:0;right:0;top:0;height:2px;background:linear-gradient(90deg,transparent,{{ accent }},transparent);animation:shSonar 4.6s linear infinite"></div>
+    <div style="position:relative">
+      <div style="font-family:'Archivo Narrow',sans-serif;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:{{ accent }}">{{ depthLabel }}</div>
+      <h1 style="margin:8px 0 0;font-family:Anton,sans-serif;font-size:44px;line-height:.92;letter-spacing:-.01em;text-transform:uppercase">{{ heroLine1 }}<br><span style="color:{{ accent }}">{{ heroLine2 }}</span></h1>
+      <div style="margin-top:12px;display:flex;align-items:stretch;gap:0;border:1px solid rgba(120,190,215,.2);background:rgba(4,8,11,.5)">
+        <div style="flex:1;padding:10px 12px;border-right:1px solid rgba(120,190,215,.16)">
+          <div style="font-family:Anton,sans-serif;font-size:26px;line-height:1">{{ streak }}</div>
+          <div style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:rgba(232,241,245,.45);margin-top:2px">{{ streakLabel }}</div>
+        </div>
+        <div style="flex:1;padding:10px 12px;border-right:1px solid rgba(120,190,215,.16)">
+          <div style="font-family:Anton,sans-serif;font-size:26px;line-height:1">14.2<span style="font-size:13px;color:rgba(232,241,245,.5)">t</span></div>
+          <div style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:rgba(232,241,245,.45);margin-top:2px">Volume / mo</div>
+        </div>
+        <div style="flex:1;padding:10px 12px">
+          <div style="font-family:Anton,sans-serif;font-size:26px;line-height:1;color:{{ accent }}">A2</div>
+          <div style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:rgba(232,241,245,.45);margin-top:2px">Apex tier</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="padding:16px;display:flex;flex-direction:column;gap:14px">
+
+    <div style="border:1px solid rgba(120,190,215,.18);background:linear-gradient(160deg,rgba(70,200,221,.08),rgba(4,8,11,0) 60%)">
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 13px;border-bottom:1px solid rgba(120,190,215,.14)">
+        <span style="font-family:'Archivo Narrow',sans-serif;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:{{ accent }}">Today's set</span>
+        <span style="flex:1"></span>
+        <span style="font-size:11px;color:rgba(232,241,245,.5);letter-spacing:.04em">Block B · Day 4</span>
+      </div>
+      <div style="padding:14px 13px 13px">
+        <div style="font-family:Anton,sans-serif;font-size:30px;line-height:1;text-transform:uppercase">Lower / Posterior Chain</div>
+        <div style="margin-top:8px;display:flex;gap:16px;font-size:12px;color:rgba(232,241,245,.6);letter-spacing:.03em">
+          <span>6 exercises</span><span>~58 min</span><span>Coach Rehan</span>
+        </div>
+        <div style="margin-top:12px;height:6px;background:rgba(120,190,215,.12)">
+          <div style="width:34%;height:100%;background:{{ accent }};transform-origin:left;animation:shTick .8s cubic-bezier(.2,.8,.2,1)"></div>
+        </div>
+        <div style="display:flex;gap:9px;margin-top:14px">
+          <button onClick="{{ goWorkout }}" style="flex:1;cursor:pointer;border:none;padding:14px 12px;background:{{ accent }};color:#04080b;font-family:Anton,sans-serif;font-size:16px;letter-spacing:.1em;text-transform:uppercase;clip-path:polygon(0 0,100% 0,100% 72%,calc(100% - 14px) 100%,0 100%)" style-hover="filter:brightness(1.12)">{{ startLabel }}</button>
+          <button onClick="{{ goPass }}" style="width:120px;cursor:pointer;padding:14px 10px;background:transparent;color:#e8f1f5;border:1px solid rgba(120,190,215,.3);font-family:'Archivo Narrow',sans-serif;font-size:13px;letter-spacing:.12em;text-transform:uppercase" style-hover="border-color:#46c8dd;color:#46c8dd">Gym pass</button>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:11px">
+      <div style="border:1px solid rgba(120,190,215,.16);padding:12px 13px">
+        <div style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:rgba(232,241,245,.45)">Floor occupancy</div>
+        <div style="display:flex;align-items:flex-end;gap:6px;margin-top:6px">
+          <span style="font-family:Anton,sans-serif;font-size:28px;line-height:1">{{ occupancy }}</span>
+          <span style="font-size:12px;color:rgba(232,241,245,.5);padding-bottom:3px">/ 120 now</span>
+        </div>
+        <div style="position:relative;margin-top:11px;height:10px;background:rgba(120,190,215,.1)">
+          <div style="height:100%;width:{{ occPct }};background:{{ accent }}"></div>
+          <div style="position:absolute;inset:0;background:repeating-linear-gradient(90deg,rgba(4,8,11,.55) 0 1px,transparent 1px 12px)"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:5px;font-size:9px;letter-spacing:.1em;color:rgba(232,241,245,.35)"><span>QUIET</span><span>PEAK 7PM</span></div>
+      </div>
+      <div style="border:1px solid rgba(120,190,215,.16);padding:12px 13px;display:flex;flex-direction:column">
+        <div style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:rgba(232,241,245,.45)">Membership</div>
+        <div style="font-family:'Archivo Narrow',sans-serif;font-weight:600;font-size:17px;margin-top:6px;line-height:1.2">Elite Annual<br>All branches</div>
+        <div style="flex:1"></div>
+        <div style="margin-top:10px;display:inline-flex;align-self:flex-start;align-items:center;gap:6px;padding:3px 9px;border:1px solid rgba(232,130,60,.5);color:#e8823c;font-size:10px;letter-spacing:.12em;text-transform:uppercase">Renews 04 Sep</div>
+      </div>
+    </div>
+
+    <div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <div style="font-family:'Archivo Narrow',sans-serif;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:rgba(232,241,245,.5)">Feeding window · classes</div>
+        <div style="flex:1;height:1px;background:rgba(120,190,215,.14)"></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:9px">
+        <sc-for list="{{ classes }}" as="c" hint-placeholder-count="3">
+          <div onClick="{{ c.onBook }}" style="cursor:pointer;display:flex;align-items:center;gap:12px;border:1px solid rgba(120,190,215,.16);padding:11px 12px;background:{{ c.bg }}" style-hover="border-color:rgba(120,190,215,.4)">
+            <div style="width:52px;flex:none">
+              <div style="font-family:Anton,sans-serif;font-size:19px;line-height:1">{{ c.time }}</div>
+              <div style="font-size:10px;color:rgba(232,241,245,.4);letter-spacing:.1em">{{ c.ampm }}</div>
+            </div>
+            <div style="width:2px;height:30px;background:{{ c.tick }}"></div>
+            <div style="flex:1;min-width:0">
+              <div style="font-family:'Archivo Narrow',sans-serif;font-weight:600;font-size:16px">{{ c.name }}</div>
+              <div style="font-size:11px;color:rgba(232,241,245,.5);margin-top:1px">{{ c.meta }}</div>
+            </div>
+            <div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:{{ c.stateColor }};border:1px solid {{ c.stateColor }};padding:3px 8px">{{ c.state }}</div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isPass }}">
+<div style="animation:shIn .3s ease-out;padding:20px 16px 24px;display:flex;flex-direction:column;gap:16px">
+  <div>
+    <div style="font-family:'Archivo Narrow',sans-serif;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:{{ accent }}">Access control</div>
+    <h1 style="margin:6px 0 0;font-family:Anton,sans-serif;font-size:38px;line-height:.95;text-transform:uppercase">{{ passTitle }}</h1>
+  </div>
+
+  <div style="position:relative;border:1px solid rgba(120,190,215,.24);padding:18px;background:linear-gradient(180deg,rgba(70,200,221,.09),rgba(4,8,11,0));overflow:hidden">
+    <div style="position:absolute;left:0;right:0;top:0;height:2px;background:linear-gradient(90deg,transparent,{{ accent }},transparent);animation:shSonar 2.8s linear infinite"></div>
+    <div style="aspect-ratio:1;background:#e8f1f5;padding:16px;position:relative">
+      <div style="display:grid;grid-template-columns:repeat(25,1fr);width:100%;height:100%">
+        <sc-for list="{{ qrCells }}" as="q" hint-placeholder-count="625">
+          <div style="background:{{ q.c }}"></div>
+        </sc-for>
+      </div>
+      <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:52px;height:52px;background:#04080b;display:grid;place-items:center;color:{{ accent }};font-family:Anton,sans-serif;font-size:14px;letter-spacing:.06em">SF</div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:14px">
+      <div>
+        <div style="font-family:'Archivo Narrow',sans-serif;font-weight:600;font-size:17px">Aman M · SF-40219</div>
+        <div style="font-size:11px;color:rgba(232,241,245,.5);margin-top:2px">Rotates in {{ qrSeconds }}s · offline token cached</div>
+      </div>
+      <div style="font-family:Anton,sans-serif;font-size:13px;letter-spacing:.1em;color:{{ accent }}">VALID</div>
+    </div>
+  </div>
+
+  <button onClick="{{ toggleCheckIn }}" style="cursor:pointer;border:none;padding:16px;background:{{ checkBg }};color:{{ checkFg }};font-family:Anton,sans-serif;font-size:17px;letter-spacing:.12em;text-transform:uppercase">{{ checkLabel }}</button>
+
+  <div style="border:1px solid rgba(120,190,215,.16)">
+    <sc-for list="{{ history }}" as="h" hint-placeholder-count="4">
+      <div style="display:flex;align-items:center;gap:12px;padding:11px 13px;border-bottom:1px solid rgba(120,190,215,.1)">
+        <span style="width:6px;height:6px;background:{{ h.dot }}"></span>
+        <span style="flex:1;font-size:13px">{{ h.day }}</span>
+        <span style="font-size:12px;color:rgba(232,241,245,.5);font-variant-numeric:tabular-nums">{{ h.span }}</span>
+      </div>
+    </sc-for>
+  </div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isWorkout }}">
+<div style="animation:shIn .3s ease-out">
+  <div style="padding:16px 16px 14px;border-bottom:1px solid rgba(120,190,215,.14);background:linear-gradient(180deg,#0b2331,#04080b)">
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <div style="font-family:'Archivo Narrow',sans-serif;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:{{ accent }}">{{ workoutKicker }}</div>
+      <div style="font-family:Anton,sans-serif;font-size:15px;letter-spacing:.06em;font-variant-numeric:tabular-nums">{{ elapsed }}</div>
+    </div>
+    <h1 style="margin:8px 0 0;font-family:Anton,sans-serif;font-size:33px;line-height:.96;text-transform:uppercase">Romanian Deadlift</h1>
+    <div style="margin-top:7px;font-size:12px;color:rgba(232,241,245,.55)">Exercise 2 of 6 · Target 4×8 @ RPE 8 · 92.5 kg</div>
+  </div>
+
+  <div style="padding:14px 16px 20px;display:flex;flex-direction:column;gap:12px">
+    <div style="border:1px solid rgba(120,190,215,.16)">
+      <div style="display:flex;padding:9px 13px;border-bottom:1px solid rgba(120,190,215,.14);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:rgba(232,241,245,.4)">
+        <span style="width:34px">Set</span><span style="flex:1">Weight</span><span style="width:56px">Reps</span><span style="width:44px;text-align:right">Log</span>
+      </div>
+      <sc-for list="{{ sets }}" as="s" hint-placeholder-count="4">
+        <div onClick="{{ s.onToggle }}" style="cursor:pointer;display:flex;align-items:center;padding:13px;border-bottom:1px solid rgba(120,190,215,.1);background:{{ s.bg }};transition:background .18s">
+          <span style="width:34px;font-family:Anton,sans-serif;font-size:17px;color:{{ s.numColor }}">{{ s.n }}</span>
+          <span style="flex:1;font-family:'Archivo Narrow',sans-serif;font-size:17px;font-weight:600">{{ s.weight }} <span style="font-size:12px;color:rgba(232,241,245,.45)">kg</span></span>
+          <span style="width:56px;font-family:'Archivo Narrow',sans-serif;font-size:17px;font-weight:600">{{ s.reps }}</span>
+          <span style="width:44px;text-align:right;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:{{ s.numColor }}">{{ s.mark }}</span>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="border:1px solid {{ restBorder }};padding:14px 13px;display:flex;align-items:center;gap:14px;background:{{ restBg }}">
+      <div style="font-family:Anton,sans-serif;font-size:34px;line-height:1;font-variant-numeric:tabular-nums;color:{{ restColor }}">{{ restClock }}</div>
+      <div style="flex:1">
+        <div style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:rgba(232,241,245,.45)">{{ restLabel }}</div>
+        <div style="height:4px;background:rgba(120,190,215,.14);margin-top:7px">
+          <div style="height:100%;width:{{ restPct }};background:{{ restColor }};transition:width .9s linear"></div>
+        </div>
+      </div>
+      <button onClick="{{ skipRest }}" style="cursor:pointer;background:transparent;border:1px solid rgba(120,190,215,.3);color:#e8f1f5;padding:8px 11px;font-family:'Archivo Narrow',sans-serif;font-size:11px;letter-spacing:.12em;text-transform:uppercase">Skip</button>
+    </div>
+
+    <div style="border:1px solid rgba(232,130,60,.35);padding:12px 13px;background:rgba(232,130,60,.07)">
+      <div style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#e8823c">Adaptive rule fired</div>
+      <div style="font-size:13px;line-height:1.45;color:rgba(232,241,245,.8);margin-top:5px">Set 2 came in two reps under target. Rule v3.4 dropped set 4 to 85 kg and added 30s rest. Coach Rehan can lock this.</div>
+      <div style="display:flex;gap:8px;margin-top:11px">
+        <button style="cursor:pointer;flex:1;background:#e8823c;border:none;color:#04080b;padding:10px;font-family:'Archivo Narrow',sans-serif;font-weight:700;font-size:12px;letter-spacing:.1em;text-transform:uppercase">Accept</button>
+        <button style="cursor:pointer;flex:1;background:transparent;border:1px solid rgba(232,241,245,.25);color:#e8f1f5;padding:10px;font-family:'Archivo Narrow',sans-serif;font-size:12px;letter-spacing:.1em;text-transform:uppercase">Keep original</button>
+      </div>
+    </div>
+
+    <button onClick="{{ goHome }}" style="cursor:pointer;border:none;padding:15px;background:{{ accent }};color:#04080b;font-family:Anton,sans-serif;font-size:16px;letter-spacing:.12em;text-transform:uppercase">{{ finishLabel }}</button>
+  </div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isProgress }}">
+<div style="animation:shIn .3s ease-out;padding:20px 16px 24px;display:flex;flex-direction:column;gap:18px">
+  <div>
+    <div style="font-family:'Archivo Narrow',sans-serif;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:{{ accent }}">Depth chart · 12 weeks</div>
+    <h1 style="margin:6px 0 0;font-family:Anton,sans-serif;font-size:38px;line-height:.95;text-transform:uppercase">{{ progressTitle }}</h1>
+  </div>
+
+  <div style="border:1px solid rgba(120,190,215,.18);padding:14px 13px">
+    <div style="display:flex;align-items:flex-end;gap:5px;height:120px">
+      <sc-for list="{{ trend }}" as="t" hint-placeholder-count="12">
+        <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%;gap:5px">
+          <div style="background:{{ t.color }};height:{{ t.h }}"></div>
+          <div style="font-size:8px;text-align:center;color:rgba(232,241,245,.32);letter-spacing:.04em">{{ t.label }}</div>
+        </div>
+      </sc-for>
+    </div>
+    <div style="margin-top:12px;padding-top:11px;border-top:1px solid rgba(120,190,215,.12);display:flex;gap:18px">
+      <div><div style="font-family:Anton,sans-serif;font-size:22px">+11.4%</div><div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(232,241,245,.45)">Tonnage</div></div>
+      <div><div style="font-family:Anton,sans-serif;font-size:22px">92%</div><div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(232,241,245,.45)">Adherence</div></div>
+      <div><div style="font-family:Anton,sans-serif;font-size:22px;color:{{ accent }}">4</div><div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(232,241,245,.45)">New PRs</div></div>
+    </div>
+  </div>
+
+  <div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+      <div style="font-family:'Archivo Narrow',sans-serif;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:rgba(232,241,245,.5)">{{ prTitle }}</div>
+      <div style="flex:1;height:1px;background:rgba(120,190,215,.14)"></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <sc-for list="{{ prs }}" as="p" hint-placeholder-count="4">
+        <div style="display:flex;align-items:center;gap:12px;border-left:2px solid {{ accent }};padding:10px 12px;background:rgba(120,190,215,.05)">
+          <span style="flex:1;font-family:'Archivo Narrow',sans-serif;font-weight:600;font-size:15px">{{ p.name }}</span>
+          <span style="font-family:Anton,sans-serif;font-size:18px">{{ p.value }}</span>
+          <span style="font-size:11px;color:{{ accent }};width:46px;text-align:right">{{ p.delta }}</span>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="border:1px solid rgba(120,190,215,.16);padding:14px 13px">
+    <div style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:rgba(232,241,245,.45)">Body composition · assessment 04 Aug</div>
+    <div style="display:flex;gap:0;margin-top:12px;border:1px solid rgba(120,190,215,.14)">
+      <div style="flex:1;padding:11px 12px;border-right:1px solid rgba(120,190,215,.14)"><div style="font-family:Anton,sans-serif;font-size:24px">78.4<span style="font-size:12px;color:rgba(232,241,245,.5)">kg</span></div><div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(232,241,245,.45);margin-top:2px">Weight</div></div>
+      <div style="flex:1;padding:11px 12px;border-right:1px solid rgba(120,190,215,.14)"><div style="font-family:Anton,sans-serif;font-size:24px">14.1<span style="font-size:12px;color:rgba(232,241,245,.5)">%</span></div><div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(232,241,245,.45);margin-top:2px">Body fat</div></div>
+      <div style="flex:1;padding:11px 12px"><div style="font-family:Anton,sans-serif;font-size:24px;color:{{ accent }}">67.3<span style="font-size:12px;color:rgba(232,241,245,.5)">kg</span></div><div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(232,241,245,.45);margin-top:2px">Lean mass</div></div>
+    </div>
+    <div style="font-size:12px;color:rgba(232,241,245,.5);margin-top:11px;line-height:1.45">Photos and trainer-only fields stay private until you share them.</div>
+  </div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isPack }}">
+<div style="animation:shIn .3s ease-out;padding:20px 16px 24px;display:flex;flex-direction:column;gap:16px">
+  <div>
+    <div style="font-family:'Archivo Narrow',sans-serif;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:{{ accent }}">The pack</div>
+    <h1 style="margin:6px 0 0;font-family:Anton,sans-serif;font-size:38px;line-height:.95;text-transform:uppercase">{{ packTitle }}</h1>
+  </div>
+
+  <div style="border:1px solid rgba(120,190,215,.2);background:linear-gradient(160deg,rgba(70,200,221,.1),rgba(4,8,11,0) 65%);padding:14px 13px">
+    <div style="display:flex;align-items:center;gap:9px">
+      <span style="font-family:Anton,sans-serif;font-size:15px;color:{{ accent }};letter-spacing:.08em">DEEP WATER CHALLENGE</span>
+      <span style="flex:1"></span>
+      <span style="font-size:11px;color:rgba(232,241,245,.5)">4 days left</span>
+    </div>
+    <div style="font-size:13px;color:rgba(232,241,245,.65);margin-top:6px;line-height:1.45">Team target 180 sessions. Your squad is 12 short.</div>
+    <div style="height:8px;background:rgba(120,190,215,.12);margin-top:11px"><div style="width:78%;height:100%;background:{{ accent }}"></div></div>
+  </div>
+
+  <div style="border:1px solid rgba(120,190,215,.16)">
+    <sc-for list="{{ board }}" as="r" hint-placeholder-count="5">
+      <div style="display:flex;align-items:center;gap:12px;padding:12px 13px;border-bottom:1px solid rgba(120,190,215,.1);background:{{ r.bg }}">
+        <span style="width:26px;font-family:Anton,sans-serif;font-size:18px;color:{{ r.rankColor }}">{{ r.rank }}</span>
+        <span style="width:30px;height:30px;background:rgba(120,190,215,.12);display:grid;place-items:center;font-family:'Archivo Narrow',sans-serif;font-size:12px;font-weight:600;letter-spacing:.04em">{{ r.initials }}</span>
+        <span style="flex:1;font-family:'Archivo Narrow',sans-serif;font-weight:600;font-size:15px">{{ r.name }}</span>
+        <span style="font-family:Anton,sans-serif;font-size:16px">{{ r.xp }}</span>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="border:1px solid rgba(120,190,215,.16);padding:14px 13px">
+    <div style="font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:rgba(232,241,245,.45)">Referral bounty</div>
+    <div style="font-family:'Archivo Narrow',sans-serif;font-size:17px;font-weight:600;margin-top:6px">2 of 3 friends joined · ₹1,500 credit pending</div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <div style="flex:1;border:1px dashed rgba(120,190,215,.35);padding:11px;font-family:Anton,sans-serif;font-size:16px;letter-spacing:.14em;text-align:center;color:{{ accent }}">AMAN-4219</div>
+      <button style="cursor:pointer;width:96px;background:transparent;border:1px solid rgba(120,190,215,.3);color:#e8f1f5;font-family:'Archivo Narrow',sans-serif;font-size:12px;letter-spacing:.12em;text-transform:uppercase">Share</button>
+    </div>
+  </div>
+</div>
+</sc-if>
+
+</div>
+
+<div style="position:relative;flex:none;display:flex;border-top:1px solid rgba(120,190,215,.16);background:#050b10">
+  <sc-for list="{{ nav }}" as="n" hint-placeholder-count="5">
+    <div onClick="{{ n.onGo }}" style="flex:1;cursor:pointer;padding:11px 4px 13px;display:flex;flex-direction:column;align-items:center;gap:6px;position:relative">
+      <div style="position:absolute;top:0;left:0;right:0;height:2px;background:{{ n.barColor }}"></div>
+      <div style="width:17px;height:15px;background:{{ n.bg }};background-repeat:no-repeat;clip-path:{{ n.clip }};transition:background .18s"></div>
+      <div style="font-family:'Archivo Narrow',sans-serif;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:{{ n.color }}">{{ n.label }}</div>
+    </div>
+  </sc-for>
+</div>
+
+</div>
+</x-import>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:428,&quot;height&quot;:908},&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#46c8dd&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;options&quot;:[&quot;#46c8dd&quot;,&quot;#7fe0c0&quot;,&quot;#9fb6c6&quot;,&quot;#e8823c&quot;],&quot;section&quot;:&quot;Theme&quot;},&quot;predatorCopy&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Tone&quot;}}">
+class Component extends DCLogic {
+  state = {
+    screen: 'home',
+    checkedIn: false,
+    qr: 42,
+    sets: [
+      { weight: 92.5, reps: 8, done: true },
+      { weight: 92.5, reps: 6, done: true },
+      { weight: 92.5, reps: 0, done: false },
+      { weight: 85, reps: 0, done: false }
+    ],
+    rest: 0,
+    restTotal: 150,
+    seconds: 1412
+  };
+
+  componentDidMount() {
+    this.t = setInterval(() => {
+      this.setState(s => ({
+        qr: s.qr > 1 ? s.qr - 1 : 60,
+        rest: s.rest > 0 ? s.rest - 1 : 0,
+        seconds: s.screen === 'workout' ? s.seconds + 1 : s.seconds
+      }));
+    }, 1000);
+  }
+  componentWillUnmount() { clearInterval(this.t); }
+
+  go = k => () => this.setState({ screen: k });
+
+  toggleSet = i => () => this.setState(s => {
+    const sets = s.sets.map((x, j) => j === i ? { ...x, done: !x.done, reps: x.done ? 0 : 8 } : x);
+    return { sets, rest: sets[i].done ? s.restTotal : s.rest };
+  });
+
+  clock(n) {
+    const m = Math.floor(n / 60), sec = n % 60;
+    return m + ':' + String(sec).padStart(2, '0');
+  }
+
+  renderVals() {
+    const A = this.props.accent ?? '#46c8dd';
+    const hard = this.props.predatorCopy ?? true;
+    const s = this.state;
+    const doneCount = s.sets.filter(x => x.done).length;
+
+    const N = 25, finder = (r, c) => {
+      const inBox = (r0, c0) => r >= r0 && r < r0 + 7 && c >= c0 && c < c0 + 7;
+      const ring = (r0, c0) => {
+        const dr = Math.abs(r - r0 - 3), dc = Math.abs(c - c0 - 3);
+        const d = Math.max(dr, dc);
+        return d === 3 || d <= 1;
+      };
+      if (inBox(0, 0)) return ring(0, 0);
+      if (inBox(0, N - 7)) return ring(0, N - 7);
+      if (inBox(N - 7, 0)) return ring(N - 7, 0);
+      return null;
+    };
+    const qrCells = [];
+    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+      const f = finder(r, c);
+      let on;
+      if (f !== null) on = f;
+      else if (r === 6 || c === 6) on = (r + c) % 2 === 0;
+      else {
+        const v = Math.sin((r + 1) * 12.9898 + (c + 1) * 78.233 + s.qr * 0.017) * 43758.5453;
+        on = (v - Math.floor(v)) > 0.48;
+      }
+      qrCells.push({ c: on ? '#04080b' : '#e8f1f5' });
+    }
+
+    const trend = ['W1','W2','W3','W4','W5','W6','W7','W8','W9','W10','W11','W12']
+      .map((label, i) => {
+        const h = [40,46,42,55,58,52,66,71,64,78,84,92][i];
+        return { label, h: h + '%', color: i > 9 ? A : 'rgba(120,190,215,.35)' };
+      });
+
+    const classes = [
+      { time: '6:30', ampm: 'AM', name: 'Apex HIIT', meta: 'Studio 1 · Rehan · 4 seats', state: 'Booked', stateColor: A, tick: A, bg: 'rgba(70,200,221,.05)' },
+      { time: '7:45', ampm: 'AM', name: 'Open Water Swim', meta: 'Pool · Nikita · Full', state: 'Waitlist', stateColor: '#e8823c', tick: '#e8823c', bg: 'transparent' },
+      { time: '6:15', ampm: 'PM', name: 'Strength Clinic', meta: 'Platform · Devraj · 9 seats', state: 'Book', stateColor: 'rgba(232,241,245,.45)', tick: 'rgba(120,190,215,.3)', bg: 'transparent' }
+    ].map(c => ({ ...c, onBook: this.go('home') }));
+
+    const nav = [
+      { key: 'home', label: hard ? 'Hunt' : 'Today', clip: 'polygon(50% 0,100% 100%,50% 74%,0 100%)' },
+      { key: 'pass', label: 'Pass', clip: 'polygon(0 0,12% 0,12% 100%,0 100%,0 0,24% 0,36% 0,36% 100%,24% 100%,24% 0,48% 0,60% 0,60% 100%,48% 100%,48% 0,72% 0,88% 0,88% 100%,72% 100%,72% 0,100% 0,100% 100%,94% 100%,94% 0)' },
+      { key: 'workout', label: hard ? 'Strike' : 'Train', clip: 'polygon(0 0,52% 0,100% 50%,52% 100%,0 100%,48% 50%)' },
+      { key: 'progress', label: 'Depth', clip: 'polygon(0 100%,100% 100%,100% 0,66% 0,66% 38%,33% 38%,33% 70%,0 70%)' },
+      { key: 'pack', label: 'Pack', dots: true }
+    ].map(n => {
+      const on = s.screen === n.key;
+      const col = on ? A : 'rgba(232,241,245,.4)';
+      const dots = 'radial-gradient(circle 3px at 3.5px 9px,' + col + ' 98%,transparent 100%),'
+        + 'radial-gradient(circle 4px at 8.5px 5px,' + col + ' 98%,transparent 100%),'
+        + 'radial-gradient(circle 3px at 13.5px 9px,' + col + ' 98%,transparent 100%)';
+      return {
+        label: n.label,
+        clip: n.dots ? 'none' : n.clip,
+        bg: n.dots ? dots : col,
+        onGo: this.go(n.key),
+        color: col,
+        barColor: on ? A : 'transparent'
+      };
+    });
+
+    return {
+      accent: A,
+      isHome: s.screen === 'home', isPass: s.screen === 'pass',
+      isWorkout: s.screen === 'workout', isProgress: s.screen === 'progress',
+      isPack: s.screen === 'pack',
+      nav, qrCells, trend, classes,
+      occPct: Math.round((s.checkedIn ? 84 : 83) / 120 * 100) + '%',
+      depthLabel: hard ? 'Depth 3 · apex zone' : 'Thursday, 6 August',
+      heroLine1: hard ? 'Keep' : 'Session',
+      heroLine2: hard ? 'moving' : 'ready',
+      streak: '23',
+      streakLabel: hard ? 'Day hunt streak' : 'Day streak',
+      startLabel: hard ? 'Strike now' : 'Start session',
+      occupancy: s.checkedIn ? '84' : '83',
+      goWorkout: this.go('workout'), goPass: this.go('pass'), goHome: this.go('home'),
+      passTitle: hard ? 'Enter the water' : 'Gym pass',
+      qrSeconds: s.qr,
+      toggleCheckIn: () => this.setState(x => ({ checkedIn: !x.checkedIn })),
+      checkLabel: s.checkedIn ? (hard ? 'Surface · check out' : 'Check out') : (hard ? 'Dive in · check in' : 'Check in'),
+      checkBg: s.checkedIn ? 'transparent' : A,
+      checkFg: s.checkedIn ? '#e8f1f5' : '#04080b',
+      history: [
+        { day: 'Wed 5 Aug', span: '06:22 – 07:41', dot: A },
+        { day: 'Tue 4 Aug', span: '18:05 – 19:20', dot: A },
+        { day: 'Mon 3 Aug', span: '06:31 – 07:55', dot: A },
+        { day: 'Sun 2 Aug', span: 'No entry', dot: 'rgba(232,241,245,.25)' }
+      ],
+      workoutKicker: hard ? 'Strike ' + doneCount + ' / 4 landed' : 'Set ' + doneCount + ' of 4',
+      elapsed: this.clock(s.seconds),
+      sets: s.sets.map((x, i) => ({
+        n: i + 1, weight: x.weight, reps: x.done ? x.reps : '—',
+        mark: x.done ? 'Done' : 'Tap',
+        bg: x.done ? 'rgba(70,200,221,.09)' : 'transparent',
+        numColor: x.done ? A : 'rgba(232,241,245,.4)',
+        onToggle: this.toggleSet(i)
+      })),
+      restClock: this.clock(s.rest),
+      restLabel: s.rest > 0 ? (hard ? 'Recover · then strike' : 'Rest remaining') : 'Rest complete',
+      restPct: (s.rest / s.restTotal * 100).toFixed(0) + '%',
+      restColor: s.rest > 0 ? A : 'rgba(232,241,245,.4)',
+      restBorder: s.rest > 0 ? 'rgba(70,200,221,.4)' : 'rgba(120,190,215,.16)',
+      restBg: s.rest > 0 ? 'rgba(70,200,221,.06)' : 'transparent',
+      skipRest: () => this.setState({ rest: 0 }),
+      finishLabel: hard ? 'Log the kill' : 'Finish session',
+      progressTitle: hard ? 'Deeper every week' : 'Your progress',
+      prTitle: hard ? 'Personal records · bite force' : 'Personal records',
+      prs: [
+        { name: 'Deadlift', value: '182.5 kg', delta: '+7.5' },
+        { name: 'Back squat', value: '145 kg', delta: '+5.0' },
+        { name: 'Bench press', value: '102.5 kg', delta: '+2.5' },
+        { name: '2 km row', value: '7:12', delta: '−0:18' }
+      ],
+      packTitle: hard ? 'Swim with the pack' : 'Community',
+      board: [
+        { rank: '1', initials: 'RK', name: 'Rhea Kapoor', xp: '4,820' },
+        { rank: '2', initials: 'AM', name: 'Aman M · you', xp: '4,610' },
+        { rank: '3', initials: 'SV', name: 'Siddharth V', xp: '4,105' },
+        { rank: '4', initials: 'NB', name: 'Nikita B', xp: '3,940' },
+        { rank: '5', initials: 'DR', name: 'Devraj R', xp: '3,702' }
+      ].map((r, i) => ({
+        ...r,
+        rankColor: i === 1 ? A : 'rgba(232,241,245,.35)',
+        bg: i === 1 ? 'rgba(70,200,221,.08)' : 'transparent'
+      }))
+    };
+  }
+}
+</script>
+</body>
+</html>

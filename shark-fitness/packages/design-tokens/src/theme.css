@@ -1,0 +1,288 @@
+/* Tailwind v4 bindings for the Sonar tokens. Import AFTER sonar.css.
+   Every utility resolves to a custom property so the light/dark swap on
+   :root[data-theme] flows through without a second set of classes. */
+
+@theme inline {
+  --color-abyss: var(--sf-abyss);
+  --color-hull: var(--sf-hull);
+  --color-panel: var(--sf-panel);
+  --color-overlay: var(--sf-overlay);
+  --color-shelf-top: var(--sf-shelf-top);
+  --color-shelf-mid: var(--sf-shelf-mid);
+
+  --color-foam: var(--sf-foam);
+  --color-foam-80: var(--sf-foam-80);
+  --color-foam-65: var(--sf-foam-65);
+  --color-foam-50: var(--sf-foam-50);
+  --color-foam-45: var(--sf-foam-45);
+  --color-foam-35: var(--sf-foam-35);
+  --color-foam-25: var(--sf-foam-25);
+  --color-on-accent: var(--sf-on-accent);
+
+  --color-sonar: var(--sf-sonar);
+  --color-sonar-dim: var(--sf-sonar-dim);
+  --color-flare: var(--sf-flare);
+  --color-kelp: var(--sf-kelp);
+  --color-chum: var(--sf-chum);
+
+  --color-line: var(--sf-line);
+  --color-line-10: var(--sf-line-10);
+  --color-line-strong: var(--sf-line-strong);
+  --color-line-accent: var(--sf-line-accent);
+
+  --color-wash-sonar: var(--sf-wash-sonar);
+  --color-wash-sonar-soft: var(--sf-wash-sonar-soft);
+  --color-wash-flare: var(--sf-wash-flare);
+  --color-wash-chum: var(--sf-wash-chum);
+  --color-wash-kelp: var(--sf-wash-kelp);
+  --color-scrim: var(--sf-scrim);
+
+  --font-display: var(--sf-font-display);
+  --font-body: var(--sf-font-body);
+  --font-utility: var(--sf-font-utility);
+
+  --radius-none: 0px;
+
+  --animate-surface: sf-surface var(--sf-dur-enter) var(--sf-ease) both;
+  --animate-rise: sf-rise var(--sf-dur-base) var(--sf-ease) both;
+  --animate-breath: sf-breath 2.6s ease-in-out infinite;
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    border-radius: 0;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    margin: 0;
+    background: var(--sf-abyss);
+    color: var(--sf-foam);
+    font-family: var(--sf-font-body);
+    font-size: 15px;
+    line-height: var(--sf-leading-body);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--sf-font-display);
+    font-weight: 400;
+    text-transform: uppercase;
+    line-height: var(--sf-leading-display);
+    letter-spacing: var(--sf-track-display);
+    margin: 0;
+  }
+
+  /* Data must not reflow as it ticks. */
+  [data-numeric],
+  input[type="number"],
+  table td,
+  time {
+    font-variant-numeric: tabular-nums;
+  }
+
+  button, input, select, textarea {
+    font: inherit;
+    color: inherit;
+  }
+
+  /* Focus is always visible and always cyan. Never removed. */
+  :where(a, button, input, select, textarea, [tabindex]):focus-visible {
+    outline: 2px solid var(--sf-sonar);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: var(--sf-sonar);
+    color: var(--sf-on-accent);
+  }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--sf-line-strong); }
+  ::-webkit-scrollbar-thumb:hover { background: var(--sf-sonar-dim); }
+}
+
+@layer components {
+  /* ——— Type roles ————————————————————————————————————————— */
+  .sf-eyebrow {
+    font-family: var(--sf-font-utility);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: var(--sf-track-eyebrow);
+    text-transform: uppercase;
+    color: var(--sf-sonar);
+  }
+  .sf-label {
+    font-family: var(--sf-font-utility);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: var(--sf-track-label);
+    text-transform: uppercase;
+    color: var(--sf-foam-45);
+  }
+  .sf-metric {
+    font-family: var(--sf-font-display);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ——— The structural unit: a hairline-seamed panel ——————— */
+  .sf-panel {
+    border: 1px solid var(--sf-line);
+    background: transparent;
+  }
+  /* Cells share edges. No gap — this is the system, not a shortcut. */
+  .sf-seam > * + * {
+    border-left: 1px solid var(--sf-line);
+  }
+  .sf-seam-y > * + * {
+    border-top: 1px solid var(--sf-line);
+  }
+
+  /* ——— Controls ————————————————————————————————————————— */
+  .sf-cta {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: var(--sf-touch);
+    padding: 14px 16px;
+    border: none;
+    background: var(--sf-sonar);
+    color: var(--sf-on-accent);
+    font-family: var(--sf-font-display);
+    font-size: 16px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    cursor: pointer;
+    clip-path: var(--sf-notch);
+    transition: filter var(--sf-dur-micro) var(--sf-ease);
+  }
+  .sf-cta:hover:not(:disabled) { filter: brightness(1.12); }
+  .sf-cta:active:not(:disabled) { filter: brightness(0.94); }
+  .sf-cta:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .sf-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: var(--sf-touch);
+    padding: 10px 14px;
+    background: transparent;
+    color: var(--sf-foam);
+    border: 1px solid var(--sf-line-strong);
+    font-family: var(--sf-font-utility);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: border-color var(--sf-dur-micro) var(--sf-ease),
+                color var(--sf-dur-micro) var(--sf-ease),
+                background var(--sf-dur-micro) var(--sf-ease);
+  }
+  .sf-btn:hover:not(:disabled) {
+    border-color: var(--sf-sonar);
+    color: var(--sf-sonar);
+  }
+  .sf-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .sf-btn[data-tone="danger"] { border-color: var(--sf-chum); color: var(--sf-chum); }
+  .sf-btn[data-tone="danger"]:hover:not(:disabled) { background: var(--sf-wash-chum); }
+
+  .sf-field {
+    width: 100%;
+    min-height: var(--sf-touch);
+    padding: 11px 12px;
+    background: var(--sf-panel);
+    border: 1px solid var(--sf-line);
+    color: var(--sf-foam);
+    font-family: var(--sf-font-body);
+    font-size: 15px;
+  }
+  .sf-field::placeholder { color: var(--sf-foam-35); }
+  .sf-field:focus { border-color: var(--sf-sonar); outline-offset: 0; }
+  .sf-field[aria-invalid="true"] { border-color: var(--sf-chum); }
+
+  /* ——— Chip: colour is never the only signal ——————————————— */
+  .sf-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    border: 1px solid currentColor;
+    font-family: var(--sf-font-utility);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  /* ——— Atmosphere: used sparingly, per docs/DESIGN.md ——————— */
+  .sf-scanlines::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    opacity: 0.16;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      180deg,
+      rgba(120, 190, 215, 0.5) 0 1px,
+      transparent 1px 26px
+    );
+  }
+  .sf-sweep::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 2px;
+    pointer-events: none;
+    background: linear-gradient(90deg, transparent, var(--sf-sonar), transparent);
+    animation: sf-sonar 4.6s linear infinite;
+  }
+  .sf-vignette::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.5;
+    background: radial-gradient(
+      120% 60% at 50% -10%,
+      var(--sf-shelf-top) 0%,
+      transparent 62%
+    );
+  }
+
+  .sf-skeleton {
+    background: linear-gradient(
+      90deg,
+      var(--sf-line-10) 0%,
+      var(--sf-line) 50%,
+      var(--sf-line-10) 100%
+    );
+    background-size: 200% 100%;
+    animation: sf-glide 1.4s linear infinite;
+  }
+  @keyframes sf-glide {
+    from { background-position: 200% 0; }
+    to   { background-position: -200% 0; }
+  }
+}
+
+@layer utilities {
+  .sf-notch { clip-path: var(--sf-notch); }
+  .sf-tabular { font-variant-numeric: tabular-nums; }
+  .sf-hide-scroll { scrollbar-width: none; }
+  .sf-hide-scroll::-webkit-scrollbar { display: none; }
+}

@@ -1,0 +1,14 @@
+node_modules/
+dist/
+build/
+.turbo/
+*.log
+.DS_Store
+.env
+.env.local
+data/*.db
+data/*.db-shm
+data/*.db-wal
+coverage/
+playwright-report/
+test-results/

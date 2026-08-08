@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "types": ["vite/client"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"],
+      "@shark/contracts": ["../../packages/contracts/src/index.ts"],
+      "@shark/domain": ["../../packages/domain/src/index.ts"],
+      "@shark/design-tokens": ["../../packages/design-tokens/src/index.ts"]
+    }
+  },
+  "include": ["src", "vite.config.ts"]
+}

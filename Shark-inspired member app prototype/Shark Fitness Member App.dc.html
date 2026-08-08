@@ -1,0 +1,1028 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/industry-308a3a7b-57c5-4198-a9f6-2d5a4bf3175c/styles.css">
+<script src="_ds/industry-308a3a7b-57c5-4198-a9f6-2d5a4bf3175c/_ds_bundle.js"></script>
+<style>
+body{margin:0;background:#0d1620;display:grid;place-items:center;min-height:100vh}
+a{color:#94bce3}a:hover{color:#b5d9fd}
+.blueprint>.corner{color:rgba(242,242,243,.5)}
+@keyframes sfIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes sfPop{0%{transform:scale(.86);opacity:0}60%{transform:scale(1.04)}100%{transform:scale(1);opacity:1}}
+@keyframes sfRing{from{stroke-dashoffset:264}to{stroke-dashoffset:64}}
+@keyframes sfSweep{from{transform:translateY(-100%)}to{transform:translateY(320%)}}
+@keyframes sfPulse{0%,100%{opacity:.35}50%{opacity:1}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</helmet>
+
+<x-import component-from-global-scope="AndroidDevice" from="./android-frame.jsx" dark="{{ true }}" hint-size="428,908">
+<div style="position:relative;height:100%;display:flex;flex-direction:column;background:#1d2d3d;color:#f2f2f3;font-family:Barlow,system-ui,sans-serif;font-size:15px;overflow:hidden">
+
+<sc-if value="{{ showChrome }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;align-items:center;gap:10px;padding:10px 14px 9px;border-bottom:1px solid rgba(242,242,243,.14);flex:none">
+<div style="font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:19px;letter-spacing:.1em;line-height:1">SHARK</div>
+<div style="width:1px;height:16px;background:rgba(242,242,243,.2)"></div>
+<div style="font-size:11px;color:rgba(242,242,243,.55);letter-spacing:.02em;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">Koramangala · Bengaluru</div>
+<div style="display:flex;align-items:center;gap:5px;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:rgba(242,242,243,.5)">
+<span style="width:6px;height:6px;border-radius:50%;background:#94bce3;animation:sfPulse 2.4s ease-in-out infinite"></span>{{ syncLabel }}</div>
+<div style="width:30px;height:30px;border:1px solid rgba(242,242,243,.3);display:grid;place-items:center;font-family:'Barlow Condensed',sans-serif;font-size:13px;letter-spacing:.04em">AM</div>
+</div>
+</sc-if>
+
+<div style="flex:1;overflow-y:auto;overflow-x:hidden">
+
+<sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
+<div style="padding:16px 14px 22px;display:flex;flex-direction:column;gap:14px;animation:sfIn .24s ease-out">
+
+  <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px">
+    <h2 style="font-size:27px;margin:0;letter-spacing:-.02em">Thursday, 6 Aug</h2>
+    <span style="font-size:11px;color:rgba(242,242,243,.5);letter-spacing:.04em">WEEK 3 / BLOCK B</span>
+  </div>
+
+  <div style="border:1px solid rgba(242,242,243,.16);padding:12px 13px;display:flex;flex-direction:column;gap:11px;background:rgba(242,242,243,.03)">
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#94bce3">Membership</span>
+      <span style="flex:1"></span>
+      <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;padding:2px 8px;border:1px solid {{ memBorder }};color:{{ memColor }}">{{ memGlyph }} {{ memChip }}</span>
+    </div>
+    <div style="display:flex;align-items:flex-end;gap:10px">
+      <div style="flex:1">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:20px;line-height:1.1">Elite Annual · All branches</div>
+        <div style="font-size:12px;color:rgba(242,242,243,.55);margin-top:2px">{{ memSub }}</div>
+      </div>
+    </div>
+    <button type="button" onClick="{{ openPass }}" style="width:100%;min-height:48px;display:flex;align-items:center;justify-content:center;gap:9px;background:#94bce3;color:#1d2d3d;border:1px solid #94bce3;border-radius:0;font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:16px;letter-spacing:.06em;text-transform:uppercase;cursor:pointer" style-active="transform:scale(.99);background:#b5d9fd">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect><path d="M14 14h3v3h-3zM20 14v3M14 20h6"></path></svg>
+      Show entry code
+    </button>
+  </div>
+
+  <div style="border:1px solid rgba(242,242,243,.16);padding:13px;display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#94bce3">Today · Push</span>
+      <span style="flex:1"></span>
+      <span style="font-size:11px;color:rgba(242,242,243,.5)">DAY 2 / 4</span>
+    </div>
+    <h3 style="margin:0;font-size:25px;line-height:1.05;letter-spacing:-.015em">Chest &amp; Shoulders</h3>
+    <div style="display:flex;gap:0;border-top:1px solid rgba(242,242,243,.12);border-bottom:1px solid rgba(242,242,243,.12)">
+      <div style="flex:1;padding:8px 0"><div style="font-family:'Barlow Condensed',sans-serif;font-size:22px;line-height:1">5</div><div style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:rgba(242,242,243,.5)">Exercises</div></div>
+      <div style="width:1px;background:rgba(242,242,243,.12)"></div>
+      <div style="flex:1;padding:8px 0 8px 12px"><div style="font-family:'Barlow Condensed',sans-serif;font-size:22px;line-height:1">16</div><div style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:rgba(242,242,243,.5)">Sets</div></div>
+      <div style="width:1px;background:rgba(242,242,243,.12)"></div>
+      <div style="flex:1;padding:8px 0 8px 12px"><div style="font-family:'Barlow Condensed',sans-serif;font-size:22px;line-height:1">48<span style="font-size:12px;color:rgba(242,242,243,.5)"> min</span></div><div style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:rgba(242,242,243,.5)">Estimate</div></div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button type="button" onClick="{{ startWorkout }}" style="flex:1;min-height:46px;background:#94bce3;color:#1d2d3d;border:1px solid #94bce3;font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:16px;letter-spacing:.06em;text-transform:uppercase;cursor:pointer" style-active="background:#b5d9fd">{{ startLabel }}</button>
+      <button type="button" onClick="{{ goTrain }}" style="min-height:46px;padding:0 14px;background:transparent;color:#f2f2f3;border:1px solid rgba(242,242,243,.28);font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:14px;letter-spacing:.04em;text-transform:uppercase;cursor:pointer" style-hover="background:rgba(242,242,243,.07)">Plan</button>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:10px">
+    <div style="flex:1;border:1px solid rgba(242,242,243,.16);padding:11px 12px;display:flex;flex-direction:column;gap:7px">
+      <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:rgba(242,242,243,.5)">Shark level</div>
+      <div style="display:flex;align-items:baseline;gap:6px"><span style="font-family:'Barlow Condensed',sans-serif;font-size:30px;line-height:1">7</span><span style="font-size:12px;color:#94bce3">Tiger</span></div>
+      <div style="height:3px;background:rgba(242,242,243,.16)"><div style="height:3px;background:#94bce3;width:{{ xpPct }}"></div></div>
+      <div style="font-size:11px;color:rgba(242,242,243,.55)">{{ xpLabel }}</div>
+    </div>
+    <div style="flex:1;border:1px solid rgba(242,242,243,.16);padding:11px 12px;display:flex;flex-direction:column;gap:7px">
+      <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:rgba(242,242,243,.5)">Streak</div>
+      <div style="display:flex;align-items:baseline;gap:6px"><span style="font-family:'Barlow Condensed',sans-serif;font-size:30px;line-height:1">11</span><span style="font-size:12px;color:rgba(242,242,243,.55)">sessions</span></div>
+      <div style="display:flex;gap:3px">
+        <span style="flex:1;height:14px;border:1px solid rgba(242,242,243,.2);background:#94bce3"></span>
+        <span style="flex:1;height:14px;border:1px solid rgba(242,242,243,.2);background:#94bce3"></span>
+        <span style="flex:1;height:14px;border:1px solid rgba(242,242,243,.2);background:#94bce3"></span>
+        <span style="flex:1;height:14px;border:1px solid rgba(242,242,243,.2)"></span>
+      </div>
+      <div style="font-size:11px;color:rgba(242,242,243,.55)">3 of 4 planned this week</div>
+    </div>
+  </div>
+
+  <div style="border:1px solid rgba(242,242,243,.16);padding:13px;display:flex;align-items:center;gap:12px">
+    <div style="text-align:center;flex:none;padding-right:12px;border-right:1px solid rgba(242,242,243,.14)">
+      <div style="font-family:'Barlow Condensed',sans-serif;font-size:24px;line-height:1">19:00</div>
+      <div style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:rgba(242,242,243,.5)">Today</div>
+    </div>
+    <div style="flex:1;min-width:0">
+      <div style="font-family:'Barlow Condensed',sans-serif;font-size:18px;line-height:1.15">HIIT 45 · Studio 2</div>
+      <div style="font-size:12px;color:rgba(242,242,243,.55)">Nikhil Rao · booked · seat 6 of 18</div>
+    </div>
+    <button type="button" onClick="{{ goBook }}" style="flex:none;width:36px;height:36px;background:transparent;border:1px solid rgba(242,242,243,.28);color:#f2f2f3;display:grid;place-items:center;cursor:pointer" style-hover="background:rgba(242,242,243,.07)">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 6l6 6-6 6"></path></svg>
+    </button>
+  </div>
+
+  <div style="border:1px solid rgba(242,242,243,.16);padding:13px;display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#94bce3">Recovery</span>
+      <span style="flex:1"></span>
+      <span style="font-size:11px;color:rgba(242,242,243,.5)">Estimated from logged volume</span>
+    </div>
+    <div style="display:flex;gap:8px;align-items:flex-end">
+      <div style="flex:1"><div style="height:26px;background:rgba(242,242,243,.1);position:relative"><div style="position:absolute;left:0;top:0;bottom:0;width:36%;background:#5980a6"></div></div><div style="font-size:10px;margin-top:4px;color:rgba(242,242,243,.55);letter-spacing:.04em">CHEST 36%</div></div>
+      <div style="flex:1"><div style="height:26px;background:rgba(242,242,243,.1);position:relative"><div style="position:absolute;left:0;top:0;bottom:0;width:52%;background:#5980a6"></div></div><div style="font-size:10px;margin-top:4px;color:rgba(242,242,243,.55);letter-spacing:.04em">DELTS 52%</div></div>
+      <div style="flex:1"><div style="height:26px;background:rgba(242,242,243,.1);position:relative"><div style="position:absolute;left:0;top:0;bottom:0;width:94%;background:#94bce3"></div></div><div style="font-size:10px;margin-top:4px;color:rgba(242,242,243,.55);letter-spacing:.04em">LEGS 94%</div></div>
+    </div>
+    <button type="button" onClick="{{ goProgress }}" style="align-self:flex-start;background:transparent;border:1px solid transparent;color:#94bce3;font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:13px;letter-spacing:.06em;text-transform:uppercase;padding:2px 0;cursor:pointer">Open recovery map →</button>
+  </div>
+
+  <div style="border:1px solid rgba(242,242,243,.16);padding:13px;display:flex;gap:11px;align-items:flex-start">
+    <div style="width:34px;height:34px;flex:none;border:1px solid rgba(242,242,243,.3);display:grid;place-items:center;font-family:'Barlow Condensed',sans-serif;font-size:13px">NR</div>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:12px;color:rgba(242,242,243,.55);margin-bottom:3px">Nikhil Rao · coach · 2h ago</div>
+      <div style="font-size:14px;line-height:1.4;text-wrap:pretty">Bench felt easy last week — I've moved sets 3 and 4 to 65 kg. Keep the last rep clean and tell me the RPE.</div>
+    </div>
+  </div>
+
+  <div style="border:1px solid rgba(242,242,243,.16);padding:13px;display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#94bce3">Challenge</span>
+      <span style="flex:1"></span>
+      <span style="font-size:11px;color:rgba(242,242,243,.5)">9 days left</span>
+    </div>
+    <div style="display:flex;align-items:baseline;gap:8px">
+      <h4 style="margin:0;font-size:20px">August Consistency</h4>
+      <span style="font-size:12px;color:rgba(242,242,243,.55)">· Koramangala</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <div><span style="font-family:'Barlow Condensed',sans-serif;font-size:26px">4</span><span style="font-size:12px;color:rgba(242,242,243,.55)"> / 38</span></div>
+      <div style="flex:1;font-size:12px;color:rgba(242,242,243,.55);line-height:1.35">Ranked on sessions attended, not volume lifted.</div>
+    </div>
+  </div>
+
+</div>
+</sc-if>
+
+<sc-if value="{{ isTrain }}" hint-placeholder-val="{{ false }}">
+<div style="padding:16px 14px 22px;display:flex;flex-direction:column;gap:14px;animation:sfIn .24s ease-out">
+  <div>
+    <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#94bce3;margin-bottom:4px">Assigned program · v4</div>
+    <h2 style="margin:0;font-size:27px;letter-spacing:-.02em">Hypertrophy · Block B</h2>
+    <div style="font-size:12px;color:rgba(242,242,243,.55);margin-top:3px">Nikhil Rao · 4 days / week · week 3 of 6</div>
+  </div>
+
+  <div style="border:1px solid rgba(242,242,243,.16);padding:12px 13px;display:flex;flex-direction:column;gap:8px">
+    <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#94bce3">Why this week changed</div>
+    <div style="font-size:14px;line-height:1.45;text-wrap:pretty">Bench top set moved 62.5 → 65 kg. Two sessions at RPE 7 or lower and no missed sets.</div>
+    <div style="font-size:11px;color:rgba(242,242,243,.5);line-height:1.4;border-top:1px solid rgba(242,242,243,.12);padding-top:8px">Inputs: last 3 bench sessions, logged RPE, session adherence. Rule set v4.2. Reviewed by Nikhil Rao on 4 Aug. Estimates only — tell your coach if anything hurts.</div>
+    <button type="button" style="align-self:flex-start;background:transparent;border:1px solid rgba(242,242,243,.28);color:#f2f2f3;font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:13px;letter-spacing:.05em;text-transform:uppercase;padding:7px 12px;cursor:pointer" style-hover="background:rgba(242,242,243,.07)">Ask coach about this</button>
+  </div>
+
+  <div style="display:flex;flex-direction:column">
+    <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:rgba(242,242,243,.5);margin-bottom:8px">This week</div>
+    <div style="border-top:1px solid rgba(242,242,243,.14)">
+      <div style="display:flex;align-items:center;gap:12px;padding:12px 2px;border-bottom:1px solid rgba(242,242,243,.14);opacity:.55">
+        <span style="font-family:'Barlow Condensed',sans-serif;font-size:12px;letter-spacing:.08em;width:38px">MON</span>
+        <span style="flex:1;font-size:15px">Pull · Back &amp; Biceps</span>
+        <span style="font-size:11px;color:#94bce3">DONE</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;padding:12px 2px;border-bottom:1px solid rgba(242,242,243,.14);opacity:.55">
+        <span style="font-family:'Barlow Condensed',sans-serif;font-size:12px;letter-spacing:.08em;width:38px">TUE</span>
+        <span style="flex:1;font-size:15px">Lower · Squat focus</span>
+        <span style="font-size:11px;color:#94bce3">DONE</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;padding:14px 2px;border-bottom:1px solid rgba(242,242,243,.14);background:rgba(148,188,227,.08)">
+        <span style="font-family:'Barlow Condensed',sans-serif;font-size:12px;letter-spacing:.08em;width:38px;color:#94bce3">THU</span>
+        <span style="flex:1;font-size:16px;font-weight:500">Push · Chest &amp; Shoulders</span>
+        <button type="button" onClick="{{ startWorkout }}" style="background:#94bce3;color:#1d2d3d;border:1px solid #94bce3;font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:13px;letter-spacing:.05em;text-transform:uppercase;padding:8px 12px;min-height:36px;cursor:pointer">{{ startLabel }}</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;padding:12px 2px;border-bottom:1px solid rgba(242,242,243,.14)">
+        <span style="font-family:'Barlow Condensed',sans-serif;font-size:12px;letter-spacing:.08em;width:38px">SAT</span>
+        <span style="flex:1;font-size:15px">Lower · Hinge focus</span>
+        <span style="font-size:11px;color:rgba(242,242,243,.45)">PLANNED</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;padding:12px 2px;border-bottom:1px solid rgba(242,242,243,.14)">
+        <span style="font-family:'Barlow Condensed',sans-serif;font-size:12px;letter-spacing:.08em;width:38px">SUN</span>
+        <span style="flex:1;font-size:15px;color:rgba(242,242,243,.55)">Rest · optional mobility</span>
+        <span style="font-size:11px;color:rgba(242,242,243,.45)">REST</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:rgba(242,242,243,.5)">Today’s exercises</div>
+  <div style="border-top:1px solid rgba(242,242,243,.14)">
+    <sc-for list="{{ exList }}" as="ex" hint-placeholder-count="5">
+      <div style="display:flex;align-items:center;gap:11px;padding:11px 2px;border-bottom:1px solid rgba(242,242,243,.14)">
+        <span style="font-family:'Barlow Condensed',sans-serif;font-size:12px;color:rgba(242,242,243,.45);width:16px">{{ ex.n }}</span>
+        <span style="flex:1;min-width:0"><span style="font-size:15px;display:block">{{ ex.name }}</span><span style="font-size:11px;color:rgba(242,242,243,.5)">{{ ex.target }}</span></span>
+        <span style="font-size:11px;color:rgba(242,242,243,.5);text-align:right">{{ ex.prev }}</span>
+      </div>
+    </sc-for>
+  </div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isWorkout }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;min-height:100%">
+
+  <div style="position:sticky;top:0;z-index:5;background:#1d2d3d;border-bottom:1px solid rgba(242,242,243,.16)">
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 14px">
+      <button type="button" onClick="{{ pauseWorkout }}" style="width:34px;height:34px;flex:none;background:transparent;border:1px solid rgba(242,242,243,.28);color:#f2f2f3;display:grid;place-items:center;cursor:pointer">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 5v14M11 5v14"></path></svg>
+      </button>
+      <div style="flex:1;min-width:0">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:16px;line-height:1.1;letter-spacing:.02em">PUSH · CHEST &amp; SHOULDERS</div>
+        <div style="font-size:11px;color:rgba(242,242,243,.55)">{{ progressLabel }}</div>
+      </div>
+      <div style="font-family:'Barlow Condensed',sans-serif;font-size:20px;font-variant-numeric:tabular-nums">{{ elapsed }}</div>
+    </div>
+    <div style="height:2px;background:rgba(242,242,243,.14)"><div style="height:2px;background:#94bce3;width:{{ donePct }};transition:width .25s ease"></div></div>
+    <div style="display:flex;gap:0;border-top:1px solid rgba(242,242,243,.1)">
+      <button type="button" onClick="{{ setVarA }}" style="flex:1;min-height:36px;background:{{ vaBg }};color:{{ vaFg }};border:0;border-right:1px solid rgba(242,242,243,.12);font-family:'Barlow Condensed',sans-serif;font-size:12px;letter-spacing:.07em;text-transform:uppercase;cursor:pointer">A · Sheet</button>
+      <button type="button" onClick="{{ setVarB }}" style="flex:1;min-height:36px;background:{{ vbBg }};color:{{ vbFg }};border:0;border-right:1px solid rgba(242,242,243,.12);font-family:'Barlow Condensed',sans-serif;font-size:12px;letter-spacing:.07em;text-transform:uppercase;cursor:pointer">B · Focus</button>
+      <button type="button" onClick="{{ setVarC }}" style="flex:1;min-height:36px;background:{{ vcBg }};color:{{ vcFg }};border:0;font-family:'Barlow Condensed',sans-serif;font-size:12px;letter-spacing:.07em;text-transform:uppercase;cursor:pointer">C · Dial</button>
+    </div>
+  </div>
+
+  <sc-if value="{{ offline }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;align-items:center;gap:9px;padding:9px 14px;background:rgba(217,165,95,.14);border-bottom:1px solid rgba(217,165,95,.4);font-size:12px;color:#e6c08a">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 8a16 16 0 0 1 20 0M5 12a11 11 0 0 1 14 0M8.5 15.5a6 6 0 0 1 7 0"></path><circle cx="12" cy="19" r="1"></circle><path d="M3 3l18 18"></path></svg>
+      <span style="flex:1">Offline. {{ queuedLabel }} saved on this phone.</span>
+    </div>
+  </sc-if>
+
+  <div style="padding:14px 14px 6px;display:flex;align-items:flex-start;gap:10px">
+    <div style="flex:1;min-width:0">
+      <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#94bce3;margin-bottom:3px">{{ exCounter }}</div>
+      <h3 style="margin:0;font-size:24px;line-height:1.06;letter-spacing:-.015em">{{ cur.name }}</h3>
+      <div style="font-size:12px;color:rgba(242,242,243,.55);margin-top:4px">{{ cur.target }} · last time {{ cur.prev }}</div>
+    </div>
+    <button type="button" style="flex:none;min-height:34px;padding:0 10px;background:transparent;border:1px solid rgba(242,242,243,.28);color:#f2f2f3;font-family:'Barlow Condensed',sans-serif;font-size:12px;letter-spacing:.05em;text-transform:uppercase;cursor:pointer" style-hover="background:rgba(242,242,243,.07)">Swap</button>
+  </div>
+
+  <sc-if value="{{ isVarA }}" hint-placeholder-val="{{ true }}">
+  <div style="padding:8px 14px 0">
+    <div style="display:flex;gap:8px;padding:0 2px 7px;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:rgba(242,242,243,.45);border-bottom:1px solid rgba(242,242,243,.14)">
+      <span style="width:22px">Set</span><span style="width:76px">Kg</span><span style="width:56px">Reps</span><span style="flex:1;text-align:right">Log</span>
+    </div>
+    <sc-for list="{{ curSets }}" as="s" hint-placeholder-count="4">
+      <div style="display:flex;align-items:center;gap:8px;padding:9px 2px;border-bottom:1px solid rgba(242,242,243,.1);background:{{ s.rowBg }}">
+        <span style="width:22px;font-family:'Barlow Condensed',sans-serif;font-size:15px;color:{{ s.numColor }}">{{ s.n }}</span>
+        <span style="width:76px;display:flex;align-items:center;gap:0;border:1px solid rgba(242,242,243,.2)">
+          <button type="button" onClick="{{ s.decW }}" style="width:24px;min-height:36px;background:transparent;border:0;color:rgba(242,242,243,.6);font-size:16px;cursor:pointer">−</button>
+          <span style="flex:1;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:17px;font-variant-numeric:tabular-nums">{{ s.w }}</span>
+          <button type="button" onClick="{{ s.incW }}" style="width:24px;min-height:36px;background:transparent;border:0;color:rgba(242,242,243,.6);font-size:16px;cursor:pointer">+</button>
+        </span>
+        <span style="width:56px;display:flex;align-items:center;border:1px solid rgba(242,242,243,.2)">
+          <button type="button" onClick="{{ s.decR }}" style="width:20px;min-height:36px;background:transparent;border:0;color:rgba(242,242,243,.6);font-size:16px;cursor:pointer">−</button>
+          <span style="flex:1;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:17px;font-variant-numeric:tabular-nums">{{ s.r }}</span>
+          <button type="button" onClick="{{ s.incR }}" style="width:20px;min-height:36px;background:transparent;border:0;color:rgba(242,242,243,.6);font-size:16px;cursor:pointer">+</button>
+        </span>
+        <button type="button" onClick="{{ s.log }}" style="flex:1;min-height:38px;background:{{ s.btnBg }};color:{{ s.btnFg }};border:1px solid {{ s.btnBd }};font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:13px;letter-spacing:.06em;text-transform:uppercase;cursor:pointer">{{ s.btnLabel }}</button>
+      </div>
+    </sc-for>
+    <button type="button" onClick="{{ addSet }}" style="margin-top:9px;background:transparent;border:1px dashed rgba(242,242,243,.28);color:rgba(242,242,243,.7);width:100%;min-height:40px;font-family:'Barlow Condensed',sans-serif;font-size:13px;letter-spacing:.06em;text-transform:uppercase;cursor:pointer" style-hover="background:rgba(242,242,243,.05)">+ Add set</button>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isVarB }}" hint-placeholder-val="{{ false }}">
+  <div style="padding:10px 14px 0;display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;gap:6px">
+      <sc-for list="{{ curSets }}" as="s" hint-placeholder-count="4">
+        <span style="flex:1;height:5px;background:{{ s.pipBg }}"></span>
+      </sc-for>
+    </div>
+    <div style="border:1px solid rgba(242,242,243,.16);padding:16px 14px;display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:baseline;justify-content:space-between">
+        <span style="font-family:'Barlow Condensed',sans-serif;font-size:15px;letter-spacing:.08em;text-transform:uppercase;color:#94bce3">Set {{ focus.n }} of {{ focus.total }}</span>
+        <span style="font-size:11px;color:rgba(242,242,243,.5)">Target {{ cur.target }}</span>
+      </div>
+      <div style="display:flex;gap:14px">
+        <div style="flex:1">
+          <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:rgba(242,242,243,.5);margin-bottom:5px">Weight · kg</div>
+          <div style="display:flex;align-items:center;border:1px solid rgba(242,242,243,.24)">
+            <button type="button" onClick="{{ focus.decW }}" style="width:44px;min-height:60px;background:transparent;border:0;border-right:1px solid rgba(242,242,243,.16);color:#f2f2f3;font-size:22px;cursor:pointer" style-active="background:rgba(242,242,243,.1)">−</button>
+            <span style="flex:1;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:38px;line-height:1;font-variant-numeric:tabular-nums">{{ focus.w }}</span>
+            <button type="button" onClick="{{ focus.incW }}" style="width:44px;min-height:60px;background:transparent;border:0;border-left:1px solid rgba(242,242,243,.16);color:#f2f2f3;font-size:22px;cursor:pointer" style-active="background:rgba(242,242,243,.1)">+</button>
+          </div>
+        </div>
+        <div style="width:112px">
+          <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:rgba(242,242,243,.5);margin-bottom:5px">Reps</div>
+          <div style="display:flex;align-items:center;border:1px solid rgba(242,242,243,.24)">
+            <button type="button" onClick="{{ focus.decR }}" style="width:34px;min-height:60px;background:transparent;border:0;border-right:1px solid rgba(242,242,243,.16);color:#f2f2f3;font-size:22px;cursor:pointer" style-active="background:rgba(242,242,243,.1)">−</button>
+            <span style="flex:1;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:38px;line-height:1;font-variant-numeric:tabular-nums">{{ focus.r }}</span>
+            <button type="button" onClick="{{ focus.incR }}" style="width:34px;min-height:60px;background:transparent;border:0;border-left:1px solid rgba(242,242,243,.16);color:#f2f2f3;font-size:22px;cursor:pointer" style-active="background:rgba(242,242,243,.1)">+</button>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:rgba(242,242,243,.55)">
+        <span>RPE</span>
+        <button type="button" onClick="{{ focus.rpe7 }}" style="min-height:34px;padding:0 12px;background:{{ focus.b7 }};color:{{ focus.f7 }};border:1px solid rgba(242,242,243,.24);font-family:'Barlow Condensed',sans-serif;font-size:14px;cursor:pointer">7</button>
+        <button type="button" onClick="{{ focus.rpe8 }}" style="min-height:34px;padding:0 12px;background:{{ focus.b8 }};color:{{ focus.f8 }};border:1px solid rgba(242,242,243,.24);font-family:'Barlow Condensed',sans-serif;font-size:14px;cursor:pointer">8</button>
+        <button type="button" onClick="{{ focus.rpe9 }}" style="min-height:34px;padding:0 12px;background:{{ focus.b9 }};color:{{ focus.f9 }};border:1px solid rgba(242,242,243,.24);font-family:'Barlow Condensed',sans-serif;font-size:14px;cursor:pointer">9</button>
+        <span style="flex:1;text-align:right">Last: {{ cur.prev }}</span>
+      </div>
+      <button type="button" onClick="{{ focus.log }}" style="width:100%;min-height:56px;background:#94bce3;color:#1d2d3d;border:1px solid #94bce3;font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:19px;letter-spacing:.08em;text-transform:uppercase;cursor:pointer" style-active="background:#b5d9fd;transform:scale(.995)">{{ focus.cta }}</button>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isVarC }}" hint-placeholder-val="{{ false }}">
+  <div style="padding:10px 14px 0;display:flex;flex-direction:column;gap:14px">
+    <div style="border:1px solid rgba(242,242,243,.16);padding:16px 14px 14px;display:flex;flex-direction:column;gap:16px">
+      <div style="display:flex;align-items:flex-end;justify-content:space-between">
+        <div>
+          <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:rgba(242,242,243,.5)">Set {{ focus.n }} · load</div>
+          <div style="display:flex;align-items:baseline;gap:5px"><span style="font-family:'Barlow Condensed',sans-serif;font-size:52px;line-height:1;font-variant-numeric:tabular-nums">{{ focus.w }}</span><span style="font-size:15px;color:rgba(242,242,243,.55)">kg</span></div>
+        </div>
+        <div style="text-align:right;font-size:11px;color:rgba(242,242,243,.5);line-height:1.5">plate side<br><span style="font-family:'Barlow Condensed',sans-serif;font-size:19px;color:#f2f2f3">{{ focus.plates }}</span></div>
+      </div>
+      <input type="range" min="20" max="140" step="2.5" value="{{ focus.w }}" onChange="{{ focus.slideW }}" onInput="{{ focus.slideW }}" style="width:100%;accent-color:#94bce3;height:34px">
+      <div>
+        <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:rgba(242,242,243,.5);margin-bottom:7px">Reps</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <sc-for list="{{ repChips }}" as="c" hint-placeholder-count="8">
+            <button type="button" onClick="{{ c.pick }}" style="width:44px;min-height:44px;background:{{ c.bg }};color:{{ c.fg }};border:1px solid rgba(242,242,243,.22);font-family:'Barlow Condensed',sans-serif;font-size:17px;cursor:pointer">{{ c.v }}</button>
+          </sc-for>
+        </div>
+      </div>
+      <button type="button" onClick="{{ focus.log }}" style="width:100%;min-height:52px;background:#94bce3;color:#1d2d3d;border:1px solid #94bce3;font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:18px;letter-spacing:.08em;text-transform:uppercase;cursor:pointer" style-active="background:#b5d9fd">{{ focus.cta }}</button>
+    </div>
+    <div style="display:flex;gap:6px">
+      <sc-for list="{{ curSets }}" as="s" hint-placeholder-count="4">
+        <span style="flex:1;border:1px solid rgba(242,242,243,.18);background:{{ s.pipBg }};padding:6px 0;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:13px;color:{{ s.pipFg }}">{{ s.chip }}</span>
+      </sc-for>
+    </div>
+  </div>
+  </sc-if>
+
+  <div style="padding:14px;margin-top:auto">
+    <button type="button" onClick="{{ finishWorkout }}" style="width:100%;min-height:46px;background:transparent;border:1px solid rgba(242,242,243,.28);color:#f2f2f3;font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:15px;letter-spacing:.07em;text-transform:uppercase;cursor:pointer" style-hover="background:rgba(242,242,243,.07)">Finish workout</button>
+  </div>
+
+  <sc-if value="{{ resting }}" hint-placeholder-val="{{ false }}">
+  <div style="position:absolute;left:0;right:0;bottom:0;background:#24384b;border-top:1px solid #94bce3;padding:12px 14px 14px;display:flex;align-items:center;gap:13px;animation:sfIn .2s ease-out;z-index:8">
+    <div style="position:relative;width:52px;height:52px;flex:none">
+      <svg width="52" height="52" viewBox="0 0 52 52" style="transform:rotate(-90deg)"><circle cx="26" cy="26" r="23" fill="none" stroke="rgba(242,242,243,.18)" stroke-width="2"></circle><circle cx="26" cy="26" r="23" fill="none" stroke="#94bce3" stroke-width="2" stroke-dasharray="144.5" stroke-dashoffset="{{ restOffset }}"></circle></svg>
+      <div style="position:absolute;inset:0;display:grid;place-items:center;font-family:'Barlow Condensed',sans-serif;font-size:17px;font-variant-numeric:tabular-nums">{{ restLabel }}</div>
+    </div>
+    <div style="flex:1;min-width:0">
+      <div style="font-family:'Barlow Condensed',sans-serif;font-size:16px;letter-spacing:.04em;text-transform:uppercase">Rest</div>
+      <div style="font-size:12px;color:rgba(242,242,243,.6)">{{ restNext }}</div>
+    </div>
+    <button type="button" onClick="{{ skipRest }}" style="flex:none;min-height:40px;padding:0 14px;background:transparent;border:1px solid rgba(242,242,243,.35);color:#f2f2f3;font-family:'Barlow Condensed',sans-serif;font-size:13px;letter-spacing:.06em;text-transform:uppercase;cursor:pointer">Skip</button>
+  </div>
+  </sc-if>
+
+</div>
+</sc-if>
+
+<sc-if value="{{ isSummary }}" hint-placeholder-val="{{ false }}">
+<div style="padding:16px 14px 22px;display:flex;flex-direction:column;gap:14px;animation:sfIn .26s ease-out">
+  <div>
+    <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#94bce3;margin-bottom:4px">Session complete · 6 Aug</div>
+    <h2 style="margin:0;font-size:27px;letter-spacing:-.02em">Push · Chest &amp; Shoulders</h2>
+  </div>
+
+  <div style="display:flex;border:1px solid rgba(242,242,243,.16)">
+    <div style="flex:1;padding:12px"><div style="font-family:'Barlow Condensed',sans-serif;font-size:26px;line-height:1;font-variant-numeric:tabular-nums">{{ sumDuration }}</div><div style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:rgba(242,242,243,.5);margin-top:2px">Duration</div></div>
+    <div style="width:1px;background:rgba(242,242,243,.14)"></div>
+    <div style="flex:1;padding:12px"><div style="font-family:'Barlow Condensed',sans-serif;font-size:26px;line-height:1;font-variant-numeric:tabular-nums">{{ sumVolume }}</div><div style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:rgba(242,242,243,.5);margin-top:2px">Volume kg</div></div>
+    <div style="width:1px;background:rgba(242,242,243,.14)"></div>
+    <div style="flex:1;padding:12px"><div style="font-family:'Barlow Condensed',sans-serif;font-size:26px;line-height:1;font-variant-numeric:tabular-nums">{{ sumSets }}</div><div style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:rgba(242,242,243,.5);margin-top:2px">Sets</div></div>
+  </div>
+
+  <sc-if value="{{ prHit }}" hint-placeholder-val="{{ true }}">
+  <div class="blueprint" style="padding:16px 15px;background:linear-gradient(180deg,rgba(148,188,227,.14),rgba(148,188,227,.04));animation:sfPop .42s cubic-bezier(.2,1.3,.4,1) both;position:relative;overflow:hidden">
+    <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+    <div style="position:absolute;left:0;right:0;top:0;height:40%;background:linear-gradient(180deg,transparent,rgba(242,242,243,.16),transparent);animation:sfSweep 1.5s ease-out .25s both;pointer-events:none"></div>
+    <div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#94bce3;margin-bottom:6px">Personal record</div>
+    <div style="display:flex;align-items:flex-end;gap:10px">
+      <div style="flex:1">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:23px;line-height:1.05">Barbell Bench Press</div>
+        <div style="font-size:12px;color:rgba(242,242,243,.6);margin-top:3px">Previous best 62.5 kg × 8 · 14 Jul</div>
+      </div>
+      <div style="text-align:right"><span style="font-family:'Barlow Condensed',sans-serif;font-size:34px;line-height:1;font-variant-numeric:tabular-nums">{{ prWeight }}</span><span style="font-size:14px;color:rgba(242,242,243,.6)"> kg</span></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button type="button" style="flex:1;min-height:42px;background:transparent;border:1px solid rgba(242,242,243,.35);color:#f2f2f3;font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:13px;letter-spacing:.06em;text-transform:uppercase;cursor:pointer" style-hover="background:rgba(242,242,243,.08)">Share to gym feed</button>
+      <button type="button" style="min-height:42px;padding:0 12px;background:transparent;border:1px solid rgba(242,242,243,.2);color:rgba(242,242,243,.7);font-family:'Barlow Condensed',sans-serif;font-size:13px;letter-spacing:.05em;text-transform:uppercase;cursor:pointer">Keep private</button>
+    </div>
+  </div>
+  </sc-if>
+
+  <div style="border:1px solid rgba(242,242,243,.16);padding:13px;display:flex;flex-direction:column;gap:10px">
+    <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:rgba(242,242,243,.5)">Worked today</div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;align-items:center;gap:10px"><span style="width:74px;font-size:12px;color:rgba(242,242,243,.65)">Chest</span><span style="flex:1;height:9px;background:rgba(242,242,243,.1)"><span style="display:block;height:9px;width:82%;background:#94bce3"></span></span><span style="font-size:11px;color:rgba(242,242,243,.5);width:52px;text-align:right">14 sets</span></div>
+      <div style="display:flex;align-items:center;gap:10px"><span style="width:74px;font-size:12px;color:rgba(242,242,243,.65)">Front delt</span><span style="flex:1;height:9px;background:rgba(242,242,243,.1)"><span style="display:block;height:9px;width:55%;background:#5980a6"></span></span><span style="font-size:11px;color:rgba(242,242,243,.5);width:52px;text-align:right">9 sets</span></div>
+      <div style="display:flex;align-items:center;gap:10px"><span style="width:74px;font-size:12px;color:rgba(242,242,243,.65)">Triceps</span><span style="flex:1;height:9px;background:rgba(242,242,243,.1)"><span style="display:block;height:9px;width:34%;background:#5980a6"></span></span><span style="font-size:11px;color:rgba(242,242,243,.5);width:52px;text-align:right">6 sets</span></div>
+    </div>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:11px;border:1px solid rgba(242,242,243,.16);padding:12px 13px">
+    <div style="font-family:'Barlow Condensed',sans-serif;font-size:22px;color:#94bce3">+180</div>
+    <div style="flex:1;font-size:13px;line-height:1.35">XP added · Level 7 <span style="color:rgba(242,242,243,.55)">— 320 to Great White</span></div>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:9px;padding:10px 12px;border:1px solid {{ syncBd }};background:{{ syncBg }};font-size:12px;color:{{ syncFg }}">
+    <span style="width:7px;height:7px;border-radius:50%;background:currentColor;flex:none"></span>
+    <span style="flex:1">{{ syncMsg }}</span>
+  </div>
+
+  <div style="display:flex;gap:8px">
+    <button type="button" onClick="{{ goHome }}" style="flex:1;min-height:46px;background:#94bce3;color:#1d2d3d;border:1px solid #94bce3;font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:15px;letter-spacing:.07em;text-transform:uppercase;cursor:pointer">Done</button>
+    <button type="button" style="min-height:46px;padding:0 14px;background:transparent;border:1px solid rgba(242,242,243,.28);color:#f2f2f3;font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:14px;letter-spacing:.05em;text-transform:uppercase;cursor:pointer">Message coach</button>
+  </div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isBook }}" hint-placeholder-val="{{ false }}">
+<div style="padding:16px 14px 22px;display:flex;flex-direction:column;gap:13px;animation:sfIn .24s ease-out">
+  <h2 style="margin:0;font-size:27px;letter-spacing:-.02em">Book</h2>
+  <div style="display:flex;gap:6px">
+    <sc-for list="{{ days }}" as="d" hint-placeholder-count="6">
+      <button type="button" onClick="{{ d.pick }}" style="flex:1;padding:8px 0;background:{{ d.bg }};color:{{ d.fg }};border:1px solid rgba(242,242,243,.2);cursor:pointer;min-height:52px">
+        <span style="display:block;font-size:10px;letter-spacing:.08em;text-transform:uppercase;opacity:.7">{{ d.dow }}</span>
+        <span style="display:block;font-family:'Barlow Condensed',sans-serif;font-size:19px;line-height:1.1">{{ d.n }}</span>
+      </button>
+    </sc-for>
+  </div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap">
+    <span style="font-size:11px;padding:5px 10px;border:1px solid #94bce3;color:#94bce3">All classes</span>
+    <span style="font-size:11px;padding:5px 10px;border:1px solid rgba(242,242,243,.22);color:rgba(242,242,243,.65)">Strength</span>
+    <span style="font-size:11px;padding:5px 10px;border:1px solid rgba(242,242,243,.22);color:rgba(242,242,243,.65)">Cardio</span>
+    <span style="font-size:11px;padding:5px 10px;border:1px solid rgba(242,242,243,.22);color:rgba(242,242,243,.65)">Mobility</span>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:10px">
+    <div style="border:1px solid rgba(242,242,243,.16);padding:12px 13px;display:flex;gap:12px;align-items:flex-start">
+      <div style="flex:none;text-align:center;padding-right:12px;border-right:1px solid rgba(242,242,243,.14)"><div style="font-family:'Barlow Condensed',sans-serif;font-size:20px;line-height:1">06:30</div><div style="font-size:10px;color:rgba(242,242,243,.5)">45 min</div></div>
+      <div style="flex:1;min-width:0">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:18px;line-height:1.15">Strength Basics</div>
+        <div style="font-size:12px;color:rgba(242,242,243,.55);margin-top:2px">Priya Sharma · Studio 1 · 4 seats left</div>
+        <div style="font-size:11px;color:rgba(242,242,243,.5);margin-top:5px">Included in Elite Annual</div>
+      </div>
+      <button type="button" style="flex:none;min-height:40px;padding:0 13px;background:#94bce3;color:#1d2d3d;border:1px solid #94bce3;font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:13px;letter-spacing:.06em;text-transform:uppercase;cursor:pointer">Book</button>
+    </div>
+
+    <div style="border:1px solid rgba(148,188,227,.5);padding:12px 13px;display:flex;gap:12px;align-items:flex-start;background:rgba(148,188,227,.07)">
+      <div style="flex:none;text-align:center;padding-right:12px;border-right:1px solid rgba(242,242,243,.14)"><div style="font-family:'Barlow Condensed',sans-serif;font-size:20px;line-height:1">19:00</div><div style="font-size:10px;color:rgba(242,242,243,.5)">45 min</div></div>
+      <div style="flex:1;min-width:0">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:18px;line-height:1.15">HIIT 45</div>
+        <div style="font-size:12px;color:rgba(242,242,243,.55);margin-top:2px">Nikhil Rao · Studio 2 · seat 6 of 18</div>
+        <div style="font-size:11px;color:#94bce3;margin-top:5px">Booked · free cancellation until 17:00</div>
+      </div>
+      <button type="button" style="flex:none;min-height:40px;padding:0 11px;background:transparent;color:rgba(242,242,243,.75);border:1px solid rgba(242,242,243,.28);font-family:'Barlow Condensed',sans-serif;font-size:12px;letter-spacing:.05em;text-transform:uppercase;cursor:pointer">Cancel</button>
+    </div>
+
+    <div style="border:1px solid rgba(242,242,243,.16);padding:12px 13px;display:flex;gap:12px;align-items:flex-start">
+      <div style="flex:none;text-align:center;padding-right:12px;border-right:1px solid rgba(242,242,243,.14)"><div style="font-family:'Barlow Condensed',sans-serif;font-size:20px;line-height:1">20:00</div><div style="font-size:10px;color:rgba(242,242,243,.5)">60 min</div></div>
+      <div style="flex:1;min-width:0">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:18px;line-height:1.15">Spin Sprint</div>
+        <div style="font-size:12px;color:rgba(242,242,243,.55);margin-top:2px">Aisha Khan · Cycle studio · full</div>
+        <div style="font-size:11px;color:rgba(242,242,243,.5);margin-top:5px">{{ wlNote }}</div>
+      </div>
+      <button type="button" onClick="{{ joinWaitlist }}" style="flex:none;min-height:40px;padding:0 11px;background:transparent;color:{{ wlFg }};border:1px solid {{ wlBd }};font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:12px;letter-spacing:.05em;text-transform:uppercase;cursor:pointer">{{ wlLabel }}</button>
+    </div>
+
+    <div style="border:1px solid rgba(242,242,243,.16);padding:12px 13px;display:flex;gap:12px;align-items:flex-start;opacity:.6">
+      <div style="flex:none;text-align:center;padding-right:12px;border-right:1px solid rgba(242,242,243,.14)"><div style="font-family:'Barlow Condensed',sans-serif;font-size:20px;line-height:1">21:00</div><div style="font-size:10px;color:rgba(242,242,243,.5)">30 min</div></div>
+      <div style="flex:1;min-width:0">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:18px;line-height:1.15">Mobility Reset</div>
+        <div style="font-size:12px;color:rgba(242,242,243,.55);margin-top:2px">Rahul Iyer · Studio 1</div>
+        <div style="font-size:11px;color:#d9a55f;margin-top:5px">Needs 1 class credit · you have 0</div>
+      </div>
+      <button type="button" style="flex:none;min-height:40px;padding:0 11px;background:transparent;color:rgba(242,242,243,.75);border:1px solid rgba(242,242,243,.28);font-family:'Barlow Condensed',sans-serif;font-size:12px;letter-spacing:.05em;text-transform:uppercase;cursor:pointer">₹350</button>
+    </div>
+  </div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isProgress }}" hint-placeholder-val="{{ false }}">
+<div style="padding:16px 14px 22px;display:flex;flex-direction:column;gap:16px;animation:sfIn .24s ease-out">
+  <h2 style="margin:0;font-size:27px;letter-spacing:-.02em">Progress</h2>
+
+  <div class="blueprint" style="padding:15px 14px">
+    <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+    <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:2px">
+      <span style="font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:#94bce3">Recovery map</span>
+      <span style="flex:1"></span>
+      <span style="font-size:10px;letter-spacing:.06em;color:rgba(242,242,243,.45)">FIG. 1 · 6 AUG 09:40</span>
+    </div>
+    <div style="font-size:12px;color:rgba(242,242,243,.55);margin-bottom:12px">Tap a region. Filled = still recovering.</div>
+
+    <div style="display:flex;gap:12px;align-items:flex-start">
+      <div style="display:flex;gap:10px;flex:none">
+        <div>
+          <div style="position:relative;width:74px;height:184px;border:1px solid rgba(242,242,243,.14)">
+            <div style="position:absolute;left:50%;top:0;bottom:0;width:1px;background:rgba(242,242,243,.08)"></div>
+            <div style="position:absolute;left:29px;top:5px;width:16px;height:15px;border:1px solid rgba(242,242,243,.3);border-radius:7px 7px 3px 3px"></div>
+            <button type="button" onClick="{{ pickDelt }}" style="position:absolute;left:8px;top:24px;width:16px;height:15px;border:1px solid rgba(242,242,243,.35);background:rgba(148,188,227,.48);cursor:pointer;padding:0"></button>
+            <button type="button" onClick="{{ pickDelt }}" style="position:absolute;right:8px;top:24px;width:16px;height:15px;border:1px solid rgba(242,242,243,.35);background:rgba(148,188,227,.48);cursor:pointer;padding:0"></button>
+            <button type="button" onClick="{{ pickChest }}" style="position:absolute;left:24px;top:24px;width:26px;height:22px;border:1px solid rgba(242,242,243,.4);background:rgba(148,188,227,.64);cursor:pointer;padding:0"></button>
+            <button type="button" onClick="{{ pickBicep }}" style="position:absolute;left:6px;top:42px;width:13px;height:30px;border:1px solid rgba(242,242,243,.28);background:rgba(148,188,227,.1);cursor:pointer;padding:0"></button>
+            <button type="button" onClick="{{ pickBicep }}" style="position:absolute;right:6px;top:42px;width:13px;height:30px;border:1px solid rgba(242,242,243,.28);background:rgba(148,188,227,.1);cursor:pointer;padding:0"></button>
+            <button type="button" onClick="{{ pickCore }}" style="position:absolute;left:26px;top:48px;width:22px;height:34px;border:1px solid rgba(242,242,243,.28);background:rgba(148,188,227,.2);cursor:pointer;padding:0"></button>
+            <button type="button" onClick="{{ pickQuad }}" style="position:absolute;left:18px;top:86px;width:17px;height:50px;border:1px solid rgba(242,242,243,.28);background:rgba(148,188,227,.06);cursor:pointer;padding:0"></button>
+            <button type="button" onClick="{{ pickQuad }}" style="position:absolute;right:18px;top:86px;width:17px;height:50px;border:1px solid rgba(242,242,243,.28);background:rgba(148,188,227,.06);cursor:pointer;padding:0"></button>
+            <div style="position:absolute;left:20px;top:140px;width:13px;height:34px;border:1px solid rgba(242,242,243,.2)"></div>
+            <div style="position:absolute;right:20px;top:140px;width:13px;height:34px;border:1px solid rgba(242,242,243,.2)"></div>
+          </div>
+          <div style="font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:rgba(242,242,243,.45);margin-top:4px;text-align:center">Front</div>
+        </div>
+        <div>
+          <div style="position:relative;width:74px;height:184px;border:1px solid rgba(242,242,243,.14)">
+            <div style="position:absolute;left:50%;top:0;bottom:0;width:1px;background:rgba(242,242,243,.08)"></div>
+            <div style="position:absolute;left:29px;top:5px;width:16px;height:15px;border:1px solid rgba(242,242,243,.3);border-radius:7px 7px 3px 3px"></div>
+            <button type="button" onClick="{{ pickTrap }}" style="position:absolute;left:22px;top:22px;width:30px;height:14px;border:1px solid rgba(242,242,243,.3);background:rgba(148,188,227,.24);cursor:pointer;padding:0"></button>
+            <button type="button" onClick="{{ pickLat }}" style="position:absolute;left:16px;top:38px;width:42px;height:32px;border:1px solid rgba(242,242,243,.3);background:rgba(148,188,227,.3);cursor:pointer;padding:0"></button>
+            <button type="button" onClick="{{ pickTri }}" style="position:absolute;left:5px;top:40px;width:12px;height:28px;border:1px solid rgba(242,242,243,.35);background:rgba(148,188,227,.44);cursor:pointer;padding:0"></button>
+            <button type="button" onClick="{{ pickTri }}" style="position:absolute;right:5px;top:40px;width:12px;height:28px;border:1px solid rgba(242,242,243,.35);background:rgba(148,188,227,.44);cursor:pointer;padding:0"></button>
+            <button type="button" onClick="{{ pickGlute }}" style="position:absolute;left:20px;top:76px;width:34px;height:22px;border:1px solid rgba(242,242,243,.28);background:rgba(148,188,227,.12)"></button>
+            <button type="button" onClick="{{ pickHam }}" style="position:absolute;left:18px;top:102px;width:17px;height:42px;border:1px solid rgba(242,242,243,.28);background:rgba(148,188,227,.08);cursor:pointer;padding:0"></button>
+            <button type="button" onClick="{{ pickHam }}" style="position:absolute;right:18px;top:102px;width:17px;height:42px;border:1px solid rgba(242,242,243,.28);background:rgba(148,188,227,.08);cursor:pointer;padding:0"></button>
+            <button type="button" onClick="{{ pickCalf }}" style="position:absolute;left:20px;top:148px;width:13px;height:28px;border:1px solid rgba(242,242,243,.28);background:rgba(148,188,227,.16);cursor:pointer;padding:0"></button>
+            <button type="button" onClick="{{ pickCalf }}" style="position:absolute;right:20px;top:148px;width:13px;height:28px;border:1px solid rgba(242,242,243,.28);background:rgba(148,188,227,.16);cursor:pointer;padding:0"></button>
+          </div>
+          <div style="font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:rgba(242,242,243,.45);margin-top:4px;text-align:center">Back</div>
+        </div>
+      </div>
+
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:8px">
+        <div style="border:1px solid rgba(242,242,243,.2);padding:9px 10px">
+          <div style="font-family:'Barlow Condensed',sans-serif;font-size:17px;line-height:1.1">{{ region.name }}</div>
+          <div style="display:flex;align-items:baseline;gap:4px;margin-top:3px"><span style="font-family:'Barlow Condensed',sans-serif;font-size:28px;line-height:1;color:#94bce3">{{ region.pct }}</span><span style="font-size:11px;color:rgba(242,242,243,.55)">recovered</span></div>
+          <div style="font-size:11px;color:rgba(242,242,243,.55);margin-top:5px;line-height:1.35">{{ region.note }}</div>
+        </div>
+        <div style="font-size:10px;color:rgba(242,242,243,.45);line-height:1.4">Estimate from logged sets and days since. Not a medical measure.</div>
+      </div>
+    </div>
+
+    <table class="table" style="margin-top:14px;font-size:12px">
+      <tbody>
+        <tr><td style="padding:6px 2px;border-bottom:1px solid rgba(242,242,243,.1);color:rgba(242,242,243,.7)">Chest</td><td style="padding:6px 2px;border-bottom:1px solid rgba(242,242,243,.1);text-align:right;font-variant-numeric:tabular-nums">36%</td><td style="padding:6px 2px;border-bottom:1px solid rgba(242,242,243,.1);text-align:right;color:rgba(242,242,243,.5)">today</td></tr>
+        <tr><td style="padding:6px 2px;border-bottom:1px solid rgba(242,242,243,.1);color:rgba(242,242,243,.7)">Front delt</td><td style="padding:6px 2px;border-bottom:1px solid rgba(242,242,243,.1);text-align:right;font-variant-numeric:tabular-nums">52%</td><td style="padding:6px 2px;border-bottom:1px solid rgba(242,242,243,.1);text-align:right;color:rgba(242,242,243,.5)">today</td></tr>
+        <tr><td style="padding:6px 2px;border-bottom:1px solid rgba(242,242,243,.1);color:rgba(242,242,243,.7)">Lats</td><td style="padding:6px 2px;border-bottom:1px solid rgba(242,242,243,.1);text-align:right;font-variant-numeric:tabular-nums">70%</td><td style="padding:6px 2px;border-bottom:1px solid rgba(242,242,243,.1);text-align:right;color:rgba(242,242,243,.5)">3 days</td></tr>
+        <tr><td style="padding:6px 2px;border-bottom:1px solid rgba(242,242,243,.1);color:rgba(242,242,243,.7)">Quads</td><td style="padding:6px 2px;border-bottom:1px solid rgba(242,242,243,.1);text-align:right;font-variant-numeric:tabular-nums">94%</td><td style="padding:6px 2px;border-bottom:1px solid rgba(242,242,243,.1);text-align:right;color:rgba(242,242,243,.5)">4 days</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div style="border:1px solid rgba(242,242,243,.16);padding:14px 13px">
+    <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:12px">
+      <span style="font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:#94bce3">Bench press · est. 1RM</span>
+      <span style="flex:1"></span>
+      <span style="font-size:11px;color:rgba(242,242,243,.5)">12 weeks</span>
+    </div>
+    <svg viewBox="0 0 320 110" width="100%" height="110" style="overflow:visible">
+      <line x1="0" y1="100" x2="320" y2="100" stroke="rgba(242,242,243,.18)" stroke-width="1"></line>
+      <line x1="0" y1="60" x2="320" y2="60" stroke="rgba(242,242,243,.08)" stroke-width="1"></line>
+      <line x1="0" y1="20" x2="320" y2="20" stroke="rgba(242,242,243,.08)" stroke-width="1"></line>
+      <polyline points="6,86 34,84 62,74 90,78 118,66 146,58 174,60 202,48 230,44 258,38 286,30 314,18" fill="none" stroke="#94bce3" stroke-width="1.8"></polyline>
+      <circle cx="314" cy="18" r="3.5" fill="#94bce3"></circle>
+      <text x="300" y="10" fill="#f2f2f3" font-family="'Barlow Condensed',sans-serif" font-size="13" text-anchor="end">81 kg</text>
+    </svg>
+    <div style="display:flex;justify-content:space-between;font-size:10px;color:rgba(242,242,243,.45);letter-spacing:.06em">
+      <span>MAY</span><span>JUN</span><span>JUL</span><span>AUG</span>
+    </div>
+  </div>
+
+  <div style="border:1px solid rgba(242,242,243,.16);padding:14px 13px">
+    <div style="font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:#94bce3;margin-bottom:11px">Attendance · last 12 weeks</div>
+    <div style="display:grid;grid-template-columns:repeat(12,1fr);gap:4px">
+      <sc-for list="{{ attendance }}" as="a" hint-placeholder-count="12">
+        <span style="aspect-ratio:1;border:1px solid rgba(242,242,243,.16);background:{{ a.bg }}"></span>
+      </sc-for>
+    </div>
+    <div style="font-size:12px;color:rgba(242,242,243,.55);margin-top:10px">Averaging 3.4 sessions a week. Two weeks missed in June.</div>
+  </div>
+
+  <div style="display:flex;gap:10px">
+    <div style="flex:1;border:1px solid rgba(242,242,243,.16);padding:12px"><div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:rgba(242,242,243,.5);margin-bottom:5px">Weight</div><div><span style="font-family:'Barlow Condensed',sans-serif;font-size:25px">74.2</span><span style="font-size:12px;color:rgba(242,242,243,.55)"> kg</span></div><div style="font-size:11px;color:#94bce3;margin-top:2px">−1.8 kg / 8 weeks</div></div>
+    <div style="flex:1;border:1px solid rgba(242,242,243,.16);padding:12px"><div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:rgba(242,242,243,.5);margin-bottom:5px">Goal</div><div style="font-family:'Barlow Condensed',sans-serif;font-size:18px;line-height:1.15">Bench 85 kg</div><div style="font-size:11px;color:rgba(242,242,243,.55);margin-top:2px">by 30 Sep · on track</div></div>
+  </div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isCommunity }}" hint-placeholder-val="{{ false }}">
+<div style="padding:16px 14px 22px;display:flex;flex-direction:column;gap:14px;animation:sfIn .24s ease-out">
+  <h2 style="margin:0;font-size:27px;letter-spacing:-.02em">Community</h2>
+
+  <div style="border:1px solid rgba(242,242,243,.16);padding:13px;display:flex;flex-direction:column;gap:11px">
+    <div style="display:flex;align-items:baseline;gap:8px">
+      <span style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#94bce3">August Consistency</span>
+      <span style="flex:1"></span>
+      <span style="font-size:11px;color:rgba(242,242,243,.5)">9 days left</span>
+    </div>
+    <div style="display:flex;gap:0;border:1px solid rgba(242,242,243,.18)">
+      <span style="flex:1;text-align:center;padding:7px 0;font-family:'Barlow Condensed',sans-serif;font-size:12px;letter-spacing:.06em;text-transform:uppercase;background:#94bce3;color:#1d2d3d">Consistency</span>
+      <span style="flex:1;text-align:center;padding:7px 0;font-family:'Barlow Condensed',sans-serif;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:rgba(242,242,243,.65);border-left:1px solid rgba(242,242,243,.18)">Improvement</span>
+      <span style="flex:1;text-align:center;padding:7px 0;font-family:'Barlow Condensed',sans-serif;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:rgba(242,242,243,.65);border-left:1px solid rgba(242,242,243,.18)">Newcomers</span>
+    </div>
+    <div style="border-top:1px solid rgba(242,242,243,.1)">
+      <div style="display:flex;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px solid rgba(242,242,243,.1)"><span style="width:20px;font-family:'Barlow Condensed',sans-serif;font-size:15px;color:rgba(242,242,243,.5)">1</span><span style="flex:1;font-size:14px">Meera J.</span><span style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-variant-numeric:tabular-nums">18</span></div>
+      <div style="display:flex;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px solid rgba(242,242,243,.1)"><span style="width:20px;font-family:'Barlow Condensed',sans-serif;font-size:15px;color:rgba(242,242,243,.5)">2</span><span style="flex:1;font-size:14px">Shark #4417 <span style="font-size:11px;color:rgba(242,242,243,.45)">· private</span></span><span style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-variant-numeric:tabular-nums">17</span></div>
+      <div style="display:flex;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px solid rgba(242,242,243,.1)"><span style="width:20px;font-family:'Barlow Condensed',sans-serif;font-size:15px;color:rgba(242,242,243,.5)">3</span><span style="flex:1;font-size:14px">Rohit B.</span><span style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-variant-numeric:tabular-nums">16</span></div>
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 6px;border-bottom:1px solid rgba(242,242,243,.1);background:rgba(148,188,227,.1);margin:0 -6px"><span style="width:20px;font-family:'Barlow Condensed',sans-serif;font-size:15px;color:#94bce3">4</span><span style="flex:1;font-size:14px;font-weight:500">You</span><span style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-variant-numeric:tabular-nums">15</span></div>
+      <div style="display:flex;align-items:center;gap:10px;padding:9px 2px"><span style="width:20px;font-family:'Barlow Condensed',sans-serif;font-size:15px;color:rgba(242,242,243,.5)">5</span><span style="flex:1;font-size:14px">Tanvi D.</span><span style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-variant-numeric:tabular-nums">15</span></div>
+    </div>
+    <div style="font-size:11px;color:rgba(242,242,243,.5);line-height:1.4">Ranked by sessions attended. Volume and body metrics are never ranked.</div>
+  </div>
+
+  <div style="border:1px solid rgba(242,242,243,.16);padding:13px;display:flex;flex-direction:column;gap:9px">
+    <div style="display:flex;align-items:center;gap:10px">
+      <div style="width:32px;height:32px;border:1px solid rgba(242,242,243,.3);display:grid;place-items:center;font-family:'Barlow Condensed',sans-serif;font-size:12px">MJ</div>
+      <div style="flex:1"><div style="font-size:14px">Meera J.</div><div style="font-size:11px;color:rgba(242,242,243,.5)">Koramangala · 40 min ago</div></div>
+      <span style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:#94bce3;border:1px solid rgba(148,188,227,.5);padding:2px 7px">PR</span>
+    </div>
+    <div style="font-size:14px;line-height:1.4;text-wrap:pretty">Deadlift 120 kg × 5. Took four months to get back here after the knee thing.</div>
+    <div style="display:flex;gap:14px;padding-top:4px;border-top:1px solid rgba(242,242,243,.1);font-size:12px;color:rgba(242,242,243,.6)">
+      <span>♦ 24 kudos</span><span>3 comments</span>
+    </div>
+  </div>
+
+  <div style="border:1px solid rgba(242,242,243,.16);padding:13px;display:flex;flex-direction:column;gap:9px">
+    <div style="display:flex;align-items:center;gap:10px">
+      <div style="width:32px;height:32px;border:1px solid rgba(148,188,227,.5);display:grid;place-items:center;font-family:'Barlow Condensed',sans-serif;font-size:12px;color:#94bce3">SF</div>
+      <div style="flex:1"><div style="font-size:14px">Shark Fitness <span style="font-size:11px;color:rgba(242,242,243,.5)">· announcement</span></div><div style="font-size:11px;color:rgba(242,242,243,.5)">Yesterday</div></div>
+    </div>
+    <div style="font-size:14px;line-height:1.4;text-wrap:pretty">Cycle studio closed Sunday 10 Aug for floor work. Spin classes move to Studio 2 at the same times.</div>
+  </div>
+</div>
+</sc-if>
+
+</div>
+
+<sc-if value="{{ showChrome }}" hint-placeholder-val="{{ true }}">
+<div style="flex:none;display:flex;border-top:1px solid rgba(242,242,243,.16);background:#1d2d3d">
+  <button type="button" onClick="{{ goHome }}" style="flex:1;min-height:58px;background:transparent;border:0;color:{{ tHome }};display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;padding:0">
+    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 9.5 12 3l9 6.5V21H3z"></path><path d="M9 21v-7h6v7"></path></svg>
+    <span style="font-family:'Barlow Condensed',sans-serif;font-size:10px;letter-spacing:.08em;text-transform:uppercase">Home</span>
+  </button>
+  <button type="button" onClick="{{ goTrain }}" style="flex:1;min-height:58px;background:transparent;border:0;color:{{ tTrain }};display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;padding:0">
+    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 8v8M8 6v12M16 6v12M20 8v8M8 12h8"></path></svg>
+    <span style="font-family:'Barlow Condensed',sans-serif;font-size:10px;letter-spacing:.08em;text-transform:uppercase">Train</span>
+  </button>
+  <button type="button" onClick="{{ goBook }}" style="flex:1;min-height:58px;background:transparent;border:0;color:{{ tBook }};display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;padding:0">
+    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v4M16 2v4M3 6h18v15H3zM3 11h18"></path></svg>
+    <span style="font-family:'Barlow Condensed',sans-serif;font-size:10px;letter-spacing:.08em;text-transform:uppercase">Book</span>
+  </button>
+  <button type="button" onClick="{{ goProgress }}" style="flex:1;min-height:58px;background:transparent;border:0;color:{{ tProgress }};display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;padding:0">
+    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 7l-8.5 8.5-4-4L2 19"></path><path d="M16 7h6v6"></path></svg>
+    <span style="font-family:'Barlow Condensed',sans-serif;font-size:10px;letter-spacing:.08em;text-transform:uppercase">Progress</span>
+  </button>
+  <button type="button" onClick="{{ goCommunity }}" style="flex:1;min-height:58px;background:transparent;border:0;color:{{ tCommunity }};display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;padding:0">
+    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path></svg>
+    <span style="font-family:'Barlow Condensed',sans-serif;font-size:10px;letter-spacing:.08em;text-transform:uppercase">More</span>
+  </button>
+</div>
+</sc-if>
+
+<sc-if value="{{ isPass }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;inset:0;z-index:20;background:#16232f;display:flex;flex-direction:column;animation:sfIn .22s ease-out">
+  <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid rgba(242,242,243,.14);flex:none">
+    <button type="button" onClick="{{ closePass }}" style="width:34px;height:34px;background:transparent;border:1px solid rgba(242,242,243,.28);color:#f2f2f3;display:grid;place-items:center;cursor:pointer">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M18 6 6 18M6 6l12 12"></path></svg>
+    </button>
+    <div style="flex:1;font-family:'Barlow Condensed',sans-serif;font-size:16px;letter-spacing:.06em;text-transform:uppercase">Entry code</div>
+  </div>
+
+  <div style="flex:1;overflow-y:auto;padding:20px 18px 24px;display:flex;flex-direction:column;gap:16px;align-items:center">
+
+    <sc-if value="{{ passIdle }}" hint-placeholder-val="{{ true }}">
+    <div style="width:100%;display:flex;flex-direction:column;gap:16px;align-items:center">
+      <div class="blueprint" style="padding:16px;background:#f2f2f3">
+        <i class="corner tl" style="color:rgba(242,242,243,.5)"></i><i class="corner tr" style="color:rgba(242,242,243,.5)"></i><i class="corner bl" style="color:rgba(242,242,243,.5)"></i><i class="corner br" style="color:rgba(242,242,243,.5)"></i>
+        <svg width="204" height="204" viewBox="0 0 21 21" shape-rendering="crispEdges" style="display:block">
+          <rect width="21" height="21" fill="#f2f2f3"></rect>
+          <g fill="#1d2d3d">
+            <path d="M0 0h7v1H0zM0 1h1v6H0zM6 1h1v6H6zM0 6h7v1H0zM2 2h3v3H2z"></path>
+            <path d="M14 0h7v1h-7zM14 1h1v6h-1zM20 1h1v6h-1zM14 6h7v1h-7zM16 2h3v3h-3z"></path>
+            <path d="M0 14h7v1H0zM0 15h1v6H0zM6 15h1v6H6zM0 20h7v1H0zM2 16h3v3H2z"></path>
+            <path d="M8 0h1v1H8zM10 0h1v1h-1zM12 0h1v2h-1zM9 1h1v1H9zM11 1h1v1h-1zM8 2h1v1H8zM10 2h1v1h-1zM8 3h2v1H8zM11 3h1v1h-1zM9 4h1v1H9zM12 4h1v1h-1zM8 5h1v1H8zM10 5h2v1h-2zM9 6h1v1H9zM12 6h1v1h-1z"></path>
+            <path d="M0 8h1v1H0zM2 8h2v1H2zM5 8h1v1H5zM1 9h1v1H1zM3 9h1v1H3zM6 9h1v1H6zM0 10h2v1H0zM4 10h1v1H4zM2 11h1v1H2zM5 11h2v1H5zM0 12h1v1H0zM3 12h2v1H3zM6 12h1v1H6z"></path>
+            <path d="M8 8h1v1H8zM10 8h1v1h-1zM13 8h1v1h-1zM15 8h2v1h-2zM18 8h1v1h-1zM20 8h1v1h-1zM9 9h2v1H9zM12 9h1v1h-1zM14 9h1v1h-1zM17 9h1v1h-1zM19 9h1v1h-1zM8 10h1v1H8zM11 10h1v1h-1zM13 10h2v1h-2zM16 10h1v1h-1zM18 10h2v1h-2zM9 11h1v1H9zM12 11h2v1h-2zM15 11h1v1h-1zM17 11h1v1h-1zM20 11h1v1h-1zM8 12h2v1H8zM11 12h1v1h-1zM14 12h1v1h-1zM16 12h2v1h-2zM19 12h1v1h-1z"></path>
+            <path d="M8 14h1v1H8zM10 14h2v1h-2zM13 14h1v1h-1zM15 14h1v1h-1zM17 14h2v1h-2zM20 14h1v1h-1zM9 15h1v1H9zM12 15h1v1h-1zM14 15h2v1h-2zM17 15h1v1h-1zM19 15h1v1h-1zM8 16h2v1H8zM11 16h1v1h-1zM13 16h1v1h-1zM16 16h1v1h-1zM18 16h1v1h-1zM20 16h1v1h-1zM9 17h1v1H9zM12 17h2v1h-2zM15 17h1v1h-1zM17 17h2v1h-2zM8 18h1v1H8zM10 18h1v1h-1zM14 18h1v1h-1zM16 18h1v1h-1zM19 18h2v1h-2zM9 19h2v1H9zM12 19h1v1h-1zM15 19h2v1h-2zM18 19h1v1h-1zM20 19h1v1h-1zM8 20h1v1H8zM11 20h2v1h-2zM14 20h1v1h-1zM17 20h1v1h-1zM19 20h1v1h-1z"></path>
+          </g>
+        </svg>
+      </div>
+      <div style="text-align:center">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:19px;letter-spacing:.04em">AARAV MENON · #4417</div>
+        <div style="font-size:12px;color:rgba(242,242,243,.55);margin-top:3px">Koramangala · code refreshes in {{ codeTtl }}s</div>
+      </div>
+      <div style="width:100%;display:flex;gap:8px">
+        <button type="button" onClick="{{ simulateScan }}" style="flex:1;min-height:46px;background:#94bce3;color:#1d2d3d;border:1px solid #94bce3;font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:15px;letter-spacing:.07em;text-transform:uppercase;cursor:pointer">Simulate scan</button>
+        <button type="button" onClick="{{ simulateDeny }}" style="min-height:46px;padding:0 13px;background:transparent;border:1px solid rgba(242,242,243,.28);color:rgba(242,242,243,.75);font-family:'Barlow Condensed',sans-serif;font-size:13px;letter-spacing:.05em;text-transform:uppercase;cursor:pointer">Denied state</button>
+      </div>
+      <div style="width:100%;border:1px solid rgba(242,242,243,.14);padding:11px 12px;font-size:12px;color:rgba(242,242,243,.6);line-height:1.45">
+        Screen brightness is raised while this is open. A screenshot will not work — the code is regenerated every 30 seconds.
+      </div>
+    </div>
+    </sc-if>
+
+    <sc-if value="{{ passOk }}" hint-placeholder-val="{{ false }}">
+    <div style="width:100%;display:flex;flex-direction:column;gap:18px;align-items:center;padding-top:24px;animation:sfPop .4s cubic-bezier(.2,1.3,.4,1) both">
+      <div style="position:relative;width:150px;height:150px">
+        <svg width="150" height="150" viewBox="0 0 150 150" style="transform:rotate(-90deg)">
+          <circle cx="75" cy="75" r="66" fill="none" stroke="rgba(242,242,243,.14)" stroke-width="3"></circle>
+          <circle cx="75" cy="75" r="66" fill="none" stroke="#94bce3" stroke-width="3" stroke-dasharray="414.7" style="animation:sfRing .9s cubic-bezier(.2,.8,.3,1) both"></circle>
+        </svg>
+        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#94bce3" stroke-width="1.5"><path d="M20 6 9 17l-5-5"></path></svg>
+          <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:rgba(242,242,243,.55);margin-top:6px">Checked in</div>
+        </div>
+      </div>
+      <div style="text-align:center">
+        <h3 style="margin:0;font-size:26px">Welcome back, Aarav</h3>
+        <div style="font-size:13px;color:rgba(242,242,243,.6);margin-top:4px">09:41 · Koramangala · visit 84</div>
+      </div>
+      <div style="width:100%;display:flex;border:1px solid rgba(242,242,243,.16)">
+        <div style="flex:1;padding:12px;text-align:center"><div style="font-family:'Barlow Condensed',sans-serif;font-size:27px;line-height:1">42</div><div style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:rgba(242,242,243,.5)">Inside now</div></div>
+        <div style="width:1px;background:rgba(242,242,243,.14)"></div>
+        <div style="flex:1;padding:12px;text-align:center"><div style="font-family:'Barlow Condensed',sans-serif;font-size:27px;line-height:1">Busy</div><div style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:rgba(242,242,243,.5)">Free weights</div></div>
+        <div style="width:1px;background:rgba(242,242,243,.14)"></div>
+        <div style="flex:1;padding:12px;text-align:center"><div style="font-family:'Barlow Condensed',sans-serif;font-size:27px;line-height:1">2</div><div style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:rgba(242,242,243,.5)">Benches free</div></div>
+      </div>
+      <button type="button" onClick="{{ startFromPass }}" style="width:100%;min-height:50px;background:#94bce3;color:#1d2d3d;border:1px solid #94bce3;font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:16px;letter-spacing:.07em;text-transform:uppercase;cursor:pointer">Start push day</button>
+      <button type="button" onClick="{{ closePass }}" style="background:transparent;border:0;color:rgba(242,242,243,.6);font-family:'Barlow Condensed',sans-serif;font-size:13px;letter-spacing:.06em;text-transform:uppercase;cursor:pointer">Not now</button>
+    </div>
+    </sc-if>
+
+    <sc-if value="{{ passDenied }}" hint-placeholder-val="{{ false }}">
+    <div style="width:100%;display:flex;flex-direction:column;gap:16px;padding-top:24px;animation:sfIn .24s ease-out">
+      <div style="border:1px solid rgba(209,122,107,.55);background:rgba(209,122,107,.1);padding:15px 14px">
+        <div style="display:flex;align-items:center;gap:9px;margin-bottom:8px;color:#e0a08f">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v4M12 16h.01"></path></svg>
+          <span style="font-family:'Barlow Condensed',sans-serif;font-size:16px;letter-spacing:.06em;text-transform:uppercase">Entry not allowed</span>
+        </div>
+        <div style="font-size:14px;line-height:1.45;text-wrap:pretty">Your membership is in its grace period. A payment of ₹2,499 failed on 2 August, so entry needs a quick settlement at reception or in the app.</div>
+      </div>
+      <button type="button" style="width:100%;min-height:50px;background:#94bce3;color:#1d2d3d;border:1px solid #94bce3;font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:16px;letter-spacing:.07em;text-transform:uppercase;cursor:pointer">Pay ₹2,499 by UPI</button>
+      <button type="button" style="width:100%;min-height:46px;background:transparent;border:1px solid rgba(242,242,243,.28);color:#f2f2f3;font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:14px;letter-spacing:.06em;text-transform:uppercase;cursor:pointer">Ask reception for help</button>
+      <div style="font-size:12px;color:rgba(242,242,243,.55);line-height:1.45">Grace access ends 9 August. Bookings you already hold are kept until then.</div>
+      <button type="button" onClick="{{ resetPass }}" style="align-self:flex-start;background:transparent;border:0;color:#94bce3;font-family:'Barlow Condensed',sans-serif;font-size:13px;letter-spacing:.06em;text-transform:uppercase;cursor:pointer">← Back to code</button>
+    </div>
+    </sc-if>
+
+  </div>
+</div>
+</sc-if>
+
+<sc-if value="{{ showWl }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;inset:0;z-index:22;background:rgba(13,22,32,.72);display:flex;align-items:flex-end">
+  <div style="width:100%;background:#24384b;border-top:1px solid rgba(242,242,243,.2);padding:18px 16px 22px;display:flex;flex-direction:column;gap:13px;animation:sfIn .22s ease-out">
+    <h4 style="margin:0;font-size:22px">Join the waitlist?</h4>
+    <div style="font-size:14px;line-height:1.45;color:rgba(242,242,243,.75);text-wrap:pretty">Spin Sprint · today 20:00 · Aisha Khan. You would be 3rd in line. If a seat opens you get 15 minutes to confirm before it passes to the next person.</div>
+    <div style="border:1px solid rgba(242,242,243,.16);padding:10px 11px;font-size:12px;color:rgba(242,242,243,.6);line-height:1.4">No credit is taken now. Cancelling before 18:00 costs nothing.</div>
+    <div style="display:flex;gap:8px">
+      <button type="button" onClick="{{ confirmWl }}" style="flex:1;min-height:48px;background:#94bce3;color:#1d2d3d;border:1px solid #94bce3;font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:15px;letter-spacing:.07em;text-transform:uppercase;cursor:pointer">Join waitlist</button>
+      <button type="button" onClick="{{ cancelWl }}" style="min-height:48px;padding:0 16px;background:transparent;border:1px solid rgba(242,242,243,.28);color:#f2f2f3;font-family:'Barlow Condensed',sans-serif;font-size:14px;letter-spacing:.05em;text-transform:uppercase;cursor:pointer">Not now</button>
+    </div>
+  </div>
+</div>
+</sc-if>
+
+</div>
+</x-import>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:460,&quot;height&quot;:940}}">
+const EX = [
+  { id:'bench', name:'Barbell Bench Press', target:'4 × 6-8 @ RPE 8', prev:'62.5 kg × 8', best:62.5, plan:[{w:62.5,r:8},{w:62.5,r:8},{w:65,r:6},{w:65,r:6}] },
+  { id:'incline', name:'Incline Dumbbell Press', target:'3 × 8-10', prev:'22.5 kg × 10', best:24, plan:[{w:24,r:10},{w:24,r:9},{w:24,r:8}] },
+  { id:'ohp', name:'Seated Shoulder Press', target:'3 × 8-10', prev:'37.5 kg × 9', best:40, plan:[{w:40,r:8},{w:40,r:8},{w:40,r:7}] },
+  { id:'fly', name:'Cable Fly', target:'3 × 12-15', prev:'15 kg × 14', best:15, plan:[{w:15,r:14},{w:15,r:13},{w:15,r:12}] },
+  { id:'tri', name:'Triceps Rope Pushdown', target:'3 × 12-15', prev:'27.5 kg × 12', best:30, plan:[{w:30,r:12},{w:30,r:12},{w:30,r:10}] }
+];
+
+const REGIONS = {
+  chest:{ name:'Chest', pct:'36%', note:'14 sets today. Give it about two more days before heavy pressing.' },
+  delt:{ name:'Front delt', pct:'52%', note:'Worked indirectly today through pressing. Light lateral work is fine.' },
+  bicep:{ name:'Biceps', pct:'88%', note:'Last direct work Monday. Ready.' },
+  core:{ name:'Core', pct:'74%', note:'Bracing load only. No direct work since Tuesday.' },
+  quad:{ name:'Quads', pct:'94%', note:'Squat session Tuesday. Fully recovered for Saturday.' },
+  trap:{ name:'Traps', pct:'66%', note:'Carried load in shoulder pressing and Monday rows.' },
+  lat:{ name:'Lats', pct:'70%', note:'Pull day Monday. Recovering on schedule.' },
+  tri:{ name:'Triceps', pct:'44%', note:'6 direct sets today plus pressing volume. Ease off tomorrow.' },
+  glute:{ name:'Glutes', pct:'90%', note:'Hinge work is Saturday. Nothing pending.' },
+  ham:{ name:'Hamstrings', pct:'92%', note:'Ready for Saturday hinge focus.' },
+  calf:{ name:'Calves', pct:'80%', note:'Two sets Tuesday. Low weekly volume — worth adding a set.' }
+};
+
+const ATT = [3,4,2,0,0,3,4,4,3,4,3,3];
+const REPS = [5,6,7,8,9,10,11,12];
+
+class Component extends DCLogic {
+  state = {
+    route: 'home',
+    pass: null,
+    variant: 'A',
+    exIdx: 0,
+    sets: EX.map(e => e.plan.map(p => ({ w:p.w, r:p.r, done:false }))),
+    rpe: 8,
+    rest: 0,
+    restTotal: 90,
+    elapsed: 0,
+    offline: false,
+    queued: 0,
+    prWeight: 0,
+    synced: false,
+    region: 'chest',
+    wlSheet: false,
+    waitlisted: false,
+    day: 6
+  };
+
+  componentDidMount() {
+    this.tick = setInterval(() => {
+      const s = this.state;
+      if (s.route === 'workout') this.setState(p => ({ elapsed: p.elapsed + 1 }));
+      if (s.rest > 0) this.setState(p => ({ rest: Math.max(0, p.rest - 1) }));
+      if (s.pass === 'idle') this.setState(p => ({ ttl: ((p.ttl == null ? 30 : p.ttl) - 1 + 30) % 30 }));
+    }, 1000);
+  }
+  componentWillUnmount() { clearInterval(this.tick); }
+
+  go = r => () => this.setState({ route: r, pass: null });
+
+  totalDone() { return this.state.sets.reduce((a, ss) => a + ss.filter(x => x.done).length, 0); }
+
+  adjust(i, j, field, delta) {
+    this.setState(p => {
+      const sets = p.sets.map(a => a.map(o => ({ ...o })));
+      const step = field === 'w' ? 2.5 : 1;
+      sets[i][j][field] = Math.max(field === 'w' ? 0 : 1, sets[i][j][field] + delta * step);
+      return { sets };
+    });
+  }
+
+  log(i, j) {
+    this.setState(p => {
+      const sets = p.sets.map(a => a.map(o => ({ ...o })));
+      const row = sets[i][j];
+      row.done = true;
+      const done = sets.reduce((a, ss) => a + ss.filter(x => x.done).length, 0);
+      const allDone = sets[i].every(x => x.done);
+      const isPr = EX[i].id === 'bench' && row.w > EX[i].best;
+      return {
+        sets,
+        exIdx: allDone && i < EX.length - 1 ? i + 1 : p.exIdx,
+        rest: allDone ? 120 : 90,
+        restTotal: allDone ? 120 : 90,
+        offline: done >= 3 && done < 7,
+        queued: done >= 3 && done < 7 ? done - 2 : 0,
+        prWeight: isPr ? Math.max(p.prWeight, row.w) : p.prWeight
+      };
+    });
+  }
+
+  finish = () => {
+    this.setState({ route: 'summary', rest: 0, synced: false, offline: false });
+    setTimeout(() => this.setState({ synced: true }), 2600);
+  };
+
+  startWorkout = () => this.setState({ route: 'workout', pass: null, rest: 0 });
+
+  openPass = () => { this.setState({ pass: 'idle', ttl: 24 }); this.passTimer = setTimeout(() => { if (this.state.pass === 'idle') this.setState({ pass: 'ok' }); }, 2600); };
+  closePass = () => { clearTimeout(this.passTimer); this.setState({ pass: null }); };
+
+  pick = k => () => this.setState({ region: k });
+
+  fmt(s) { const m = Math.floor(s / 60); return m + ':' + String(s % 60).padStart(2, '0'); }
+
+  renderVals() {
+    const s = this.state;
+    const i = s.exIdx;
+    const ex = EX[i];
+    const rows = s.sets[i];
+    const pending = rows.findIndex(x => !x.done);
+    const pj = pending === -1 ? rows.length - 1 : pending;
+    const done = this.totalDone();
+    const totalSets = s.sets.reduce((a, ss) => a + ss.length, 0);
+    const volume = s.sets.reduce((a, ss, k) => a + ss.filter(x => x.done).reduce((b, x) => b + x.w * x.r, 0), 0);
+    const on = { background: '#94bce3', color: '#1d2d3d' };
+    const off = { background: 'transparent', color: 'rgba(242,242,243,.7)' };
+    const tab = r => (s.route === r ? '#94bce3' : 'rgba(242,242,243,.5)');
+
+    const setRow = (j) => {
+      const row = rows[j];
+      return {
+        n: j + 1, w: row.w, r: row.r,
+        chip: row.done ? row.w + '×' + row.r : (j + 1),
+        rowBg: row.done ? 'rgba(148,188,227,.07)' : 'transparent',
+        numColor: row.done ? '#94bce3' : 'rgba(242,242,243,.5)',
+        btnLabel: row.done ? '✓' : 'Log',
+        btnBg: row.done ? 'transparent' : '#94bce3',
+        btnFg: row.done ? '#94bce3' : '#1d2d3d',
+        btnBd: row.done ? 'rgba(148,188,227,.5)' : '#94bce3',
+        pipBg: row.done ? '#94bce3' : (j === pj ? 'rgba(148,188,227,.28)' : 'rgba(242,242,243,.12)'),
+        pipFg: row.done ? '#1d2d3d' : 'rgba(242,242,243,.6)',
+        log: () => this.log(i, j),
+        incW: () => this.adjust(i, j, 'w', 1), decW: () => this.adjust(i, j, 'w', -1),
+        incR: () => this.adjust(i, j, 'r', 1), decR: () => this.adjust(i, j, 'r', -1)
+      };
+    };
+
+    const fr = rows[pj];
+    const plates = (() => {
+      const side = (fr.w - 20) / 2;
+      if (side <= 0) return 'bar only';
+      const out = []; let rem = side;
+      [20, 10, 5, 2.5, 1.25].forEach(p => { while (rem >= p - 0.01) { out.push(p); rem -= p; } });
+      return out.join(' + ') || 'bar only';
+    })();
+
+    return {
+      showChrome: s.route !== 'workout',
+      isHome: s.route === 'home', isTrain: s.route === 'train', isWorkout: s.route === 'workout',
+      isSummary: s.route === 'summary', isBook: s.route === 'book', isProgress: s.route === 'progress',
+      isCommunity: s.route === 'community',
+      goHome: this.go('home'), goTrain: this.go('train'), goBook: this.go('book'),
+      goProgress: this.go('progress'), goCommunity: this.go('community'),
+      tHome: tab('home'), tTrain: tab('train'), tBook: tab('book'), tProgress: tab('progress'), tCommunity: tab('community'),
+
+      syncLabel: s.offline ? 'Offline' : 'Synced',
+      memChip: 'Active', memColor: '#94bce3', memBorder: 'rgba(148,188,227,.55)', memGlyph: '✓',
+      memSub: 'Ends 14 Sep 2026 · auto-renew on · ₹2,499/mo',
+      xpPct: '64%', xpLabel: '1,280 / 2,000 XP to Great White',
+
+      startLabel: done > 0 ? 'Resume' : 'Start',
+      startWorkout: this.startWorkout,
+      openPass: this.openPass, closePass: this.closePass,
+      isPass: s.pass !== null, passIdle: s.pass === 'idle', passOk: s.pass === 'ok', passDenied: s.pass === 'denied',
+      codeTtl: s.ttl == null ? 24 : s.ttl,
+      simulateScan: () => { clearTimeout(this.passTimer); this.setState({ pass: 'ok' }); },
+      simulateDeny: () => { clearTimeout(this.passTimer); this.setState({ pass: 'denied' }); },
+      resetPass: () => this.setState({ pass: 'idle' }),
+      startFromPass: this.startWorkout,
+
+      exList: EX.map((e, k) => ({ n: k + 1, name: e.name, target: e.target, prev: e.prev })),
+
+      cur: { name: ex.name, target: ex.target, prev: ex.prev },
+      exCounter: 'Exercise ' + (i + 1) + ' of ' + EX.length,
+      progressLabel: done + ' of ' + totalSets + ' sets logged',
+      donePct: Math.round((done / totalSets) * 100) + '%',
+      elapsed: this.fmt(s.elapsed),
+      offline: s.offline, queuedLabel: s.queued + (s.queued === 1 ? ' set' : ' sets'),
+      curSets: rows.map((_, j) => setRow(j)),
+      isVarA: s.variant === 'A', isVarB: s.variant === 'B', isVarC: s.variant === 'C',
+      setVarA: () => this.setState({ variant: 'A' }), setVarB: () => this.setState({ variant: 'B' }), setVarC: () => this.setState({ variant: 'C' }),
+      vaBg: s.variant === 'A' ? on.background : off.background, vaFg: s.variant === 'A' ? on.color : off.color,
+      vbBg: s.variant === 'B' ? on.background : off.background, vbFg: s.variant === 'B' ? on.color : off.color,
+      vcBg: s.variant === 'C' ? on.background : off.background, vcFg: s.variant === 'C' ? on.color : off.color,
+
+      focus: {
+        n: pj + 1, total: rows.length, w: fr.w, r: fr.r, plates,
+        cta: fr.done ? 'Logged ✓' : 'Log set ' + (pj + 1),
+        log: () => this.log(i, pj),
+        incW: () => this.adjust(i, pj, 'w', 1), decW: () => this.adjust(i, pj, 'w', -1),
+        incR: () => this.adjust(i, pj, 'r', 1), decR: () => this.adjust(i, pj, 'r', -1),
+        slideW: e => { const v = parseFloat(e.target.value); this.setState(p => { const sets = p.sets.map(a => a.map(o => ({ ...o }))); sets[i][pj].w = v; return { sets }; }); },
+        rpe7: () => this.setState({ rpe: 7 }), rpe8: () => this.setState({ rpe: 8 }), rpe9: () => this.setState({ rpe: 9 }),
+        b7: s.rpe === 7 ? on.background : off.background, f7: s.rpe === 7 ? on.color : off.color,
+        b8: s.rpe === 8 ? on.background : off.background, f8: s.rpe === 8 ? on.color : off.color,
+        b9: s.rpe === 9 ? on.background : off.background, f9: s.rpe === 9 ? on.color : off.color
+      },
+      repChips: REPS.map(v => ({ v, bg: fr.r === v ? on.background : off.background, fg: fr.r === v ? on.color : off.color, pick: () => this.setState(p => { const sets = p.sets.map(a => a.map(o => ({ ...o }))); sets[i][pj].r = v; return { sets }; }) })),
+      addSet: () => this.setState(p => { const sets = p.sets.map(a => a.map(o => ({ ...o }))); sets[i].push({ w: fr.w, r: fr.r, done: false }); return { sets }; }),
+
+      resting: s.rest > 0,
+      restLabel: this.fmt(s.rest),
+      restOffset: (144.5 * (1 - s.rest / s.restTotal)).toFixed(1),
+      restNext: pending === -1 ? 'Next: ' + (EX[Math.min(i + 1, EX.length - 1)].name) : 'Next: set ' + (pj + 1) + ' · ' + fr.w + ' kg × ' + fr.r,
+      skipRest: () => this.setState({ rest: 0 }),
+      pauseWorkout: this.go('train'),
+      finishWorkout: this.finish,
+
+      sumDuration: this.fmt(Math.max(s.elapsed, 47 * 60)).replace(':', 'h ').length > 6 ? Math.round(Math.max(s.elapsed, 2820) / 60) + 'm' : Math.round(Math.max(s.elapsed, 2820) / 60) + 'm',
+      sumVolume: (volume > 0 ? volume : 6420).toLocaleString('en-IN'),
+      sumSets: done > 0 ? done : 16,
+      prHit: s.prWeight > 0, prWeight: s.prWeight || 65,
+      synced: s.synced,
+      syncMsg: s.synced ? 'Saved and synced to your coach.' : 'Saved on this phone · syncing 3 sets…',
+      syncFg: s.synced ? '#94bce3' : '#d9a55f',
+      syncBd: s.synced ? 'rgba(148,188,227,.45)' : 'rgba(217,165,95,.45)',
+      syncBg: s.synced ? 'rgba(148,188,227,.07)' : 'rgba(217,165,95,.09)',
+
+      days: [['THU', 6], ['FRI', 7], ['SAT', 8], ['SUN', 9], ['MON', 10], ['TUE', 11]].map(([dow, n]) => ({
+        dow, n, bg: s.day === n ? '#94bce3' : 'transparent', fg: s.day === n ? '#1d2d3d' : 'rgba(242,242,243,.75)',
+        pick: () => this.setState({ day: n })
+      })),
+      wlLabel: s.waitlisted ? '3rd' : 'Waitlist',
+      wlFg: s.waitlisted ? '#94bce3' : 'rgba(242,242,243,.75)',
+      wlBd: s.waitlisted ? 'rgba(148,188,227,.6)' : 'rgba(242,242,243,.28)',
+      wlNote: s.waitlisted ? 'You are 3rd on the waitlist · 15 min to confirm if a seat opens' : 'Waitlist open · 2 ahead of you',
+      joinWaitlist: () => this.setState({ wlSheet: true }),
+      showWl: s.wlSheet,
+      confirmWl: () => this.setState({ wlSheet: false, waitlisted: true }),
+      cancelWl: () => this.setState({ wlSheet: false }),
+
+      region: REGIONS[s.region],
+      pickChest: this.pick('chest'), pickDelt: this.pick('delt'), pickBicep: this.pick('bicep'),
+      pickCore: this.pick('core'), pickQuad: this.pick('quad'), pickTrap: this.pick('trap'),
+      pickLat: this.pick('lat'), pickTri: this.pick('tri'), pickGlute: this.pick('glute'),
+      pickHam: this.pick('ham'), pickCalf: this.pick('calf'),
+      attendance: ATT.map(v => ({ bg: v === 0 ? 'transparent' : 'rgba(148,188,227,' + (0.22 + v * 0.19) + ')' }))
+    };
+  }
+}
+</script>
+</body>
+</html>
