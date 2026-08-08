@@ -4,6 +4,7 @@ import { authenticate, errorHandler, logger, memberOnly, requestId, staffOnly } 
 import { allowedOrigins, csrfProtection, securityHeaders } from './lib/security.js';
 
 import { authRoutes } from './routes/auth.js';
+import { authStabilizationRoutes } from './routes/auth-stabilization.js';
 import { meRoutes } from './routes/me.js';
 import { doorRoutes } from './routes/door.js';
 
@@ -21,6 +22,7 @@ import { mediaRoutes } from './routes/member/media.js';
 import { dashboardRoutes } from './routes/admin/dashboard.js';
 import { membersRoutes } from './routes/admin/members.js';
 import { leadsRoutes } from './routes/admin/leads.js';
+import { billingStabilizationRoutes } from './routes/admin/billing-stabilization.js';
 import { billingRoutes as adminBillingRoutes } from './routes/admin/billing.js';
 import { attendanceRoutes } from './routes/admin/attendance.js';
 import { scheduleRoutes as adminScheduleRoutes } from './routes/admin/schedule.js';
@@ -68,6 +70,7 @@ app.notFound((c) =>
 
 app.get('/health', (c) => c.json({ ok: true, at: new Date().toISOString() }));
 
+app.route('/v1/auth', authStabilizationRoutes);
 app.route('/v1/auth', authRoutes);
 app.route('/v1/door', doorRoutes);
 
@@ -90,6 +93,7 @@ app.use('/v1/admin/*', authenticate, staffOnly);
 app.route('/v1/admin/dashboard', dashboardRoutes);
 app.route('/v1/admin/members', membersRoutes);
 app.route('/v1/admin/leads', leadsRoutes);
+app.route('/v1/admin/billing', billingStabilizationRoutes);
 app.route('/v1/admin/billing', adminBillingRoutes);
 app.route('/v1/admin/attendance', attendanceRoutes);
 app.route('/v1/admin/schedule', adminScheduleRoutes);
