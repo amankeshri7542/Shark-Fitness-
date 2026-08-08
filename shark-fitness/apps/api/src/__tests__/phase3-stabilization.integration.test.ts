@@ -9,6 +9,10 @@ import { now } from '../lib/time.js';
 interface Session { cookie: string; csrfToken: string }
 const cache = new Map<string, Session>();
 
+function sharkTenantId(): string {
+  return db.select({ id: schema.tenants.id }).from(schema.tenants).where(eq(schema.tenants.slug, 'shark')).get()!.id;
+}
+
 async function signIn(email: string): Promise<Session> {
   const cached = cache.get(email);
   if (cached) return cached;
@@ -41,13 +45,14 @@ function unique(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function makeMember(branchId = 'br_kor', invited = true) {
+function makeMember(branchId = 'br_kor', invited = true, dob: string | null = null) {
+  const tenantId = sharkTenantId();
   const userId = id('usr');
   const memberId = id('mbr');
   const email = `${unique('phase3')}@example.test`;
   db.insert(schema.users).values({
     id: userId,
-    tenantId: 'tn_shark',
+    tenantId,
     email,
     phone: null,
     name: 'Phase Three Member',
@@ -63,7 +68,7 @@ function makeMember(branchId = 'br_kor', invited = true) {
   }).run();
   db.insert(schema.members).values({
     id: memberId,
-    tenantId: 'tn_shark',
+    tenantId,
     userId,
     homeBranchId: branchId,
     memberNo: `SF-${Math.floor(50000 + Math.random() * 40000)}`,
@@ -74,7 +79,7 @@ function makeMember(branchId = 'br_kor', invited = true) {
     phone: null,
     phoneNormalized: null,
     emailNormalized: email,
-    dob: null,
+    dob,
     gender: null,
     addressLine: null,
     emergencyContact: null,
@@ -95,7 +100,7 @@ function makeMember(branchId = 'br_kor', invited = true) {
     updatedAt: now(),
     deletedAt: null,
   }).run();
-  return { userId, memberId, email };
+  return { userId, memberId, email, tenantId };
 }
 
 async function assign(owner: Session, memberId: string, productId = 'prd_daypass') {
@@ -120,7 +125,7 @@ function makeProduct(kind = 'membership', eligibility = { minAge: null as number
   const productId = id('prd');
   db.insert(schema.products).values({
     id: productId,
-    tenantId: 'tn_shark',
+    tenantId: sharkTenantId(),
     kind,
     name: productId,
     description: 'Stabilization product',
@@ -185,14 +190,15 @@ describe('phase 3 stabilization', () => {
   it('enforces branch scope on refunds', async () => {
     const owner = await signIn('owner@sharkfitness.in');
     const purchase = await assign(owner, makeMember('br_ind').memberId);
-    const { paymentId } = (await (await pay(owner, purchase.invoiceId, purchase.totalMinor)).json()) as { paymentId: string };
+    const paid = await pay(owner, purchase.invoiceId, purchase.totalMinor);
+    const { paymentId } = (await paid.json()) as { paymentId: string };
 
     const source = db.select().from(schema.users).where(eq(schema.users.email, 'owner@sharkfitness.in')).get()!;
     const userId = id('usr');
     const email = `${unique('limited')}@example.test`;
     db.insert(schema.users).values({ ...source, id: userId, email, name: 'Limited Owner', initials: 'LO', createdAt: now(), updatedAt: now() }).run();
     db.insert(schema.staff).values({
-      id: id('stf'), tenantId: 'tn_shark', userId, employmentStatus: 'active', branchIds: ['br_kor'],
+      id: id('stf'), tenantId: source.tenantId, userId, employmentStatus: 'active', branchIds: ['br_kor'],
       specialties: [], certifications: [], commissionRules: [], hourlyRateMinor: null, joinedOn: '2026-01-01',
       createdAt: now(), updatedAt: now(),
     }).run();
@@ -206,10 +212,11 @@ describe('phase 3 stabilization', () => {
     expect(response.status).toBe(404);
   });
 
-  it('enforces product-kind and member eligibility rules', async () => {
+  it('enforces product-kind and known-age eligibility rules', async () => {
     const owner = await signIn('owner@sharkfitness.in');
     const ageRestricted = makeProduct('membership', { minAge: 30, maxAge: null, corporateOnly: false });
-    const ageDenied = await app.request(`/v1/admin/billing/members/${makeMember().memberId}/assign-plan`, {
+    const underage = makeMember('br_kor', true, '2010-01-01');
+    const ageDenied = await app.request(`/v1/admin/billing/members/${underage.memberId}/assign-plan`, {
       method: 'POST', headers: headers(owner, true), body: JSON.stringify({ productId: ageRestricted }),
     });
     expect(ageDenied.status).toBe(422);
@@ -239,7 +246,7 @@ describe('phase 3 stabilization', () => {
     const challengeId = id('otp');
     const code = '654321';
     db.insert(schema.otpChallenges).values({
-      id: challengeId, tenantId: 'tn_shark', identifier: member.email,
+      id: challengeId, tenantId: member.tenantId, identifier: member.email,
       codeHash: hashToken(`${challengeId}:${code}`), attempts: 0, createdAt: now(),
       expiresAt: now() + 600_000, consumedAt: null,
     }).run();

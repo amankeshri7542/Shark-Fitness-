@@ -9,10 +9,10 @@ import { requireBranch, requirePermission } from '../../lib/context.js';
 import { conflict, notFound } from '../../lib/errors.js';
 import {
   applyPaymentSafely,
-  createMembershipPurchase,
   refundSafely,
   voidInvoiceSafely,
 } from '../../services/billing-stabilization.js';
+import { createMembershipPurchase } from '../../services/billing-membership.js';
 
 export const billingStabilizationRoutes = new Hono();
 
@@ -89,7 +89,10 @@ billingStabilizationRoutes.post(
   },
 );
 
-const PlanBody = z.object({ productId: z.string() });
+const PlanBody = z.object({
+  productId: z.string(),
+  eligibilityApproved: z.boolean().default(false),
+});
 
 function loadMemberAndProduct(ctx: ReturnType<typeof ctxOf>, memberId: string, productId: string) {
   const member = db
@@ -116,14 +119,17 @@ billingStabilizationRoutes.post(
     const ctx = ctxOf(c);
     requirePermission(ctx, 'membership.manage');
     const memberId = c.req.param('memberId');
-    const { member, product } = loadMemberAndProduct(
-      ctx,
-      memberId,
-      c.req.valid('json').productId,
-    );
+    const body = c.req.valid('json');
+    const { member, product } = loadMemberAndProduct(ctx, memberId, body.productId);
 
     const result = transact(() =>
-      createMembershipPurchase({ ctx, member, product, previousMembershipId: null }),
+      createMembershipPurchase({
+        ctx,
+        member,
+        product,
+        previousMembershipId: null,
+        eligibilityApproved: body.eligibilityApproved,
+      }),
     );
     return c.json(result, 201);
   },
@@ -160,7 +166,8 @@ billingStabilizationRoutes.post(
       throw conflict('Only an expired or cancelled membership can be renewed through this endpoint.');
     }
 
-    const productId = c.req.valid('json').productId ?? previous.productId;
+    const body = c.req.valid('json');
+    const productId = body.productId ?? previous.productId;
     const product = db
       .select()
       .from(schema.products)
@@ -174,6 +181,7 @@ billingStabilizationRoutes.post(
         member,
         product,
         previousMembershipId: previous.id,
+        eligibilityApproved: body.eligibilityApproved ?? false,
       }),
     );
     return c.json(result, 201);
