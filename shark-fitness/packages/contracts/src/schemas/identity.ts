@@ -5,7 +5,7 @@ export const Id = z.string().min(1);
 export const IsoDateTime = z.string().datetime({ offset: true });
 export const IsoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'expected YYYY-MM-DD');
 export const Phone = z.string().regex(/^\+?[0-9 ()-]{7,20}$/, 'enter a valid phone number');
-export const Money = z.number().int(); // minor units, always
+export const Money = z.number().int();
 
 export const Tenant = z.object({
   id: Id,
@@ -32,7 +32,7 @@ export const Branch = z.object({
   city: z.string(),
   timezone: z.string(),
   capacity: z.number().int(),
-  opensAt: z.string(), // HH:MM local
+  opensAt: z.string(),
   closesAt: z.string(),
   state: BranchState,
   amenities: z.array(z.string()),
@@ -66,17 +66,15 @@ export type Viewer = z.infer<typeof Viewer>;
 /* — Auth ————————————————————————————————————————————————— */
 
 export const StartOtpInput = z.object({
-  identifier: z.string().min(3), // email or phone
+  identifier: z.string().min(3),
   tenantSlug: z.string().optional(),
 });
 export type StartOtpInput = z.infer<typeof StartOtpInput>;
 
 export const StartOtpResult = z.object({
   challengeId: Id,
-  /** Where it went, masked: "a•••@example.com". Never the full contact. */
   sentTo: z.string(),
   expiresInSec: z.number().int(),
-  /** Dev/demo builds echo the code so the flow is walkable without a mailer. */
   devCode: z.string().optional(),
 });
 export type StartOtpResult = z.infer<typeof StartOtpResult>;
@@ -88,6 +86,7 @@ export const VerifyOtpInput = z.object({
 export type VerifyOtpInput = z.infer<typeof VerifyOtpInput>;
 
 export const PasswordSignInInput = z.object({
+  tenantSlug: z.string().min(1).max(80),
   email: z.string().email(),
   password: z.string().min(8),
 });

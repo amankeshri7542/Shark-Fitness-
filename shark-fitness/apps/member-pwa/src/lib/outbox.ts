@@ -2,19 +2,11 @@ import { openDB, type IDBPDatabase } from 'idb';
 import { useEffect, useState } from 'react';
 import { ApiError, OfflineError, api } from './api';
 
-/**
- * Offline mutation outbox — Engineering PRD §"Mobile offline outbox".
- *
- * The rule that shapes this file: network loss never destroys workout input.
- * Every write that can happen on a gym floor goes through here first, is
- * persisted before the request is attempted, and carries a client-generated id
- * that doubles as the idempotency key. Replaying an entry is a no-op server
- * side, so a flaky connection costs a retry and nothing else.
- */
-
 export type OutboxStatus = 'queued' | 'sending' | 'synced' | 'failed' | 'conflict';
 
 export interface OutboxEntry {
+  key: string;
+  ownerKey: string;
   clientId: string;
   kind: string;
   method: 'POST' | 'PATCH' | 'DELETE';
@@ -27,15 +19,19 @@ export interface OutboxEntry {
   nextAttemptAt: number;
 }
 
-const DB_NAME = 'shark-outbox';
+const DB_NAME = 'shark-outbox-v2';
 const STORE = 'entries';
-
 let dbPromise: Promise<IDBPDatabase> | null = null;
+let activeOwner: string | null = null;
+let flushTimer: number | null = null;
+let onlineHandler: (() => void) | null = null;
+let visibilityHandler: (() => void) | null = null;
 
 function database(): Promise<IDBPDatabase> {
   dbPromise ??= openDB(DB_NAME, 1, {
     upgrade(db) {
-      const store = db.createObjectStore(STORE, { keyPath: 'clientId' });
+      const store = db.createObjectStore(STORE, { keyPath: 'key' });
+      store.createIndex('ownerKey', 'ownerKey');
       store.createIndex('status', 'status');
     },
   });
@@ -43,17 +39,22 @@ function database(): Promise<IDBPDatabase> {
 }
 
 const listeners = new Set<() => void>();
-const notify = (): void => listeners.forEach((l) => l());
+const notify = (): void => listeners.forEach((listener) => listener());
 
 export function subscribeToOutbox(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
 
-export async function enqueue(entry: Omit<OutboxEntry, 'attempts' | 'status' | 'createdAt' | 'nextAttemptAt'>): Promise<void> {
+export async function enqueue(
+  entry: Omit<OutboxEntry, 'key' | 'ownerKey' | 'attempts' | 'status' | 'createdAt' | 'nextAttemptAt'>,
+): Promise<void> {
+  if (!activeOwner) throw new Error('Cannot queue an offline write without a signed-in owner');
   const db = await database();
   await db.put(STORE, {
     ...entry,
+    key: `${activeOwner}:${entry.clientId}`,
+    ownerKey: activeOwner,
     createdAt: Date.now(),
     attempts: 0,
     status: 'queued' satisfies OutboxStatus,
@@ -64,9 +65,10 @@ export async function enqueue(entry: Omit<OutboxEntry, 'attempts' | 'status' | '
 }
 
 export async function pending(): Promise<OutboxEntry[]> {
+  if (!activeOwner) return [];
   const db = await database();
-  const all = (await db.getAll(STORE)) as OutboxEntry[];
-  return all.filter((e) => e.status === 'queued' || e.status === 'sending' || e.status === 'failed');
+  const all = (await db.getAllFromIndex(STORE, 'ownerKey', activeOwner)) as OutboxEntry[];
+  return all.filter((entry) => entry.status !== 'synced');
 }
 
 export async function pendingCount(): Promise<number> {
@@ -75,45 +77,39 @@ export async function pendingCount(): Promise<number> {
 
 let flushing = false;
 
-/** Exponential backoff, capped. A gym basement is not a reason to hammer. */
 function backoffMs(attempts: number): number {
   return Math.min(60_000, 1_000 * 2 ** attempts);
 }
 
 export async function flush(): Promise<void> {
-  if (flushing || !navigator.onLine) return;
+  const ownerAtStart = activeOwner;
+  if (flushing || !ownerAtStart || !navigator.onLine) return;
   flushing = true;
 
   try {
     const db = await database();
-    const queue = (await db.getAll(STORE)) as OutboxEntry[];
+    const queue = (await db.getAllFromIndex(STORE, 'ownerKey', ownerAtStart)) as OutboxEntry[];
     const due = queue
-      .filter((e) => (e.status === 'queued' || e.status === 'failed') && e.nextAttemptAt <= Date.now())
+      .filter((entry) => (entry.status === 'queued' || entry.status === 'failed') && entry.nextAttemptAt <= Date.now())
       .sort((a, b) => a.createdAt - b.createdAt);
 
     for (const entry of due) {
+      if (activeOwner !== ownerAtStart || entry.ownerKey !== ownerAtStart) break;
+
       await db.put(STORE, { ...entry, status: 'sending' satisfies OutboxStatus });
       notify();
 
       try {
-        await api(entry.path, {
-          method: entry.method,
-          body: entry.body,
-          idempotencyKey: entry.clientId,
-        });
-        await db.delete(STORE, entry.clientId);
+        await api(entry.path, { method: entry.method, body: entry.body, idempotencyKey: entry.clientId });
+        await db.delete(STORE, entry.key);
       } catch (error) {
         if (error instanceof OfflineError) {
-          // Still offline. Put it back untouched and stop — no point burning
-          // through the rest of the queue against a dead connection.
           await db.put(STORE, { ...entry, status: 'queued' satisfies OutboxStatus });
           notify();
           break;
         }
 
         if (error instanceof ApiError) {
-          // A 4xx that is not a conflict will never succeed on retry. Park it
-          // as failed so the member is told, rather than looping forever.
           const permanent = error.status >= 400 && error.status < 500 && error.code !== 'CONFLICT';
           await db.put(STORE, {
             ...entry,
@@ -141,14 +137,16 @@ export async function flush(): Promise<void> {
 }
 
 export async function discard(clientId: string): Promise<void> {
+  if (!activeOwner) return;
   const db = await database();
-  await db.delete(STORE, clientId);
+  await db.delete(STORE, `${activeOwner}:${clientId}`);
   notify();
 }
 
 export async function retryAll(): Promise<void> {
+  if (!activeOwner) return;
   const db = await database();
-  const all = (await db.getAll(STORE)) as OutboxEntry[];
+  const all = (await db.getAllFromIndex(STORE, 'ownerKey', activeOwner)) as OutboxEntry[];
   for (const entry of all) {
     if (entry.status === 'failed' || entry.status === 'conflict') {
       await db.put(STORE, { ...entry, status: 'queued' satisfies OutboxStatus, nextAttemptAt: 0 });
@@ -158,23 +156,36 @@ export async function retryAll(): Promise<void> {
   await flush();
 }
 
-export function startOutbox(): void {
-  window.addEventListener('online', () => void flush());
-  // A tab coming back to the foreground is the most common moment a member
-  // regains signal after a session in the basement.
-  document.addEventListener('visibilitychange', () => {
+export function startOutbox(ownerKey: string): () => void {
+  stopOutbox();
+  activeOwner = ownerKey;
+  onlineHandler = () => void flush();
+  visibilityHandler = () => {
     if (document.visibilityState === 'visible') void flush();
-  });
-  setInterval(() => void flush(), 15_000);
+  };
+  window.addEventListener('online', onlineHandler);
+  document.addEventListener('visibilitychange', visibilityHandler);
+  flushTimer = window.setInterval(() => void flush(), 15_000);
   void flush();
+  notify();
+  return stopOutbox;
+}
+
+export function stopOutbox(): void {
+  if (onlineHandler) window.removeEventListener('online', onlineHandler);
+  if (visibilityHandler) document.removeEventListener('visibilitychange', visibilityHandler);
+  if (flushTimer !== null) window.clearInterval(flushTimer);
+  onlineHandler = null;
+  visibilityHandler = null;
+  flushTimer = null;
+  activeOwner = null;
+  notify();
 }
 
 export function useOutboxCount(): number {
   const [count, setCount] = useState(0);
   useEffect(() => {
-    const read = (): void => {
-      void pendingCount().then(setCount);
-    };
+    const read = (): void => void pendingCount().then(setCount);
     read();
     return subscribeToOutbox(read);
   }, []);
@@ -183,9 +194,7 @@ export function useOutboxCount(): number {
 
 export function useOutbox(): { entries: OutboxEntry[]; refresh: () => void } {
   const [entries, setEntries] = useState<OutboxEntry[]>([]);
-  const refresh = (): void => {
-    void pending().then(setEntries);
-  };
+  const refresh = (): void => void pending().then(setEntries);
   useEffect(() => {
     refresh();
     return subscribeToOutbox(refresh);

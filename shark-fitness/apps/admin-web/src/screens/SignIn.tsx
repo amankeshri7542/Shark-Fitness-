@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import type { Viewer } from '@shark/contracts';
-import { ApiError, OfflineError, api, auth } from '../lib/api';
+import { ApiError, OfflineError, api } from '../lib/api';
 import { useAdmin } from '../lib/store';
 import { Button, Display, Field } from '../ui/console';
+
+const TENANT_SLUG = 'shark';
 
 const DEMO_STAFF = [
   { email: 'owner@sharkfitness.in', role: 'Owner', sees: 'Everything except platform administration' },
@@ -15,7 +17,7 @@ const DEMO_STAFF = [
 
 export default function SignInScreen() {
   const navigate = useNavigate();
-  const bootstrap = useAdmin((s) => s.bootstrap);
+  const bootstrap = useAdmin((state) => state.bootstrap);
   const [email, setEmail] = useState('owner@sharkfitness.in');
   const [password, setPassword] = useState('shark1234');
   const [error, setError] = useState<string | null>(null);
@@ -25,15 +27,15 @@ export default function SignInScreen() {
     setBusy(true);
     setError(null);
     try {
-      const result = await api<{ viewer: Viewer; token: string }>('/auth/password', {
+      const result = await api<{ viewer: Viewer; csrfToken: string }>('/auth/password', {
         method: 'POST',
-        body: { email, password },
+        body: { tenantSlug: TENANT_SLUG, email, password },
       });
       if (result.viewer.role === 'member') {
+        await api('/auth/sign-out', { method: 'POST' });
         setError('That is a member account. The dashboard is for gym staff — members use the app.');
         return;
       }
-      auth.set(result.token);
       await bootstrap();
       await navigate({ to: '/' });
     } catch (err) {
@@ -91,16 +93,16 @@ export default function SignInScreen() {
               type="email"
               autoComplete="username"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(event) => setEmail(event.target.value)}
             />
             <Field
               label="Password"
               type="password"
               autoComplete="current-password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void signIn();
+              onChange={(event) => setPassword(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') void signIn();
               }}
             />
 
@@ -119,14 +121,14 @@ export default function SignInScreen() {
                 Demo roles — the console changes shape for each
               </span>
               <ul className="mt-2 flex flex-col gap-1.5">
-                {DEMO_STAFF.map((s) => (
-                  <li key={s.email}>
+                {DEMO_STAFF.map((staff) => (
+                  <li key={staff.email}>
                     <button
                       type="button"
                       className="w-full text-left text-[12px] leading-snug text-foam-65 hover:text-sonar"
-                      onClick={() => setEmail(s.email)}
+                      onClick={() => setEmail(staff.email)}
                     >
-                      <span className="text-foam">{s.role}</span> — {s.sees}
+                      <span className="text-foam">{staff.role}</span> — {staff.sees}
                     </button>
                   </li>
                 ))}

@@ -4,6 +4,7 @@ import tailwind from '@tailwindcss/vite';
 import { fileURLToPath } from 'node:url';
 
 export default defineConfig({
+  base: '/admin/',
   plugins: [react(), tailwind()],
   resolve: {
     alias: [
@@ -12,9 +13,6 @@ export default defineConfig({
       { find: /^@shark\/domain$/, replacement: fileURLToPath(new URL('../../packages/domain/src/index.ts', import.meta.url)) },
       { find: /^@shark\/design-tokens$/, replacement: fileURLToPath(new URL('../../packages/design-tokens/src/index.ts', import.meta.url)) },
     ],
-    // Exact-match only. A plain string alias also rewrites subpath imports, so
-    // `@shark/design-tokens/sonar.css` would resolve inside index.ts. Subpaths
-    // resolve through the workspace link and the package's own exports map.
     dedupe: ['react', 'react-dom'],
   },
   server: {

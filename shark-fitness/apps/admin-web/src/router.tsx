@@ -22,7 +22,6 @@ import SupportScreen from './screens/Support';
 import SettingsScreen from './screens/Settings';
 import PlatformScreen from './screens/Platform';
 
-/** The bridge: rail down the left, status strip across the top, console beneath. */
 function ConsoleLayout() {
   return (
     <div className="bridge">
@@ -39,13 +38,10 @@ function ConsoleLayout() {
 const rootRoute = createRootRoute({ component: Outlet });
 
 function requireStaff(): void {
-  if (useAdmin.getState().status === 'signed-out') {
-    throw redirect({ to: '/sign-in' });
-  }
+  if (useAdmin.getState().status === 'signed-out') throw redirect({ to: '/sign-in' });
 }
 
 const signInRoute = createRoute({ getParentRoute: () => rootRoute, path: '/sign-in', component: SignInScreen });
-
 const consoleRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: 'console',
@@ -55,17 +51,9 @@ const consoleRoute = createRoute({
 
 const homeRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/', component: CommandCenterScreen });
 const leadsRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/leads', component: LeadsScreen });
-const leadDetailRoute = createRoute({
-  getParentRoute: () => consoleRoute,
-  path: '/leads/$leadId',
-  component: LeadDetailScreen,
-});
+const leadDetailRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/leads/$leadId', component: LeadDetailScreen });
 const membersRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/members', component: MembersScreen });
-const memberDetailRoute = createRoute({
-  getParentRoute: () => consoleRoute,
-  path: '/members/$memberId',
-  component: MemberDetailScreen,
-});
+const memberDetailRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/members/$memberId', component: MemberDetailScreen });
 const plansRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/plans', component: PlansScreen });
 const billingRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/billing', component: BillingScreen });
 const floorRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/floor', component: FloorScreen });
@@ -74,11 +62,7 @@ const trainingRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/
 const staffRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/staff', component: StaffScreen });
 const storeRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/store', component: StoreScreen });
 const equipmentRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/equipment', component: EquipmentScreen });
-const automationsRoute = createRoute({
-  getParentRoute: () => consoleRoute,
-  path: '/automations',
-  component: AutomationsScreen,
-});
+const automationsRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/automations', component: AutomationsScreen });
 const reportsRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/reports', component: ReportsScreen });
 const supportRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/support', component: SupportScreen });
 const settingsRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/settings', component: SettingsScreen });
@@ -108,7 +92,7 @@ const routeTree = rootRoute.addChildren([
   ]),
 ]);
 
-export const router = createRouter({ routeTree, defaultPreload: 'intent' });
+export const router = createRouter({ routeTree, defaultPreload: 'intent', basepath: '/admin' });
 
 declare module '@tanstack/react-router' {
   interface Register {

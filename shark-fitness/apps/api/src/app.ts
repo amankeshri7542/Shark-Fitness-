@@ -1,16 +1,11 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import {
-  authenticate,
-  errorHandler,
-  logger,
-  memberOnly,
-  requestId,
-  staffOnly,
-} from './middleware/index.js';
+import { authenticate, errorHandler, logger, memberOnly, requestId, staffOnly } from './middleware/index.js';
+import { allowedOrigins, csrfProtection, securityHeaders } from './lib/security.js';
 
 import { authRoutes } from './routes/auth.js';
 import { meRoutes } from './routes/me.js';
+import { doorRoutes } from './routes/door.js';
 
 import { homeRoutes } from './routes/member/home.js';
 import { passRoutes } from './routes/member/pass.js';
@@ -37,54 +32,48 @@ import { reportsRoutes } from './routes/admin/reports.js';
 import { settingsRoutes } from './routes/admin/settings.js';
 import { supportRoutes } from './routes/admin/support.js';
 
-/**
- * Route adapter layer only. No business logic lives in this file or in the
- * modules it mounts beyond validation and serialisation — the rule is
- * "route adapter → auth → application service → domain rules → repository"
- * (Engineering PRD §"Architectural style").
- *
- * Feature modules own their own file. Nothing needs to edit this one to add a
- * handler, which is what keeps parallel work from colliding here.
- */
 export const app = new Hono();
 
 app.use('*', requestId);
 app.use('*', logger);
+app.use('*', securityHeaders);
 app.use(
   '*',
   cors({
-    origin: (origin) => origin ?? '*',
+    origin: (origin) => (allowedOrigins().has(origin.replace(/\/$/, '')) ? origin : undefined),
     credentials: true,
-    allowHeaders: ['content-type', 'authorization', 'x-branch-id', 'x-request-id', 'idempotency-key'],
+    allowMethods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowHeaders: [
+      'content-type',
+      'x-branch-id',
+      'x-request-id',
+      'x-csrf-token',
+      'idempotency-key',
+      'x-reader-id',
+      'x-reader-key',
+    ],
     exposeHeaders: ['x-request-id'],
+    maxAge: 600,
   }),
 );
+app.use('/v1/*', csrfProtection);
 
 app.onError(errorHandler);
-
 app.notFound((c) =>
   c.json(
-    {
-      error: {
-        code: 'NOT_FOUND',
-        message: 'That endpoint does not exist.',
-        requestId: c.get('requestId') ?? 'unknown',
-      },
-    },
+    { error: { code: 'NOT_FOUND', message: 'That endpoint does not exist.', requestId: c.get('requestId') ?? 'unknown' } },
     404,
   ),
 );
 
 app.get('/health', (c) => c.json({ ok: true, at: new Date().toISOString() }));
 
-/* — Public ————————————————————————————————————————————————— */
 app.route('/v1/auth', authRoutes);
+app.route('/v1/door', doorRoutes);
 
-/* — Any signed-in actor ——————————————————————————————————— */
 app.use('/v1/me/*', authenticate);
 app.route('/v1/me', meRoutes);
 
-/* — Member app ————————————————————————————————————————————— */
 app.use('/v1/member/*', authenticate, memberOnly);
 app.route('/v1/member/home', homeRoutes);
 app.route('/v1/member/pass', passRoutes);
@@ -97,7 +86,6 @@ app.route('/v1/member/messages', messagesRoutes);
 app.route('/v1/member/billing', memberBillingRoutes);
 app.route('/v1/member/media', mediaRoutes);
 
-/* — Admin dashboard ———————————————————————————————————————— */
 app.use('/v1/admin/*', authenticate, staffOnly);
 app.route('/v1/admin/dashboard', dashboardRoutes);
 app.route('/v1/admin/members', membersRoutes);

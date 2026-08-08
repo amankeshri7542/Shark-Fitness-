@@ -11,10 +11,7 @@ import type { RequestContext } from '../lib/context.js';
 const OTP_TTL = 10 * MINUTE;
 const OTP_MAX_ATTEMPTS = 5;
 const SESSION_TTL = 30 * DAY;
-
-/** Dev builds echo the OTP so the flow is walkable without a mail provider.
- *  Guarded by an env flag that is off in production. */
-const ECHO_OTP = process.env.SHARK_ECHO_OTP !== 'false';
+const ECHO_OTP = process.env.NODE_ENV !== 'production' && process.env.SHARK_ECHO_OTP === 'true';
 
 function maskIdentifier(value: string): string {
   if (value.includes('@')) {
@@ -24,15 +21,27 @@ function maskIdentifier(value: string): string {
   return `${'•'.repeat(Math.max(0, value.length - 4))}${value.slice(-4)}`;
 }
 
+function tenantFor(slug?: string) {
+  if (slug) {
+    const tenant = db
+      .select()
+      .from(schema.tenants)
+      .where(and(eq(schema.tenants.slug, slug), eq(schema.tenants.status, 'active')))
+      .get();
+    if (!tenant) throw invalid('That gym could not be found.');
+    return tenant;
+  }
+
+  const tenants = db.select().from(schema.tenants).where(eq(schema.tenants.status, 'active')).limit(2).all();
+  if (tenants.length !== 1) throw invalid('Choose your gym before signing in.');
+  return tenants[0]!;
+}
+
 export function startOtp(args: { identifier: string; tenantSlug?: string; ip: string }) {
   const identifier = args.identifier.trim();
   const emailN = normalizeEmail(identifier);
   const phoneN = normalizePhone(identifier);
-
-  const tenant = args.tenantSlug
-    ? db.select().from(schema.tenants).where(eq(schema.tenants.slug, args.tenantSlug)).get()
-    : db.select().from(schema.tenants).limit(1).get();
-  if (!tenant) throw invalid('That gym could not be found.');
+  const tenant = tenantFor(args.tenantSlug);
 
   const user = db
     .select()
@@ -49,13 +58,12 @@ export function startOtp(args: { identifier: string; tenantSlug?: string; ip: st
     )
     .get();
 
-  // Recent unconsumed challenges are rate-limited by identifier, not by whether
-  // the account exists — otherwise the throttle itself enumerates accounts.
   const recent = db
     .select({ n: sql<number>`count(*)` })
     .from(schema.otpChallenges)
     .where(
       and(
+        eq(schema.otpChallenges.tenantId, tenant.id),
         eq(schema.otpChallenges.identifier, identifier),
         gt(schema.otpChallenges.createdAt, now() - 5 * MINUTE),
       ),
@@ -65,7 +73,6 @@ export function startOtp(args: { identifier: string; tenantSlug?: string; ip: st
 
   const code = otpCode();
   const challengeId = id('otp');
-
   db.insert(schema.otpChallenges)
     .values({
       id: challengeId,
@@ -80,11 +87,9 @@ export function startOtp(args: { identifier: string; tenantSlug?: string; ip: st
     .run();
 
   if (!user) {
-    // Same shape, same timing, no code that will ever verify. Whether an
-    // account exists is not something an unauthenticated caller learns.
     console.log(`[auth] OTP requested for unknown identifier ${maskIdentifier(identifier)}`);
   } else if (ECHO_OTP) {
-    console.log(`[auth] OTP for ${user.name} <${identifier}>: ${code}`);
+    console.log(`[auth] development OTP for ${user.name} <${identifier}>: ${code}`);
   }
 
   return {
@@ -144,20 +149,26 @@ export function verifyOtp(args: { challengeId: string; code: string; ip: string;
 }
 
 export function signInWithPassword(args: {
+  tenantSlug: string;
   email: string;
   password: string;
   ip: string;
   userAgent: string;
 }) {
+  const tenant = tenantFor(args.tenantSlug);
   const emailN = normalizeEmail(args.email)!;
   const user = db
     .select()
     .from(schema.users)
-    .where(and(eq(schema.users.email, emailN), isNull(schema.users.deletedAt)))
+    .where(
+      and(
+        eq(schema.users.tenantId, tenant.id),
+        eq(schema.users.email, emailN),
+        isNull(schema.users.deletedAt),
+      ),
+    )
     .get();
 
-  // Run the hash either way so a missing account and a wrong password take the
-  // same time.
   const stored = user?.passwordHash ?? hashPassword('decoy-value-for-timing');
   const ok = verifyPassword(args.password, stored);
 
@@ -196,7 +207,6 @@ export function createSession(
       expiresAt: now() + SESSION_TTL,
       revokedAt: null,
       impersonatorId: impersonatorId ?? null,
-      // Support access is always time-bound (PF-PLAT-004).
       impersonationExpiresAt: impersonatorId ? now() + 60 * MINUTE : null,
     })
     .run();
@@ -215,16 +225,29 @@ export function resolveSession(rawToken: string): RequestContext | null {
     .get();
 
   if (!session || session.revokedAt || session.expiresAt < now()) return null;
-  // A support session that has run out stops working mid-flight, by design.
   if (session.impersonationExpiresAt && session.impersonationExpiresAt < now()) return null;
 
-  const user = db.select().from(schema.users).where(eq(schema.users.id, session.userId)).get();
+  const user = db
+    .select()
+    .from(schema.users)
+    .where(and(eq(schema.users.id, session.userId), eq(schema.users.tenantId, session.tenantId)))
+    .get();
   if (!user || user.deletedAt) return null;
 
-  db.update(schema.sessions).set({ lastSeenAt: now() }).where(eq(schema.sessions.id, session.id)).run();
+  if (now() - session.lastSeenAt > MINUTE) {
+    db.update(schema.sessions).set({ lastSeenAt: now() }).where(eq(schema.sessions.id, session.id)).run();
+  }
 
-  const member = db.select().from(schema.members).where(eq(schema.members.userId, user.id)).get();
-  const staffRow = db.select().from(schema.staff).where(eq(schema.staff.userId, user.id)).get();
+  const member = db
+    .select()
+    .from(schema.members)
+    .where(and(eq(schema.members.userId, user.id), eq(schema.members.tenantId, user.tenantId)))
+    .get();
+  const staffRow = db
+    .select()
+    .from(schema.staff)
+    .where(and(eq(schema.staff.userId, user.id), eq(schema.staff.tenantId, user.tenantId)))
+    .get();
 
   const branchIds = member
     ? [
@@ -247,6 +270,8 @@ export function resolveSession(rawToken: string): RequestContext | null {
 
   return {
     requestId: id('req'),
+    sessionId: session.id,
+    authMethod: 'cookie',
     tenantId: user.tenantId,
     userId: user.id,
     memberId: member?.id ?? null,
@@ -266,8 +291,16 @@ export function viewerFor(userId: string): Viewer {
   const user = db.select().from(schema.users).where(eq(schema.users.id, userId)).get();
   if (!user) throw unauthenticated();
 
-  const member = db.select().from(schema.members).where(eq(schema.members.userId, user.id)).get();
-  const staffRow = db.select().from(schema.staff).where(eq(schema.staff.userId, user.id)).get();
+  const member = db
+    .select()
+    .from(schema.members)
+    .where(and(eq(schema.members.userId, user.id), eq(schema.members.tenantId, user.tenantId)))
+    .get();
+  const staffRow = db
+    .select()
+    .from(schema.staff)
+    .where(and(eq(schema.staff.userId, user.id), eq(schema.staff.tenantId, user.tenantId)))
+    .get();
   const tenant = db.select().from(schema.tenants).where(eq(schema.tenants.id, user.tenantId)).get();
 
   const extra = member
@@ -291,7 +324,6 @@ export function viewerFor(userId: string): Viewer {
           .map((r) => r.id);
 
   const prefs = (user.preferences ?? {}) as Record<string, unknown>;
-
   return {
     userId: user.id,
     tenantId: user.tenantId,

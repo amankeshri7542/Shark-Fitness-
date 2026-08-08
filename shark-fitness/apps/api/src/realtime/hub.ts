@@ -2,16 +2,7 @@ import type { Server } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { channels } from '@shark/contracts';
 import { replay, subscribe, type OutboxEvent } from '../lib/events.js';
-import { resolveSession } from '../services/auth.js';
-
-/**
- * Realtime fan-out.
- *
- * Stands in for Durable Objects (see docs/ADR-001-runtime.md). The contract is
- * the same one the PRD specifies: small payloads, a monotonic sequence per
- * channel, a replay window on reconnect, and a subscription that can only reach
- * channels the session's own scope allows.
- */
+import { consumeRealtimeTicket } from '../lib/realtime-ticket.js';
 
 interface Client {
   socket: WebSocket;
@@ -27,17 +18,14 @@ export function attachRealtime(server: Server): void {
 
   wss.on('connection', (socket, request) => {
     const url = new URL(request.url ?? '/', 'http://localhost');
-    const token = url.searchParams.get('token');
-    const ctx = token ? resolveSession(token) : null;
+    const ticket = url.searchParams.get('ticket');
+    const ctx = ticket ? consumeRealtimeTicket(ticket) : null;
 
     if (!ctx) {
       socket.close(4401, 'unauthenticated');
       return;
     }
 
-    // The set of channels this session may ever hear from. Asking for another
-    // tenant's branch is simply ignored — never acknowledged, never errored in
-    // a way that confirms the channel exists.
     const allowed = new Set<string>([channels.tenant(ctx.tenantId)]);
     for (const branchId of ctx.branchIds) allowed.add(channels.branch(branchId));
     if (ctx.memberId) allowed.add(channels.member(ctx.memberId));
@@ -69,7 +57,6 @@ export function attachRealtime(server: Server): void {
 
     socket.on('close', () => clients.delete(client));
     socket.on('error', () => clients.delete(client));
-
     socket.send(JSON.stringify({ type: 'ready', channels: [...allowed] }));
   });
 

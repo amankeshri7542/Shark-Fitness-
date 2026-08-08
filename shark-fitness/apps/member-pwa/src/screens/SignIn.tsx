@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import type { Viewer } from '@shark/contracts';
-import { ApiError, OfflineError, api, auth } from '../lib/api';
+import { ApiError, OfflineError, api } from '../lib/api';
 import { useSession } from '../lib/store';
 import { Button, Display, Eyebrow, Field, Panel, Scanlines, SonarSweep } from '../ui/primitives';
 
@@ -12,17 +12,16 @@ interface OtpStart {
   devCode?: string;
 }
 
-/**
- * Authentication (UX-M01).
- *
- * OTP first because a member arriving at a gym door has a phone, not a password
- * manager. Password sign-in stays available for staff and for anyone who set
- * one. The screen never reveals whether an account exists — the copy is the
- * same either way, matching what the API does.
- */
+interface SignInResult {
+  viewer: Viewer;
+  csrfToken: string;
+}
+
+const TENANT_SLUG = 'shark';
+
 export default function SignInScreen() {
   const navigate = useNavigate();
-  const bootstrap = useSession((s) => s.bootstrap);
+  const bootstrap = useSession((state) => state.bootstrap);
 
   const [mode, setMode] = useState<'otp' | 'password'>('otp');
   const [step, setStep] = useState<'identify' | 'verify'>('identify');
@@ -55,35 +54,34 @@ export default function SignInScreen() {
     run(async () => {
       const result = await api<OtpStart>('/auth/otp/start', {
         method: 'POST',
-        body: { identifier, tenantSlug: 'shark' },
+        body: { identifier, tenantSlug: TENANT_SLUG },
       });
       setChallenge(result);
       setCode(result.devCode ?? '');
       setStep('verify');
     });
 
-  const finish = async (token: string): Promise<void> => {
-    auth.set(token);
+  const finish = async (): Promise<void> => {
     await bootstrap();
     await navigate({ to: '/' });
   };
 
   const verifyOtp = () =>
     run(async () => {
-      const result = await api<{ viewer: Viewer; token: string }>('/auth/otp/verify', {
+      await api<SignInResult>('/auth/otp/verify', {
         method: 'POST',
         body: { challengeId: challenge?.challengeId, code },
       });
-      await finish(result.token);
+      await finish();
     });
 
   const signInWithPassword = () =>
     run(async () => {
-      const result = await api<{ viewer: Viewer; token: string }>('/auth/password', {
+      await api<SignInResult>('/auth/password', {
         method: 'POST',
-        body: { email: identifier, password },
+        body: { tenantSlug: TENANT_SLUG, email: identifier, password },
       });
-      await finish(result.token);
+      await finish();
     });
 
   return (
@@ -111,7 +109,7 @@ export default function SignInScreen() {
             <span className="text-sonar">where it counts</span>
           </Display>
           <p className="mt-3 max-w-[32ch] text-[13px] leading-relaxed text-foam-65">
-            Your membership, your plan and your entry code. Koramangala, Indiranagar and HSR.
+            Your membership, your plan and your entry pass. Koramangala, Indiranagar and HSR.
           </p>
         </div>
       </div>
@@ -125,7 +123,7 @@ export default function SignInScreen() {
               inputMode={mode === 'otp' ? 'email' : undefined}
               autoComplete="username"
               value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
+              onChange={(event) => setIdentifier(event.target.value)}
               hint={mode === 'otp' ? 'We will send you a six-digit code.' : undefined}
             />
 
@@ -135,7 +133,7 @@ export default function SignInScreen() {
                 type="password"
                 autoComplete="current-password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(event) => setPassword(event.target.value)}
               />
             ) : null}
 
@@ -180,14 +178,14 @@ export default function SignInScreen() {
               autoComplete="one-time-code"
               maxLength={6}
               value={code}
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+              onChange={(event) => setCode(event.target.value.replace(/\D/g, ''))}
               className="[&_input]:text-center [&_input]:font-display [&_input]:text-[30px] [&_input]:tracking-[0.4em]"
             />
 
             {challenge?.devCode ? (
               <Panel className="p-3">
                 <p className="text-[12px] leading-relaxed text-foam-50">
-                  Demo build: no mail provider is wired up, so the code is filled in for you.
+                  Local demo mode is explicitly echoing the code. Production never returns it.
                 </p>
               </Panel>
             ) : null}
@@ -202,7 +200,13 @@ export default function SignInScreen() {
               {busy ? 'Checking…' : 'Sign in'}
             </Button>
 
-            <Button variant="ghost" onClick={() => { setStep('identify'); setError(null); }}>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setStep('identify');
+                setError(null);
+              }}
+            >
               Use a different address
             </Button>
           </>
@@ -216,14 +220,22 @@ export default function SignInScreen() {
             <button
               type="button"
               className="text-left hover:text-sonar"
-              onClick={() => { setIdentifier('aman@sharkfitness.in'); setMode('otp'); setStep('identify'); }}
+              onClick={() => {
+                setIdentifier('aman@sharkfitness.in');
+                setMode('otp');
+                setStep('identify');
+              }}
             >
               <span className="text-foam">aman@sharkfitness.in</span> — member, active, mid-block
             </button>
             <button
               type="button"
               className="text-left hover:text-sonar"
-              onClick={() => { setIdentifier('rohit@sharkfitness.in'); setMode('otp'); setStep('identify'); }}
+              onClick={() => {
+                setIdentifier('rohit@sharkfitness.in');
+                setMode('otp');
+                setStep('identify');
+              }}
             >
               <span className="text-foam">rohit@sharkfitness.in</span> — grace period, failed payment
             </button>

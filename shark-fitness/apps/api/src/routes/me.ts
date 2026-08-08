@@ -9,12 +9,12 @@ import { audit } from '../lib/audit.js';
 import { id } from '../lib/ids.js';
 import { now, relativeTime } from '../lib/time.js';
 import { notFound } from '../lib/errors.js';
+import { issueRealtimeTicket } from '../lib/realtime-ticket.js';
 
 export const meRoutes = new Hono();
 
 meRoutes.get('/', (c) => c.json({ viewer: viewerFor(ctxOf(c).userId) }));
 
-/* — Branches this actor may act in. Drives the branch switcher. ————— */
 meRoutes.get('/branches', (c) => {
   const ctx = ctxOf(c);
   const rows = db
@@ -41,7 +41,8 @@ meRoutes.get('/branches', (c) => {
   return c.json({ items: rows, activeBranchId: ctx.activeBranchId });
 });
 
-/* — Preferences ————————————————————————————————————————————— */
+/** One-use, short-lived ticket. Session credentials never appear in a WebSocket URL. */
+meRoutes.post('/realtime-ticket', (c) => c.json(issueRealtimeTicket(ctxOf(c))));
 
 const PreferencesInput = z.object({
   register: z.enum(['predator', 'plain']).optional(),
@@ -54,19 +55,21 @@ const PreferencesInput = z.object({
 meRoutes.patch('/preferences', validate('json', PreferencesInput), (c) => {
   const ctx = ctxOf(c);
   const patch = c.req.valid('json');
-  const user = db.select().from(schema.users).where(eq(schema.users.id, ctx.userId)).get();
+  const user = db
+    .select()
+    .from(schema.users)
+    .where(and(eq(schema.users.id, ctx.userId), eq(schema.users.tenantId, ctx.tenantId)))
+    .get();
   if (!user) throw notFound('Your account');
 
   const merged = { ...(user.preferences ?? {}), ...patch };
   db.update(schema.users)
     .set({ preferences: merged, updatedAt: now() })
-    .where(eq(schema.users.id, ctx.userId))
+    .where(and(eq(schema.users.id, ctx.userId), eq(schema.users.tenantId, ctx.tenantId)))
     .run();
 
   return c.json({ viewer: viewerFor(ctx.userId) });
 });
-
-/* — Consent (Compliance PRD). Withdrawal is as easy as granting. ——— */
 
 const CONSENT_CATALOGUE = [
   { purpose: 'terms', required: true, description: 'Terms of membership' },
@@ -84,7 +87,7 @@ meRoutes.get('/consents', (c) => {
   const stored = db
     .select()
     .from(schema.consents)
-    .where(eq(schema.consents.userId, ctx.userId))
+    .where(and(eq(schema.consents.tenantId, ctx.tenantId), eq(schema.consents.userId, ctx.userId)))
     .all();
 
   const items = CONSENT_CATALOGUE.map((entry) => {
@@ -102,18 +105,23 @@ meRoutes.get('/consents', (c) => {
 });
 
 const ConsentInput = z.object({
-  purpose: z.enum(CONSENT_CATALOGUE.map((c) => c.purpose) as [string, ...string[]]),
+  purpose: z.enum(CONSENT_CATALOGUE.map((entry) => entry.purpose) as [string, ...string[]]),
   granted: z.boolean(),
 });
 
 meRoutes.put('/consents', validate('json', ConsentInput), (c) => {
   const ctx = ctxOf(c);
   const { purpose, granted } = c.req.valid('json');
-
   const existing = db
     .select()
     .from(schema.consents)
-    .where(and(eq(schema.consents.userId, ctx.userId), eq(schema.consents.purpose, purpose)))
+    .where(
+      and(
+        eq(schema.consents.tenantId, ctx.tenantId),
+        eq(schema.consents.userId, ctx.userId),
+        eq(schema.consents.purpose, purpose),
+      ),
+    )
     .get();
 
   if (existing) {
@@ -144,22 +152,19 @@ meRoutes.put('/consents', validate('json', ConsentInput), (c) => {
     before: { granted: existing?.granted ?? false },
     after: { granted },
   });
-
   return c.json({ ok: true });
 });
 
-/* — Devices and sessions ——————————————————————————————————— */
-
 meRoutes.get('/sessions', (c) => {
   const ctx = ctxOf(c);
-  return c.json({ items: listSessions(ctx.userId, '') });
+  return c.json({ items: listSessions(ctx.userId, ctx.sessionId) });
 });
 
 meRoutes.delete('/sessions/:id', (c) => {
   const ctx = ctxOf(c);
   const sessionId = c.req.param('id');
   const session = db.select().from(schema.sessions).where(eq(schema.sessions.id, sessionId)).get();
-  if (!session || session.userId !== ctx.userId) throw notFound('That session');
+  if (!session || session.userId !== ctx.userId || session.tenantId !== ctx.tenantId) throw notFound('That session');
 
   revokeSession(sessionId);
   audit(ctx, {
@@ -171,14 +176,12 @@ meRoutes.delete('/sessions/:id', (c) => {
   return c.json({ ok: true });
 });
 
-/* — Notifications ——————————————————————————————————————————— */
-
 meRoutes.get('/notifications', (c) => {
   const ctx = ctxOf(c);
   const items = db
     .select()
     .from(schema.notifications)
-    .where(eq(schema.notifications.userId, ctx.userId))
+    .where(and(eq(schema.notifications.tenantId, ctx.tenantId), eq(schema.notifications.userId, ctx.userId)))
     .orderBy(desc(schema.notifications.createdAt))
     .limit(50)
     .all()
@@ -194,33 +197,41 @@ meRoutes.get('/notifications', (c) => {
       kind: n.kind,
     }));
 
-  const unread = items.filter((n) => !n.readAt).length;
-  return c.json({ items, unread });
+  return c.json({ items, unread: items.filter((notification) => !notification.readAt).length });
 });
 
 meRoutes.post('/notifications/read', validate('json', z.object({ ids: z.array(z.string()).optional() })), (c) => {
   const ctx = ctxOf(c);
   const { ids } = c.req.valid('json');
-
   const targets = ids?.length
     ? ids
     : db
         .select({ id: schema.notifications.id })
         .from(schema.notifications)
-        .where(and(eq(schema.notifications.userId, ctx.userId), isNull(schema.notifications.readAt)))
+        .where(
+          and(
+            eq(schema.notifications.tenantId, ctx.tenantId),
+            eq(schema.notifications.userId, ctx.userId),
+            isNull(schema.notifications.readAt),
+          ),
+        )
         .all()
-        .map((r) => r.id);
+        .map((row) => row.id);
 
   for (const notificationId of targets) {
     db.update(schema.notifications)
       .set({ readAt: now() })
-      .where(and(eq(schema.notifications.id, notificationId), eq(schema.notifications.userId, ctx.userId)))
+      .where(
+        and(
+          eq(schema.notifications.id, notificationId),
+          eq(schema.notifications.tenantId, ctx.tenantId),
+          eq(schema.notifications.userId, ctx.userId),
+        ),
+      )
       .run();
   }
   return c.json({ ok: true, marked: targets.length });
 });
-
-/* — Data export and deletion (Compliance PRD) ————————————————— */
 
 meRoutes.post('/data-export', (c) => {
   const ctx = ctxOf(c);
@@ -232,18 +243,16 @@ meRoutes.post('/data-export', (c) => {
   });
   return c.json({
     ok: true,
-    message:
-      'Your export is being prepared. You will get a link within 24 hours; it stays valid for 7 days.',
+    message: 'Your export is being prepared. You will get a link within 24 hours; it stays valid for 7 days.',
   });
 });
 
 meRoutes.post('/deletion-request', validate('json', z.object({ reason: z.string().max(500).optional() })), (c) => {
   const ctx = ctxOf(c);
   const { reason } = c.req.valid('json');
-
   db.update(schema.users)
     .set({ accountState: 'deletion_requested', updatedAt: now() })
-    .where(eq(schema.users.id, ctx.userId))
+    .where(and(eq(schema.users.id, ctx.userId), eq(schema.users.tenantId, ctx.tenantId)))
     .run();
 
   audit(ctx, {

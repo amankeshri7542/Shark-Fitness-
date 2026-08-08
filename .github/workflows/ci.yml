@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'agent/**']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: shark-fitness
+    env:
+      NODE_ENV: test
+      SHARK_ECHO_OTP: 'false'
+      SHARK_PASS_SECRET: phase1-ci-pass-secret-not-for-production
+      SHARK_DEMO_READER_KEY: phase1-test-reader-secret
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: shark-fitness/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type-check all packages
+        run: pnpm typecheck
+
+      - name: Run domain and API integration tests
+        run: pnpm test
+
+      - name: Build applications
+        run: pnpm build

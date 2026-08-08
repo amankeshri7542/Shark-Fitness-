@@ -1,13 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { QueryClient } from '@tanstack/react-query';
 import type { EventTopic } from '@shark/contracts';
-import { auth } from './api';
-
-/**
- * Realtime client. Subscribes to the channels the session is allowed, resumes
- * from the last sequence it saw on reconnect, and invalidates the query cache
- * for the topics that actually changed rather than refetching everything.
- */
+import { API_ORIGIN, api } from './api';
 
 export type Connection = 'connecting' | 'open' | 'closed';
 
@@ -22,19 +16,20 @@ interface RealtimeEvent {
 let socket: WebSocket | null = null;
 let connection: Connection = 'closed';
 let lastSeq = 0;
-let channels: string[] = [];
+let subscribedChannels: string[] = [];
 let retry = 0;
 let client: QueryClient | null = null;
+let shouldReconnect = false;
+let opening = false;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
 const listeners = new Set<(state: Connection) => void>();
 
 function setConnection(next: Connection): void {
   connection = next;
-  listeners.forEach((l) => l(next));
+  listeners.forEach((listener) => listener(next));
 }
 
-/** Which queries a topic makes stale. Narrow on purpose — a check-in should
- *  not cause the whole app to refetch. */
 const INVALIDATES: Partial<Record<EventTopic, string[][]>> = {
   'attendance.checked_in': [['home'], ['pass'], ['occupancy']],
   'attendance.checked_out': [['pass'], ['occupancy']],
@@ -59,60 +54,94 @@ const INVALIDATES: Partial<Record<EventTopic, string[][]>> = {
   'challenge.score_changed': [['pack']],
 };
 
-export function connectRealtime(queryClient: QueryClient, subscribeTo: string[]): void {
+export async function connectRealtime(queryClient: QueryClient, subscribeTo: string[]): Promise<void> {
   client = queryClient;
-  channels = subscribeTo;
-  open();
+  subscribedChannels = [...new Set(subscribeTo)];
+  shouldReconnect = true;
+  await open();
 }
 
-function open(): void {
-  const token = auth.get();
-  if (!token || socket) return;
+function websocketUrl(ticket: string): string {
+  const httpBase = API_ORIGIN || location.origin;
+  const url = new URL('/v1/realtime', httpBase);
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  url.searchParams.set('ticket', ticket);
+  return url.toString();
+}
 
+async function open(): Promise<void> {
+  if (!shouldReconnect || socket || opening) return;
+  opening = true;
   setConnection('connecting');
 
-  const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
-  socket = new WebSocket(`${protocol}://${location.host}/v1/realtime?token=${encodeURIComponent(token)}`);
+  try {
+    const { ticket } = await api<{ ticket: string; expiresInSec: number }>('/me/realtime-ticket', {
+      method: 'POST',
+    });
 
-  socket.addEventListener('open', () => {
-    retry = 0;
-    setConnection('open');
-    socket?.send(JSON.stringify({ type: 'subscribe', channels, since: lastSeq }));
-  });
+    if (!shouldReconnect) return;
 
-  socket.addEventListener('message', (message) => {
-    let data: RealtimeEvent | { type: string };
-    try {
-      data = JSON.parse(String(message.data));
-    } catch {
-      return;
-    }
-    if (data.type !== 'event') return;
+    const nextSocket = new WebSocket(websocketUrl(ticket));
+    socket = nextSocket;
 
-    const event = data as RealtimeEvent;
-    lastSeq = Math.max(lastSeq, event.seq);
+    nextSocket.addEventListener('open', () => {
+      retry = 0;
+      setConnection('open');
+      nextSocket.send(JSON.stringify({ type: 'subscribe', channels: subscribedChannels, since: lastSeq }));
+    });
 
-    for (const key of INVALIDATES[event.topic] ?? []) {
-      void client?.invalidateQueries({ queryKey: key });
-    }
-  });
+    nextSocket.addEventListener('message', (message) => {
+      let data: RealtimeEvent | { type: string };
+      try {
+        data = JSON.parse(String(message.data)) as RealtimeEvent | { type: string };
+      } catch {
+        return;
+      }
+      if (data.type !== 'event') return;
 
-  socket.addEventListener('close', () => {
-    socket = null;
+      const event = data as RealtimeEvent;
+      lastSeq = Math.max(lastSeq, event.seq);
+      for (const key of INVALIDATES[event.topic] ?? []) {
+        void client?.invalidateQueries({ queryKey: key });
+      }
+    });
+
+    nextSocket.addEventListener('close', () => {
+      if (socket === nextSocket) socket = null;
+      setConnection('closed');
+      if (!shouldReconnect) return;
+
+      const delay = Math.min(30_000, 1_000 * 2 ** retry++);
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        void open();
+      }, delay);
+    });
+
+    nextSocket.addEventListener('error', () => nextSocket.close());
+  } catch {
     setConnection('closed');
-    // Backoff with a ceiling. A member on a train should not melt their battery.
-    const delay = Math.min(30_000, 1_000 * 2 ** retry++);
-    setTimeout(open, delay);
-  });
-
-  socket.addEventListener('error', () => socket?.close());
+    if (shouldReconnect) {
+      const delay = Math.min(30_000, 1_000 * 2 ** retry++);
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        void open();
+      }, delay);
+    }
+  } finally {
+    opening = false;
+  }
 }
 
 export function disconnectRealtime(): void {
+  shouldReconnect = false;
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  reconnectTimer = null;
   socket?.close();
   socket = null;
   lastSeq = 0;
   retry = 0;
+  opening = false;
   setConnection('closed');
 }
 

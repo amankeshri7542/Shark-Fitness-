@@ -10,7 +10,7 @@
     "seed": "tsx src/db/seed.ts",
     "reset": "rm -f data/shark.db data/shark.db-shm data/shark.db-wal && tsx src/db/migrate.ts && tsx src/db/seed.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "rm -rf data/test && SHARK_DB=data/test/shark.db tsx src/db/migrate.ts && SHARK_DB=data/test/shark.db tsx src/db/seed.ts && SHARK_DB=data/test/shark.db SHARK_PASS_SECRET=phase1-test-pass-secret SHARK_DEMO_READER_KEY=phase1-test-reader-secret vitest run",
     "build": "tsc --noEmit"
   },
   "dependencies": {

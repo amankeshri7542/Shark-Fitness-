@@ -6,7 +6,7 @@ import { channels } from '@shark/contracts';
 import { router } from './router';
 import { useSession } from './lib/store';
 import { connectRealtime, disconnectRealtime } from './lib/realtime';
-import { startOutbox } from './lib/outbox';
+import { startOutbox, stopOutbox } from './lib/outbox';
 import { ApiError } from './lib/api';
 import './styles.css';
 
@@ -14,10 +14,8 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 30_000,
-      // Realtime pushes what changed; polling on top of that is waste.
       refetchOnWindowFocus: false,
       retry: (failureCount, error) => {
-        // A 4xx will not fix itself. Only retry transport and server faults.
         if (error instanceof ApiError && error.status < 500) return false;
         return failureCount < 2;
       },
@@ -32,21 +30,28 @@ function Boot() {
 
   useEffect(() => {
     void bootstrap();
-    startOutbox();
   }, [bootstrap]);
 
   useEffect(() => {
     if (!viewer) {
       disconnectRealtime();
+      stopOutbox();
       return;
     }
+
+    const ownerKey = `${viewer.tenantId}:${viewer.userId}`;
+    const stop = startOutbox(ownerKey);
     const subscribe = [
       channels.tenant(viewer.tenantId),
       ...viewer.permittedBranchIds.map(channels.branch),
       ...(viewer.memberId ? [channels.member(viewer.memberId)] : []),
     ];
-    connectRealtime(queryClient, subscribe);
-    return () => disconnectRealtime();
+    void connectRealtime(queryClient, subscribe);
+
+    return () => {
+      stop();
+      disconnectRealtime();
+    };
   }, [viewer]);
 
   if (status === 'loading') {

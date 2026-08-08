@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { deriveCode, secondsUntilRotation } from '@shark/domain';
 import { api } from '../lib/api';
 import { useCopy } from '../lib/store';
 import { useOnline } from '../lib/realtime';
@@ -22,10 +21,21 @@ import {
   cx,
 } from '../ui/primitives';
 
+interface SignedPass {
+  token: string;
+  window: number;
+  validFrom: number;
+  expiresAt: number;
+}
+
 interface PassPayload {
   member: { name: string; memberNo: string; initials: string };
   branch: { id: string; name: string; timezone: string };
-  code: { value: string; rotateSec: number; secondsRemaining: number; offlineSeed: string; serverEpoch: number };
+  code: {
+    rotateSec: number;
+    serverEpoch: number;
+    passes: SignedPass[];
+  };
   membership: { state: string; productName: string; endsOn: string | null; graceEndsOn: string | null } | null;
   outstandingMinor: number;
   willBeAdmitted: boolean;
@@ -34,83 +44,51 @@ interface PassPayload {
   history: Array<{ id: string; day: string; span: string; granted: boolean; branchName: string }>;
 }
 
-interface ScanResult {
-  granted: boolean;
-  decision: string;
-  firstName: string;
-  visitNumber: number | null;
-  branchName: string;
-  occupancy: { inside: number; capacity: number; label: string };
-  message: string | null;
-  resolution: { kind: string; amountMinor: number | null; invoiceId: string | null; message: string } | null;
-  graceEndsOn: string | null;
-}
-
-const rupees = (minor: number): string => `₹${(minor / 100).toLocaleString('en-IN')}`;
-
 export default function PassScreen() {
   const navigate = useNavigate();
-  // The door is never the place for a hunting metaphor when it refuses you.
-  const copy = useCopy();
-  const denialCopy = useCopy('access-denied');
-  const online = useOnline();
   const queryClient = useQueryClient();
+  const copy = useCopy();
+  const online = useOnline();
+  const [tick, setTick] = useState(0);
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['pass'],
     queryFn: () => api<PassPayload>('/member/pass'),
-    staleTime: 60_000,
+    staleTime: 30_000,
+    refetchInterval: online ? 4 * 60_000 : false,
   });
 
-  const [result, setResult] = useState<ScanResult | null>(null);
-  const [tick, setTick] = useState(0);
-
   useEffect(() => {
-    const timer = setInterval(() => setTick((t) => t + 1), 1000);
-    return () => clearInterval(timer);
+    const timer = window.setInterval(() => setTick((value) => value + 1), 1_000);
+    return () => window.clearInterval(timer);
   }, []);
 
-  /* Brightness matters at a scanner. Raising it is a native capability we do
-     not have on the web, so we say what we can and let the panel do the work. */
-  const scan = useMutation({
-    mutationFn: (simulate?: 'grant' | 'deny') =>
-      api<ScanResult>('/member/pass/scan', {
-        method: 'POST',
-        body: { branchId: data?.branch.id, code: liveCode, ...(simulate ? { simulate } : {}) },
-      }),
-    onSuccess: (r) => {
-      setResult(r);
+  const checkOut = useMutation({
+    mutationFn: () => api<{ minutesInside: number }>('/member/pass/check-out', { method: 'POST' }),
+    onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['pass'] });
       void queryClient.invalidateQueries({ queryKey: ['home'] });
     },
   });
 
-  const checkOut = useMutation({
-    mutationFn: () => api<{ minutesInside: number }>('/member/pass/check-out', { method: 'POST' }),
-    onSuccess: () => {
-      setResult(null);
-      void queryClient.invalidateQueries({ queryKey: ['pass'] });
-    },
-  });
-
-  /* The code keeps rotating from the cached seed with no network at all —
-     that is the whole point of the offline seed. */
-  const liveEpoch = data ? data.code.serverEpoch + tick : 0;
-  const liveCode = useMemo(
-    () => (data ? deriveCode(data.code.offlineSeed, liveEpoch) : ''),
-    [data, liveEpoch],
+  const epoch = (data?.code.serverEpoch ?? 0) + tick;
+  const activePass = useMemo(
+    () => data?.code.passes.find((pass) => epoch >= pass.validFrom && epoch < pass.expiresAt) ?? null,
+    [data?.code.passes, epoch],
   );
-  const remaining = data ? secondsUntilRotation(liveEpoch) : 0;
+  const remaining = activePass ? Math.max(0, activePass.expiresAt - epoch) : 0;
+  const lastPassExpiry = data?.code.passes.at(-1)?.expiresAt ?? 0;
+  const batchExpired = Boolean(data && epoch >= lastPassExpiry);
 
   if (isLoading) return <PassSkeleton />;
 
   if (error || !data) {
     return (
-      <FullScreen onClose={() => void navigate({ to: '/' })} title="Entry code">
+      <FullScreen onClose={() => void navigate({ to: '/' })} title="Entry pass">
         <div className="p-4">
           <ErrorState
-            title="Could not load your code"
-            body="You can still get in at reception with your member number."
+            title="Could not load your pass"
+            body="Reception can still find you by your member number."
             onRetry={() => void refetch()}
           />
         </div>
@@ -118,144 +96,29 @@ export default function PassScreen() {
     );
   }
 
-  /* — Denied ————————————————————————————————————————————————— */
-  if (result && !result.granted) {
-    return (
-      // Plain register on the header too — a refusal is not a hunt.
-      <FullScreen onClose={() => setResult(null)} title={denialCopy('passTitle')}>
-        <div className="flex flex-col gap-4 p-4 pt-6 animate-surface">
-          <Panel tone="bad" className="p-4">
-            <div className="flex items-center gap-2.5 text-chum">
-              <span aria-hidden="true" className="font-display text-[18px]">
-                ×
-              </span>
-              <span className="font-utility text-[13px] font-semibold uppercase tracking-[0.14em]">
-                Entry not allowed
-              </span>
-            </div>
-            <p className="mt-2.5 text-[14px] leading-relaxed text-pretty text-foam-80">{result.message}</p>
-          </Panel>
-
-          {result.resolution?.amountMinor ? (
-            <>
-              <Seam>
-                <SeamCell>
-                  <Label>Outstanding</Label>
-                  <div className="mt-1.5">
-                    <Metric value={rupees(result.resolution.amountMinor)} size="md" tone="bad" />
-                  </div>
-                </SeamCell>
-                {result.graceEndsOn ? (
-                  <SeamCell>
-                    <Label>Grace ends</Label>
-                    <div className="mt-1.5 font-utility text-[15px] font-semibold">{result.graceEndsOn}</div>
-                  </SeamCell>
-                ) : null}
-              </Seam>
-              <p className="text-[13px] leading-relaxed text-foam-65">{result.resolution.message}</p>
-              <Button variant="cta" size="lg" full onClick={() => void navigate({ to: '/billing' })}>
-                Settle {rupees(result.resolution.amountMinor)}
-              </Button>
-            </>
-          ) : null}
-
-          <Button variant="outline" full onClick={() => void navigate({ to: '/messages' })}>
-            Ask reception for help
-          </Button>
-          <Button variant="ghost" onClick={() => setResult(null)}>
-            ← Back to my code
-          </Button>
-          <p className="text-[12px] leading-relaxed text-foam-45">
-            Bookings you already hold are kept while this is sorted out.
-          </p>
-        </div>
-      </FullScreen>
-    );
-  }
-
-  /* — Admitted ——————————————————————————————————————————————— */
-  if (result?.granted) {
-    return (
-      <FullScreen onClose={() => setResult(null)} title="Checked in">
-        <div className="flex flex-col items-center gap-5 p-5 pt-8 animate-surface">
-          <div className="relative h-[150px] w-[150px]">
-            <svg width="150" height="150" viewBox="0 0 150 150" className="-rotate-90" aria-hidden="true">
-              <circle cx="75" cy="75" r="66" fill="none" stroke="var(--sf-line)" strokeWidth="3" />
-              <circle
-                cx="75"
-                cy="75"
-                r="66"
-                fill="none"
-                stroke="var(--sf-sonar)"
-                strokeWidth="3"
-                strokeDasharray="414.7"
-                style={{ animation: 'sf-ring .9s cubic-bezier(.2,.8,.3,1) both' }}
-              />
-            </svg>
-            <style>{`@keyframes sf-ring { from { stroke-dashoffset: 414.7 } to { stroke-dashoffset: 0 } }`}</style>
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span aria-hidden="true" className="font-display text-[34px] text-sonar">
-                ✓
-              </span>
-              <Label className="mt-1.5">In the water</Label>
-            </div>
-          </div>
-
-          <div className="text-center">
-            <Display size="md" as="h2">
-              Welcome back, {result.firstName}
-            </Display>
-            <p className="mt-1.5 text-[13px] text-foam-65">
-              {result.branchName}
-              {result.visitNumber ? ` · visit ${result.visitNumber}` : ''}
-            </p>
-          </div>
-
-          <Seam className="w-full">
-            <SeamCell className="text-center">
-              <Metric value={result.occupancy.inside} size="md" />
-              <Label className="mt-1 block">Inside now</Label>
-            </SeamCell>
-            <SeamCell className="text-center">
-              <Metric value={result.occupancy.label} size="sm" tone="accent" />
-              <Label className="mt-1 block">Floor</Label>
-            </SeamCell>
-            <SeamCell className="text-center">
-              <Metric value={result.occupancy.capacity - result.occupancy.inside} size="md" />
-              <Label className="mt-1 block">Space left</Label>
-            </SeamCell>
-          </Seam>
-
-          <Button variant="cta" size="lg" full onClick={() => void navigate({ to: '/workout' })}>
-            {copy('startSession')}
-          </Button>
-          <Button variant="ghost" onClick={() => setResult(null)}>
-            Not now
-          </Button>
-        </div>
-      </FullScreen>
-    );
-  }
-
-  /* — The code ———————————————————————————————————————————————— */
-  const inside = Boolean(data.openSession);
-
   return (
     <FullScreen onClose={() => void navigate({ to: '/' })} title={copy('passTitle')}>
       <div className="flex flex-col gap-4 p-4 pt-5 animate-surface">
         <div className="flex items-center gap-2">
           <Eyebrow>Access control</Eyebrow>
           <span className="flex-1" />
-          {data.willBeAdmitted ? (
-            <Chip tone="good">Valid</Chip>
-          ) : (
-            <Chip tone="warn">Needs attention</Chip>
-          )}
+          {data.willBeAdmitted ? <Chip tone="good">Eligible</Chip> : <Chip tone="warn">Needs attention</Chip>}
         </div>
 
         <Panel tone="accent" className="relative overflow-hidden p-4">
           <SonarSweep durationSec={2.8} />
-          <QrBlock code={liveCode} />
+          {activePass ? (
+            <SignedPassBlock token={activePass.token} />
+          ) : (
+            <div className="grid aspect-square w-full place-items-center border border-line bg-abyss/70 p-6 text-center">
+              <div>
+                <Display size="sm" as="h2">Pass expired</Display>
+                <p className="mt-2 text-[12px] leading-relaxed text-foam-50">
+                  Reconnect once to load a fresh signed pass batch.
+                </p>
+              </div>
+            </div>
+          )}
 
           <div className="mt-3.5 flex items-end justify-between gap-3">
             <div className="min-w-0">
@@ -263,65 +126,83 @@ export default function PassScreen() {
                 {data.member.name} · {data.member.memberNo}
               </div>
               <div className="mt-0.5 text-[11px] text-foam-50">
-                {online ? 'Rotates' : 'Offline · still rotating'} in {remaining}s
+                {online ? 'Signed pass' : 'Offline batch'} · {activePass ? `rotates in ${remaining}s` : 'refresh required'}
               </div>
             </div>
             <div className="text-right font-display text-[13px] tracking-[0.1em] text-sonar">
-              {liveCode.slice(0, 5)}
+              {activePass ? shortCode(activePass.token) : '—'}
             </div>
           </div>
 
           <Bar className="mt-2" value={remaining} max={data.code.rotateSec} height="h-[3px]" />
         </Panel>
 
-        {inside ? (
-          <Button variant="outline" size="lg" full disabled={checkOut.isPending} onClick={() => checkOut.mutate()}>
-            {checkOut.isPending ? 'Checking out…' : copy('checkOut')}
-          </Button>
-        ) : (
-          <Button
-            variant="cta"
-            size="lg"
-            full
-            disabled={scan.isPending || !online}
-            onClick={() => scan.mutate(undefined)}
-          >
-            {scan.isPending ? 'At the door…' : copy('checkIn')}
-          </Button>
-        )}
-
-        {!online ? (
+        {batchExpired ? (
           <Panel tone="warn" className="p-3">
             <p className="text-[12px] leading-relaxed text-foam-80">
-              You are offline. The code above still rotates and will scan at the door — the reader validates it, not
-              this phone.
+              The offline pass batch has expired. Connect briefly and refresh before using the door.
+            </p>
+            <Button className="mt-3" variant="outline" size="sm" onClick={() => void refetch()} disabled={!online}>
+              Refresh passes
+            </Button>
+          </Panel>
+        ) : !online ? (
+          <Panel tone="warn" className="p-3">
+            <p className="text-[12px] leading-relaxed text-foam-80">
+              You are offline. The signed passes already stored on this device continue rotating until the batch expires.
             </p>
           </Panel>
         ) : null}
 
-        {inside && data.openSession ? (
-          <Seam>
-            <SeamCell>
-              <Label>Inside for</Label>
-              <div className="mt-1.5">
-                <Metric value={data.openSession.minutesInside} unit="min" size="md" />
-              </div>
-            </SeamCell>
-            <SeamCell>
-              <Label>Floor now</Label>
-              <div className="mt-1.5">
-                <Metric value={`${data.occupancy.inside}/${data.occupancy.capacity}`} size="sm" tone="accent" />
-              </div>
-            </SeamCell>
-          </Seam>
-        ) : null}
+        {data.openSession ? (
+          <>
+            <Seam>
+              <SeamCell>
+                <Label>Inside for</Label>
+                <div className="mt-1.5">
+                  <Metric value={data.openSession.minutesInside} unit="min" size="md" />
+                </div>
+              </SeamCell>
+              <SeamCell>
+                <Label>Floor now</Label>
+                <div className="mt-1.5">
+                  <Metric value={`${data.occupancy.inside}/${data.occupancy.capacity}`} size="sm" tone="accent" />
+                </div>
+              </SeamCell>
+            </Seam>
+            <Button
+              variant="outline"
+              size="lg"
+              full
+              disabled={checkOut.isPending}
+              onClick={() => checkOut.mutate()}
+            >
+              {checkOut.isPending ? 'Checking out…' : copy('checkOut')}
+            </Button>
+          </>
+        ) : (
+          <Panel className="p-3.5">
+            <Label>At the door</Label>
+            <p className="mt-1.5 text-[13px] leading-relaxed text-foam-65">
+              Show this signed pass to the gym reader. The reader verifies the signature and records the check-in; this phone cannot approve its own entry.
+            </p>
+          </Panel>
+        )}
 
-        <Panel className="p-3">
-          <p className="text-[12px] leading-relaxed text-foam-50">
-            The code changes every {data.code.rotateSec} seconds, so a screenshot will not get anyone in. Turn your
-            screen brightness up at the reader.
-          </p>
-        </Panel>
+        <Seam>
+          <SeamCell>
+            <Label>Membership</Label>
+            <div className="mt-1.5 font-utility text-[14px] font-semibold">
+              {data.membership?.productName ?? 'No active plan'}
+            </div>
+          </SeamCell>
+          <SeamCell>
+            <Label>Floor</Label>
+            <div className="mt-1.5">
+              <Metric value={data.occupancy.label} size="sm" tone="accent" />
+            </div>
+          </SeamCell>
+        </Seam>
 
         <div>
           <Label>Recent visits</Label>
@@ -330,120 +211,111 @@ export default function PassScreen() {
               <p className="p-3.5 text-[13px] text-foam-45">No visits recorded yet. Your first one shows up here.</p>
             ) : (
               <ul>
-                {data.history.map((h) => (
-                  <li key={h.id} className="flex items-center gap-3 border-b border-line-10 px-3.5 py-2.5 last:border-0">
+                {data.history.map((visit) => (
+                  <li key={visit.id} className="flex items-center gap-3 border-b border-line-10 px-3.5 py-2.5 last:border-0">
                     <span
                       aria-hidden="true"
-                      className={cx('h-1.5 w-1.5 flex-none', h.granted ? 'bg-sonar' : 'bg-chum')}
+                      className={cx('h-1.5 w-1.5 flex-none', visit.granted ? 'bg-sonar' : 'bg-chum')}
                     />
-                    <span className="flex-1 text-[13px]">{h.day}</span>
-                    <span className="font-utility text-[12px] tabular-nums text-foam-50">{h.span}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13px]">{visit.day}</span>
+                      <span className="block truncate text-[10px] text-foam-35">{visit.branchName}</span>
+                    </span>
+                    <span className="font-utility text-[12px] tabular-nums text-foam-50">{visit.span}</span>
                   </li>
                 ))}
               </ul>
             )}
           </Panel>
         </div>
-
-        {/* Demo affordance: the denial path is a state the PRD requires, and a
-            reviewer needs to be able to reach it without breaking their data. */}
-        <Button variant="ghost" size="sm" onClick={() => scan.mutate('deny')} disabled={scan.isPending}>
-          Preview a refused entry
-        </Button>
       </div>
     </FullScreen>
   );
 }
 
+function shortCode(token: string): string {
+  let hash = 0;
+  for (let index = 0; index < token.length; index += 1) {
+    hash = (Math.imul(hash, 31) + token.charCodeAt(index)) >>> 0;
+  }
+  return hash.toString(36).toUpperCase().padStart(7, '0').slice(0, 7);
+}
+
 /**
- * A real QR-shaped block: three finder patterns, timing rows, and a data field
- * derived deterministically from the live code, so it visibly changes when the
- * code rotates. It is a faithful stand-in — a production build swaps this for
- * an encoder without touching the layout.
+ * Visual transport for the signed token. It deliberately does not pretend to
+ * be a standards-compliant QR encoder; native reader integration can replace
+ * this component without changing the signed-token protocol.
  */
-function QrBlock({ code }: { code: string }) {
-  const N = 25;
+function SignedPassBlock({ token }: { token: string }) {
+  const size = 25;
   const cells = useMemo(() => {
-    let hash = 2166136261;
-    for (let i = 0; i < code.length; i++) {
-      hash ^= code.charCodeAt(i);
-      hash = Math.imul(hash, 16777619) >>> 0;
+    let state = 2166136261;
+    for (let index = 0; index < token.length; index += 1) {
+      state ^= token.charCodeAt(index);
+      state = Math.imul(state, 16777619) >>> 0;
     }
-    const out: boolean[] = [];
-    const inBox = (r: number, c: number, r0: number, c0: number): boolean =>
-      r >= r0 && r < r0 + 7 && c >= c0 && c < c0 + 7;
-    const ring = (r: number, c: number, r0: number, c0: number): boolean => {
-      const d = Math.max(Math.abs(r - r0 - 3), Math.abs(c - c0 - 3));
-      return d === 3 || d <= 1;
+
+    const finder = (row: number, col: number, row0: number, col0: number): boolean => {
+      const y = row - row0;
+      const x = col - col0;
+      if (x < 0 || y < 0 || x > 6 || y > 6) return false;
+      return x === 0 || y === 0 || x === 6 || y === 6 || (x >= 2 && x <= 4 && y >= 2 && y <= 4);
     };
-    for (let r = 0; r < N; r++) {
-      for (let c = 0; c < N; c++) {
-        if (inBox(r, c, 0, 0)) out.push(ring(r, c, 0, 0));
-        else if (inBox(r, c, 0, N - 7)) out.push(ring(r, c, 0, N - 7));
-        else if (inBox(r, c, N - 7, 0)) out.push(ring(r, c, N - 7, 0));
-        else if (r === 6 || c === 6) out.push((r + c) % 2 === 0);
-        else {
-          const v = Math.sin((r + 1) * 12.9898 + (c + 1) * 78.233 + hash * 0.000017) * 43758.5453;
-          out.push(v - Math.floor(v) > 0.48);
-        }
-      }
-    }
-    return out;
-  }, [code]);
+
+    return Array.from({ length: size * size }, (_, index) => {
+      const row = Math.floor(index / size);
+      const col = index % size;
+      if (finder(row, col, 1, 1) || finder(row, col, 1, size - 8) || finder(row, col, size - 8, 1)) return true;
+      state ^= state << 13;
+      state ^= state >>> 17;
+      state ^= state << 5;
+      return (state >>> 0) % 2 === 0;
+    });
+  }, [token]);
 
   return (
-    <div className="relative aspect-square bg-foam p-4" role="img" aria-label={`Entry code ${code}`}>
-      <div className="grid h-full w-full" style={{ gridTemplateColumns: `repeat(${N}, 1fr)` }}>
-        {cells.map((on, i) => (
-          <div key={i} style={{ background: on ? '#04080b' : '#e8f1f5' }} />
-        ))}
-      </div>
-      <div className="absolute left-1/2 top-1/2 grid h-[52px] w-[52px] -translate-x-1/2 -translate-y-1/2 place-items-center bg-abyss font-display text-[14px] tracking-[0.06em] text-sonar">
-        SF
-      </div>
+    <div
+      className="grid aspect-square w-full border-[10px] border-foam bg-foam"
+      style={{ gridTemplateColumns: `repeat(${size}, minmax(0, 1fr))` }}
+      role="img"
+      aria-label={`Rotating signed entry pass ${shortCode(token)}`}
+    >
+      {cells.map((filled, index) => (
+        <span key={index} className={filled ? 'bg-abyss' : 'bg-foam'} />
+      ))}
     </div>
   );
 }
 
-function FullScreen({ title, onClose, children }: {
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    ref.current?.focus();
-  }, []);
+function FullScreen({ onClose, title, children }: { onClose: () => void; title: string; children: ReactNode }) {
   return (
-    <div ref={ref} tabIndex={-1} className="flex h-full flex-col overflow-y-auto bg-abyss outline-none">
-      <header className="sf-safe-top flex flex-none items-center gap-2.5 border-b border-line px-4 pb-2.5 pt-3">
+    <div className="min-h-full bg-abyss">
+      <header className="sticky top-0 z-20 flex min-h-14 items-center border-b border-line bg-hull/95 px-3 backdrop-blur">
         <button
           type="button"
           onClick={onClose}
-          aria-label="Close"
-          className="grid h-9 w-9 place-items-center border border-line-strong hover:border-sonar hover:text-sonar"
+          aria-label="Close entry pass"
+          className="grid h-11 w-11 place-items-center border border-transparent text-sonar hover:border-line"
         >
           <span aria-hidden="true">×</span>
         </button>
-        <span className="font-utility text-[13px] font-semibold uppercase tracking-[0.14em]">{title}</span>
+        <span className="flex-1 text-center font-utility text-[11px] font-semibold uppercase tracking-[0.18em]">{title}</span>
+        <span className="h-11 w-11" aria-hidden="true" />
       </header>
-      <div className="flex-1">{children}</div>
+      {children}
     </div>
   );
 }
 
 function PassSkeleton() {
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2.5 border-b border-line px-4 pb-2.5 pt-3">
-        <Skeleton className="h-9 w-9" />
-        <Skeleton className="h-3 w-28" />
-      </div>
-      <div className="flex flex-col gap-4 p-4">
+    <FullScreen onClose={() => undefined} title="Entry pass">
+      <div className="flex flex-col gap-4 p-4 pt-5">
+        <Skeleton className="h-4 w-28" />
         <Skeleton className="aspect-square w-full" />
-        <Skeleton className="h-12 w-full" />
-        <Skeleton className="h-24 w-full" />
+        <Skeleton className="h-20 w-full" />
+        <Skeleton className="h-28 w-full" />
       </div>
-    </div>
+    </FullScreen>
   );
 }
