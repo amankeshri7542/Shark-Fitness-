@@ -79,7 +79,7 @@ const STATE_TONE: Record<string, Tone> = {
   cancelled: 'bad',
 };
 
-type Sheet = 'freeze' | 'cancel' | null;
+type Sheet = 'freeze' | 'cancel' | 'assign-plan' | null;
 
 export default function MemberDetailScreen() {
   const { memberId } = useParams({ from: '/console/members/$memberId' });
@@ -136,6 +136,11 @@ export default function MemberDetailScreen() {
                 Cancel plan
               </Button>
             </>
+          ) : null}
+          {canManage && !data.membership ? (
+            <Button variant="cta" onClick={() => setSheet('assign-plan')}>
+              Assign plan
+            </Button>
           ) : null}
         </div>
       }
@@ -238,7 +243,14 @@ export default function MemberDetailScreen() {
                 </p>
               </div>
             ) : (
-              <p className="px-3.5 py-3 text-[13px] text-foam-45">No membership on file.</p>
+              <div className="flex flex-col items-start gap-2 px-3.5 py-3">
+                <p className="text-[13px] text-foam-45">No membership on file.</p>
+                {canManage ? (
+                  <Button variant="cta" onClick={() => setSheet('assign-plan')}>
+                    Assign plan
+                  </Button>
+                ) : null}
+              </div>
             )}
           </Panel>
 
@@ -433,7 +445,7 @@ export default function MemberDetailScreen() {
         </div>
       </div>
 
-      {sheet ? (
+      {sheet === 'freeze' || sheet === 'cancel' ? (
         <ActionSheet
           kind={sheet}
           detail={data}
@@ -445,7 +457,99 @@ export default function MemberDetailScreen() {
           }}
         />
       ) : null}
+      {sheet === 'assign-plan' ? (
+        <AssignPlanSheet
+          memberId={memberId}
+          onClose={() => setSheet(null)}
+          onDone={() => {
+            setSheet(null);
+            void queryClient.invalidateQueries({ queryKey: ['member', memberId] });
+            void queryClient.invalidateQueries({ queryKey: ['members'] });
+          }}
+        />
+      ) : null}
     </Page>
+  );
+}
+
+interface AssignableProduct {
+  id: string;
+  name: string;
+  priceLabel: string;
+  cadence: string;
+  status: string;
+  access: { allBranches: boolean; branchIds: string[] };
+}
+
+/** Plan assignment from a member's profile — the missing link once a lead
+ *  has been converted (see leads.ts's convert endpoint, which deliberately
+ *  stops short of this so Billing owns the money-moving parts). */
+function AssignPlanSheet({ memberId, onClose, onDone }: { memberId: string; onClose: () => void; onDone: () => void }) {
+  const [productId, setProductId] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const products = useQuery({
+    queryKey: ['products', 'assignable'],
+    queryFn: () => api<{ items: AssignableProduct[] }>('/admin/billing/products'),
+  });
+
+  const assign = useMutation({
+    mutationFn: () => api<{ activated: boolean; totalMinor: number }>(`/admin/billing/members/${memberId}/assign-plan`, { method: 'POST', body: { productId } }),
+    onSuccess: onDone,
+    onError: (e) => setError(e instanceof ApiError ? e.message : 'That did not work.'),
+  });
+
+  const publishedProducts = (products.data?.items ?? []).filter((p) => p.status === 'active');
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-6" onClick={onClose} role="presentation">
+      <div className="w-[min(480px,100%)] border border-line-strong bg-overlay" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Assign plan">
+        <header className="border-b border-line px-4 py-3">
+          <Display size="sm" as="h2">
+            Assign a plan
+          </Display>
+        </header>
+
+        <div className="flex flex-col gap-3.5 p-4">
+          {products.isLoading ? (
+            <Skeleton className="h-24" />
+          ) : publishedProducts.length === 0 ? (
+            <Panel tone="warn">
+              <p className="px-3 py-2.5 text-[12px] leading-relaxed">No published products yet. Publish one from Plans first.</p>
+            </Panel>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {publishedProducts.map((p) => (
+                <label key={p.id} className="flex cursor-pointer items-center justify-between gap-2 border border-line-strong px-3 py-2.5 has-[:checked]:border-sonar">
+                  <span className="flex items-center gap-2.5">
+                    <input type="radio" name="product" checked={productId === p.id} onChange={() => setProductId(p.id)} className="h-4 w-4 accent-[var(--sf-sonar)]" />
+                    <span className="text-[13px]">{p.name}</span>
+                  </span>
+                  <span className="font-display text-[13px]">
+                    {p.priceLabel} <span className="text-[10px] text-foam-45">/ {p.cadence.replace(/_/g, ' ')}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
+
+          {error ? (
+            <Panel tone="bad">
+              <p className="px-3 py-2.5 text-[12px] leading-relaxed">{error}</p>
+            </Panel>
+          ) : null}
+        </div>
+
+        <footer className="flex justify-end gap-2 border-t border-line px-4 py-3">
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="cta" size="md" disabled={!productId || assign.isPending} onClick={() => assign.mutate()}>
+            {assign.isPending ? 'Assigning…' : 'Assign plan'}
+          </Button>
+        </footer>
+      </div>
+    </div>
   );
 }
 
