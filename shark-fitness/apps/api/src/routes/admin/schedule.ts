@@ -11,6 +11,7 @@ import {
   LIVE_BOOKING_STATES,
   LIVE_WAITLIST_STATES,
   bookMemberOntoSession,
+  bookMemberOntoSessionOverride,
   cancelSessions,
   createSession,
   detectClashes,
@@ -432,7 +433,7 @@ const PatchBody = z.object({
   capacity: z.number().int().min(1).max(500).optional(),
   notes: z.string().max(500).nullable().optional(),
   waitlistEnabled: z.boolean().optional(),
-  version: z.number().int().optional(),
+  version: z.number().int(),
 });
 
 scheduleRoutes.patch('/session/:id', validate('json', PatchBody), (c) => {
@@ -511,6 +512,7 @@ scheduleRoutes.get('/clashes', validate('query', ClashQuery), (c) => {
 const BookBody = z.object({
   memberId: z.string().min(1),
   idempotencyKey: z.string().min(8),
+  acceptDropInCharge: z.boolean().default(false),
 });
 
 scheduleRoutes.post('/session/:id/book', validate('json', BookBody), (c) => {
@@ -518,6 +520,30 @@ scheduleRoutes.post('/session/:id/book', validate('json', BookBody), (c) => {
   requirePermission(ctx, 'booking.manage_others');
   const body = c.req.valid('json');
   const result = bookMemberOntoSession(ctx, { sessionId: c.req.param('id'), ...body });
+  return c.json({
+    replayed: result.replayed,
+    booking: { id: result.booking.id, seatNo: result.booking.seatNo, state: result.booking.state },
+    charge: result.chargeMinor > 0 ? { amountMinor: result.chargeMinor } : null,
+  });
+});
+
+const BookOverrideBody = z.object({
+  memberId: z.string().min(1),
+  idempotencyKey: z.string().min(8),
+  reason: z.string().trim().min(4).max(280),
+});
+
+/**
+ * A deliberate eligibility bypass. Requires BOTH `booking.manage_others` and
+ * `schedule.manage` — reception has the first but not the second, so this is
+ * a manager-and-above call, never an implicit part of ordinary staff booking.
+ */
+scheduleRoutes.post('/session/:id/book-override', validate('json', BookOverrideBody), (c) => {
+  const ctx = ctxOf(c);
+  requirePermission(ctx, 'booking.manage_others');
+  requirePermission(ctx, 'schedule.manage');
+  const body = c.req.valid('json');
+  const result = bookMemberOntoSessionOverride(ctx, { sessionId: c.req.param('id'), ...body });
   return c.json({
     replayed: result.replayed,
     booking: { id: result.booking.id, seatNo: result.booking.seatNo, state: result.booking.state },

@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { and, eq, gt, inArray, isNotNull, lte, notInArray, sql } from 'drizzle-orm';
 import { app } from '../app.js';
 import { db, schema } from '../db/client.js';
-import { now } from '../lib/time.js';
+import { DAY, now } from '../lib/time.js';
 
 interface Session { cookie: string; csrfToken: string }
 const cache = new Map<string, Session>();
@@ -194,6 +194,37 @@ describe('Phase 5 — classes, schedule and waitlists', () => {
     expect(session?.booked).toBe(1);
   });
 
+  it('lets a member book their own class through the same claim engine as staff booking', async () => {
+    const manager = await signIn('manager@sharkfitness.in');
+    const member = await signIn('aman@sharkfitness.in');
+    const created = await createSession(manager, { capacity: 3 });
+
+    const key = `member-book-${created.id}`;
+    const first = await post(member, '/v1/member/schedule/book', {
+      sessionId: created.id,
+      idempotencyKey: key,
+      acceptDropInCharge: false,
+    });
+    expect(first.status).toBe(200);
+    const firstBody = (await first.json()) as { replayed: boolean; booking: { id: string; state: string } };
+    expect(firstBody.replayed).toBe(false);
+    expect(firstBody.booking.state).toBe('confirmed');
+
+    // Same key again is the same seat — the shared claim's idempotency, not a
+    // member-specific reimplementation of it.
+    const retry = await post(member, '/v1/member/schedule/book', {
+      sessionId: created.id,
+      idempotencyKey: key,
+      acceptDropInCharge: false,
+    });
+    const retryBody = (await retry.json()) as { replayed: boolean; booking: { id: string } };
+    expect(retryBody.replayed).toBe(true);
+    expect(retryBody.booking.id).toBe(firstBody.booking.id);
+
+    const session = db.select().from(schema.classSessions).where(eq(schema.classSessions.id, created.id)).get();
+    expect(session?.booked).toBe(1);
+  });
+
   it('refuses to shrink a class below the people already in it', async () => {
     const manager = await signIn('manager@sharkfitness.in');
     const created = await createSession(manager, { capacity: 3 });
@@ -204,7 +235,10 @@ describe('Phase 5 — classes, schedule and waitlists', () => {
       idempotencyKey: `test-shrink-${created.id}`,
     });
 
-    const response = await patch(manager, `/v1/admin/schedule/session/${created.id}`, { capacity: 0 });
+    const response = await patch(manager, `/v1/admin/schedule/session/${created.id}`, {
+      capacity: 0,
+      version: created.version,
+    });
     // capacity 0 fails validation; 1 is the meaningful business case below.
     expect([409, 422]).toContain(response.status);
 
@@ -220,7 +254,13 @@ describe('Phase 5 — classes, schedule and waitlists', () => {
       idempotencyKey: `s2-${created2.id}-b`,
     });
 
-    const shrink = await patch(manager, `/v1/admin/schedule/session/${created2.id}`, { capacity: 1 });
+    // Two bookings have each bumped the version since creation — read the
+    // current one rather than the stale value from `createSession`.
+    const current = db.select().from(schema.classSessions).where(eq(schema.classSessions.id, created2.id)).get()!;
+    const shrink = await patch(manager, `/v1/admin/schedule/session/${created2.id}`, {
+      capacity: 1,
+      version: current.version,
+    });
     expect(shrink.status).toBe(409);
     expect(((await shrink.json()) as { error: { message: string } }).error.message).toContain('already booked');
   });
@@ -318,7 +358,7 @@ describe('Phase 5 — classes, schedule and waitlists', () => {
     expect(session?.substituteFor).toBe(trainerId);
   });
 
-  it('marks attendance and refuses a no-show before the class has run', async () => {
+  it('refuses both attended and no-show before the class has run, and stays reversible after', async () => {
     const manager = await signIn('manager@sharkfitness.in');
     const created = await createSession(manager, { capacity: 4 });
     const member = idleMember('br_kor');
@@ -329,16 +369,30 @@ describe('Phase 5 — classes, schedule and waitlists', () => {
     });
     const { booking } = (await booked.json()) as { booking: { id: string } };
 
-    // The class is in the future, so nobody can have failed to turn up yet.
-    const early = await post(manager, `/v1/admin/schedule/booking/${booking.id}/attendance`, { state: 'no_show' });
-    expect(early.status).toBe(412);
+    // The class is in the future, so nobody can have turned up or failed to yet.
+    const earlyNoShow = await post(manager, `/v1/admin/schedule/booking/${booking.id}/attendance`, { state: 'no_show' });
+    expect(earlyNoShow.status).toBe(412);
+    const earlyAttended = await post(manager, `/v1/admin/schedule/booking/${booking.id}/attendance`, { state: 'attended' });
+    expect(earlyAttended.status).toBe(412);
+
+    // Move the class into the past so marking becomes possible.
+    db.update(schema.classSessions)
+      .set({ startsAt: now() - 60 * 60_000, endsAt: now() - 15 * 60_000 })
+      .where(eq(schema.classSessions.id, created.id))
+      .run();
 
     const marked = await post(manager, `/v1/admin/schedule/booking/${booking.id}/attendance`, { state: 'attended' });
     expect(marked.status).toBe(200);
-
-    const row = db.select().from(schema.bookings).where(eq(schema.bookings.id, booking.id)).get();
+    let row = db.select().from(schema.bookings).where(eq(schema.bookings.id, booking.id)).get();
     expect(row?.state).toBe('attended');
     expect(row?.attendedAt).not.toBeNull();
+
+    // Corrections stay possible once the class has started.
+    const corrected = await post(manager, `/v1/admin/schedule/booking/${booking.id}/attendance`, { state: 'no_show' });
+    expect(corrected.status).toBe(200);
+    row = db.select().from(schema.bookings).where(eq(schema.bookings.id, booking.id)).get();
+    expect(row?.state).toBe('no_show');
+    expect(row?.attendedAt).toBeNull();
   });
 
   it('releases a seat from the desk and promotes the waitlist', async () => {
@@ -518,5 +572,213 @@ describe('Phase 5 — classes, schedule and waitlists', () => {
       )
       .get();
     expect(pastAfter?.n).toBe(pastBefore?.n);
+  });
+
+  it('enforces the same eligibility rules on staff booking as member self-booking', async () => {
+    const manager = await signIn('manager@sharkfitness.in');
+    const created = await createSession(manager, { capacity: 2 });
+
+    // A member with no active membership cannot be booked by staff either —
+    // the review's core complaint was that staff booking bypassed this.
+    const noMembership = db
+      .select({ id: schema.members.id })
+      .from(schema.members)
+      .leftJoin(schema.memberships, eq(schema.memberships.memberId, schema.members.id))
+      .where(and(eq(schema.members.homeBranchId, 'br_kor'), sql`${schema.memberships.id} is null`))
+      .get();
+    if (!noMembership) return;
+
+    const response = await post(manager, `/v1/admin/schedule/session/${created.id}/book`, {
+      memberId: noMembership.id,
+      idempotencyKey: `no-membership-${created.id}`,
+    });
+    expect([402, 403, 409, 412, 422]).toContain(response.status);
+
+    const session = db.select().from(schema.classSessions).where(eq(schema.classSessions.id, created.id)).get();
+    expect(session?.booked).toBe(0);
+  });
+
+  it('charges credits on a staff booking exactly as a member self-booking would', async () => {
+    const manager = await signIn('manager@sharkfitness.in');
+    const created = await createSession(manager, { capacity: 2, creditsRequired: 1 });
+    const member = idleMember('br_kor');
+
+    const before = db
+      .select({ n: sql<number>`coalesce(sum(${schema.credits.delta}), 0)` })
+      .from(schema.credits)
+      .where(and(eq(schema.credits.memberId, member.id), eq(schema.credits.kind, 'class')))
+      .get();
+
+    db.insert(schema.credits)
+      .values({
+        id: `crd_test_${created.id}`,
+        tenantId: tenantId(),
+        memberId: member.id,
+        kind: 'class',
+        delta: 2,
+        reason: 'Test grant',
+        refType: 'booking',
+        refId: null,
+        expiresOn: null,
+        createdAt: now(),
+      })
+      .run();
+
+    const response = await post(manager, `/v1/admin/schedule/session/${created.id}/book`, {
+      memberId: member.id,
+      idempotencyKey: `credit-charge-${created.id}`,
+    });
+    expect(response.status).toBe(200);
+
+    const booking = db
+      .select()
+      .from(schema.bookings)
+      .where(and(eq(schema.bookings.sessionId, created.id), eq(schema.bookings.memberId, member.id)))
+      .get();
+    expect(booking?.creditsUsed).toBe(1);
+
+    const after = db
+      .select({ n: sql<number>`coalesce(sum(${schema.credits.delta}), 0)` })
+      .from(schema.credits)
+      .where(and(eq(schema.credits.memberId, member.id), eq(schema.credits.kind, 'class')))
+      .get();
+    // Granted 2, spent 1 by the booking — a net gain of exactly 1, whatever
+    // the member's pre-existing balance was.
+    expect(after!.n).toBe(before!.n + 1);
+  });
+
+  it('refuses an overlapping class to staff booking exactly as it would to the member', async () => {
+    const manager = await signIn('manager@sharkfitness.in');
+    const member = idleMember('br_kor');
+    const first = await createSession(manager, { capacity: 2 });
+    await post(manager, `/v1/admin/schedule/session/${first.id}/book`, { memberId: member.id, idempotencyKey: `ov-a-${first.id}` });
+
+    // A second session at the exact same time, same branch.
+    const overlapResponse = await post(manager, '/v1/admin/schedule/session', {
+      branchId: 'br_kor',
+      classTypeId,
+      roomId: null,
+      trainerId: null,
+      startsAt: first.startsAt,
+      durationMin: 45,
+      capacity: 2,
+    });
+    const overlap = (await overlapResponse.json()) as { session: { id: string } };
+
+    const clash = await post(manager, `/v1/admin/schedule/session/${overlap.session.id}/book`, {
+      memberId: member.id,
+      idempotencyKey: `ov-b-${overlap.session.id}`,
+    });
+    expect(clash.status).toBe(409);
+  });
+
+  it('lets a manager override eligibility with a reason, but refuses it to reception', async () => {
+    const manager = await signIn('manager@sharkfitness.in');
+    const reception = await signIn('reception@sharkfitness.in');
+    const created = await createSession(manager, { capacity: 2 });
+
+    const noMembership = db
+      .select({ id: schema.members.id })
+      .from(schema.members)
+      .leftJoin(schema.memberships, eq(schema.memberships.memberId, schema.members.id))
+      .where(and(eq(schema.members.homeBranchId, 'br_kor'), sql`${schema.memberships.id} is null`))
+      .get();
+    if (!noMembership) return;
+
+    const refused = await post(reception, `/v1/admin/schedule/session/${created.id}/book-override`, {
+      memberId: noMembership.id,
+      idempotencyKey: `override-reception-${created.id}`,
+      reason: 'Trying it on',
+    });
+    expect(refused.status).toBe(403);
+
+    const allowed = await post(manager, `/v1/admin/schedule/session/${created.id}/book-override`, {
+      memberId: noMembership.id,
+      idempotencyKey: `override-manager-${created.id}`,
+      reason: 'VIP guest — comping this class per owner approval',
+    });
+    expect(allowed.status).toBe(200);
+
+    const booking = db
+      .select()
+      .from(schema.bookings)
+      .where(and(eq(schema.bookings.sessionId, created.id), eq(schema.bookings.memberId, noMembership.id)))
+      .get();
+    expect(booking?.chargeMinor).toBe(0);
+    expect(booking?.creditsUsed).toBe(0);
+
+    const audited = db
+      .select({ n: sql<number>`count(*)` })
+      .from(schema.auditLog)
+      .where(and(eq(schema.auditLog.action, 'booking.confirmed'), eq(schema.auditLog.entityId, booking!.id)))
+      .get();
+    expect(audited?.n).toBeGreaterThan(0);
+  });
+
+  it('refuses a class capacity larger than the room it is booked into', async () => {
+    const manager = await signIn('manager@sharkfitness.in');
+    const room = db.select().from(schema.rooms).where(eq(schema.rooms.id, roomKor)).get()!;
+
+    const response = await post(manager, '/v1/admin/schedule/session', {
+      branchId: 'br_kor',
+      classTypeId,
+      roomId: roomKor,
+      trainerId: null,
+      startsAt: futureSlot().startsAt,
+      durationMin: 45,
+      capacity: room.capacity + 50,
+    });
+    expect(response.status).toBe(422);
+  });
+
+  it('refuses a class created in the past', async () => {
+    const manager = await signIn('manager@sharkfitness.in');
+    const response = await post(manager, '/v1/admin/schedule/session', {
+      branchId: 'br_kor',
+      classTypeId,
+      roomId: null,
+      trainerId: null,
+      startsAt: new Date(now() - DAY).toISOString(),
+      capacity: 5,
+    });
+    expect(response.status).toBe(422);
+  });
+
+  it('refuses a booking-open time that is not before the class starts', async () => {
+    const manager = await signIn('manager@sharkfitness.in');
+    const slot = futureSlot();
+    const response = await post(manager, '/v1/admin/schedule/session', {
+      branchId: 'br_kor',
+      classTypeId,
+      roomId: null,
+      trainerId: null,
+      startsAt: slot.startsAt,
+      capacity: 5,
+      bookingOpensAt: slot.startsAt,
+    });
+    expect(response.status).toBe(422);
+  });
+
+  it('refuses a cancel deadline that is not before the class starts', async () => {
+    const manager = await signIn('manager@sharkfitness.in');
+    const slot = futureSlot();
+    const response = await post(manager, '/v1/admin/schedule/session', {
+      branchId: 'br_kor',
+      classTypeId,
+      roomId: null,
+      trainerId: null,
+      startsAt: slot.startsAt,
+      capacity: 5,
+      cancelDeadlineAt: new Date(slot.ms + 60_000).toISOString(),
+    });
+    expect(response.status).toBe(422);
+  });
+
+  it('requires the current version on every session PATCH', async () => {
+    const manager = await signIn('manager@sharkfitness.in');
+    const created = await createSession(manager);
+
+    const noVersion = await patch(manager, `/v1/admin/schedule/session/${created.id}`, { capacity: 4 });
+    expect(noVersion.status).toBe(422);
   });
 });

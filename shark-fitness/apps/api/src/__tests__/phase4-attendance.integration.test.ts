@@ -270,6 +270,37 @@ describe('Phase 4 — front desk attendance', () => {
     expect(response.status).toBe(422);
   });
 
+  it('does not let a second manager reuse a denial another manager already overrode', async () => {
+    const managerA = await signIn('manager@sharkfitness.in');
+    const managerB = await signIn('owner@sharkfitness.in');
+    const member = blockedMember('br_kor');
+
+    const denial = await post(managerA, '/v1/admin/attendance/check-in', { memberId: member.id, branchId: 'br_kor' });
+    const { checkInId } = (await denial.json()) as { checkInId: string };
+
+    const first = await post(managerA, '/v1/admin/attendance/override', {
+      checkInId,
+      reason: 'Manager A: paying now',
+    });
+    expect(first.status).toBe(200);
+    const firstBody = (await first.json()) as { checkInId: string };
+
+    // Member checks out — the visit closes, but the original denial row's
+    // consumption must not depend on that.
+    await post(managerA, '/v1/admin/attendance/check-out', { checkInId: firstBody.checkInId });
+
+    // A different manager tries to reuse the SAME original denial.
+    const second = await post(managerB, '/v1/admin/attendance/override', {
+      checkInId,
+      reason: 'Manager B: also paying now',
+    });
+    expect(second.status).toBe(409);
+
+    const original = db.select().from(schema.checkIns).where(eq(schema.checkIns.id, checkInId)).get();
+    expect(original?.decision.startsWith('denied_')).toBe(true);
+    expect(original?.overrideByName).toBeTruthy();
+  });
+
   it('never overrides a reused code, whatever the reason', async () => {
     const manager = await signIn('manager@sharkfitness.in');
     const member = blockedMember('br_kor');
@@ -314,6 +345,30 @@ describe('Phase 4 — front desk attendance', () => {
 
     const history = await get(session, `/v1/admin/attendance/member/${outsider.id}`);
     expect(history.status).toBe(404);
+  });
+
+  it('reaches a member through an explicit member_branches grant, not just the home branch', async () => {
+    const reception = await signIn('reception@sharkfitness.in');
+    // A member whose home branch is NOT br_kor, explicitly granted access to br_kor.
+    const outsider = idleEntitledMember('br_ind');
+
+    db.insert(schema.memberBranches)
+      .values({ memberId: outsider.id, branchId: 'br_kor', tenantId: tenantId() })
+      .run();
+
+    try {
+      const search = await get(reception, `/v1/admin/attendance/search?q=${outsider.memberNo}`);
+      expect(search.status).toBe(200);
+      const body = (await search.json()) as { items: Array<{ memberId: string }> };
+      expect(body.items.some((i) => i.memberId === outsider.id)).toBe(true);
+
+      const history = await get(reception, `/v1/admin/attendance/member/${outsider.id}`);
+      expect(history.status).toBe(200);
+    } finally {
+      db.delete(schema.memberBranches)
+        .where(and(eq(schema.memberBranches.memberId, outsider.id), eq(schema.memberBranches.branchId, 'br_kor')))
+        .run();
+    }
   });
 
   it('keeps another tenant’s check-in invisible', async () => {

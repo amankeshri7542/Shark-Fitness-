@@ -9,6 +9,7 @@ import { emit } from '../lib/events.js';
 import { conflict, invalid, notFound, precondition } from '../lib/errors.js';
 import { id } from '../lib/ids.js';
 import { DAY, HOUR, isoDate, localMinutes, now } from '../lib/time.js';
+import { loadMemberInScope, memberBranchIds } from './members.js';
 
 /**
  * Front desk attendance (PF-ATT).
@@ -77,33 +78,6 @@ export function loadBranchInScope(
   return branch;
 }
 
-/**
- * A member is reachable from the desk when their home branch — or any branch
- * they have been added to — is inside the caller's scope. A member of another
- * region is "not found", never "forbidden".
- */
-export function loadMemberInScope(
-  ctx: { tenantId: string; branchIds: string[] },
-  memberId: string,
-): typeof schema.members.$inferSelect {
-  const member = db
-    .select()
-    .from(schema.members)
-    .where(
-      and(
-        eq(schema.members.id, memberId),
-        eq(schema.members.tenantId, ctx.tenantId),
-        isNull(schema.members.deletedAt),
-      ),
-    )
-    .get();
-  if (!member) throw notFound('That member');
-
-  const permitted = memberBranchIds(member);
-  if (!permitted.some((branchId) => ctx.branchIds.includes(branchId))) throw notFound('That member');
-  return member;
-}
-
 export function loadCheckInInScope(
   ctx: { tenantId: string; branchIds: string[] },
   checkInId: string,
@@ -115,17 +89,6 @@ export function loadCheckInInScope(
     .get();
   if (!row || !ctx.branchIds.includes(row.branchId)) throw notFound('That check-in');
   return row;
-}
-
-/** Home branch plus any explicitly granted extra branches. */
-export function memberBranchIds(member: { id: string; homeBranchId: string }): string[] {
-  const extra = db
-    .select({ branchId: schema.memberBranches.branchId })
-    .from(schema.memberBranches)
-    .where(eq(schema.memberBranches.memberId, member.id))
-    .all()
-    .map((row) => row.branchId);
-  return [...new Set([member.homeBranchId, ...extra])];
 }
 
 /* ============================================================================
@@ -545,21 +508,11 @@ export function overrideCheckIn(
   }
   if (!denial.memberId) throw precondition('That refusal is not linked to a member.');
 
-  // An override that has already been actioned must not mint a second entry.
-  const alreadyOverridden = db
-    .select({ id: schema.checkIns.id })
-    .from(schema.checkIns)
-    .where(
-      and(
-        eq(schema.checkIns.tenantId, ctx.tenantId),
-        eq(schema.checkIns.memberId, denial.memberId),
-        eq(schema.checkIns.decision, 'granted'),
-        eq(schema.checkIns.overrideById, ctx.staffId ?? ctx.userId),
-        gte(schema.checkIns.enteredAt, denial.enteredAt),
-      ),
-    )
-    .get();
-  if (alreadyOverridden) throw conflict('That refusal has already been overridden.');
+  // Consumption lives on the denial row itself, so it is exact (tied to this
+  // one refusal, not a time-window heuristic matched against a member) and
+  // actor-independent by construction — whichever manager asks, the second
+  // attempt sees the same row already marked.
+  if (denial.overrideById) throw conflict('That refusal has already been overridden.');
 
   const member = loadMemberInScope(ctx, denial.memberId);
   const branch = loadBranchInScope(ctx, denial.branchId);
@@ -587,6 +540,14 @@ export function overrideCheckIn(
         overrideReason: reason,
         visitNumber,
       })
+      .run();
+
+    // The refusal is preserved verbatim — decision and enteredAt untouched —
+    // but annotated with who resolved it and how, so it can never be
+    // consumed a second time regardless of who asks.
+    db.update(schema.checkIns)
+      .set({ overrideById: ctx.staffId ?? ctx.userId, overrideByName: ctx.name, overrideReason: reason })
+      .where(eq(schema.checkIns.id, denial.id))
       .run();
 
     db.update(schema.members).set({ lastVisitAt: atMs }).where(eq(schema.members.id, member.id)).run();
