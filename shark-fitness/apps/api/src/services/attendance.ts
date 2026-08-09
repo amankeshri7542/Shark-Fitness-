@@ -695,6 +695,9 @@ export function closeAllVisits(
 
   const branch = loadBranchInScope(ctx, input.branchId);
 
+  // Emergency checkout is a complete roll call, not an occupancy snapshot.
+  // Include stale open visits as well: the six-hour window is only for normal
+  // live occupancy, while an evacuation must leave no open visit behind.
   const open = db
     .select()
     .from(schema.checkIns)
@@ -704,7 +707,6 @@ export function closeAllVisits(
         eq(schema.checkIns.branchId, branch.id),
         eq(schema.checkIns.decision, 'granted'),
         isNull(schema.checkIns.exitedAt),
-        gt(schema.checkIns.enteredAt, atMs - OPEN_SESSION_WINDOW),
       ),
     )
     .all();
