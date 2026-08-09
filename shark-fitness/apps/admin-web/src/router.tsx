@@ -13,7 +13,9 @@ import BillingScreen from './screens/Billing';
 import FloorScreen from './screens/Floor';
 import ScheduleScreen from './screens/Schedule';
 import TrainingScreen from './screens/Training';
+import TrainingBuilderScreen from './screens/TrainingBuilder';
 import StaffScreen from './screens/Staff';
+import StaffDetailScreen from './screens/StaffDetail';
 import StoreScreen from './screens/Store';
 import EquipmentScreen from './screens/Equipment';
 import AutomationsScreen from './screens/Automations';
@@ -59,7 +61,9 @@ const billingRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/b
 const floorRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/floor', component: FloorScreen });
 const scheduleRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/schedule', component: ScheduleScreen });
 const trainingRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/training', component: TrainingScreen });
+const trainingBuilderRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/training/$programId', component: TrainingBuilderScreen });
 const staffRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/staff', component: StaffScreen });
+const staffDetailRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/staff/$staffId', component: StaffDetailScreen });
 const storeRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/store', component: StoreScreen });
 const equipmentRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/equipment', component: EquipmentScreen });
 const automationsRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/automations', component: AutomationsScreen });
@@ -81,7 +85,9 @@ const routeTree = rootRoute.addChildren([
     floorRoute,
     scheduleRoute,
     trainingRoute,
+    trainingBuilderRoute,
     staffRoute,
+    staffDetailRoute,
     storeRoute,
     equipmentRoute,
     automationsRoute,
