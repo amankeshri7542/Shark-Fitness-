@@ -370,6 +370,21 @@ export function claimSeat(ctx: RequestContext, input: ClaimSeatInput): ClaimSeat
       return { booking: mineAlready, replayed: true, creditsUsed: mineAlready.creditsUsed, chargeMinor: mineAlready.chargeMinor };
     }
 
+    const member = db
+      .select({ id: schema.members.id, homeBranchId: schema.members.homeBranchId })
+      .from(schema.members)
+      .where(and(eq(schema.members.id, memberId), eq(schema.members.tenantId, ctx.tenantId)))
+      .get();
+    if (!member) throw entitlementMissing('That member could not be found.');
+
+    const extraBranchIds = db
+      .select({ branchId: schema.memberBranches.branchId })
+      .from(schema.memberBranches)
+      .where(and(eq(schema.memberBranches.tenantId, ctx.tenantId), eq(schema.memberBranches.memberId, memberId)))
+      .all()
+      .map((row) => row.branchId);
+    const permittedBranchIds = [...new Set([member.homeBranchId, ...extraBranchIds])];
+
     const standing = membershipStanding(memberId);
     const creditsHeld = classCreditsHeld(memberId, input.today);
     const eligibility = eligibilityFor(
@@ -379,7 +394,7 @@ export function claimSeat(ctx: RequestContext, input: ClaimSeatInput): ClaimSeat
         atMs: input.atMs,
         today: input.today,
         standing,
-        branchIds: ctx.branchIds,
+        branchIds: permittedBranchIds,
         creditsHeld,
         otherBookings: myBookingsAround(memberId, fresh.startsAt - DAY, fresh.endsAt + DAY),
       },
