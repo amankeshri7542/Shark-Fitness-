@@ -54,9 +54,12 @@ beforeAll(() => {
   db.update(schema.branches).set({ opensMinutes: 0, closesMinutes: 24 * 60 }).run();
 });
 
-/** An entitled member at `branchId` who is not currently inside. Drawn from the
- *  seed rather than fabricated, so the entitlement path is the real one. */
+/** An actually admissible member at `branchId` who is not currently inside.
+ * Active membership alone is not enough: unpaid balances and anti-passback can
+ * still make `decideAccess` refuse entry. Keep this fixture focused on the
+ * successful attendance path rather than accidentally testing billing policy. */
 function idleEntitledMember(branchId: string): { id: string; memberNo: string } {
+  const antiPassbackCutoff = now() - 2 * 60_000;
   const row = db
     .select({ id: schema.members.id, memberNo: schema.members.memberNo })
     .from(schema.members)
@@ -67,10 +70,22 @@ function idleEntitledMember(branchId: string): { id: string; memberNo: string } 
         isNull(schema.members.deletedAt),
         eq(schema.memberships.state, 'active'),
         sql`not exists (
+          select 1 from invoices i
+          where i.member_id = ${schema.members.id}
+            and i.state in ('open','partially_paid','overdue')
+            and i.total_minor > i.paid_minor
+        )`,
+        sql`not exists (
           select 1 from check_ins c
           where c.member_id = ${schema.members.id}
             and c.decision = 'granted'
             and c.exited_at is null
+        )`,
+        sql`not exists (
+          select 1 from check_ins recent
+          where recent.member_id = ${schema.members.id}
+            and recent.decision = 'granted'
+            and recent.entered_at > ${antiPassbackCutoff}
         )`,
       ),
     )
@@ -183,18 +198,19 @@ describe('Phase 4 — front desk attendance', () => {
     const member = idleEntitledMember('br_kor');
 
     const entry = await post(session, '/v1/admin/attendance/check-in', { memberId: member.id, branchId: 'br_kor' });
-    const { checkInId } = (await entry.json()) as { checkInId: string };
+    const entryBody = (await entry.json()) as { granted: boolean; checkInId: string };
+    expect(entryBody.granted).toBe(true);
 
-    const first = await post(session, '/v1/admin/attendance/check-out', { checkInId });
+    const first = await post(session, '/v1/admin/attendance/check-out', { checkInId: entryBody.checkInId });
     expect(first.status).toBe(200);
     expect(((await first.json()) as { replayed: boolean }).replayed).toBe(false);
 
-    const second = await post(session, '/v1/admin/attendance/check-out', { checkInId });
+    const second = await post(session, '/v1/admin/attendance/check-out', { checkInId: entryBody.checkInId });
     expect(second.status).toBe(200);
     const secondBody = (await second.json()) as { replayed: boolean; exitedAt: string };
     expect(secondBody.replayed).toBe(true);
 
-    const row = db.select().from(schema.checkIns).where(eq(schema.checkIns.id, checkInId)).get();
+    const row = db.select().from(schema.checkIns).where(eq(schema.checkIns.id, entryBody.checkInId)).get();
     expect(row?.exitedAt).not.toBeNull();
     expect(new Date(secondBody.exitedAt).getTime()).toBe(row?.exitedAt);
   });
