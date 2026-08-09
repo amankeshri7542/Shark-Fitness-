@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useParams } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError, api } from '../lib/api';
+import { ApiError, api, idempotencyKey } from '../lib/api';
 import { usePermission } from '../lib/store';
 import { Page } from '../ui/shell';
 import {
@@ -34,6 +34,7 @@ interface Detail {
     joinedOn: string;
     lastVisitLabel: string;
     branchName: string;
+    trainerId: string | null;
     trainerName: string | null;
     tags: string[];
     memberNotes: string | null;
@@ -42,6 +43,17 @@ interface Detail {
     riskBand: 'high' | 'watch' | 'low' | null;
     riskReasons: Array<{ code: string; label: string; points: number }>;
     version: number;
+  };
+  training: {
+    activeAssignment: {
+      id: string;
+      programName: string;
+      version: number;
+      week: number;
+      of: number;
+      block: string;
+      state: string;
+    } | null;
   };
   level: { level: number; name: string; progressPct: number; nextName: string | null };
   membership: {
@@ -79,12 +91,13 @@ const STATE_TONE: Record<string, Tone> = {
   cancelled: 'bad',
 };
 
-type Sheet = 'freeze' | 'cancel' | 'assign-plan' | null;
+type Sheet = 'freeze' | 'cancel' | 'assign-plan' | 'assign-training' | null;
 
 export default function MemberDetailScreen() {
   const { memberId } = useParams({ from: '/console/members/$memberId' });
   const queryClient = useQueryClient();
   const canManage = usePermission('membership.manage');
+  const canTraining = usePermission('training.assign');
   const [sheet, setSheet] = useState<Sheet>(null);
 
   const { data, isLoading, error, refetch } = useQuery({
@@ -283,6 +296,13 @@ export default function MemberDetailScreen() {
             )}
           </Panel>
 
+          <TrainingPlanPanel
+            training={data.training}
+            trainerName={m.trainerName}
+            canManage={canTraining}
+            onAssign={() => setSheet('assign-training')}
+          />
+
           {data.billing ? (
             <Panel title="Invoices">
               {data.billing.invoices.length === 0 ? (
@@ -468,7 +488,95 @@ export default function MemberDetailScreen() {
           }}
         />
       ) : null}
+      {sheet === 'assign-training' ? (
+        <AssignTrainingSheet
+          memberId={memberId}
+          memberBranchName={m.branchName}
+          currentTrainerId={m.trainerId}
+          hasActiveAssignment={Boolean(data.training.activeAssignment)}
+          onClose={() => setSheet(null)}
+          onDone={() => {
+            setSheet(null);
+            void queryClient.invalidateQueries({ queryKey: ['member', memberId] });
+            void queryClient.invalidateQueries({ queryKey: ['members'] });
+          }}
+        />
+      ) : null}
     </Page>
+  );
+}
+
+function TrainingPlanPanel({ training, trainerName, canManage, onAssign }: { training: Detail['training']; trainerName: string | null; canManage: boolean; onAssign: () => void }) {
+  const active = training.activeAssignment;
+  return (
+    <Panel title="Training plan" action={canManage ? <Button variant="outline" onClick={onAssign}>{active ? 'Replace plan' : 'Assign plan'}</Button> : null}>
+      {active ? (
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-3.5 py-3">
+          <div><Label>Program</Label><p className="mt-1 text-[13px]">{active.programName} · v{active.version}</p></div>
+          <div><Label>Progress</Label><p className="mt-1 text-[13px]">Week {active.week} of {active.of} · Block {active.block}</p></div>
+          <div><Label>Trainer</Label><p className="mt-1 text-[13px]">{trainerName ?? 'Not assigned'}</p></div>
+          <Chip tone="good">{active.state}</Chip>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between gap-3 px-3.5 py-3">
+          <p className="text-[13px] text-foam-45">No active program. A published plan can be assigned with a trainer and start date.</p>
+          {canManage ? <Button variant="cta" onClick={onAssign}>Assign program</Button> : null}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+interface TrainerOption { id: string; name: string; branchIds: string[]; employmentStatus: string }
+interface ProgramOption { id: string; name: string; version: number; weeks: number; state: string }
+
+function AssignTrainingSheet({ memberId, memberBranchName, currentTrainerId, hasActiveAssignment, onClose, onDone }: { memberId: string; memberBranchName: string; currentTrainerId: string | null; hasActiveAssignment: boolean; onClose: () => void; onDone: () => void }) {
+  const [trainerId, setTrainerId] = useState(currentTrainerId ?? '');
+  const [programId, setProgramId] = useState('');
+  const [startsOn, setStartsOn] = useState(new Date().toISOString().slice(0, 10));
+  const [replaceActive, setReplaceActive] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const trainers = useQuery({
+    queryKey: ['staff', 'trainers', memberBranchName],
+    queryFn: () => api<{ items: TrainerOption[] }>('/admin/staff?role=trainer&pageSize=100'),
+  });
+  const programs = useQuery({
+    queryKey: ['training', 'programs', 'published'],
+    queryFn: () => api<{ items: ProgramOption[] }>('/admin/training/programs?state=published'),
+  });
+  const assign = useMutation({
+    mutationFn: async () => {
+      if (!trainerId) throw new Error('Choose a trainer before assigning a program.');
+      if (!programId) throw new Error('Choose a published program.');
+      return api('/admin/training/assign-program', { method: 'POST', idempotencyKey: idempotencyKey('training-assignment', memberId, programId, startsOn), body: { memberId, programId, startsOn, trainerId, replaceActive } });
+    },
+    onSuccess: onDone,
+    onError: (reason) => setError(reason instanceof ApiError ? reason.message : reason instanceof Error ? reason.message : 'That program could not be assigned.'),
+  });
+
+  const branchTrainers = (trainers.data?.items ?? []).filter((trainer) => trainer.employmentStatus === 'active');
+  const busy = assign.isPending;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-6" onClick={onClose} role="presentation">
+      <div className="w-[min(560px,100%)] border border-line-strong bg-overlay" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="Assign training program">
+        <header className="border-b border-line px-4 py-3"><Display size="sm" as="h2">Assign training program</Display><p className="mt-1 text-[12px] text-foam-45">Only active trainers visible to this branch can receive the member.</p></header>
+        <div className="flex flex-col gap-3.5 p-4">
+          {trainers.isLoading || programs.isLoading ? <Skeleton className="h-24" /> : null}
+          {trainers.error || programs.error ? <Panel tone="bad"><p className="px-3 py-2.5 text-[12px]">Could not load trainers or published programs. Nothing has changed.</p></Panel> : null}
+          {!trainers.isLoading && !programs.isLoading && !trainers.error && !programs.error ? <>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <SelectField label="Trainer" value={trainerId} onChange={setTrainerId} options={[['', 'Choose trainer'], ...branchTrainers.map((trainer) => [trainer.id, trainer.name] as [string, string])]} />
+              <SelectField label="Published program" value={programId} onChange={setProgramId} options={[['', 'Choose program'], ...(programs.data?.items ?? []).map((program) => [program.id, `${program.name} · v${program.version}`] as [string, string])]} />
+            </div>
+            <Field label="Starts on" type="date" value={startsOn} onChange={(event) => setStartsOn(event.target.value)} />
+            {hasActiveAssignment ? <label className="flex items-start gap-2 border border-line-strong px-3 py-2.5 text-[12px]"><input type="checkbox" checked={replaceActive} onChange={(event) => setReplaceActive(event.target.checked)} className="mt-0.5 h-4 w-4 accent-[var(--sf-sonar)]" /><span><span className="block">Replace the current active plan</span><span className="text-foam-45">The old assignment is retained as replaced history.</span></span></label> : null}
+          </> : null}
+          {error ? <Panel tone="bad"><p className="px-3 py-2.5 text-[12px]">{error}</p></Panel> : null}
+        </div>
+        <footer className="flex justify-end gap-2 border-t border-line px-4 py-3"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="cta" disabled={busy || !trainerId || !programId || (hasActiveAssignment && !replaceActive)} onClick={() => assign.mutate()}>{busy ? 'Assigning…' : 'Assign program'}</Button></footer>
+      </div>
+    </div>
   );
 }
 
@@ -691,5 +799,16 @@ function DetailSkeleton() {
       </Seam>
       <Skeleton className="m-4 h-64" />
     </Page>
+  );
+}
+
+function SelectField({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: Array<[string, string]> }) {
+  return (
+    <label className="flex flex-col gap-1">
+      <Label>{label}</Label>
+      <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} className="sf-field !min-h-9 !py-2 !text-[13px]">
+        {options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}
+      </select>
+    </label>
   );
 }

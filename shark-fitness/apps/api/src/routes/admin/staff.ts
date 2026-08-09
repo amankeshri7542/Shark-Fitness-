@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { validate } from '../../middleware/validate.js';
 import { Role } from '@shark/contracts';
@@ -15,8 +15,10 @@ import {
   loadStaffInScope,
   updateEmployment,
   updateShiftState,
+  visibleCertifications,
 } from '../../services/staff.js';
 import { DAY, now } from '../../lib/time.js';
+import { runIdempotently } from '../../lib/idempotency.js';
 
 /**
  * Staff directory, employment and availability (PF-STAFF). Route files are
@@ -28,6 +30,9 @@ const ListQuery = z.object({
   q: z.string().optional(),
   role: Role.optional(),
   employmentStatus: z.enum(['active', 'on_leave', 'notice', 'former']).optional(),
+  branchId: z.string().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(25),
 });
 
 staffRoutes.get('/', validate('query', ListQuery), (c) => {
@@ -49,8 +54,12 @@ const CreateBody = z.object({
 staffRoutes.post('/', validate('json', CreateBody), (c) => {
   const ctx = ctxOf(c);
   requirePermission(ctx, 'staff.manage');
-  const staff = createStaffMember(ctx, c.req.valid('json'));
-  return c.json({ staff: { id: staff.id } }, 201);
+  const body = c.req.valid('json');
+  const response = runIdempotently(ctx, '/admin/staff', c.req.header('idempotency-key'), body, () => {
+    const staff = createStaffMember(ctx, body);
+    return { staff: { id: staff.id } };
+  });
+  return c.json(response, 201);
 });
 
 staffRoutes.get('/:staffId', (c) => {
@@ -59,9 +68,9 @@ staffRoutes.get('/:staffId', (c) => {
   const staffId = c.req.param('staffId');
   const staff = loadStaffInScope(ctx, staffId);
   const user = db
-    .select({ name: schema.users.name, initials: schema.users.initials, email: schema.users.email, phone: schema.users.phone, role: schema.users.role })
+    .select({ name: schema.users.name, initials: schema.users.initials, email: schema.users.email, phone: schema.users.phone, role: schema.users.role, accountState: schema.users.accountState })
     .from(schema.users)
-    .where(eq(schema.users.id, staff.userId))
+    .where(and(eq(schema.users.id, staff.userId), eq(schema.users.tenantId, ctx.tenantId)))
     .get();
 
   const canSeeCommission = ctx.permissions.includes('staff.commission');
@@ -78,10 +87,11 @@ staffRoutes.get('/:staffId', (c) => {
       email: user?.email ?? null,
       phone: user?.phone ?? null,
       role: user?.role ?? '',
+      accountState: user?.accountState ?? 'disabled',
       employmentStatus: staff.employmentStatus,
       branchIds: staff.branchIds,
       specialties: staff.specialties,
-      certifications: staff.certifications,
+      certifications: visibleCertifications(staff.certifications),
       hourlyRateMinor: canSeeCommission ? staff.hourlyRateMinor : null,
       commissionRules: canSeeCommission ? staff.commissionRules : [],
       joinedOn: staff.joinedOn,
@@ -94,6 +104,7 @@ staffRoutes.get('/:staffId', (c) => {
       endsAt: new Date(s.endsAt).toISOString(),
       role: s.role,
       state: s.state,
+      conflict: s.conflict,
       coveredByStaffId: s.coveredByStaffId,
       note: s.note,
     })),
@@ -101,10 +112,15 @@ staffRoutes.get('/:staffId', (c) => {
 });
 
 const PatchBody = z.object({
+  name: z.string().trim().min(1).max(120).optional(),
+  email: z.string().email().nullable().optional(),
+  phone: z.string().nullable().optional(),
+  role: Role.optional(),
+  accountState: z.enum(['active', 'disabled', 'invited']).optional(),
   employmentStatus: z.enum(['active', 'on_leave', 'notice', 'former']).optional(),
   branchIds: z.array(z.string().min(1)).min(1).optional(),
   specialties: z.array(z.string()).optional(),
-  certifications: z.array(z.object({ name: z.string().min(1), expiresOn: z.string().nullable() })).optional(),
+  certifications: z.array(z.object({ name: z.string().trim().min(1), expiresOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable() })).optional(),
   commissionRules: z.array(z.object({ kind: z.string().min(1), ratePct: z.number().min(0).max(100) })).optional(),
   hourlyRateMinor: z.number().int().min(0).nullable().optional(),
 });
@@ -150,6 +166,7 @@ staffRoutes.get('/:staffId/shifts', validate('query', ShiftQuery), (c) => {
       endsAt: new Date(s.endsAt).toISOString(),
       role: s.role,
       state: s.state,
+      conflict: s.conflict,
       coveredByStaffId: s.coveredByStaffId,
       note: s.note,
     })),
@@ -168,15 +185,18 @@ staffRoutes.post('/:staffId/shifts', validate('json', CreateShiftBody), (c) => {
   const ctx = ctxOf(c);
   requirePermission(ctx, 'staff.manage');
   const body = c.req.valid('json');
-  const shift = createShift(ctx, {
-    staffId: c.req.param('staffId'),
-    branchId: body.branchId,
-    startsAt: Date.parse(body.startsAt),
-    endsAt: Date.parse(body.endsAt),
-    role: body.role,
-    note: body.note,
+  const response = runIdempotently(ctx, `/admin/staff/${c.req.param('staffId')}/shifts`, c.req.header('idempotency-key'), body, () => {
+    const shift = createShift(ctx, {
+      staffId: c.req.param('staffId'),
+      branchId: body.branchId,
+      startsAt: Date.parse(body.startsAt),
+      endsAt: Date.parse(body.endsAt),
+      role: body.role,
+      note: body.note,
+    });
+    return { shift: { id: shift.id } };
   });
-  return c.json({ shift: { id: shift.id } }, 201);
+  return c.json(response, 201);
 });
 
 const ShiftPatchBody = z.object({

@@ -32,8 +32,8 @@ function headers(session: Session, unsafe = false): Record<string, string> {
 }
 
 const get = (session: Session, path: string) => app.request(path, { headers: headers(session) });
-const post = (session: Session, path: string, body: unknown) =>
-  app.request(path, { method: 'POST', headers: headers(session, true), body: JSON.stringify(body) });
+const post = (session: Session, path: string, body: unknown, idempotencyKey?: string) =>
+  app.request(path, { method: 'POST', headers: { ...headers(session, true), ...(idempotencyKey ? { 'idempotency-key': idempotencyKey } : {}) }, body: JSON.stringify(body) });
 const patch = (session: Session, path: string, body: unknown) =>
   app.request(path, { method: 'PATCH', headers: headers(session, true), body: JSON.stringify(body) });
 
@@ -66,6 +66,38 @@ describe('Phase 6 — staff directory, employment and availability', () => {
     expect(list.status).toBe(200);
     const body = (await list.json()) as { items: Array<{ id: string; name: string }> };
     expect(body.items.some((s) => s.id === staff.id)).toBe(true);
+  });
+
+  it('replays a staff invite for the same idempotency key instead of creating another account', async () => {
+    const owner = await signIn('owner@sharkfitness.in');
+    const body = { name: 'Idempotent Staff', email: uniqueEmail(), phone: null, role: 'reception', branchIds: ['br_kor'], specialties: [] };
+    const first = await post(owner, '/v1/admin/staff', body, 'phase6-staff-invite-replay');
+    const replay = await post(owner, '/v1/admin/staff', body, 'phase6-staff-invite-replay');
+    expect(first.status).toBe(201);
+    expect(replay.status).toBe(201);
+    expect(((await replay.json()) as { staff: { id: string } }).staff.id).toBe(((await first.json()) as { staff: { id: string } }).staff.id);
+  });
+
+  it('rejects invalid tenant roles and branch assignments', async () => {
+    const owner = await signIn('owner@sharkfitness.in');
+    const invalidRole = await post(owner, '/v1/admin/staff', { name: 'Platform account', email: uniqueEmail(), phone: null, role: 'platform_admin', branchIds: ['br_kor'], specialties: [] });
+    expect(invalidRole.status).toBe(422);
+
+    const invalidBranch = await post(owner, '/v1/admin/staff', { name: 'Unknown branch account', email: uniqueEmail(), phone: null, role: 'trainer', branchIds: ['br_not_a_branch'], specialties: [] });
+    expect(invalidBranch.status).toBe(422);
+  });
+
+  it('rejects a branch-scoped directory query outside the caller scope', async () => {
+    const manager = await signIn('manager@sharkfitness.in');
+    const response = await get(manager, '/v1/admin/staff?branchId=br_ind');
+    expect(response.status).toBe(403);
+  });
+
+  it('cannot disable the current user', async () => {
+    const owner = await signIn('owner@sharkfitness.in');
+    const ownerRow = db.select({ id: schema.staff.id }).from(schema.staff).innerJoin(schema.users, eq(schema.users.id, schema.staff.userId)).where(eq(schema.users.email, 'owner@sharkfitness.in')).get()!;
+    const response = await patch(owner, `/v1/admin/staff/${ownerRow.id}`, { accountState: 'disabled' });
+    expect(response.status).toBe(422);
   });
 
   it('refuses staff creation to a branch manager, who only has staff.view', async () => {

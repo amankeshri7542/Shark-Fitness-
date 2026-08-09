@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import { channels, PrescribedSet } from '@shark/contracts';
 import { db, schema, transact } from '../db/client.js';
 import type { RequestContext } from '../lib/context.js';
@@ -36,7 +36,7 @@ export function listExercises(ctx: { tenantId: string }, query: ExerciseListQuer
   const rows = db
     .select()
     .from(schema.exercises)
-    .where(sql`(${schema.exercises.tenantId} is null or ${schema.exercises.tenantId} = ${ctx.tenantId})`)
+    .where(or(isNull(schema.exercises.tenantId), eq(schema.exercises.tenantId, ctx.tenantId)))
     .orderBy(asc(schema.exercises.name))
     .all()
     .filter((e) => (query.archived === undefined ? !e.archived : e.archived === query.archived))
@@ -67,12 +67,17 @@ export interface ExerciseInput {
  *  (`tenantId is null`) — every write here is scoped to the caller's own
  *  tenant by construction. */
 export function createExercise(ctx: RequestContext, input: ExerciseInput) {
-  const existing = db.select({ id: schema.exercises.id }).from(schema.exercises).where(eq(schema.exercises.slug, input.slug)).get();
+  const existing = db
+    .select({ id: schema.exercises.id })
+    .from(schema.exercises)
+    .where(and(eq(schema.exercises.slug, input.slug), or(isNull(schema.exercises.tenantId), eq(schema.exercises.tenantId, ctx.tenantId))))
+    .get();
   if (existing) throw conflict('An exercise with that slug already exists.');
 
   const exerciseId = id('exr');
-  db.insert(schema.exercises)
-    .values({
+  transact(() => {
+    db.insert(schema.exercises)
+      .values({
       id: exerciseId,
       tenantId: ctx.tenantId,
       slug: input.slug,
@@ -92,19 +97,20 @@ export function createExercise(ctx: RequestContext, input: ExerciseInput) {
       loadStepKg: input.loadStepKg,
       mediaUrl: input.mediaUrl,
       archived: false,
-    })
-    .run();
+      })
+      .run();
 
-  audit(ctx, {
-    action: 'exercise.created',
-    entityType: 'exercise',
-    entityId: exerciseId,
-    entityLabel: input.name,
-    branchId: ctx.activeBranchId ?? ctx.branchIds[0] ?? '',
-    after: { slug: input.slug },
+    audit(ctx, {
+      action: 'exercise.created',
+      entityType: 'exercise',
+      entityId: exerciseId,
+      entityLabel: input.name,
+      branchId: ctx.activeBranchId ?? ctx.branchIds[0] ?? '',
+      after: { slug: input.slug },
+    });
   });
 
-  return db.select().from(schema.exercises).where(eq(schema.exercises.id, exerciseId)).get()!;
+  return db.select().from(schema.exercises).where(and(eq(schema.exercises.id, exerciseId), eq(schema.exercises.tenantId, ctx.tenantId))).get()!;
 }
 
 /** Loads a tenant-owned exercise for editing. The shared library
@@ -112,15 +118,20 @@ export function createExercise(ctx: RequestContext, input: ExerciseInput) {
  *  edit it is treated as "not found", the same as any other out-of-scope
  *  write target. */
 function loadOwnExercise(ctx: { tenantId: string }, exerciseId: string) {
-  const row = db.select().from(schema.exercises).where(eq(schema.exercises.id, exerciseId)).get();
-  if (!row || row.tenantId !== ctx.tenantId) throw notFound('That exercise');
+  const row = db
+    .select()
+    .from(schema.exercises)
+    .where(and(eq(schema.exercises.id, exerciseId), eq(schema.exercises.tenantId, ctx.tenantId)))
+    .get();
+  if (!row) throw notFound('That exercise');
   return row;
 }
 
 export function updateExercise(ctx: RequestContext, exerciseId: string, patch: Partial<ExerciseInput>) {
   const exercise = loadOwnExercise(ctx, exerciseId);
-  db.update(schema.exercises)
-    .set({
+  transact(() => {
+    db.update(schema.exercises)
+      .set({
       name: patch.name ?? exercise.name,
       equipment: patch.equipment ?? exercise.equipment,
       primaryMuscles: (patch.primaryMuscles as (typeof schema.exercises.$inferInsert)['primaryMuscles']) ?? exercise.primaryMuscles,
@@ -134,35 +145,38 @@ export function updateExercise(ctx: RequestContext, exerciseId: string, patch: P
       defaultRestSec: patch.defaultRestSec ?? exercise.defaultRestSec,
       loadStepKg: patch.loadStepKg ?? exercise.loadStepKg,
       mediaUrl: patch.mediaUrl !== undefined ? patch.mediaUrl : exercise.mediaUrl,
-    })
-    .where(eq(schema.exercises.id, exerciseId))
-    .run();
+      })
+      .where(and(eq(schema.exercises.id, exerciseId), eq(schema.exercises.tenantId, ctx.tenantId)))
+      .run();
 
-  audit(ctx, {
-    action: 'exercise.updated',
-    entityType: 'exercise',
-    entityId: exerciseId,
-    branchId: ctx.activeBranchId ?? ctx.branchIds[0] ?? '',
-    before: { name: exercise.name },
-    after: { name: patch.name ?? exercise.name },
+    audit(ctx, {
+      action: 'exercise.updated',
+      entityType: 'exercise',
+      entityId: exerciseId,
+      branchId: ctx.activeBranchId ?? ctx.branchIds[0] ?? '',
+      before: { name: exercise.name },
+      after: { name: patch.name ?? exercise.name },
+    });
   });
 
-  return db.select().from(schema.exercises).where(eq(schema.exercises.id, exerciseId)).get()!;
+  return db.select().from(schema.exercises).where(and(eq(schema.exercises.id, exerciseId), eq(schema.exercises.tenantId, ctx.tenantId))).get()!;
 }
 
 export function archiveExercise(ctx: RequestContext, exerciseId: string) {
   const exercise = loadOwnExercise(ctx, exerciseId);
-  db.update(schema.exercises).set({ archived: true }).where(eq(schema.exercises.id, exerciseId)).run();
-  audit(ctx, {
-    action: 'exercise.archived',
-    entityType: 'exercise',
-    entityId: exerciseId,
-    entityLabel: exercise.name,
-    branchId: ctx.activeBranchId ?? ctx.branchIds[0] ?? '',
-    before: { archived: false },
-    after: { archived: true },
+  transact(() => {
+    db.update(schema.exercises).set({ archived: true }).where(and(eq(schema.exercises.id, exerciseId), eq(schema.exercises.tenantId, ctx.tenantId))).run();
+    audit(ctx, {
+      action: 'exercise.archived',
+      entityType: 'exercise',
+      entityId: exerciseId,
+      entityLabel: exercise.name,
+      branchId: ctx.activeBranchId ?? ctx.branchIds[0] ?? '',
+      before: { archived: false },
+      after: { archived: true },
+    });
   });
-  return db.select().from(schema.exercises).where(eq(schema.exercises.id, exerciseId)).get()!;
+  return db.select().from(schema.exercises).where(and(eq(schema.exercises.id, exerciseId), eq(schema.exercises.tenantId, ctx.tenantId))).get()!;
 }
 
 /* ============================================================================
@@ -245,7 +259,7 @@ function programDaysWithItems(tenantId: string, programId: string) {
         db
           .select({ id: schema.exercises.id, name: schema.exercises.name })
           .from(schema.exercises)
-          .where(inArray(schema.exercises.id, exerciseIds))
+          .where(and(inArray(schema.exercises.id, exerciseIds), or(isNull(schema.exercises.tenantId), eq(schema.exercises.tenantId, tenantId))))
           .all()
           .map((e) => [e.id, e.name]),
       )
@@ -299,8 +313,9 @@ export interface ProgramMetaInput {
 export function createDraftProgram(ctx: RequestContext, input: ProgramMetaInput) {
   const atMs = now();
   const programId = id('prg');
-  db.insert(schema.programs)
-    .values({
+  transact(() => {
+    db.insert(schema.programs)
+      .values({
       id: programId,
       tenantId: ctx.tenantId,
       name: input.name,
@@ -313,20 +328,21 @@ export function createDraftProgram(ctx: RequestContext, input: ProgramMetaInput)
       description: input.description,
       state: 'draft',
       createdAt: atMs,
-      updatedAt: atMs,
-    })
-    .run();
+        updatedAt: atMs,
+      })
+      .run();
 
-  audit(ctx, {
-    action: 'program.created',
-    entityType: 'program',
-    entityId: programId,
-    entityLabel: input.name,
-    branchId: ctx.activeBranchId ?? ctx.branchIds[0] ?? '',
-    after: { name: input.name, version: 1 },
+    audit(ctx, {
+      action: 'program.created',
+      entityType: 'program',
+      entityId: programId,
+      entityLabel: input.name,
+      branchId: ctx.activeBranchId ?? ctx.branchIds[0] ?? '',
+      after: { name: input.name, version: 1 },
+    });
   });
 
-  return db.select().from(schema.programs).where(eq(schema.programs.id, programId)).get()!;
+  return db.select().from(schema.programs).where(and(eq(schema.programs.id, programId), eq(schema.programs.tenantId, ctx.tenantId))).get()!;
 }
 
 export function updateProgramMeta(ctx: RequestContext, programId: string, patch: Partial<ProgramMetaInput>) {
@@ -334,19 +350,30 @@ export function updateProgramMeta(ctx: RequestContext, programId: string, patch:
   const program = loadProgramInScope(ctx, programId);
   assertDraft(program);
 
-  db.update(schema.programs)
-    .set({
+  transact(() => {
+    db.update(schema.programs)
+      .set({
       name: patch.name ?? program.name,
       goal: patch.goal ?? program.goal,
       daysPerWeek: patch.daysPerWeek ?? program.daysPerWeek,
       weeks: patch.weeks ?? program.weeks,
       description: patch.description ?? program.description,
-      updatedAt: atMs,
-    })
-    .where(eq(schema.programs.id, programId))
-    .run();
+        updatedAt: atMs,
+      })
+      .where(and(eq(schema.programs.id, programId), eq(schema.programs.tenantId, ctx.tenantId)))
+      .run();
 
-  return db.select().from(schema.programs).where(eq(schema.programs.id, programId)).get()!;
+    audit(ctx, {
+      action: 'program.updated',
+      entityType: 'program',
+      entityId: programId,
+      entityLabel: program.name,
+      before: { name: program.name, goal: program.goal, daysPerWeek: program.daysPerWeek, weeks: program.weeks },
+      after: { name: patch.name ?? program.name, goal: patch.goal ?? program.goal, daysPerWeek: patch.daysPerWeek ?? program.daysPerWeek, weeks: patch.weeks ?? program.weeks },
+    });
+  });
+
+  return db.select().from(schema.programs).where(and(eq(schema.programs.id, programId), eq(schema.programs.tenantId, ctx.tenantId))).get()!;
 }
 
 /** A new version is a fresh, independent row: publishing never mutates a
@@ -385,7 +412,11 @@ export function createNewVersion(ctx: RequestContext, sourceProgramId: string) {
       })
       .run();
 
-    const sourceDays = db.select().from(schema.programDays).where(eq(schema.programDays.programId, sourceProgramId)).all();
+    const sourceDays = db
+      .select()
+      .from(schema.programDays)
+      .where(and(eq(schema.programDays.programId, sourceProgramId), eq(schema.programDays.tenantId, ctx.tenantId)))
+      .all();
     const dayIdMap = new Map<string, string>();
     for (const day of sourceDays) {
       const newDayId = id('pgd');
@@ -409,12 +440,7 @@ export function createNewVersion(ctx: RequestContext, sourceProgramId: string) {
       const sourceItems = db
         .select()
         .from(schema.programItems)
-        .where(
-          inArray(
-            schema.programItems.programDayId,
-            sourceDays.map((d) => d.id),
-          ),
-        )
+        .where(and(inArray(schema.programItems.programDayId, sourceDays.map((d) => d.id)), eq(schema.programItems.tenantId, ctx.tenantId)))
         .all();
       for (const item of sourceItems) {
         const newDayId = dayIdMap.get(item.programDayId);
@@ -449,7 +475,7 @@ export function createNewVersion(ctx: RequestContext, sourceProgramId: string) {
       after: { version: maxVersion + 1 },
     });
 
-    return db.select().from(schema.programs).where(eq(schema.programs.id, newProgramId)).get()!;
+    return db.select().from(schema.programs).where(and(eq(schema.programs.id, newProgramId), eq(schema.programs.tenantId, ctx.tenantId))).get()!;
   });
 }
 
@@ -460,36 +486,54 @@ export function publishProgram(ctx: RequestContext, programId: string) {
   const program = loadProgramInScope(ctx, programId);
   assertDraft(program);
 
-  const days = db.select({ id: schema.programDays.id }).from(schema.programDays).where(
-    and(eq(schema.programDays.programId, programId), eq(schema.programDays.isRest, false)),
-  ).all();
+  const days = db
+    .select({ id: schema.programDays.id, isRest: schema.programDays.isRest })
+    .from(schema.programDays)
+    .where(and(eq(schema.programDays.programId, programId), eq(schema.programDays.tenantId, ctx.tenantId)))
+    .all();
+  if (days.length === 0) throw invalid('Add at least one training day before publishing.');
+  const trainingDays = days.filter((day) => !day.isRest);
+  if (trainingDays.length === 0) throw invalid('Add at least one non-rest training day before publishing.');
   const hasItems =
-    days.length > 0 &&
     (db
       .select({ n: sql<number>`count(*)` })
       .from(schema.programItems)
       .where(
-        inArray(
-          schema.programItems.programDayId,
-          days.map((d) => d.id),
-        ),
+        and(inArray(schema.programItems.programDayId, trainingDays.map((d) => d.id)), eq(schema.programItems.tenantId, ctx.tenantId)),
       )
       .get()?.n ?? 0) > 0;
   if (!hasItems) throw invalid('Add at least one exercise to a training day before publishing.');
 
-  db.update(schema.programs).set({ state: 'published', updatedAt: atMs }).where(eq(schema.programs.id, programId)).run();
+  const invalidItem = db
+    .select({ exerciseId: schema.programItems.exerciseId })
+    .from(schema.programItems)
+    .where(and(inArray(schema.programItems.programDayId, trainingDays.map((d) => d.id)), eq(schema.programItems.tenantId, ctx.tenantId)))
+    .all()
+    .map((item) =>
+      db
+        .select({ id: schema.exercises.id })
+        .from(schema.exercises)
+        .where(and(eq(schema.exercises.id, item.exerciseId), or(isNull(schema.exercises.tenantId), eq(schema.exercises.tenantId, ctx.tenantId)), eq(schema.exercises.archived, false)))
+        .get(),
+    )
+    .some((exercise) => !exercise);
+  if (invalidItem) throw invalid('Every exercise in a published program must still be active in the catalogue.');
 
-  audit(ctx, {
-    action: 'program.published',
-    entityType: 'program',
-    entityId: programId,
-    entityLabel: program.name,
-    branchId: ctx.activeBranchId ?? ctx.branchIds[0] ?? '',
-    before: { state: 'draft' },
-    after: { state: 'published' },
+  transact(() => {
+    db.update(schema.programs).set({ state: 'published', updatedAt: atMs }).where(and(eq(schema.programs.id, programId), eq(schema.programs.tenantId, ctx.tenantId))).run();
+
+    audit(ctx, {
+      action: 'program.published',
+      entityType: 'program',
+      entityId: programId,
+      entityLabel: program.name,
+      branchId: ctx.activeBranchId ?? ctx.branchIds[0] ?? '',
+      before: { state: 'draft' },
+      after: { state: 'published' },
+    });
   });
 
-  return db.select().from(schema.programs).where(eq(schema.programs.id, programId)).get()!;
+  return db.select().from(schema.programs).where(and(eq(schema.programs.id, programId), eq(schema.programs.tenantId, ctx.tenantId))).get()!;
 }
 
 export function archiveProgram(ctx: RequestContext, programId: string) {
@@ -497,19 +541,21 @@ export function archiveProgram(ctx: RequestContext, programId: string) {
   const program = loadProgramInScope(ctx, programId);
   if (program.state === 'archived') throw precondition('That program is already archived.');
 
-  db.update(schema.programs).set({ state: 'archived', updatedAt: atMs }).where(eq(schema.programs.id, programId)).run();
+  transact(() => {
+    db.update(schema.programs).set({ state: 'archived', updatedAt: atMs }).where(and(eq(schema.programs.id, programId), eq(schema.programs.tenantId, ctx.tenantId))).run();
 
-  audit(ctx, {
-    action: 'program.archived',
-    entityType: 'program',
-    entityId: programId,
-    entityLabel: program.name,
-    branchId: ctx.activeBranchId ?? ctx.branchIds[0] ?? '',
-    before: { state: program.state },
-    after: { state: 'archived' },
+    audit(ctx, {
+      action: 'program.archived',
+      entityType: 'program',
+      entityId: programId,
+      entityLabel: program.name,
+      branchId: ctx.activeBranchId ?? ctx.branchIds[0] ?? '',
+      before: { state: program.state },
+      after: { state: 'archived' },
+    });
   });
 
-  return db.select().from(schema.programs).where(eq(schema.programs.id, programId)).get()!;
+  return db.select().from(schema.programs).where(and(eq(schema.programs.id, programId), eq(schema.programs.tenantId, ctx.tenantId))).get()!;
 }
 
 /* ============================================================================
@@ -539,6 +585,7 @@ export interface ProgramDayInput {
 export function upsertProgramDay(ctx: RequestContext, programId: string, input: ProgramDayInput) {
   const program = loadProgramInScope(ctx, programId);
   assertDraft(program);
+  if (input.week > program.weeks) throw invalid('That week is outside this program.');
 
   const existing = db
     .select()
@@ -546,6 +593,7 @@ export function upsertProgramDay(ctx: RequestContext, programId: string, input: 
     .where(
       and(
         eq(schema.programDays.programId, programId),
+        eq(schema.programDays.tenantId, ctx.tenantId),
         eq(schema.programDays.week, input.week),
         eq(schema.programDays.dayIndex, input.dayIndex),
       ),
@@ -553,14 +601,15 @@ export function upsertProgramDay(ctx: RequestContext, programId: string, input: 
     .get();
 
   const dayId = existing?.id ?? id('pgd');
-  if (existing) {
-    db.update(schema.programDays)
+  transact(() => {
+    if (existing) {
+      db.update(schema.programDays)
       .set({ label: input.label, focus: input.focus, isRest: input.isRest, estimatedMin: input.estimatedMin })
-      .where(eq(schema.programDays.id, dayId))
+      .where(and(eq(schema.programDays.id, dayId), eq(schema.programDays.tenantId, ctx.tenantId)))
       .run();
-  } else {
-    db.insert(schema.programDays)
-      .values({
+    } else {
+      db.insert(schema.programDays)
+        .values({
         id: dayId,
         tenantId: ctx.tenantId,
         programId,
@@ -570,18 +619,34 @@ export function upsertProgramDay(ctx: RequestContext, programId: string, input: 
         focus: input.focus,
         isRest: input.isRest,
         estimatedMin: input.estimatedMin,
-      })
-      .run();
-  }
+        })
+        .run();
+    }
 
-  return db.select().from(schema.programDays).where(eq(schema.programDays.id, dayId)).get()!;
+    audit(ctx, {
+      action: existing ? 'program.day_updated' : 'program.day_created',
+      entityType: 'program_day',
+      entityId: dayId,
+      branchId: ctx.activeBranchId ?? ctx.branchIds[0] ?? '',
+      after: { programId, week: input.week, dayIndex: input.dayIndex, isRest: input.isRest },
+    });
+  });
+
+  return db.select().from(schema.programDays).where(and(eq(schema.programDays.id, dayId), eq(schema.programDays.tenantId, ctx.tenantId))).get()!;
 }
 
 export function deleteProgramDay(ctx: RequestContext, dayId: string) {
   const { day } = loadDraftDay(ctx, dayId);
   transact(() => {
-    db.delete(schema.programItems).where(eq(schema.programItems.programDayId, dayId)).run();
-    db.delete(schema.programDays).where(eq(schema.programDays.id, dayId)).run();
+    db.delete(schema.programItems).where(and(eq(schema.programItems.programDayId, dayId), eq(schema.programItems.tenantId, ctx.tenantId))).run();
+    db.delete(schema.programDays).where(and(eq(schema.programDays.id, dayId), eq(schema.programDays.tenantId, ctx.tenantId))).run();
+    audit(ctx, {
+      action: 'program.day_deleted',
+      entityType: 'program_day',
+      entityId: day.id,
+      branchId: ctx.activeBranchId ?? ctx.branchIds[0] ?? '',
+      before: { programId: day.programId, week: day.week, dayIndex: day.dayIndex },
+    });
   });
   return { ok: true, dayId: day.id };
 }
@@ -602,25 +667,45 @@ export interface ProgramItemInput {
 function assertValidSets(sets: unknown): void {
   const parsed = PrescribedSet.array().safeParse(sets);
   if (!parsed.success) throw invalid('Sets are not shaped correctly — check reps, RPE and rest values.');
+  if (parsed.data.some((set) => set.repLow < 0 || set.repHigh < set.repLow || set.restSec < 0 || set.restSec > 600 || (set.targetWeightKg !== null && set.targetWeightKg < 0) || (set.targetRpe !== null && (set.targetRpe < 1 || set.targetRpe > 10)))) {
+    throw invalid('Each set needs valid reps, load, RPE and rest values.');
+  }
+}
+
+function validateSubstitutions(tenantId: string, exerciseIds: string[]): void {
+  if (exerciseIds.length === 0) return;
+  const distinct = [...new Set(exerciseIds)];
+  const rows = db
+    .select({ id: schema.exercises.id })
+    .from(schema.exercises)
+    .where(and(inArray(schema.exercises.id, distinct), or(isNull(schema.exercises.tenantId), eq(schema.exercises.tenantId, tenantId)), eq(schema.exercises.archived, false)))
+    .all();
+  if (rows.length !== distinct.length) throw invalid('Every substitution must be an active exercise in this tenant catalogue.');
 }
 
 export function addProgramItem(ctx: RequestContext, dayId: string, input: ProgramItemInput) {
   loadDraftDay(ctx, dayId);
   assertValidSets(input.sets);
 
-  const exercise = db.select({ id: schema.exercises.id }).from(schema.exercises).where(eq(schema.exercises.id, input.exerciseId)).get();
+  const exercise = db
+    .select({ id: schema.exercises.id })
+    .from(schema.exercises)
+    .where(and(eq(schema.exercises.id, input.exerciseId), or(isNull(schema.exercises.tenantId), eq(schema.exercises.tenantId, ctx.tenantId)), eq(schema.exercises.archived, false)))
+    .get();
   if (!exercise) throw notFound('That exercise');
+  validateSubstitutions(ctx.tenantId, input.allowedSubstitutionIds);
 
   const maxOrder =
     db
       .select({ max: sql<number>`max(${schema.programItems.orderIndex})` })
       .from(schema.programItems)
-      .where(eq(schema.programItems.programDayId, dayId))
+      .where(and(eq(schema.programItems.programDayId, dayId), eq(schema.programItems.tenantId, ctx.tenantId)))
       .get()?.max ?? -1;
 
   const itemId = id('pgi');
-  db.insert(schema.programItems)
-    .values({
+  transact(() => {
+    db.insert(schema.programItems)
+      .values({
       id: itemId,
       tenantId: ctx.tenantId,
       programDayId: dayId,
@@ -634,10 +719,19 @@ export function addProgramItem(ctx: RequestContext, dayId: string, input: Progra
       rationale: input.rationale,
       trainerLocked: input.trainerLocked,
       allowedSubstitutionIds: input.allowedSubstitutionIds,
-    })
-    .run();
+      })
+      .run();
 
-  return db.select().from(schema.programItems).where(eq(schema.programItems.id, itemId)).get()!;
+    audit(ctx, {
+      action: 'program.item_added',
+      entityType: 'program_item',
+      entityId: itemId,
+      branchId: ctx.activeBranchId ?? ctx.branchIds[0] ?? '',
+      after: { programDayId: dayId, exerciseId: input.exerciseId, orderIndex: input.orderIndex ?? maxOrder + 1 },
+    });
+  });
+
+  return db.select().from(schema.programItems).where(and(eq(schema.programItems.id, itemId), eq(schema.programItems.tenantId, ctx.tenantId))).get()!;
 }
 
 function loadDraftItem(ctx: { tenantId: string }, itemId: string) {
@@ -650,10 +744,41 @@ function loadDraftItem(ctx: { tenantId: string }, itemId: string) {
 export function updateProgramItem(ctx: RequestContext, itemId: string, patch: Partial<ProgramItemInput>) {
   const item = loadDraftItem(ctx, itemId);
   if (patch.sets !== undefined) assertValidSets(patch.sets);
+  if (patch.exerciseId !== undefined) {
+    const exercise = db
+      .select({ id: schema.exercises.id })
+      .from(schema.exercises)
+      .where(and(eq(schema.exercises.id, patch.exerciseId), or(isNull(schema.exercises.tenantId), eq(schema.exercises.tenantId, ctx.tenantId)), eq(schema.exercises.archived, false)))
+      .get();
+    if (!exercise) throw notFound('That exercise');
+  }
+  if (patch.allowedSubstitutionIds !== undefined) validateSubstitutions(ctx.tenantId, patch.allowedSubstitutionIds);
 
-  db.update(schema.programItems)
-    .set({
-      orderIndex: patch.orderIndex ?? item.orderIndex,
+  const siblings = patch.orderIndex !== undefined
+    ? db
+        .select({ id: schema.programItems.id, orderIndex: schema.programItems.orderIndex })
+        .from(schema.programItems)
+        .where(and(eq(schema.programItems.programDayId, item.programDayId), eq(schema.programItems.tenantId, ctx.tenantId)))
+        .orderBy(asc(schema.programItems.orderIndex))
+        .all()
+    : [];
+  const currentIndex = siblings.findIndex((sibling) => sibling.id === item.id);
+  const requestedIndex = patch.orderIndex === undefined || currentIndex < 0
+    ? currentIndex
+    : Math.max(0, Math.min(siblings.length - 1, patch.orderIndex));
+  const targetSibling = requestedIndex >= 0 ? siblings[requestedIndex] : undefined;
+  const shouldSwap = Boolean(targetSibling && targetSibling.id !== item.id && requestedIndex !== currentIndex);
+
+  transact(() => {
+    if (shouldSwap && targetSibling) {
+      db.update(schema.programItems)
+        .set({ orderIndex: item.orderIndex })
+        .where(and(eq(schema.programItems.id, targetSibling.id), eq(schema.programItems.tenantId, ctx.tenantId)))
+        .run();
+    }
+    db.update(schema.programItems)
+      .set({
+      orderIndex: shouldSwap && targetSibling ? targetSibling.orderIndex : patch.orderIndex ?? item.orderIndex,
       exerciseId: patch.exerciseId ?? item.exerciseId,
       sets: patch.sets !== undefined ? (patch.sets as (typeof schema.programItems.$inferInsert)['sets']) : item.sets,
       targetLabel: patch.targetLabel ?? item.targetLabel,
@@ -663,16 +788,35 @@ export function updateProgramItem(ctx: RequestContext, itemId: string, patch: Pa
       rationale: patch.rationale !== undefined ? patch.rationale : item.rationale,
       trainerLocked: patch.trainerLocked ?? item.trainerLocked,
       allowedSubstitutionIds: patch.allowedSubstitutionIds ?? item.allowedSubstitutionIds,
-    })
-    .where(eq(schema.programItems.id, itemId))
-    .run();
+      })
+      .where(and(eq(schema.programItems.id, itemId), eq(schema.programItems.tenantId, ctx.tenantId)))
+      .run();
 
-  return db.select().from(schema.programItems).where(eq(schema.programItems.id, itemId)).get()!;
+    audit(ctx, {
+      action: 'program.item_updated',
+      entityType: 'program_item',
+      entityId: itemId,
+      branchId: ctx.activeBranchId ?? ctx.branchIds[0] ?? '',
+      before: { exerciseId: item.exerciseId, orderIndex: item.orderIndex, targetLabel: item.targetLabel },
+      after: { exerciseId: patch.exerciseId ?? item.exerciseId, orderIndex: shouldSwap && targetSibling ? targetSibling.orderIndex : patch.orderIndex ?? item.orderIndex, targetLabel: patch.targetLabel ?? item.targetLabel },
+    });
+  });
+
+  return db.select().from(schema.programItems).where(and(eq(schema.programItems.id, itemId), eq(schema.programItems.tenantId, ctx.tenantId))).get()!;
 }
 
 export function deleteProgramItem(ctx: RequestContext, itemId: string) {
   const item = loadDraftItem(ctx, itemId);
-  db.delete(schema.programItems).where(eq(schema.programItems.id, itemId)).run();
+  transact(() => {
+    db.delete(schema.programItems).where(and(eq(schema.programItems.id, itemId), eq(schema.programItems.tenantId, ctx.tenantId))).run();
+    audit(ctx, {
+      action: 'program.item_deleted',
+      entityType: 'program_item',
+      entityId: itemId,
+      branchId: ctx.activeBranchId ?? ctx.branchIds[0] ?? '',
+      before: { exerciseId: item.exerciseId, programDayId: item.programDayId },
+    });
+  });
   return { ok: true, itemId: item.id };
 }
 
@@ -688,21 +832,33 @@ export function assignTrainer(ctx: RequestContext, memberId: string, trainerId: 
 
   if (trainerId) {
     const staff = loadStaffInScope(ctx, trainerId);
-    const staffUser = db.select({ role: schema.users.role }).from(schema.users).where(eq(schema.users.id, staff.userId)).get();
-    if (!staffUser || staffUser.role !== 'trainer') throw invalid('That staff member is not a trainer.');
+    const staffUser = db
+      .select({ role: schema.users.role, accountState: schema.users.accountState })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, staff.userId), eq(schema.users.tenantId, ctx.tenantId)))
+      .get();
+    if (!staffUser || staffUser.role !== 'trainer' || staff.employmentStatus !== 'active' || staffUser.accountState !== 'active') {
+      throw invalid('That trainer is not active and cannot receive members.');
+    }
+    if (!staff.branchIds.includes(member.homeBranchId)) throw invalid('That trainer is not assigned to the member\'s home branch.');
   }
 
   const before = member.trainerId;
-  db.update(schema.members).set({ trainerId }).where(eq(schema.members.id, memberId)).run();
+  transact(() => {
+    db.update(schema.members)
+      .set({ trainerId })
+      .where(and(eq(schema.members.id, memberId), eq(schema.members.tenantId, ctx.tenantId)))
+      .run();
 
-  audit(ctx, {
-    action: 'member.trainer_assigned',
-    entityType: 'member',
-    entityId: memberId,
-    entityLabel: member.memberNo,
-    branchId: member.homeBranchId,
-    before: { trainerId: before },
-    after: { trainerId },
+    audit(ctx, {
+      action: 'member.trainer_assigned',
+      entityType: 'member',
+      entityId: memberId,
+      entityLabel: member.memberNo,
+      branchId: member.homeBranchId,
+      before: { trainerId: before },
+      after: { trainerId },
+    });
   });
 
   return db.select().from(schema.members).where(eq(schema.members.id, memberId)).get()!;
@@ -713,6 +869,28 @@ export interface AssignProgramInput {
   programId: string;
   startsOn: string;
   trainerId?: string | null;
+  replaceActive?: boolean;
+}
+
+function assertIsoDate(value: string): void {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(Date.parse(`${value}T00:00:00Z`))) {
+    throw invalid('Choose a valid start date.');
+  }
+}
+
+function activeTrainerForMember(ctx: RequestContext, member: typeof schema.members.$inferSelect, trainerId: string | null) {
+  if (!trainerId) return null;
+  const staff = loadStaffInScope(ctx, trainerId);
+  const staffUser = db
+    .select({ role: schema.users.role, accountState: schema.users.accountState })
+    .from(schema.users)
+    .where(and(eq(schema.users.id, staff.userId), eq(schema.users.tenantId, ctx.tenantId)))
+    .get();
+  if (!staffUser || staffUser.role !== 'trainer' || staff.employmentStatus !== 'active' || staffUser.accountState !== 'active') {
+    throw invalid('That trainer is not active and cannot receive a program.');
+  }
+  if (!staff.branchIds.includes(member.homeBranchId)) throw invalid('That trainer is not assigned to the member\'s home branch.');
+  return staff;
 }
 
 /** Assigning a program never edits a prior assignment's row — it is closed
@@ -724,8 +902,11 @@ export function assignProgram(ctx: RequestContext, input: AssignProgramInput) {
   const member = loadMemberInScope(ctx, input.memberId);
   const program = loadProgramInScope(ctx, input.programId);
   if (program.state !== 'published') throw precondition('Only a published program can be assigned.');
+  assertIsoDate(input.startsOn);
 
   const trainerId = input.trainerId !== undefined ? input.trainerId : member.trainerId;
+  if (!trainerId) throw invalid('A published program assignment needs an active trainer.');
+  activeTrainerForMember(ctx, member, trainerId);
 
   return transact(() => {
     const activePrior = db
@@ -740,11 +921,31 @@ export function assignProgram(ctx: RequestContext, input: AssignProgramInput) {
       )
       .get();
 
+    if (activePrior && !input.replaceActive) {
+      throw conflict('This member already has an active program. Use the explicit replace flow to change it.');
+    }
+
     if (activePrior) {
       db.update(schema.assignments)
         .set({ state: 'replaced', updatedAt: atMs })
         .where(eq(schema.assignments.id, activePrior.id))
         .run();
+    }
+
+    if (input.trainerId !== undefined && member.trainerId !== trainerId) {
+      db.update(schema.members)
+        .set({ trainerId })
+        .where(and(eq(schema.members.id, member.id), eq(schema.members.tenantId, ctx.tenantId)))
+        .run();
+      audit(ctx, {
+        action: 'member.trainer_assigned',
+        entityType: 'member',
+        entityId: member.id,
+        entityLabel: member.memberNo,
+        branchId: member.homeBranchId,
+        before: { trainerId: member.trainerId },
+        after: { trainerId },
+      });
     }
 
     const assignmentId = id('asg');
@@ -804,7 +1005,7 @@ export function assignProgram(ctx: RequestContext, input: AssignProgramInput) {
       });
     }
 
-    return db.select().from(schema.assignments).where(eq(schema.assignments.id, assignmentId)).get()!;
+    return db.select().from(schema.assignments).where(and(eq(schema.assignments.id, assignmentId), eq(schema.assignments.tenantId, ctx.tenantId))).get()!;
   });
 }
 
@@ -821,19 +1022,29 @@ export function endAssignment(ctx: RequestContext, assignmentId: string, toState
   if (assignment.state !== 'active' && assignment.state !== 'paused') {
     throw precondition('That plan is no longer active, so its state cannot change.');
   }
+  if (toState === 'active') {
+    const otherActive = db
+      .select({ id: schema.assignments.id })
+      .from(schema.assignments)
+      .where(and(eq(schema.assignments.tenantId, ctx.tenantId), eq(schema.assignments.memberId, assignment.memberId), eq(schema.assignments.state, 'active'), ne(schema.assignments.id, assignmentId)))
+      .get();
+    if (otherActive) throw conflict('This member already has another active program.');
+  }
 
-  db.update(schema.assignments).set({ state: toState, updatedAt: atMs }).where(eq(schema.assignments.id, assignmentId)).run();
+  transact(() => {
+    db.update(schema.assignments).set({ state: toState, updatedAt: atMs }).where(and(eq(schema.assignments.id, assignmentId), eq(schema.assignments.tenantId, ctx.tenantId))).run();
 
-  audit(ctx, {
-    action: 'assignment.state_changed',
-    entityType: 'assignment',
-    entityId: assignmentId,
-    branchId: ctx.activeBranchId ?? ctx.branchIds[0] ?? '',
-    before: { state: assignment.state },
-    after: { state: toState },
+    audit(ctx, {
+      action: 'assignment.state_changed',
+      entityType: 'assignment',
+      entityId: assignmentId,
+      branchId: ctx.activeBranchId ?? ctx.branchIds[0] ?? '',
+      before: { state: assignment.state },
+      after: { state: toState },
+    });
   });
 
-  return db.select().from(schema.assignments).where(eq(schema.assignments.id, assignmentId)).get()!;
+  return db.select().from(schema.assignments).where(and(eq(schema.assignments.id, assignmentId), eq(schema.assignments.tenantId, ctx.tenantId))).get()!;
 }
 
 export function assignmentHistory(ctx: { tenantId: string; branchIds: string[] }, memberId: string) {
@@ -854,7 +1065,7 @@ export function assignmentHistory(ctx: { tenantId: string; branchIds: string[] }
     })
     .from(schema.assignments)
     .innerJoin(schema.programs, eq(schema.programs.id, schema.assignments.programId))
-    .where(and(eq(schema.assignments.memberId, memberId), eq(schema.assignments.tenantId, ctx.tenantId)))
+    .where(and(eq(schema.assignments.memberId, memberId), eq(schema.assignments.tenantId, ctx.tenantId), eq(schema.programs.tenantId, ctx.tenantId)))
     .orderBy(desc(schema.assignments.createdAt))
     .all();
 
@@ -882,6 +1093,7 @@ export function memberTrainingSummary(ctx: { tenantId: string; branchIds: string
         eq(schema.assignments.memberId, memberId),
         eq(schema.assignments.tenantId, ctx.tenantId),
         eq(schema.assignments.state, 'active'),
+        eq(schema.programs.tenantId, ctx.tenantId),
       ),
     )
     .get();

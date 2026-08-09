@@ -32,8 +32,8 @@ function headers(session: Session, unsafe = false): Record<string, string> {
 }
 
 const get = (session: Session, path: string) => app.request(path, { headers: headers(session) });
-const post = (session: Session, path: string, body: unknown) =>
-  app.request(path, { method: 'POST', headers: headers(session, true), body: JSON.stringify(body) });
+const post = (session: Session, path: string, body: unknown, idempotencyKey?: string) =>
+  app.request(path, { method: 'POST', headers: { ...headers(session, true), ...(idempotencyKey ? { 'idempotency-key': idempotencyKey } : {}) }, body: JSON.stringify(body) });
 const patch = (session: Session, path: string, body: unknown) =>
   app.request(path, { method: 'PATCH', headers: headers(session, true), body: JSON.stringify(body) });
 
@@ -44,6 +44,32 @@ function slug(): string {
 }
 
 describe('Phase 6 — exercise library, program builder and assignment', () => {
+  it('keeps program creation idempotent and denies program management to branch managers', async () => {
+    const owner = await signIn('owner@sharkfitness.in');
+    const manager = await signIn('manager@sharkfitness.in');
+    const body = { name: `Idempotent Program ${now()}`, goal: 'general', daysPerWeek: 1, weeks: 1, description: '' };
+    const first = await post(owner, '/v1/admin/training/programs', body, 'phase6-program-create-replay');
+    const replay = await post(owner, '/v1/admin/training/programs', body, 'phase6-program-create-replay');
+    expect(first.status).toBe(201);
+    expect(replay.status).toBe(201);
+    expect(((await replay.json()) as { program: { id: string } }).program.id).toBe(((await first.json()) as { program: { id: string } }).program.id);
+
+    const denied = await post(manager, '/v1/admin/training/programs', body);
+    expect(denied.status).toBe(403);
+  });
+
+  it('refuses an inactive trainer for a member assignment', async () => {
+    const owner = await signIn('owner@sharkfitness.in');
+    const memberRow = db.select({ id: schema.members.id }).from(schema.members).where(eq(schema.members.memberNo, 'SF-40219')).get()!;
+    const created = await post(owner, '/v1/admin/staff', { name: 'Inactive Phase 6 Trainer', email: `inactive-${now()}@sharkfitness.in`, phone: null, role: 'trainer', branchIds: ['br_kor'], specialties: [] });
+    const { staff } = (await created.json()) as { staff: { id: string } };
+    const inactive = await patch(owner, `/v1/admin/staff/${staff.id}`, { employmentStatus: 'on_leave' });
+    expect(inactive.status).toBe(200);
+
+    const response = await post(owner, '/v1/admin/training/assign-trainer', { memberId: memberRow.id, trainerId: staff.id });
+    expect(response.status).toBe(422);
+  });
+
   it('creates a tenant exercise and refuses editing the shared library', async () => {
     const owner = await signIn('owner@sharkfitness.in');
 
@@ -193,6 +219,7 @@ describe('Phase 6 — exercise library, program builder and assignment', () => {
       memberId: memberRow.id,
       programId: program.id,
       startsOn: '2020-01-01',
+      replaceActive: true,
     });
     // publishing above makes this succeed; verify a genuinely-unpublished
     // program is refused using a fresh draft.
@@ -212,6 +239,21 @@ describe('Phase 6 — exercise library, program builder and assignment', () => {
     expect(refused.status).toBe(412);
 
     expect(draftAssign.status).toBe(201);
+
+    const duplicate = await post(owner, '/v1/admin/training/assign-program', {
+      memberId: memberRow.id,
+      programId: program.id,
+      startsOn: '2020-01-01',
+    });
+    expect(duplicate.status).toBe(409);
+
+    const replacement = await post(owner, '/v1/admin/training/assign-program', {
+      memberId: memberRow.id,
+      programId: program.id,
+      startsOn: '2020-01-02',
+      replaceActive: true,
+    });
+    expect(replacement.status).toBe(201);
 
     const memberPlan = await get(member, '/v1/member/training/plan');
     expect(memberPlan.status).toBe(200);

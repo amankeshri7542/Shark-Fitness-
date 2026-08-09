@@ -4,6 +4,7 @@ import { validate } from '../../middleware/validate.js';
 import { Equipment, MuscleGroup, PrescribedSet } from '@shark/contracts';
 import { requirePermission } from '../../lib/context.js';
 import { ctxOf } from '../../middleware/index.js';
+import { runIdempotently } from '../../lib/idempotency.js';
 import {
   addProgramItem,
   archiveExercise,
@@ -70,8 +71,12 @@ const ExerciseBody = z.object({
 trainingRoutes.post('/exercises', validate('json', ExerciseBody), (c) => {
   const ctx = ctxOf(c);
   requirePermission(ctx, 'training.program.manage');
-  const exercise = createExercise(ctx, c.req.valid('json'));
-  return c.json({ exercise: { id: exercise.id } }, 201);
+  const body = c.req.valid('json');
+  const response = runIdempotently(ctx, '/admin/training/exercises', c.req.header('idempotency-key'), body, () => {
+    const exercise = createExercise(ctx, body);
+    return { exercise: { id: exercise.id } };
+  });
+  return c.json(response, 201);
 });
 
 trainingRoutes.patch('/exercises/:exerciseId', validate('json', ExerciseBody.partial()), (c) => {
@@ -121,8 +126,12 @@ const ProgramMetaBody = z.object({
 trainingRoutes.post('/programs', validate('json', ProgramMetaBody), (c) => {
   const ctx = ctxOf(c);
   requirePermission(ctx, 'training.program.manage');
-  const program = createDraftProgram(ctx, c.req.valid('json'));
-  return c.json({ program: { id: program.id, version: program.version } }, 201);
+  const body = c.req.valid('json');
+  const response = runIdempotently(ctx, '/admin/training/programs', c.req.header('idempotency-key'), body, () => {
+    const program = createDraftProgram(ctx, body);
+    return { program: { id: program.id, version: program.version } };
+  });
+  return c.json(response, 201);
 });
 
 trainingRoutes.patch('/programs/:programId', validate('json', ProgramMetaBody.partial()), (c) => {
@@ -167,8 +176,12 @@ const DayBody = z.object({
 trainingRoutes.post('/programs/:programId/days', validate('json', DayBody), (c) => {
   const ctx = ctxOf(c);
   requirePermission(ctx, 'training.program.manage');
-  const day = upsertProgramDay(ctx, c.req.param('programId'), c.req.valid('json'));
-  return c.json({ day: { id: day.id } }, 201);
+  const body = c.req.valid('json');
+  const response = runIdempotently(ctx, `/admin/training/programs/${c.req.param('programId')}/days`, c.req.header('idempotency-key'), body, () => {
+    const day = upsertProgramDay(ctx, c.req.param('programId'), body);
+    return { day: { id: day.id } };
+  });
+  return c.json(response, 201);
 });
 
 trainingRoutes.delete('/days/:dayId', (c) => {
@@ -179,6 +192,7 @@ trainingRoutes.delete('/days/:dayId', (c) => {
 
 const ItemBody = z.object({
   exerciseId: z.string().min(1),
+  orderIndex: z.number().int().min(0).optional(),
   sets: PrescribedSet.array().min(1),
   targetLabel: z.string().trim().min(1).max(60),
   supersetGroup: z.string().nullable().default(null),
@@ -192,8 +206,12 @@ const ItemBody = z.object({
 trainingRoutes.post('/days/:dayId/items', validate('json', ItemBody), (c) => {
   const ctx = ctxOf(c);
   requirePermission(ctx, 'training.program.manage');
-  const item = addProgramItem(ctx, c.req.param('dayId'), c.req.valid('json'));
-  return c.json({ item: { id: item.id } }, 201);
+  const body = c.req.valid('json');
+  const response = runIdempotently(ctx, `/admin/training/days/${c.req.param('dayId')}/items`, c.req.header('idempotency-key'), body, () => {
+    const item = addProgramItem(ctx, c.req.param('dayId'), body);
+    return { item: { id: item.id } };
+  });
+  return c.json(response, 201);
 });
 
 trainingRoutes.patch('/items/:itemId', validate('json', ItemBody.partial()), (c) => {
@@ -219,8 +237,11 @@ trainingRoutes.post('/assign-trainer', validate('json', AssignTrainerBody), (c) 
   const ctx = ctxOf(c);
   requirePermission(ctx, 'training.assign');
   const body = c.req.valid('json');
-  const member = assignTrainer(ctx, body.memberId, body.trainerId);
-  return c.json({ member: { id: member.id, trainerId: member.trainerId } });
+  const response = runIdempotently(ctx, '/admin/training/assign-trainer', c.req.header('idempotency-key'), body, () => {
+    const member = assignTrainer(ctx, body.memberId, body.trainerId);
+    return { member: { id: member.id, trainerId: member.trainerId } };
+  });
+  return c.json(response);
 });
 
 const AssignProgramBody = z.object({
@@ -228,13 +249,18 @@ const AssignProgramBody = z.object({
   programId: z.string().min(1),
   startsOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   trainerId: z.string().nullable().optional(),
+  replaceActive: z.boolean().default(false),
 });
 
 trainingRoutes.post('/assign-program', validate('json', AssignProgramBody), (c) => {
   const ctx = ctxOf(c);
   requirePermission(ctx, 'training.assign');
-  const assignment = assignProgram(ctx, c.req.valid('json'));
-  return c.json({ assignment: { id: assignment.id, state: assignment.state } }, 201);
+  const body = c.req.valid('json');
+  const response = runIdempotently(ctx, '/admin/training/assign-program', c.req.header('idempotency-key'), body, () => {
+    const assignment = assignProgram(ctx, body);
+    return { assignment: { id: assignment.id, state: assignment.state } };
+  });
+  return c.json(response, 201);
 });
 
 const StateBody = z.object({ state: z.enum(['active', 'paused', 'completed']) });
