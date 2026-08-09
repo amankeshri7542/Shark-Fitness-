@@ -3,6 +3,7 @@ import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
 import { navFor } from '@shark/domain';
 import { Button, Chip, LiveDot, cx } from './console';
 import { useAdmin, useBranchScope, useViewer } from '../lib/store';
+import { useConnection, useOnline } from '../lib/realtime';
 
 /* Each module gets a mark rather than an icon font — a clip-path shape in the
    same vocabulary as the member app's nav, so the two products read as one. */
@@ -130,10 +131,7 @@ export function StatusStrip({ alertCount = 0 }: { alertCount?: number }) {
           <Chip tone="warn">{alertCount} to act on</Chip>
         </Link>
       ) : (
-        <span className="inline-flex items-center gap-1.5 font-utility text-[9px] uppercase tracking-[0.12em] text-foam-35">
-          <LiveDot tone="accent" />
-          Live
-        </span>
+        <ConnectionBadge />
       )}
 
       <button
@@ -177,6 +175,37 @@ export function StatusStrip({ alertCount = 0 }: { alertCount?: number }) {
       </div>
     </header>
   );
+}
+
+/**
+ * The live indicator states what the socket is actually doing. It used to be
+ * hardcoded to "Live", which read the same whether events were flowing or the
+ * connection had been down for an hour.
+ */
+function ConnectionBadge() {
+  const connection = useConnection();
+  const online = useOnline();
+
+  if (!online) {
+    return <Chip tone="bad">Offline</Chip>;
+  }
+  if (connection === 'open') {
+    return (
+      <span className="inline-flex items-center gap-1.5 font-utility text-[9px] uppercase tracking-[0.12em] text-foam-35">
+        <LiveDot tone="accent" />
+        Live
+      </span>
+    );
+  }
+  if (connection === 'connecting') {
+    return (
+      <span className="inline-flex items-center gap-1.5 font-utility text-[9px] uppercase tracking-[0.12em] text-foam-35">
+        <LiveDot tone="neutral" />
+        Reconnecting
+      </span>
+    );
+  }
+  return <Chip tone="warn">Not live</Chip>;
 }
 
 /** Impersonation is never quiet — a support session says so, loudly (PF-PLAT-004). */
