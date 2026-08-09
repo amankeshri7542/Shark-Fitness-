@@ -5,6 +5,7 @@ export class ApiError extends Error {
   readonly status: number;
   readonly fields: Array<{ path: string; message: string }>;
   readonly requestId: string;
+  readonly details?: Record<string, unknown>;
 
   constructor(status: number, envelope: ErrorEnvelope) {
     super(envelope.error.message);
@@ -13,6 +14,7 @@ export class ApiError extends Error {
     this.code = envelope.error.code;
     this.fields = envelope.error.fields ?? [];
     this.requestId = envelope.error.requestId;
+    if (envelope.error.details) this.details = envelope.error.details;
   }
 }
 

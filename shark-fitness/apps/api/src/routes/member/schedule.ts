@@ -3,14 +3,7 @@ import { and, asc, desc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { validate } from '../../middleware/validate.js';
 import { channels } from '@shark/contracts';
-import {
-  classifyCancellation,
-  evaluateEligibility,
-  holdIsLive,
-  isEntitled,
-  planPromotion,
-  type WaitlistCandidate,
-} from '@shark/domain';
+import { classifyCancellation, evaluateEligibility, planPromotion, type WaitlistCandidate } from '@shark/domain';
 import { db, schema, transact } from '../../db/client.js';
 import { ctxOf } from '../../middleware/index.js';
 import { requireBranch } from '../../lib/context.js';
@@ -19,15 +12,26 @@ import { audit } from '../../lib/audit.js';
 import { emit } from '../../lib/events.js';
 import { id } from '../../lib/ids.js';
 import { DAY, MINUTE, isoDate, localTime, now } from '../../lib/time.js';
+import { AppError, capacityExhausted, conflict, entitlementMissing, notFound, precondition } from '../../lib/errors.js';
 import {
-  AppError,
-  capacityExhausted,
-  conflict,
-  entitlementMissing,
-  forbidden,
-  notFound,
-  precondition,
-} from '../../lib/errors.js';
+  LIVE_BOOKING_STATES,
+  LIVE_WAITLIST_STATES,
+  claimSeat,
+  classCreditsHeld,
+  deadHoldCount,
+  eligibilityFor,
+  membershipStanding,
+  myBookingFor,
+  myBookingsAround,
+  myWaitlistFor,
+  overlapWith,
+  reapExpiredHolds,
+  runClaim,
+  sessionById,
+  sessionQuery,
+  type EligibilityContext,
+  type SessionRow,
+} from '../../services/booking.js';
 
 /**
  * Explore and Book (UX-M04, PF-SCH).
@@ -41,13 +45,11 @@ import {
  *    server's own sentence rather than a generic error.
  * 2. `class_sessions.booked` is only ever moved inside `transact()`, by a
  *    conditional UPDATE that is itself the last-seat claim (PF-SCH-003). The
- *    database trigger behind it is a backstop, not the mechanism.
+ *    database trigger behind it is a backstop, not the mechanism. Both this
+ *    claim and staff booking a member on from the desk share the exact same
+ *    engine — see `services/booking.ts`'s `claimSeat`.
  */
 export const scheduleRoutes = new Hono();
-
-/** States that occupy a seat. Cancelled rows must not block a rebooking. */
-const LIVE_BOOKING_STATES = ['held', 'confirmed', 'attended'] as const;
-const LIVE_WAITLIST_STATES = ['waiting', 'offered'] as const;
 
 /** How long a promoted member has to take the seat before the next in line. */
 const OFFER_WINDOW_MIN = 15;
@@ -60,302 +62,8 @@ const STRIP_DAYS = 7;
    happens once at the top of each handler via requireBranch.
    ========================================================================= */
 
-interface SessionRow {
-  id: string;
-  branchId: string;
-  classTypeId: string;
-  trainerId: string | null;
-  startsAt: number;
-  endsAt: number;
-  capacity: number;
-  booked: number;
-  state: string;
-  bookingOpensAt: number | null;
-  cancelDeadlineAt: number | null;
-  creditsRequired: number;
-  dropInPriceMinor: number | null;
-  lateCancelFeeMinor: number;
-  waitlistEnabled: boolean;
-  cancelledReason: string | null;
-  substituteFor: string | null;
-  name: string;
-  category: string;
-  description: string;
-  durationMin: number;
-  intensity: string;
-  roomName: string | null;
-  trainerName: string | null;
-}
-
-const sessionColumns = {
-  id: schema.classSessions.id,
-  branchId: schema.classSessions.branchId,
-  classTypeId: schema.classSessions.classTypeId,
-  trainerId: schema.classSessions.trainerId,
-  startsAt: schema.classSessions.startsAt,
-  endsAt: schema.classSessions.endsAt,
-  capacity: schema.classSessions.capacity,
-  booked: schema.classSessions.booked,
-  state: schema.classSessions.state,
-  bookingOpensAt: schema.classSessions.bookingOpensAt,
-  cancelDeadlineAt: schema.classSessions.cancelDeadlineAt,
-  creditsRequired: schema.classSessions.creditsRequired,
-  dropInPriceMinor: schema.classSessions.dropInPriceMinor,
-  lateCancelFeeMinor: schema.classSessions.lateCancelFeeMinor,
-  waitlistEnabled: schema.classSessions.waitlistEnabled,
-  cancelledReason: schema.classSessions.cancelledReason,
-  substituteFor: schema.classSessions.substituteFor,
-  name: schema.classTypes.name,
-  category: schema.classTypes.category,
-  description: schema.classTypes.description,
-  durationMin: schema.classTypes.durationMin,
-  intensity: schema.classTypes.intensity,
-  roomName: schema.rooms.name,
-  trainerName: schema.users.name,
-};
-
-function sessionQuery() {
-  return db
-    .select(sessionColumns)
-    .from(schema.classSessions)
-    .innerJoin(schema.classTypes, eq(schema.classTypes.id, schema.classSessions.classTypeId))
-    .leftJoin(schema.rooms, eq(schema.rooms.id, schema.classSessions.roomId))
-    .leftJoin(schema.staff, eq(schema.staff.id, schema.classSessions.trainerId))
-    .leftJoin(schema.users, eq(schema.users.id, schema.staff.userId));
-}
-
-function sessionById(tenantId: string, sessionId: string): SessionRow | undefined {
-  return sessionQuery()
-    .where(and(eq(schema.classSessions.tenantId, tenantId), eq(schema.classSessions.id, sessionId)))
-    .get();
-}
-
-/** Class credits on hand. Expired grants drop out; spends never do. */
-function classCreditsHeld(memberId: string, today: string): number {
-  return db
-    .select({ delta: schema.credits.delta, expiresOn: schema.credits.expiresOn })
-    .from(schema.credits)
-    .where(and(eq(schema.credits.memberId, memberId), eq(schema.credits.kind, 'class')))
-    .all()
-    .reduce((total, row) => total + (row.expiresOn !== null && row.expiresOn < today ? 0 : row.delta), 0);
-}
-
-interface MembershipStanding {
-  entitled: boolean;
-  state: string | null;
-  reason: string | null;
-  productName: string | null;
-  allBranches: boolean;
-}
-
-/** Money and access always speak plainly — never the predator register. */
-function membershipStanding(memberId: string): MembershipStanding {
-  const membership = db
-    .select()
-    .from(schema.memberships)
-    .where(and(eq(schema.memberships.memberId, memberId), sql`${schema.memberships.state} != 'cancelled'`))
-    .orderBy(desc(schema.memberships.createdAt))
-    .get();
-
-  if (!membership) {
-    return {
-      entitled: false,
-      state: null,
-      reason: 'You do not have a membership yet. Reception can set one up in a few minutes.',
-      productName: null,
-      allBranches: false,
-    };
-  }
-
-  const entitled = isEntitled(membership.state as 'active');
-  const reasons: Record<string, string> = {
-    expired: 'Your membership has ended. Renew it and you can book again.',
-    frozen: 'Your membership is frozen. Unfreeze it to book classes.',
-    suspended: 'Your membership is suspended. Reception can explain what happens next.',
-    pending_payment: 'Your membership starts once the first payment clears.',
-    draft: 'Your membership is not active yet. Reception can finish setting it up.',
-    cancel_scheduled: 'Your membership is closing. Reception can reinstate it if you want to keep booking.',
-  };
-
-  return {
-    entitled,
-    state: membership.state,
-    reason: entitled ? null : (reasons[membership.state] ?? 'Your membership does not cover bookings right now.'),
-    productName: membership.productName,
-    allBranches: membership.productSnapshot.access.allBranches,
-  };
-}
-
-/**
- * A held seat whose hold has lapsed is not a seat. `booked` is denormalised, so
- * read paths discount dead holds and the write paths reap them for real.
- */
-function deadHoldCount(sessionIds: string[], atMs: number): Map<string, number> {
-  const counts = new Map<string, number>();
-  if (sessionIds.length === 0) return counts;
-
-  const held = db
-    .select({
-      sessionId: schema.bookings.sessionId,
-      bookedAt: schema.bookings.bookedAt,
-    })
-    .from(schema.bookings)
-    .where(and(inArray(schema.bookings.sessionId, sessionIds), eq(schema.bookings.state, 'held')))
-    .all();
-
-  const at = new Date(atMs);
-  for (const row of held) {
-    if (holdIsLive(new Date(row.bookedAt), at)) continue;
-    counts.set(row.sessionId, (counts.get(row.sessionId) ?? 0) + 1);
-  }
-  return counts;
-}
-
-/** Cancels holds that have lapsed and gives their seats back. Call inside a
- *  transaction, before a claim, so the last seat is honestly counted. */
-function reapExpiredHolds(sessionId: string, atMs: number): number {
-  const held = db
-    .select()
-    .from(schema.bookings)
-    .where(and(eq(schema.bookings.sessionId, sessionId), eq(schema.bookings.state, 'held')))
-    .all();
-
-  const at = new Date(atMs);
-  let reaped = 0;
-  for (const booking of held) {
-    if (holdIsLive(new Date(booking.bookedAt), at)) continue;
-    db.update(schema.bookings)
-      .set({ state: 'cancelled', cancelledAt: atMs })
-      .where(eq(schema.bookings.id, booking.id))
-      .run();
-    db.update(schema.classSessions)
-      .set({ booked: sql`max(0, ${schema.classSessions.booked} - 1)` })
-      .where(eq(schema.classSessions.id, sessionId))
-      .run();
-    reaped += 1;
-  }
-  return reaped;
-}
-
-/** My live booking in a session, if any. */
-function myBookingFor(memberId: string, sessionId: string) {
-  return db
-    .select()
-    .from(schema.bookings)
-    .where(
-      and(
-        eq(schema.bookings.memberId, memberId),
-        eq(schema.bookings.sessionId, sessionId),
-        inArray(schema.bookings.state, [...LIVE_BOOKING_STATES]),
-      ),
-    )
-    .get();
-}
-
-function myWaitlistFor(memberId: string, sessionId: string) {
-  return db
-    .select()
-    .from(schema.waitlistEntries)
-    .where(
-      and(
-        eq(schema.waitlistEntries.memberId, memberId),
-        eq(schema.waitlistEntries.sessionId, sessionId),
-        inArray(schema.waitlistEntries.state, [...LIVE_WAITLIST_STATES]),
-      ),
-    )
-    .get();
-}
-
-/** Every other seat this member holds anywhere near the given window. Branch
- *  does not matter — a person cannot be in two rooms at once. */
-function myBookingsAround(memberId: string, fromMs: number, toMs: number) {
-  return db
-    .select({
-      bookingId: schema.bookings.id,
-      sessionId: schema.bookings.sessionId,
-      startsAt: schema.classSessions.startsAt,
-      endsAt: schema.classSessions.endsAt,
-    })
-    .from(schema.bookings)
-    .innerJoin(schema.classSessions, eq(schema.classSessions.id, schema.bookings.sessionId))
-    .where(
-      and(
-        eq(schema.bookings.memberId, memberId),
-        inArray(schema.bookings.state, [...LIVE_BOOKING_STATES]),
-        sql`${schema.classSessions.state} != 'cancelled'`,
-        gte(schema.classSessions.endsAt, fromMs),
-        lt(schema.classSessions.startsAt, toMs),
-      ),
-    )
-    .all();
-}
-
-function overlapWith(
-  session: { id: string; startsAt: number; endsAt: number },
-  others: Array<{ sessionId: string; startsAt: number; endsAt: number }>,
-): string | null {
-  const clash = others.find(
-    (o) => o.sessionId !== session.id && o.startsAt < session.endsAt && o.endsAt > session.startsAt,
-  );
-  return clash?.sessionId ?? null;
-}
-
-/* ============================================================================
-   Eligibility. One function, used by the list and by every write path, so the
-   button and the outcome can never disagree.
-   ========================================================================= */
-
-interface EligibilityContext {
-  atMs: number;
-  today: string;
-  standing: MembershipStanding;
-  branchIds: string[];
-  creditsHeld: number;
-  otherBookings: Array<{ sessionId: string; startsAt: number; endsAt: number }>;
-}
-
-function eligibilityFor(
-  session: SessionRow,
-  effectiveBooked: number,
-  scope: EligibilityContext,
-  mine: { booked: boolean; waitlisted: boolean },
-) {
-  return evaluateEligibility({
-    now: new Date(scope.atMs),
-    startsAt: new Date(session.startsAt),
-    bookingOpensAt: session.bookingOpensAt === null ? null : new Date(session.bookingOpensAt),
-    cancelDeadlineAt: session.cancelDeadlineAt === null ? null : new Date(session.cancelDeadlineAt),
-    capacity: session.capacity,
-    booked: effectiveBooked,
-    sessionCancelled: session.state === 'cancelled',
-    membershipEntitled: scope.standing.entitled,
-    membershipReason: scope.standing.reason,
-    branchPermitted: scope.branchIds.includes(session.branchId),
-    creditsRequired: session.creditsRequired,
-    creditsHeld: scope.creditsHeld,
-    dropInPriceMinor: session.dropInPriceMinor,
-    lateCancelFeeMinor: session.lateCancelFeeMinor,
-    alreadyBooked: mine.booked,
-    onWaitlist: mine.waitlisted,
-    conflictsWithSessionId: overlapWith(session, scope.otherBookings),
-    waitlistEnabled: session.waitlistEnabled,
-  });
-}
-
-/** Turns a blocked eligibility into the error the write path should throw, so
- *  the member reads the same sentence whichever door they came through. */
-function refuse(eligibility: ReturnType<typeof evaluateEligibility>, session: SessionRow): AppError {
-  const reason = eligibility.reason;
-
-  if (session.state === 'cancelled') return precondition(reason);
-  if (eligibility.action === 'closed') return new AppError('BOOKING_WINDOW_CLOSED', reason);
-  if (eligibility.conflictsWithSessionId) return conflict(reason);
-  if (eligibility.action === 'waitlist') return capacityExhausted(reason);
-  if (reason === 'Class is full.') return capacityExhausted(reason);
-  if (reason === 'You are on the waitlist.') return conflict(reason);
-  if (reason === 'Your membership does not include this branch.') return forbidden(reason);
-  return entitlementMissing(reason);
-}
+/* Session reads, eligibility and the transactional claim are shared with
+   staff booking via services/booking.ts — see the imports above. */
 
 /* ============================================================================
    Serialisation
@@ -712,165 +420,15 @@ scheduleRoutes.post('/book', validate('json', BookBody), (c) => {
   const tz = branch?.timezone ?? 'Asia/Kolkata';
   const today = isoDate(atMs, tz);
 
-  let replayed = false;
-
   const result = runClaim(() =>
-    transact(() => {
-      /* Idempotent on the body's key: a retry after a dropped response returns
-         the seat that was already taken, never a second one. */
-      const existing = db
-        .select()
-        .from(schema.bookings)
-        .where(
-          and(eq(schema.bookings.tenantId, ctx.tenantId), eq(schema.bookings.idempotencyKey, body.idempotencyKey)),
-        )
-        .get();
-
-      if (existing) {
-        if (existing.memberId !== memberId || existing.sessionId !== body.sessionId) {
-          throw new AppError('IDEMPOTENCY_MISMATCH', 'That request key was already used for a different booking.');
-        }
-        replayed = true;
-        return { booking: existing, creditsUsed: existing.creditsUsed, chargeMinor: existing.chargeMinor };
-      }
-
-      // A seat held by someone who walked away is a seat.
-      reapExpiredHolds(session.id, atMs);
-
-      const fresh = sessionById(ctx.tenantId, session.id)!;
-      const mineAlready = myBookingFor(memberId, fresh.id);
-      if (mineAlready) {
-        replayed = true;
-        return { booking: mineAlready, creditsUsed: mineAlready.creditsUsed, chargeMinor: mineAlready.chargeMinor };
-      }
-
-      const standing = membershipStanding(memberId);
-      const creditsHeld = classCreditsHeld(memberId, today);
-      const eligibility = eligibilityFor(fresh, fresh.booked, {
-        atMs,
-        today,
-        standing,
-        branchIds: ctx.branchIds,
-        creditsHeld,
-        otherBookings: myBookingsAround(memberId, fresh.startsAt - DAY, fresh.endsAt + DAY),
-      }, { booked: false, waitlisted: myWaitlistFor(memberId, fresh.id) !== null });
-
-      if (eligibility.action !== 'book' && eligibility.action !== 'pay') {
-        throw refuse(eligibility, fresh);
-      }
-
-      // A drop-in is money. It is never charged without an explicit yes.
-      const payingCash = eligibility.action === 'pay';
-      if (payingCash && !body.acceptDropInCharge) {
-        throw new AppError('PAYMENT_REQUIRED', eligibility.reason, {
-          details: { dropInPriceMinor: fresh.dropInPriceMinor },
-        });
-      }
-
-      /* The claim. Conditional on capacity, so two members racing for the last
-         seat produce one winner and one CAPACITY_EXHAUSTED — the trigger behind
-         this is a backstop, not the mechanism (PF-SCH-003). */
-      const claim = db
-        .update(schema.classSessions)
-        .set({
-          booked: sql`${schema.classSessions.booked} + 1`,
-          updatedAt: atMs,
-          version: sql`${schema.classSessions.version} + 1`,
-        })
-        .where(
-          and(
-            eq(schema.classSessions.id, fresh.id),
-            eq(schema.classSessions.tenantId, ctx.tenantId),
-            sql`${schema.classSessions.booked} < ${schema.classSessions.capacity}`,
-            sql`${schema.classSessions.state} != 'cancelled'`,
-          ),
-        )
-        .run();
-
-      if (claim.changes === 0) throw capacityExhausted();
-
-      const seatNo =
-        db
-          .select({ booked: schema.classSessions.booked })
-          .from(schema.classSessions)
-          .where(eq(schema.classSessions.id, fresh.id))
-          .get()?.booked ?? fresh.booked + 1;
-
-      const creditsUsed = payingCash ? 0 : fresh.creditsRequired;
-      const chargeMinor = payingCash ? (fresh.dropInPriceMinor ?? 0) : 0;
-
-      const bookingId = id('bkg');
-      db.insert(schema.bookings)
-        .values({
-          id: bookingId,
-          tenantId: ctx.tenantId,
-          sessionId: fresh.id,
-          memberId,
-          state: 'confirmed',
-          seatNo,
-          bookedAt: atMs,
-          cancelledAt: null,
-          heldUntil: null,
-          creditsUsed,
-          chargeMinor,
-          cameFromWaitlist: myWaitlistFor(memberId, fresh.id) !== null,
-          idempotencyKey: body.idempotencyKey,
-          attendedAt: null,
-        })
-        .run();
-
-      if (creditsUsed > 0) {
-        db.insert(schema.credits)
-          .values({
-            id: id('crd'),
-            tenantId: ctx.tenantId,
-            memberId,
-            kind: 'class',
-            delta: -creditsUsed,
-            reason: `Booked ${fresh.name}`,
-            refType: 'booking',
-            refId: bookingId,
-            expiresOn: null,
-            createdAt: atMs,
-          })
-          .run();
-      }
-
-      // A waitlist offer that has been taken up is resolved, not left hanging.
-      const waiting = myWaitlistFor(memberId, fresh.id);
-      if (waiting) {
-        db.update(schema.waitlistEntries)
-          .set({ state: 'confirmed', resolvedAt: atMs })
-          .where(eq(schema.waitlistEntries.id, waiting.id))
-          .run();
-      }
-
-      audit(ctx, {
-        action: 'booking.confirmed',
-        entityType: 'booking',
-        entityId: bookingId,
-        entityLabel: `${fresh.name} · ${localTime(fresh.startsAt, tz)}`,
-        branchId: fresh.branchId,
-        after: { seatNo, creditsUsed, chargeMinor, sessionId: fresh.id },
-      });
-
-      emit({
-        tenantId: ctx.tenantId,
-        branchId: fresh.branchId,
-        channel: channels.branch(fresh.branchId),
-        topic: 'booking.confirmed',
-        payload: {
-          bookingId,
-          sessionId: fresh.id,
-          memberId,
-          seatNo,
-          booked: seatNo,
-          capacity: fresh.capacity,
-        },
-      });
-
-      const booking = db.select().from(schema.bookings).where(eq(schema.bookings.id, bookingId)).get()!;
-      return { booking, creditsUsed, chargeMinor };
+    claimSeat(ctx, {
+      session,
+      memberId,
+      idempotencyKey: body.idempotencyKey,
+      acceptDropInCharge: body.acceptDropInCharge,
+      bookedByStaff: false,
+      today,
+      atMs,
     }),
   );
 
@@ -879,7 +437,7 @@ scheduleRoutes.post('/book', validate('json', BookBody), (c) => {
   const creditsHeld = classCreditsHeld(memberId, today);
 
   return c.json({
-    replayed,
+    replayed: result.replayed,
     booking: serialiseBooking(result.booking),
     creditsHeld,
     charge:
@@ -917,26 +475,6 @@ scheduleRoutes.post('/book', validate('json', BookBody), (c) => {
     }),
   });
 });
-
-/**
- * The database refuses an overbook whatever the service layer believes. If that
- * guard ever fires it is a real business outcome, not a fault, so it leaves here
- * as CAPACITY_EXHAUSTED rather than a 500.
- */
-function runClaim<T>(fn: () => T): T {
-  try {
-    return fn();
-  } catch (err) {
-    if (err instanceof AppError) throw err;
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('CAPACITY_EXHAUSTED')) throw capacityExhausted();
-    if (message.includes('bookings_live_uq')) throw conflict('You already have a seat in this class.');
-    if (message.includes('bookings_idem_uq')) {
-      throw conflict('That booking was already recorded. Pull to refresh to see it.');
-    }
-    throw err;
-  }
-}
 
 /* ============================================================================
    DELETE /booking/:id — cancel, then promote the waitlist.

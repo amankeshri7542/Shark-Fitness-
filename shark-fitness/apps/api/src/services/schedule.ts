@@ -7,25 +7,23 @@ import { audit } from '../lib/audit.js';
 import { emit } from '../lib/events.js';
 import { conflict, invalid, notFound, precondition, staleVersion } from '../lib/errors.js';
 import { id } from '../lib/ids.js';
-import { MINUTE, localTime, now } from '../lib/time.js';
+import { MINUTE, isoDate, localTime, now } from '../lib/time.js';
+import { LIVE_BOOKING_STATES, LIVE_WAITLIST_STATES, claimSeat, claimSeatOverride, runClaim, sessionById } from './booking.js';
+import { loadMemberInScope } from './members.js';
 
 /**
  * Class operations from the console (PF-SCH, UX-A09).
  *
- * The member app already owns booking: `routes/member/schedule.ts` holds the
- * transactional last-seat claim, cancellation policy and waitlist promotion.
- * Nothing here reimplements those. This module is the operator's side —
- * creating and moving sessions, resolving room and trainer clashes, cancelling
- * a class and making the people in it whole, and marking who actually turned up.
- *
- * Where the two meet (staff booking a member, staff cancelling a booking) the
- * same domain helpers are used, so a seat released from the desk behaves
- * exactly like a seat released from the phone.
+ * Session CRUD, clashes, cancellation, waitlist promotion and attendance are
+ * the operator's own side of the room. Booking a member onto a class is not —
+ * that claim is canonical and shared with the member app via
+ * `services/booking.ts`'s `claimSeat`, so a seat taken from the desk behaves
+ * exactly like a seat taken from the phone: same entitlement checks, same
+ * credit/charge accounting, same idempotency. `bookMemberOntoSession` below is
+ * a thin adapter over that shared claim.
  */
 
-/** States that occupy a seat. Mirrors the member module. */
-export const LIVE_BOOKING_STATES = ['held', 'confirmed', 'attended'] as const;
-export const LIVE_WAITLIST_STATES = ['waiting', 'offered'] as const;
+export { LIVE_BOOKING_STATES, LIVE_WAITLIST_STATES };
 
 const OFFER_WINDOW_MIN = 15;
 
@@ -249,7 +247,10 @@ export interface SessionInput {
   notes: string | null;
 }
 
-function assertResources(tenantId: string, input: { branchId: string; classTypeId: string; roomId: string | null; trainerId: string | null }) {
+function assertResources(
+  tenantId: string,
+  input: { branchId: string; classTypeId: string; roomId: string | null; trainerId: string | null; capacity: number },
+) {
   const classType = db
     .select()
     .from(schema.classTypes)
@@ -265,6 +266,9 @@ function assertResources(tenantId: string, input: { branchId: string; classTypeI
       .get();
     if (!room) throw invalid('That room does not exist.');
     if (room.branchId !== input.branchId) throw invalid('That room belongs to another branch.');
+    if (input.capacity > room.capacity) {
+      throw invalid(`This room seats ${room.capacity}. Reduce the class capacity or choose a bigger room.`);
+    }
   }
 
   if (input.trainerId) {
@@ -287,6 +291,13 @@ export function createSession(ctx: RequestContext, input: SessionInput) {
   const endsAt = input.startsAt + (input.durationMin ?? classType.durationMin) * MINUTE;
   if (endsAt <= input.startsAt) throw invalid('A class must end after it starts.');
   if (input.capacity < 1) throw invalid('A class needs at least one seat.');
+  if (input.startsAt <= atMs) throw invalid('A class must start in the future.');
+  if (input.bookingOpensAt !== null && input.bookingOpensAt >= input.startsAt) {
+    throw invalid('Booking must open before the class starts.');
+  }
+  if (input.cancelDeadlineAt !== null && input.cancelDeadlineAt >= input.startsAt) {
+    throw invalid('The cancellation deadline must be before the class starts.');
+  }
 
   const clashes = detectClashes(ctx.tenantId, {
     branchId: input.branchId,
@@ -373,7 +384,11 @@ export function updateSession(ctx: RequestContext, sessionId: string, patch: Ses
   const atMs = now();
   const session = loadSessionInScope(ctx, sessionId);
   if (session.state === 'cancelled') throw precondition('That class was cancelled and cannot be edited.');
-  if (patch.version !== undefined && patch.version !== session.version) throw staleVersion();
+  // Concurrency protection cannot be optional: every edit must carry the
+  // version it read, or a manager looking at a stale screen could overwrite
+  // someone else's change without either of them ever seeing STALE_VERSION.
+  if (patch.version === undefined) throw invalid('The current version is required to edit a class.');
+  if (patch.version !== session.version) throw staleVersion();
 
   const startsAt = patch.startsAt ?? session.startsAt;
   const endsAt = patch.durationMin !== undefined ? startsAt + patch.durationMin * MINUTE : startsAt + (session.endsAt - session.startsAt);
@@ -386,6 +401,7 @@ export function updateSession(ctx: RequestContext, sessionId: string, patch: Ses
     classTypeId: session.classTypeId,
     roomId,
     trainerId,
+    capacity,
   });
 
   // Shrinking a class below the people already in it would silently strand
@@ -499,6 +515,7 @@ export function substituteTrainer(ctx: RequestContext, sessionId: string, traine
     classTypeId: session.classTypeId,
     roomId: session.roomId,
     trainerId,
+    capacity: session.capacity,
   });
 
   const clashes = detectClashes(ctx.tenantId, {
@@ -712,112 +729,63 @@ export function cancelSessions(
    Roster — staff booking, releasing a seat, and marking attendance.
    ========================================================================= */
 
+/**
+ * Staff booking a member on from the desk. A thin adapter over the canonical
+ * `claimSeat` — the exact same eligibility checks, credit spend and drop-in
+ * charge accounting as the member's own booking, so this can never again be a
+ * back door to a free, unentitled seat.
+ */
 export function bookMemberOntoSession(
   ctx: RequestContext,
-  input: { sessionId: string; memberId: string; idempotencyKey: string },
+  input: { sessionId: string; memberId: string; idempotencyKey: string; acceptDropInCharge: boolean },
 ) {
   const atMs = now();
-  const session = loadSessionInScope(ctx, input.sessionId);
-  if (session.state === 'cancelled') throw precondition('That class was cancelled.');
-  if (session.startsAt <= atMs) throw precondition('That class has already started.');
+  const member = loadMemberInScope(ctx, input.memberId);
+  const session = sessionById(ctx.tenantId, input.sessionId);
+  if (!session || !ctx.branchIds.includes(session.branchId)) throw notFound('That class');
 
-  const member = db
-    .select()
-    .from(schema.members)
-    .where(and(eq(schema.members.id, input.memberId), eq(schema.members.tenantId, ctx.tenantId)))
-    .get();
-  if (!member || !ctx.branchIds.includes(member.homeBranchId)) throw notFound('That member');
+  const branch = db.select().from(schema.branches).where(eq(schema.branches.id, session.branchId)).get();
+  const tz = branch?.timezone ?? 'Asia/Kolkata';
+  const today = isoDate(atMs, tz);
 
-  return transact(() => {
-    const existingKey = db
-      .select()
-      .from(schema.bookings)
-      .where(
-        and(eq(schema.bookings.tenantId, ctx.tenantId), eq(schema.bookings.idempotencyKey, input.idempotencyKey)),
-      )
-      .get();
-    if (existingKey) {
-      if (existingKey.memberId !== input.memberId || existingKey.sessionId !== input.sessionId) {
-        throw conflict('That request key was already used for a different booking.');
-      }
-      return { booking: existingKey, replayed: true };
-    }
+  return runClaim(() =>
+    claimSeat(ctx, {
+      session,
+      memberId: member.id,
+      idempotencyKey: input.idempotencyKey,
+      acceptDropInCharge: input.acceptDropInCharge,
+      bookedByStaff: true,
+      today,
+      atMs,
+    }),
+  );
+}
 
-    const already = db
-      .select()
-      .from(schema.bookings)
-      .where(
-        and(
-          eq(schema.bookings.sessionId, session.id),
-          eq(schema.bookings.memberId, input.memberId),
-          inArray(schema.bookings.state, [...LIVE_BOOKING_STATES]),
-        ),
-      )
-      .get();
-    if (already) return { booking: already, replayed: true };
+/**
+ * A deliberate eligibility bypass — comping a seat regardless of membership,
+ * credits, booking window or conflicts. Gated at the route layer by requiring
+ * BOTH `booking.manage_others` and `schedule.manage` together (no new
+ * permission constant: `packages/domain` is DO-NOT-EDIT foundation), so
+ * ordinary staff booking never silently becomes an override.
+ */
+export function bookMemberOntoSessionOverride(
+  ctx: RequestContext,
+  input: { sessionId: string; memberId: string; idempotencyKey: string; reason: string },
+) {
+  const atMs = now();
+  const member = loadMemberInScope(ctx, input.memberId);
+  const session = sessionById(ctx.tenantId, input.sessionId);
+  if (!session || !ctx.branchIds.includes(session.branchId)) throw notFound('That class');
 
-    // The same conditional claim the member path uses: capacity is enforced by
-    // the UPDATE itself, with a database trigger behind it as a backstop.
-    const claim = db
-      .update(schema.classSessions)
-      .set({
-        booked: sql`${schema.classSessions.booked} + 1`,
-        updatedAt: atMs,
-        version: sql`${schema.classSessions.version} + 1`,
-      })
-      .where(
-        and(
-          eq(schema.classSessions.id, session.id),
-          sql`${schema.classSessions.booked} < ${schema.classSessions.capacity}`,
-          ne(schema.classSessions.state, 'cancelled'),
-        ),
-      )
-      .run();
-    if (claim.changes === 0) throw conflict('That class is full. Add the member to the waitlist instead.');
-
-    const seatNo =
-      db.select({ booked: schema.classSessions.booked }).from(schema.classSessions).where(eq(schema.classSessions.id, session.id)).get()
-        ?.booked ?? session.booked + 1;
-
-    const bookingId = id('bkg');
-    db.insert(schema.bookings)
-      .values({
-        id: bookingId,
-        tenantId: ctx.tenantId,
-        sessionId: session.id,
-        memberId: input.memberId,
-        state: 'confirmed',
-        seatNo,
-        bookedAt: atMs,
-        cancelledAt: null,
-        heldUntil: null,
-        creditsUsed: 0,
-        chargeMinor: 0,
-        cameFromWaitlist: false,
-        idempotencyKey: input.idempotencyKey,
-        attendedAt: null,
-      })
-      .run();
-
-    audit(ctx, {
-      action: 'booking.confirmed',
-      entityType: 'booking',
-      entityId: bookingId,
-      entityLabel: member.memberNo,
-      branchId: session.branchId,
-      after: { sessionId: session.id, seatNo, bookedByStaff: true },
-    });
-
-    emit({
-      tenantId: ctx.tenantId,
-      branchId: session.branchId,
-      channel: channels.branch(session.branchId),
-      topic: 'booking.confirmed',
-      payload: { bookingId, sessionId: session.id, memberId: input.memberId, seatNo, byStaff: true },
-    });
-
-    return { booking: db.select().from(schema.bookings).where(eq(schema.bookings.id, bookingId)).get()!, replayed: false };
-  });
+  return runClaim(() =>
+    claimSeatOverride(ctx, {
+      session,
+      memberId: member.id,
+      idempotencyKey: input.idempotencyKey,
+      reason: input.reason,
+      atMs,
+    }),
+  );
 }
 
 export function releaseBooking(ctx: RequestContext, bookingId: string, reason: string | null) {
@@ -1013,7 +981,7 @@ export function markAttendance(
   if (booking.state === 'cancelled' || booking.state === 'late_cancelled') {
     throw precondition('That booking was cancelled, so there is nobody to mark.');
   }
-  if (session.startsAt > atMs && state === 'no_show') {
+  if (session.startsAt > atMs && (state === 'no_show' || state === 'attended')) {
     throw precondition('That class has not started yet.');
   }
 

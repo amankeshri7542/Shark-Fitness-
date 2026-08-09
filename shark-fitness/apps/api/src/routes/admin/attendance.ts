@@ -5,7 +5,6 @@ import { validate } from '../../middleware/validate.js';
 import { db, schema } from '../../db/client.js';
 import { ctxOf } from '../../middleware/index.js';
 import { requirePermission } from '../../lib/context.js';
-import { notFound } from '../../lib/errors.js';
 import { DAY, isoDate, now } from '../../lib/time.js';
 import {
   closeAllVisits,
@@ -17,6 +16,7 @@ import {
   occupancyByBranch,
   overrideCheckIn,
 } from '../../services/attendance.js';
+import { loadMemberInScope, memberScopeCondition } from '../../services/members.js';
 
 /**
  * Attendance and Live Occupancy — the front desk (UX-A08, PF-ATT).
@@ -303,7 +303,7 @@ attendanceRoutes.get('/search', validate('query', SearchQuery), (c) => {
         eq(schema.members.tenantId, ctx.tenantId),
         isNull(schema.members.deletedAt),
         isNull(schema.members.mergedIntoId),
-        inArray(schema.members.homeBranchId, scope),
+        memberScopeCondition({ tenantId: ctx.tenantId, branchIds: scope }),
         sql`(lower(${schema.members.firstName} || ' ' || ${schema.members.lastName}) like ${like}
              or lower(${schema.members.memberNo}) like ${like}
              or coalesce(${schema.members.phoneNormalized}, '') like ${like})`,
@@ -405,18 +405,7 @@ attendanceRoutes.get('/member/:memberId', (c) => {
   requirePermission(ctx, 'attendance.view');
 
   const memberId = c.req.param('memberId');
-  const member = db
-    .select()
-    .from(schema.members)
-    .where(
-      and(
-        eq(schema.members.id, memberId),
-        eq(schema.members.tenantId, ctx.tenantId),
-        isNull(schema.members.deletedAt),
-      ),
-    )
-    .get();
-  if (!member || !ctx.branchIds.includes(member.homeBranchId)) throw notFound('That member');
+  const member = loadMemberInScope(ctx, memberId);
 
   const rows = db
     .select()

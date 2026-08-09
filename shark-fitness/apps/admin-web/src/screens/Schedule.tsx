@@ -122,6 +122,13 @@ export default function ScheduleScreen() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [bookMemberId, setBookMemberId] = useState('');
+  const [bookOverride, setBookOverride] = useState(false);
+  const [overrideReason, setOverrideReason] = useState('');
+  const [pendingCharge, setPendingCharge] = useState<{ memberId: string; dropInPriceMinor: number | null } | null>(null);
+  // Booking-others is the ordinary desk action; the override additionally
+  // needs schedule.manage, so reception can book members but never bypass
+  // eligibility — that stays a manager-and-above call.
+  const canOverrideBooking = canBookOthers && canManage;
 
   const day = useQuery({
     queryKey: ['schedule', 'day', branchId, date],
@@ -183,16 +190,55 @@ export default function ScheduleScreen() {
   });
 
   const bookMember = useMutation({
-    mutationFn: (input: { sessionId: string; memberId: string }) =>
+    mutationFn: (input: { sessionId: string; memberId: string; acceptDropInCharge?: boolean }) =>
       api<{ replayed: boolean }>(`/admin/schedule/session/${input.sessionId}/book`, {
         method: 'POST',
-        body: { memberId: input.memberId, idempotencyKey: idempotencyKey('admin-book', input.sessionId, input.memberId) },
+        body: {
+          memberId: input.memberId,
+          idempotencyKey: idempotencyKey('admin-book', input.sessionId, input.memberId),
+          acceptDropInCharge: input.acceptDropInCharge ?? false,
+        },
         branchId,
       }),
     onSuccess: (r) => {
       setActionError(null);
+      setPendingCharge(null);
       setNotice(r.replayed ? 'That member already had a seat.' : 'Seat booked.');
       setBookMemberId('');
+      refresh();
+    },
+    onError: (err, input) => {
+      // This class needs a credit the member does not have — offer the same
+      // explicit-consent drop-in charge the member's own booking would show,
+      // rather than dead-ending on a generic error.
+      if (err instanceof ApiError && err.code === 'PAYMENT_REQUIRED') {
+        setPendingCharge({
+          memberId: input.memberId,
+          dropInPriceMinor: (err.details?.dropInPriceMinor as number | undefined) ?? null,
+        });
+        return;
+      }
+      fail(err);
+    },
+  });
+
+  const bookMemberOverride = useMutation({
+    mutationFn: (input: { sessionId: string; memberId: string; reason: string }) =>
+      api<{ replayed: boolean }>(`/admin/schedule/session/${input.sessionId}/book-override`, {
+        method: 'POST',
+        body: {
+          memberId: input.memberId,
+          idempotencyKey: idempotencyKey('admin-book-override', input.sessionId, input.memberId),
+          reason: input.reason,
+        },
+        branchId,
+      }),
+    onSuccess: (r) => {
+      setActionError(null);
+      setNotice(r.replayed ? 'That member already had a seat.' : 'Seat booked as an override.');
+      setBookMemberId('');
+      setOverrideReason('');
+      setBookOverride(false);
       refresh();
     },
     onError: fail,
@@ -426,17 +472,30 @@ export default function ScheduleScreen() {
                         data={detail.data}
                         canManage={canManage}
                         canBookOthers={canBookOthers}
+                        canOverrideBooking={canOverrideBooking}
                         canMarkAttendance={canMarkAttendance}
                         trainers={resources.data?.trainers ?? []}
                         bookMemberId={bookMemberId}
                         setBookMemberId={setBookMemberId}
+                        bookOverride={bookOverride}
+                        setBookOverride={setBookOverride}
+                        overrideReason={overrideReason}
+                        setOverrideReason={setOverrideReason}
+                        pendingCharge={pendingCharge}
                         onCancel={(reason, scope) => cancelSession.mutate({ sessionId: session.id, reason, scope })}
                         onSubstitute={(trainerId) => substitute.mutate({ sessionId: session.id, trainerId })}
                         onBook={(memberId) => bookMember.mutate({ sessionId: session.id, memberId })}
+                        onBookOverride={(memberId, reason) => bookMemberOverride.mutate({ sessionId: session.id, memberId, reason })}
+                        onConfirmCharge={(memberId) => bookMember.mutate({ sessionId: session.id, memberId, acceptDropInCharge: true })}
+                        onCancelCharge={() => setPendingCharge(null)}
                         onRelease={(bookingId) => release.mutate(bookingId)}
                         onMark={(bookingId, state) => mark.mutate({ bookingId, state })}
                         busy={
-                          cancelSession.isPending || substitute.isPending || bookMember.isPending || release.isPending
+                          cancelSession.isPending ||
+                          substitute.isPending ||
+                          bookMember.isPending ||
+                          bookMemberOverride.isPending ||
+                          release.isPending
                         }
                       />
                     )}
@@ -457,13 +516,22 @@ function SessionDetail({
   data,
   canManage,
   canBookOthers,
+  canOverrideBooking,
   canMarkAttendance,
   trainers,
   bookMemberId,
   setBookMemberId,
+  bookOverride,
+  setBookOverride,
+  overrideReason,
+  setOverrideReason,
+  pendingCharge,
   onCancel,
   onSubstitute,
   onBook,
+  onBookOverride,
+  onConfirmCharge,
+  onCancelCharge,
   onRelease,
   onMark,
   busy,
@@ -471,13 +539,22 @@ function SessionDetail({
   data: DetailPayload;
   canManage: boolean;
   canBookOthers: boolean;
+  canOverrideBooking: boolean;
   canMarkAttendance: boolean;
   trainers: Array<{ id: string; name: string }>;
   bookMemberId: string;
   setBookMemberId: (value: string) => void;
+  bookOverride: boolean;
+  setBookOverride: (value: boolean) => void;
+  overrideReason: string;
+  setOverrideReason: (value: string) => void;
+  pendingCharge: { memberId: string; dropInPriceMinor: number | null } | null;
   onCancel: (reason: string, scope: 'occurrence' | 'series') => void;
   onSubstitute: (trainerId: string) => void;
   onBook: (memberId: string) => void;
+  onBookOverride: (memberId: string, reason: string) => void;
+  onConfirmCharge: (memberId: string) => void;
+  onCancelCharge: () => void;
   onRelease: (bookingId: string) => void;
   onMark: (bookingId: string, state: 'attended' | 'no_show' | 'confirmed') => void;
   busy: boolean;
@@ -609,7 +686,7 @@ function SessionDetail({
 
                 <Chip tone={ROSTER_TONE[row.state] ?? 'neutral'}>{row.state.replace(/_/g, ' ')}</Chip>
 
-                {canMarkAttendance && !cancelled ? (
+                {canMarkAttendance && !cancelled && session.started ? (
                   <div className="flex items-center gap-1.5">
                     <Button
                       variant={row.state === 'attended' ? 'cta' : 'outline'}
@@ -618,15 +695,13 @@ function SessionDetail({
                     >
                       Here
                     </Button>
-                    {session.started ? (
-                      <Button
-                        variant="outline"
-                        onClick={() => onMark(row.bookingId, row.state === 'no_show' ? 'confirmed' : 'no_show')}
-                        aria-label={`Mark ${row.name} as a no-show`}
-                      >
-                        No-show
-                      </Button>
-                    ) : null}
+                    <Button
+                      variant="outline"
+                      onClick={() => onMark(row.bookingId, row.state === 'no_show' ? 'confirmed' : 'no_show')}
+                      aria-label={`Mark ${row.name} as a no-show`}
+                    >
+                      No-show
+                    </Button>
                   </div>
                 ) : null}
 
@@ -642,18 +717,64 @@ function SessionDetail({
       </div>
 
       {canBookOthers && !cancelled && session.seatsLeft > 0 ? (
-        <div className="flex items-end gap-2">
-          <Field
-            label="Book a member on"
-            placeholder="Member ID"
-            hint={`${session.seatsLeft} ${session.seatsLeft === 1 ? 'seat' : 'seats'} left`}
-            value={bookMemberId}
-            onChange={(e) => setBookMemberId(e.target.value)}
-            className="max-w-[320px]"
-          />
-          <Button variant="cta" disabled={busy || bookMemberId.trim().length < 3} onClick={() => onBook(bookMemberId.trim())}>
-            Book seat
-          </Button>
+        <div className="flex flex-col gap-2">
+          <div className="flex items-end gap-2">
+            <Field
+              label="Book a member on"
+              placeholder="Member ID"
+              hint={`${session.seatsLeft} ${session.seatsLeft === 1 ? 'seat' : 'seats'} left`}
+              value={bookMemberId}
+              onChange={(e) => setBookMemberId(e.target.value)}
+              className="max-w-[320px]"
+            />
+            <Button
+              variant={bookOverride ? 'danger' : 'cta'}
+              disabled={busy || bookMemberId.trim().length < 3 || (bookOverride && overrideReason.trim().length < 4)}
+              onClick={() =>
+                bookOverride
+                  ? onBookOverride(bookMemberId.trim(), overrideReason.trim())
+                  : onBook(bookMemberId.trim())
+              }
+            >
+              {bookOverride ? 'Book seat (override)' : 'Book seat'}
+            </Button>
+          </div>
+
+          {canOverrideBooking ? (
+            <label className="flex items-center gap-2 text-[12px] text-foam-45">
+              <input type="checkbox" checked={bookOverride} onChange={(e) => setBookOverride(e.target.checked)} />
+              Override eligibility — bypass membership, credits and booking-window checks. Requires a reason and is
+              always audited.
+            </label>
+          ) : null}
+
+          {bookOverride ? (
+            <Field
+              label="Override reason"
+              placeholder="Why this member is being booked without meeting the usual checks"
+              value={overrideReason}
+              onChange={(e) => setOverrideReason(e.target.value)}
+              className="max-w-[420px]"
+            />
+          ) : null}
+
+          {pendingCharge ? (
+            <div className="flex items-center gap-2 border border-line-strong px-3 py-2 text-[12px]">
+              <span>
+                This class needs a class credit the member does not have.
+                {pendingCharge.dropInPriceMinor
+                  ? ` A drop-in charge of ₹${(pendingCharge.dropInPriceMinor / 100).toLocaleString('en-IN')} applies.`
+                  : ''}{' '}
+                Confirm the member will pay?
+              </span>
+              <Button variant="cta" disabled={busy} onClick={() => onConfirmCharge(pendingCharge.memberId)}>
+                Confirm charge
+              </Button>
+              <Button variant="ghost" onClick={onCancelCharge}>
+                Cancel
+              </Button>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
