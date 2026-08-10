@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: shark-fitness-demo
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "10000"
+      - key: SHARK_SERVE_STATIC
+        value: "true"
+      - key: SHARK_DB
+        value: /tmp/shark-fitness/shark.db
+      - key: SHARK_PASS_SECRET
+        generateValue: true
+      - key: SHARK_ECHO_OTP
+        value: "false"
+      - key: SHARK_ALLOW_BEARER_AUTH
+        value: "false"
