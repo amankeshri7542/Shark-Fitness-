@@ -115,12 +115,30 @@ async function evaluate(expression) {
   return response.result?.value;
 }
 
-async function navigate(url) {
+async function navigate(url, expectedPath = null) {
   const result = await cdp('Page.navigate', { url });
   if (result.errorText) throw new Error(`Navigation to ${url} failed: ${result.errorText}`);
+  // Give the new document a moment to replace the old `complete` document,
+  // then require only the route that matters. Member `/` legitimately redirects
+  // unauthenticated users to its own sign-in page.
+  await sleep(250);
   await retry(
-    () => evaluate(`location.href === ${JSON.stringify(url)} && document.readyState === 'complete'`),
+    () =>
+      evaluate(
+        `document.readyState === 'complete'${
+          expectedPath ? ` && location.pathname === ${JSON.stringify(expectedPath)}` : ''
+        }`,
+      ),
     `page load for ${url}`,
+  );
+}
+
+async function reloadCurrentPage() {
+  await cdp('Page.reload', { ignoreCache: true });
+  await sleep(250);
+  await retry(
+    () => evaluate(`document.readyState === 'complete'`),
+    'page reload',
   );
 }
 
@@ -185,17 +203,16 @@ const memberWorkerScope = await retry(
 );
 console.log(`[browser-smoke] member worker active: ${memberWorkerScope}`);
 
-// Reload the member page once so the freshly installed root worker is actually
-// the active controller. This reproduces a returning user's browser rather than
-// only a first-install tab where the worker is active but not yet controlling.
-await navigate(`${baseUrl}/`);
+// Reload whatever member route the app settled on so the freshly installed root
+// worker becomes the active controller. This reproduces a returning user's tab.
+await reloadCurrentPage();
 await retry(
   () => evaluate(`Boolean(navigator.serviceWorker?.controller)`),
   'member service worker controller',
   10_000,
 );
 
-await navigate(`${baseUrl}/admin/sign-in`);
+await navigate(`${baseUrl}/admin/sign-in`, '/admin/sign-in');
 try {
   await retry(
     () => evaluate(`document.body?.innerText.includes('Sign in')`),
