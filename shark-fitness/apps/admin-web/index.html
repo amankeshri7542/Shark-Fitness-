@@ -15,6 +15,35 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // The member PWA owns a root-scoped service worker because it must support
+      // offline member routes. Admin is a separate SPA on the same origin. Ask
+      // an older root worker to update before booting Admin, and reload once if
+      // a newly activated worker takes control. This lets existing demo browsers
+      // recover without asking a reviewer to clear site data manually.
+      (() => {
+        if (!('serviceWorker' in navigator)) return;
+        const reloadKey = 'shark.admin.sw-recovered';
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (sessionStorage.getItem(reloadKey)) return;
+          sessionStorage.setItem(reloadKey, '1');
+          location.reload();
+        });
+        navigator.serviceWorker
+          .getRegistrations()
+          .then((registrations) =>
+            Promise.all(
+              registrations
+                .filter((registration) => {
+                  const scope = new URL(registration.scope);
+                  return scope.origin === location.origin && scope.pathname === '/';
+                })
+                .map((registration) => registration.update().catch(() => undefined)),
+            ),
+          )
+          .catch(() => undefined);
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
