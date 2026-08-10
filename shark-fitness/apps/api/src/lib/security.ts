@@ -24,8 +24,11 @@ export function allowedOrigins(): Set<string> {
     .map((value) => value.trim().replace(/\/$/, ''))
     .filter(Boolean);
 
-  const publicOrigin = process.env.SHARK_PUBLIC_ORIGIN?.trim().replace(/\/$/, '');
-  if (publicOrigin) configured.push(publicOrigin);
+  const publicOrigins = [process.env.SHARK_PUBLIC_ORIGIN, process.env.RENDER_EXTERNAL_URL]
+    .map((value) => value?.trim().replace(/\/$/, ''))
+    .filter((value): value is string => Boolean(value));
+  configured.push(...publicOrigins);
+
   if (!isProduction()) configured.push(...LOCAL_ORIGINS);
 
   return new Set(configured);
