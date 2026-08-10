@@ -7,7 +7,7 @@ import { router } from './router';
 import { useSession } from './lib/store';
 import { connectRealtime, disconnectRealtime } from './lib/realtime';
 import { startOutbox, stopOutbox } from './lib/outbox';
-import { ApiError } from './lib/api';
+import { API_ORIGIN, ApiError } from './lib/api';
 import { hasMemberSessionHint, setMemberSessionHint } from './lib/session-hint';
 import './styles.css';
 
@@ -26,6 +26,13 @@ const queryClient = new QueryClient({
 
 const SESSION_RESTORE_TIMEOUT_MS = 12_000;
 
+function wakeHostedBackend(): void {
+  // The demo's static shell can be served from the PWA cache while Render's
+  // free web service is asleep. Wake it opportunistically without blocking the
+  // sign-in UI; by the time a reviewer submits credentials it is often ready.
+  void fetch(`${API_ORIGIN}/health`, { cache: 'no-store' }).catch(() => undefined);
+}
+
 function Boot() {
   const status = useSession((s) => s.status);
   const bootstrap = useSession((s) => s.bootstrap);
@@ -40,6 +47,7 @@ function Boot() {
     // Fresh visitors do not need a server round-trip just to see sign-in.
     if (!hasMemberSessionHint()) {
       setViewer(null);
+      wakeHostedBackend();
       return;
     }
 
@@ -50,6 +58,7 @@ function Boot() {
         // The HttpOnly cookie is not modified; a later sign-in can reuse the
         // backend normally once it is awake.
         setViewer(null);
+        wakeHostedBackend();
       }
     }, SESSION_RESTORE_TIMEOUT_MS);
 
