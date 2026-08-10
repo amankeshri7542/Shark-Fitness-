@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { create } from 'zustand';
 import type { Branch, Viewer } from '@shark/contracts';
 import { can, type Permission } from '@shark/domain';
@@ -99,11 +100,12 @@ export function usePermission(permission: Permission): boolean {
 }
 
 export function useBranchScope(): { branchId: string | null; branchName: string } {
-  return useAdmin((s) => {
-    const branch = s.branches.find((b) => b.id === s.activeBranchId);
-    return {
-      branchId: s.activeBranchId,
-      branchName: branch?.name ?? `All branches (${s.branches.length})`,
-    };
-  });
+  // Zustand 5 uses React's external-store subscription semantics. Returning a
+  // fresh object directly from the selector makes every snapshot look changed
+  // and can trigger React's maximum-update-depth guard. Select stable values
+  // individually, then memoize the convenience object for consumers.
+  const branchId = useAdmin((s) => s.activeBranchId);
+  const branches = useAdmin((s) => s.branches);
+  const branchName = branches.find((b) => b.id === branchId)?.name ?? `All branches (${branches.length})`;
+  return useMemo(() => ({ branchId, branchName }), [branchId, branchName]);
 }
