@@ -54,19 +54,24 @@ jobs:
       - name: Build applications
         run: pnpm build
 
-      - name: Smoke-test production static serving
+      - name: Smoke-test production serving and authenticated browser runtime
         env:
           NODE_ENV: production
           PORT: '8787'
           SHARK_SERVE_STATIC: 'true'
           SHARK_DB: data/test/shark.db
-          SHARK_ALLOWED_ORIGINS: http://127.0.0.1:8787
+          SHARK_ALLOWED_ORIGINS: http://localhost:8787,http://127.0.0.1:8787
         run: |
           set -euo pipefail
 
           pnpm -F @shark/api start >/tmp/shark-static-smoke.log 2>&1 &
           api_pid=$!
-          trap 'kill "$api_pid" 2>/dev/null || true' EXIT
+          chrome_pid=''
+          cleanup() {
+            if [ -n "$chrome_pid" ]; then kill "$chrome_pid" 2>/dev/null || true; fi
+            kill "$api_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
 
           ready=0
           for _ in $(seq 1 30); do
@@ -115,3 +120,44 @@ jobs:
             | node -e "let s='';process.stdin.on('data',c=>s+=c);process.stdin.on('end',()=>JSON.parse(s))"
           curl -fsS http://127.0.0.1:8787/ | grep -q '/assets/'
           curl -fsS http://127.0.0.1:8787/admin/ | grep -q '/admin/assets/'
+
+          admin_headers="$(mktemp)"
+          asset_headers="$(mktemp)"
+          curl -fsS -D "$admin_headers" -o /dev/null http://127.0.0.1:8787/admin/
+          curl -fsS -D "$asset_headers" -o /dev/null "http://127.0.0.1:8787/admin/assets/$(basename "$admin_js")"
+          grep -qi '^cache-control: .*no-store' "$admin_headers"
+          grep -qi '^cache-control: .*immutable' "$asset_headers"
+          test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8787/admin/assets/definitely-missing.js)" = '404'
+          test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8787/assets/definitely-missing.js)" = '404'
+
+          chrome_bin="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser || true)"
+          if [ -z "$chrome_bin" ]; then
+            echo 'No Chrome/Chromium binary is available for the browser runtime gate.'
+            exit 1
+          fi
+
+          rm -rf /tmp/shark-chrome
+          "$chrome_bin" \
+            --headless=new \
+            --no-sandbox \
+            --disable-gpu \
+            --disable-dev-shm-usage \
+            --remote-debugging-port=9222 \
+            --user-data-dir=/tmp/shark-chrome \
+            about:blank >/tmp/shark-chrome.log 2>&1 &
+          chrome_pid=$!
+
+          chrome_ready=0
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:9222/json/version >/dev/null; then
+              chrome_ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$chrome_ready" -ne 1 ]; then
+            cat /tmp/shark-chrome.log
+            exit 1
+          fi
+
+          SHARK_BASE_URL=http://localhost:8787 node scripts/admin-browser-smoke.mjs
