@@ -42,6 +42,7 @@ let commandId = 0;
 const pending = new Map();
 const uncaught = [];
 const consoleErrors = [];
+const responses = [];
 
 socket.addEventListener('message', (event) => {
   const message = JSON.parse(String(event.data));
@@ -65,6 +66,19 @@ socket.addEventListener('message', (event) => {
         .filter(Boolean)
         .join(' '),
     );
+  }
+  if (message.method === 'Network.responseReceived') {
+    const response = message.params?.response;
+    if (response?.url?.includes('/admin') || response?.url?.includes('/assets/')) {
+      responses.push({
+        url: response.url,
+        status: response.status,
+        mimeType: response.mimeType,
+        fromServiceWorker: Boolean(response.fromServiceWorker),
+        fromDiskCache: Boolean(response.fromDiskCache),
+      });
+      if (responses.length > 40) responses.shift();
+    }
   }
 });
 
@@ -102,11 +116,50 @@ async function evaluate(expression) {
 }
 
 async function navigate(url) {
-  await cdp('Page.navigate', { url });
+  const result = await cdp('Page.navigate', { url });
+  if (result.errorText) throw new Error(`Navigation to ${url} failed: ${result.errorText}`);
   await retry(
-    () => evaluate(`document.readyState === 'complete'`),
+    () => evaluate(`location.href === ${JSON.stringify(url)} && document.readyState === 'complete'`),
     `page load for ${url}`,
   );
+}
+
+async function snapshot(label) {
+  let page = null;
+  try {
+    page = await evaluate(`(async () => ({
+      href: location.href,
+      path: location.pathname,
+      title: document.title,
+      readyState: document.readyState,
+      text: (document.body?.innerText ?? '').slice(0, 1200),
+      moduleScripts: [...document.querySelectorAll('script[type="module"]')].map((node) => node.src),
+      controller: navigator.serviceWorker?.controller?.scriptURL ?? null,
+      registrations: 'serviceWorker' in navigator
+        ? (await navigator.serviceWorker.getRegistrations()).map((registration) => ({
+            scope: registration.scope,
+            active: registration.active?.scriptURL ?? null,
+            waiting: registration.waiting?.scriptURL ?? null,
+            installing: registration.installing?.scriptURL ?? null,
+          }))
+        : [],
+      directAdminFetch: await fetch('/admin/sign-in', { cache: 'no-store' })
+        .then(async (response) => ({
+          status: response.status,
+          contentType: response.headers.get('content-type'),
+          cacheControl: response.headers.get('cache-control'),
+          release: response.headers.get('x-shark-release'),
+          head: (await response.text()).slice(0, 240),
+        }))
+        .catch((error) => ({ error: String(error) })),
+    }))()`);
+  } catch (error) {
+    page = { snapshotError: String(error) };
+  }
+  console.error(`[browser-smoke] ${label} snapshot:\n${JSON.stringify(page, null, 2)}`);
+  console.error(`[browser-smoke] recent responses:\n${JSON.stringify(responses, null, 2)}`);
+  console.error(`[browser-smoke] uncaught:\n${uncaught.join('\n---\n') || '(none)'}`);
+  console.error(`[browser-smoke] console errors:\n${consoleErrors.join('\n---\n') || '(none)'}`);
 }
 
 await cdp('Page.enable');
@@ -132,14 +185,30 @@ const memberWorkerScope = await retry(
 );
 console.log(`[browser-smoke] member worker active: ${memberWorkerScope}`);
 
-await navigate(`${baseUrl}/admin/sign-in`);
+// Reload the member page once so the freshly installed root worker is actually
+// the active controller. This reproduces a returning user's browser rather than
+// only a first-install tab where the worker is active but not yet controlling.
+await navigate(`${baseUrl}/`);
 await retry(
-  () => evaluate(`document.body?.innerText.includes('Sign in')`),
-  'Admin sign-in screen',
+  () => evaluate(`Boolean(navigator.serviceWorker?.controller)`),
+  'member service worker controller',
+  10_000,
 );
+
+await navigate(`${baseUrl}/admin/sign-in`);
+try {
+  await retry(
+    () => evaluate(`document.body?.innerText.includes('Sign in')`),
+    'Admin sign-in screen',
+  );
+} catch (error) {
+  await snapshot('Admin sign-in failure');
+  throw error;
+}
 
 const signInScript = await evaluate(`document.querySelector('script[type="module"]')?.src ?? ''`);
 if (!signInScript.includes('/admin/assets/')) {
+  await snapshot('wrong Admin shell');
   throw new Error(`Admin navigation loaded the wrong app shell: ${signInScript || 'no module script'}`);
 }
 
@@ -152,37 +221,46 @@ const clicked = await evaluate(`(() => {
 })()`);
 if (!clicked) throw new Error('Could not find the Admin Sign in button');
 
-await retry(
-  () =>
-    evaluate(`location.pathname === '/admin/' && /COMMAND/i.test(document.body?.innerText ?? '')`),
-  'authenticated Admin command center',
-  20_000,
-);
+try {
+  await retry(
+    () =>
+      evaluate(`location.pathname === '/admin/' && /COMMAND/i.test(document.body?.innerText ?? '')`),
+    'authenticated Admin command center',
+    20_000,
+  );
+} catch (error) {
+  await snapshot('authenticated Admin failure');
+  throw error;
+}
 
 // Give effects/realtime/query rendering enough time to expose render loops or
 // asynchronous exceptions after the first successful paint.
 await sleep(1_500);
 
-const snapshot = await evaluate(`({
+const finalSnapshot = await evaluate(`({
   path: location.pathname,
   title: document.title,
   text: (document.body?.innerText ?? '').slice(0, 600),
   script: document.querySelector('script[type="module"]')?.src ?? '',
+  controller: navigator.serviceWorker?.controller?.scriptURL ?? null,
 })`);
 
 const fatalConsoleErrors = consoleErrors.filter((message) =>
   /maximum update depth|minified react error|uncaught|something went wrong/i.test(message),
 );
 if (uncaught.length || fatalConsoleErrors.length) {
+  await snapshot('runtime exception');
   throw new Error(
     `Browser runtime errors:\n${[...uncaught, ...fatalConsoleErrors].join('\n---\n')}`,
   );
 }
-if (/Something went wrong|Minified React error/i.test(snapshot.text)) {
-  throw new Error(`Admin rendered its error boundary:\n${snapshot.text}`);
+if (/Something went wrong|Minified React error/i.test(finalSnapshot.text)) {
+  await snapshot('error boundary');
+  throw new Error(`Admin rendered its error boundary:\n${finalSnapshot.text}`);
 }
 
-console.log(`[browser-smoke] Admin runtime OK at ${snapshot.path}`);
-console.log(`[browser-smoke] bundle: ${snapshot.script}`);
-console.log(`[browser-smoke] title: ${snapshot.title}`);
+console.log(`[browser-smoke] Admin runtime OK at ${finalSnapshot.path}`);
+console.log(`[browser-smoke] bundle: ${finalSnapshot.script}`);
+console.log(`[browser-smoke] service-worker controller: ${finalSnapshot.controller ?? 'none'}`);
+console.log(`[browser-smoke] title: ${finalSnapshot.title}`);
 socket.close();
