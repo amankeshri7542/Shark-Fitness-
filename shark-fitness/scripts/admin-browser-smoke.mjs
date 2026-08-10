@@ -155,7 +155,7 @@ console.log(`[browser-smoke] member page controlled by: ${await evaluate('naviga
 
 try {
   await navigate(`${baseUrl}/admin/sign-in`, '/admin/sign-in');
-  await retry(() => evaluate(`document.body?.innerText.includes('Sign in')`), 'Admin sign-in screen');
+  await retry(() => evaluate(`/sign in/i.test(document.body?.innerText ?? '')`), 'Admin sign-in screen');
 } catch (error) {
   await failWithDiagnostics('Admin sign-in failure', error);
 }
