@@ -30,6 +30,12 @@ export default defineConfig({
         // API responses are never cached here — the outbox owns offline writes
         // and stale reads during a workout would be worse than none.
         navigateFallback: '/index.html',
+        // Member and admin are two separate SPAs on the same origin. The member
+        // worker is rooted at `/`, so without an explicit deny-list Workbox can
+        // answer `/admin/*` with the member app shell (or a stale cached shell).
+        // It must never control admin, API or health-check navigation.
+        navigateFallbackDenylist: [/^\/admin(?:\/|$)/, /^\/v1(?:\/|$)/, /^\/health\/?$/],
+        cleanupOutdatedCaches: true,
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/fonts\.(googleapis|gstatic)\.com\//,
