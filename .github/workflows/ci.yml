@@ -53,3 +53,65 @@ jobs:
 
       - name: Build applications
         run: pnpm build
+
+      - name: Smoke-test production static serving
+        env:
+          NODE_ENV: production
+          PORT: '8787'
+          SHARK_SERVE_STATIC: 'true'
+          SHARK_DB: data/test/shark.db
+          SHARK_ALLOWED_ORIGINS: http://127.0.0.1:8787
+        run: |
+          set -euo pipefail
+
+          pnpm -F @shark/api start >/tmp/shark-static-smoke.log 2>&1 &
+          api_pid=$!
+          trap 'kill "$api_pid" 2>/dev/null || true' EXIT
+
+          ready=0
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8787/health >/tmp/shark-health.json; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            cat /tmp/shark-static-smoke.log
+            exit 1
+          fi
+          grep -q '"ok":true' /tmp/shark-health.json
+
+          assert_asset() {
+            url="$1"
+            expected_type="$2"
+            headers="$(mktemp)"
+            body="$(mktemp)"
+            curl -fsS -D "$headers" -o "$body" "http://127.0.0.1:8787${url}"
+            if ! grep -qi "^content-type: .*${expected_type}" "$headers"; then
+              echo "Unexpected content type for ${url}:"
+              cat "$headers"
+              exit 1
+            fi
+            if head -c 256 "$body" | grep -Eqi '<!doctype html|<html'; then
+              echo "${url} incorrectly returned the SPA HTML fallback"
+              exit 1
+            fi
+          }
+
+          member_css="$(find apps/member-pwa/dist/assets -maxdepth 1 -type f -name '*.css' | head -n 1)"
+          member_js="$(find apps/member-pwa/dist/assets -maxdepth 1 -type f -name '*.js' | head -n 1)"
+          admin_css="$(find apps/admin-web/dist/assets -maxdepth 1 -type f -name '*.css' | head -n 1)"
+          admin_js="$(find apps/admin-web/dist/assets -maxdepth 1 -type f -name '*.js' | head -n 1)"
+          test -n "$member_css" && test -n "$member_js" && test -n "$admin_css" && test -n "$admin_js"
+
+          assert_asset "/assets/$(basename "$member_css")" 'text/css'
+          assert_asset "/assets/$(basename "$member_js")" 'javascript'
+          assert_asset "/admin/assets/$(basename "$admin_css")" 'text/css'
+          assert_asset "/admin/assets/$(basename "$admin_js")" 'javascript'
+          assert_asset '/registerSW.js' 'javascript'
+
+          curl -fsS http://127.0.0.1:8787/manifest.webmanifest \
+            | node -e "let s='';process.stdin.on('data',c=>s+=c);process.stdin.on('end',()=>JSON.parse(s))"
+          curl -fsS http://127.0.0.1:8787/ | grep -q '/assets/'
+          curl -fsS http://127.0.0.1:8787/admin/ | grep -q '/admin/assets/'
