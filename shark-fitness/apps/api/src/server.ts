@@ -1,5 +1,6 @@
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
+import type { Context } from 'hono';
 import { readFile } from 'node:fs/promises';
 import { relative, resolve } from 'node:path';
 import { app } from './app.js';
@@ -19,13 +20,13 @@ if (process.env.SHARK_SERVE_STATIC === 'true') {
   const memberRoot = staticRoot(memberDist);
   const adminRoot = staticRoot(adminDist);
 
-  const noStore = (c: Parameters<Parameters<typeof app.use>[1]>[0]): void => {
+  const noStore = (c: Context): void => {
     c.header('Cache-Control', 'no-store, max-age=0, must-revalidate');
     c.header('Pragma', 'no-cache');
     c.header('Expires', '0');
     c.header('X-Shark-Release', release);
   };
-  const immutable = (c: Parameters<Parameters<typeof app.use>[1]>[0]): void => {
+  const immutable = (c: Context): void => {
     c.header('Cache-Control', 'public, max-age=31536000, immutable');
     c.header('X-Shark-Release', release);
   };
