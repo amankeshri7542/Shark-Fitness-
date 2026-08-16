@@ -72,10 +72,31 @@ const CSRF_EXEMPT = new Set(['/auth/password', '/auth/otp/start', '/auth/otp/ver
 
 export async function api<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const method = options.method ?? 'GET';
-  if (!SAFE_METHODS.has(method) && !CSRF_EXEMPT.has(path) && !csrf.get()) {
+  const guarded = !SAFE_METHODS.has(method) && !CSRF_EXEMPT.has(path);
+  if (guarded && !csrf.get()) {
     await refreshCsrf();
   }
 
+  try {
+    return await send<T>(path, options, method);
+  } catch (error) {
+    // A refused CSRF token is recoverable, and this one is easy to end up
+    // holding: the token lives in per-tab sessionStorage while the cookie it
+    // has to match is shared, so signing in anywhere else reissues the cookie
+    // and leaves every other tab carrying a token the server will refuse.
+    // Nothing clears it, so that tab's every write fails until it is closed.
+    // Take a fresh token and run the write once more instead. Retrying is safe
+    // because a CSRF refusal happens in middleware, before any handler runs.
+    if (guarded && error instanceof ApiError && error.status === 403 && csrf.get()) {
+      csrf.clear();
+      await refreshCsrf();
+      return await send<T>(path, options, method);
+    }
+    throw error;
+  }
+}
+
+async function send<T>(path: string, options: RequestOptions, method: string): Promise<T> {
   const headers: Record<string, string> = { accept: 'application/json' };
   if (options.body !== undefined) headers['content-type'] = 'application/json';
   if (options.branchId) headers['x-branch-id'] = options.branchId;
