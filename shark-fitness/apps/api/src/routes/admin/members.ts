@@ -12,6 +12,7 @@ import { emit } from '../../lib/events.js';
 import { conflict, notFound, precondition } from '../../lib/errors.js';
 import { id } from '../../lib/ids.js';
 import { DAY, addDays, isoDate, now, relativeTime } from '../../lib/time.js';
+import { memberTrainingSummary } from '../../services/training-admin.js';
 
 export const membersRoutes = new Hono();
 
@@ -318,6 +319,7 @@ membersRoutes.get('/:memberId', (c) => {
       joinedOn: member.joinedOn,
       lastVisitLabel: member.lastVisitAt ? relativeTime(member.lastVisitAt) : 'Never',
       branchName: branch?.name ?? '',
+      trainerId: member.trainerId,
       trainerName: trainer?.name ?? null,
       tags: member.tags,
       memberNotes: member.memberNotes,
@@ -329,6 +331,7 @@ membersRoutes.get('/:memberId', (c) => {
       riskReasons: member.riskReasons ?? [],
       version: member.version,
     },
+    training: memberTrainingSummary(ctx, memberId),
     level: levelFor(xp?.total ?? 0),
     membership: membership
       ? {
