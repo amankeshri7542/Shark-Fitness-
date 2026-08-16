@@ -3,6 +3,7 @@ import { useNavigate } from '@tanstack/react-router';
 import type { Viewer } from '@shark/contracts';
 import { ApiError, OfflineError, api } from '../lib/api';
 import { useSession } from '../lib/store';
+import { setMemberSessionHint } from '../lib/session-hint';
 import { Button, Display, Eyebrow, Field, Panel, Scanlines, SonarSweep } from '../ui/primitives';
 
 interface OtpStart {
@@ -61,27 +62,35 @@ export default function SignInScreen() {
       setStep('verify');
     });
 
-  const finish = async (): Promise<void> => {
+  const finish = async (result: SignInResult): Promise<void> => {
+    // This is only a non-sensitive browser hint. Authentication itself remains
+    // in the HttpOnly cookie returned by the API.
+    setMemberSessionHint(true);
+    useSession.getState().setViewer(result.viewer);
     await bootstrap();
+    if (useSession.getState().status !== 'signed-in') {
+      setMemberSessionHint(false);
+      throw new Error('Session bootstrap failed after sign-in');
+    }
     await navigate({ to: '/' });
   };
 
   const verifyOtp = () =>
     run(async () => {
-      await api<SignInResult>('/auth/otp/verify', {
+      const result = await api<SignInResult>('/auth/otp/verify', {
         method: 'POST',
         body: { challengeId: challenge?.challengeId, code },
       });
-      await finish();
+      await finish(result);
     });
 
   const signInWithPassword = () =>
     run(async () => {
-      await api<SignInResult>('/auth/password', {
+      const result = await api<SignInResult>('/auth/password', {
         method: 'POST',
         body: { tenantSlug: TENANT_SLUG, email: identifier, password },
       });
-      await finish();
+      await finish(result);
     });
 
   return (
