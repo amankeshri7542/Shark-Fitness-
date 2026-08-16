@@ -33,6 +33,7 @@ No agent may silently resolve a contradiction. It must cite the requirement IDs,
 - [02_Shark_Fitness_Engineering_Technical_PRD.md](./02_Shark_Fitness_Engineering_Technical_PRD.md)
 - [03_Shark_Fitness_Design_UIUX_PRD.md](./03_Shark_Fitness_Design_UIUX_PRD.md)
 - [04_Shark_Fitness_Enterprise_Compliance_PRD.md](./04_Shark_Fitness_Enterprise_Compliance_PRD.md)
+- [05_Shark_Fitness_Remaining_Implementation_Plan.md](./05_Shark_Fitness_Remaining_Implementation_Plan.md) — build status and the sequenced plan for the phases still outstanding. Subordinate to this registry; where it appears to relax a SHALL, the PRD wins.
 
 ### AI-agent execution contract
 
