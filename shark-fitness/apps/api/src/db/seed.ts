@@ -22,7 +22,7 @@ import {
 import { db, schema, sqlite } from './client.js';
 import { hashPassword } from '../lib/crypto.js';
 import { id, initialsOf, normalizeEmail, normalizePhone, referralCode, token } from '../lib/ids.js';
-import { DAY, HOUR, MINUTE, addDays, isoDate, startOfWeek } from '../lib/time.js';
+import { DAY, HOUR, MINUTE, addDays, daysBetween, isoDate, startOfWeek } from '../lib/time.js';
 import { EXERCISES } from './seed/exercises.js';
 import { makeRandom } from './seed/random.js';
 import {
@@ -533,12 +533,20 @@ function seedMember(args: {
   const phone = `+91 9${rng.int(100000000, 899999999)}`;
   const joinedOn = addDays(TODAY, -args.joinedDaysAgo);
   const product = productRows.get(args.productId)!;
+  // An entitled member's term has to end in the *future*, so the current period
+  // is rolled forward from the join date rather than taken as the first one. A
+  // member who joined 420 days ago on an annual plan has renewed since; dating
+  // their membership from the first term leaves it `active` with an end date in
+  // the past, and every screen that reads the term — the home banner above all
+  // — then tells a paying member their membership has ended.
+  const durationDays = product.durationDays ?? 365;
+  const termsElapsed = Math.floor(Math.max(0, daysBetween(joinedOn, TODAY)) / durationDays) + 1;
   const endsOn =
     args.membershipState === 'grace'
       ? addDays(TODAY, -4)
       : args.membershipState === 'expired'
         ? addDays(TODAY, -40)
-        : addDays(joinedOn, product.durationDays ?? 365);
+        : addDays(joinedOn, durationDays * termsElapsed);
 
   db.insert(schema.users)
     .values({
@@ -1711,6 +1719,64 @@ for (let hoursBack = 14; hoursBack >= 2; hoursBack--) {
         visitNumber: n,
       })
       .run();
+  }
+}
+
+// Every branch keeps at least two entitled members off the floor.
+//
+// The occupancy picks above draw from the whole tenant at random, and the
+// smaller branches hold few enough entitled members that a run can put every
+// one of them inside at once. A branch where nobody is left to check in is not
+// a state the front desk can ever reach in real life, and it strands the desk
+// screens (and the tests covering them) with no member to act on. Repairing it
+// here rather than biasing the picks keeps the occupancy trace honest.
+const DESK_READY = `
+  select m.id
+  from members m
+  join memberships ms on ms.member_id = m.id
+  where m.home_branch_id = ?
+    and m.deleted_at is null
+    and ms.state = 'active'
+    and (json_extract(ms.product_snapshot, '$.access.windowStartMin') is null
+         or json_extract(ms.product_snapshot, '$.access.windowStartMin') = 'null')
+    and not exists (
+      select 1 from invoices i
+      where i.member_id = m.id
+        and i.state in ('open', 'partially_paid', 'overdue')
+        and i.total_minor > i.paid_minor)
+    and not exists (select 1 from member_branches mb where mb.member_id = m.id)
+`;
+const IDLE_PER_BRANCH = 2;
+
+for (const b of BRANCHES) {
+  const idle = sqlite
+    .prepare(`${DESK_READY} and not exists (
+        select 1 from check_ins c
+        where c.member_id = m.id and c.decision = 'granted' and c.exited_at is null)`)
+    .all(b.id) as Array<{ id: string }>;
+
+  let shortfall = IDLE_PER_BRANCH - idle.length;
+  if (shortfall <= 0) continue;
+
+  // Send the longest-standing visitors home first: they are the ones whose
+  // session would plausibly have ended by now anyway.
+  const inside = sqlite
+    .prepare(`${DESK_READY} and exists (
+        select 1 from check_ins c
+        where c.member_id = m.id and c.decision = 'granted' and c.exited_at is null)
+      order by (select min(c.entered_at) from check_ins c
+                where c.member_id = m.id and c.decision = 'granted' and c.exited_at is null) asc`)
+    .all(b.id) as Array<{ id: string }>;
+
+  for (const m of inside) {
+    if (shortfall <= 0) break;
+    sqlite
+      .prepare(
+        `update check_ins set exited_at = min(entered_at + ?, ?)
+         where member_id = ? and decision = 'granted' and exited_at is null`,
+      )
+      .run(55 * MINUTE, NOW, m.id);
+    shortfall -= 1;
   }
 }
 
