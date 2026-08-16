@@ -7,7 +7,8 @@ import { router } from './router';
 import { useSession } from './lib/store';
 import { connectRealtime, disconnectRealtime } from './lib/realtime';
 import { startOutbox, stopOutbox } from './lib/outbox';
-import { ApiError } from './lib/api';
+import { API_ORIGIN, ApiError } from './lib/api';
+import { hasMemberSessionHint, setMemberSessionHint } from './lib/session-hint';
 import './styles.css';
 
 const queryClient = new QueryClient({
@@ -23,14 +24,56 @@ const queryClient = new QueryClient({
   },
 });
 
+const SESSION_RESTORE_TIMEOUT_MS = 12_000;
+
+function wakeHostedBackend(): void {
+  // The demo's static shell can be served from the PWA cache while Render's
+  // free web service is asleep. Wake it opportunistically without blocking the
+  // sign-in UI; by the time a reviewer submits credentials it is often ready.
+  void fetch(`${API_ORIGIN}/health`, { cache: 'no-store' }).catch(() => undefined);
+}
+
 function Boot() {
   const status = useSession((s) => s.status);
   const bootstrap = useSession((s) => s.bootstrap);
+  const setViewer = useSession((s) => s.setViewer);
   const viewer = useSession((s) => s.viewer);
 
   useEffect(() => {
-    void bootstrap();
-  }, [bootstrap]);
+    // The real session lives in an HttpOnly cookie, so JS cannot inspect it.
+    // A fresh browser therefore used to call /v1/me unconditionally. Because
+    // the member PWA can load from cache while the free Render backend sleeps,
+    // that request could leave the app on the SHARK splash indefinitely.
+    // Fresh visitors do not need a server round-trip just to see sign-in.
+    if (!hasMemberSessionHint()) {
+      setViewer(null);
+      wakeHostedBackend();
+      return;
+    }
+
+    let active = true;
+    const timeout = window.setTimeout(() => {
+      if (active && useSession.getState().status === 'loading') {
+        // Never trap a reviewer/member behind an infinite bootstrap screen.
+        // The HttpOnly cookie is not modified; a later sign-in can reuse the
+        // backend normally once it is awake.
+        setViewer(null);
+        wakeHostedBackend();
+      }
+    }, SESSION_RESTORE_TIMEOUT_MS);
+
+    void bootstrap().finally(() => window.clearTimeout(timeout));
+
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+    };
+  }, [bootstrap, setViewer]);
+
+  useEffect(() => {
+    if (status === 'signed-in') setMemberSessionHint(true);
+    if (status === 'signed-out') setMemberSessionHint(false);
+  }, [status]);
 
   useEffect(() => {
     if (!viewer) {

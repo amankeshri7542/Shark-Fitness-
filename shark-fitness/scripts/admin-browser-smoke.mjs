@@ -35,6 +35,7 @@ const pending = new Map();
 const uncaught = [];
 const consoleErrors = [];
 const responses = [];
+const requests = [];
 
 socket.addEventListener('message', (event) => {
   const message = JSON.parse(String(event.data));
@@ -51,6 +52,13 @@ socket.addEventListener('message', (event) => {
   }
   if (message.method === 'Runtime.consoleAPICalled' && message.params?.type === 'error') {
     consoleErrors.push((message.params.args ?? []).map((arg) => arg.value ?? arg.description ?? '').filter(Boolean).join(' '));
+  }
+  if (message.method === 'Network.requestWillBeSent') {
+    const request = message.params?.request;
+    if (request?.url) {
+      requests.push(request.url);
+      if (requests.length > 100) requests.shift();
+    }
   }
   if (message.method === 'Network.responseReceived') {
     const response = message.params?.response;
@@ -115,6 +123,7 @@ async function failWithDiagnostics(label, error) {
   try { snapshot = await pageSnapshot(); } catch (snapshotError) { snapshot = { error: String(snapshotError) }; }
   console.error(`[browser-smoke] ${label}: ${error?.message ?? error}`);
   console.error(JSON.stringify(snapshot, null, 2));
+  console.error(`[browser-smoke] recent requests:\n${JSON.stringify(requests.slice(-30), null, 2)}`);
   console.error(`[browser-smoke] responses:\n${JSON.stringify(responses, null, 2)}`);
   console.error(`[browser-smoke] uncaught:\n${uncaught.join('\n---\n') || '(none)'}`);
   console.error(`[browser-smoke] console errors:\n${consoleErrors.join('\n---\n') || '(none)'}`);
@@ -125,10 +134,32 @@ await cdp('Page.enable');
 await cdp('Runtime.enable');
 await cdp('Network.enable');
 
+// A brand-new browser has no member-session hint. It must reach sign-in without
+// depending on /v1/me. This is important for the hosted demo because the PWA
+// shell can be cached while a free backend is asleep.
+await navigate(`${baseUrl}/`);
+try {
+  await retry(
+    () => evaluate(`location.pathname === '/sign-in' && /demo accounts/i.test(document.body?.innerText ?? '')`),
+    'fresh member sign-in screen',
+    5_000,
+  );
+} catch (error) {
+  await failWithDiagnostics('fresh member bootstrap got stuck', error);
+}
+
+const initialMeRequests = requests.filter((url) => url === `${baseUrl}/v1/me` || url === `${baseUrl}/v1/me/`);
+if (initialMeRequests.length > 0) {
+  await failWithDiagnostics(
+    'fresh member bootstrap contacted /v1/me',
+    new Error(`Fresh browser must not depend on session restore: ${initialMeRequests.join(', ')}`),
+  );
+}
+console.log('[browser-smoke] fresh member browser reached sign-in without /v1/me');
+
 // Reproduce a returning member browser: install the root-scoped member worker,
 // wait until it is fully activated, then start another same-origin navigation so
 // the active worker becomes the controller before Admin is opened.
-await navigate(`${baseUrl}/`);
 const memberWorker = await retry(
   () => evaluate(`(async () => {
     if (!('serviceWorker' in navigator)) return false;

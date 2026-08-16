@@ -72,6 +72,23 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 /**
+ * The endpoints that establish a session, for which the strict Origin check is
+ * the CSRF boundary.
+ *
+ * They cannot also demand a double-submit token. A browser holding a
+ * `shark_session` cookie the server has since forgotten would otherwise be
+ * refused here, before the handler that would have replaced the dead session
+ * ever runs — locking the user out of signing back in for as long as the cookie
+ * survives, with a message ("refresh the page") that cannot clear a cookie.
+ *
+ * That state is the norm rather than an edge case on the demo deployment: the
+ * database lives on ephemeral storage, so every spin-down cycle forgets every
+ * session while browsers keep their cookies. The client also stores its token
+ * in per-tab sessionStorage, so a second tab reaches the same dead end.
+ */
+const SESSION_ENTRY_PATHS = new Set(['/v1/auth/password', '/v1/auth/otp/start', '/v1/auth/otp/verify']);
+
+/**
  * Rejects cross-origin unsafe requests and requires a double-submit token for
  * browser sessions. Login endpoints do not have a session cookie yet, so the
  * strict Origin check is their CSRF boundary.
@@ -86,6 +103,11 @@ export const csrfProtection: MiddlewareHandler = async (c, next) => {
   const origin = c.req.header('origin');
   if (!isAllowedOrigin(origin)) {
     throw new AppError('FORBIDDEN', 'This request did not come from an allowed Shark Fitness app.');
+  }
+
+  if (SESSION_ENTRY_PATHS.has(c.req.path)) {
+    await next();
+    return;
   }
 
   const session = getCookie(c, SESSION_COOKIE);
