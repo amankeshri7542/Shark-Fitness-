@@ -225,17 +225,18 @@ an order placed at a branch the caller cannot see.
 
 ---
 
-## Phase 8 — Equipment: facility operations
+## Phase 8 — Equipment: facility operations — **BUILT**
 
 **Requirements:** PF-FAC-001 … PF-FAC-006.
 **Permissions:** `facility.view`, `facility.manage`.
-**Files:** `apps/api/src/routes/admin/facility.ts` (stub),
-`apps/admin-web/src/screens/Equipment.tsx` (placeholder).
+**Files:** `apps/api/src/routes/admin/facility.ts` (thin adapter),
+`apps/api/src/services/facility.ts` (every rule),
+`apps/admin-web/src/screens/Equipment.tsx`,
+`apps/api/src/__tests__/phase8-facility.integration.test.ts` (21 tests).
 
 **Tables — all exist:** `equipment`, `work_orders`, `facility_tasks`. All three
 are seeded, including an overdue safety work order that the Command Center
-already surfaces as an exception — **that alert currently links to a placeholder
-screen**, which is the most visible gap in the console today.
+surfaces as an exception. That alert now lands on a working screen.
 
 **Endpoints**
 
@@ -244,6 +245,7 @@ screen**, which is the most visible gap in the console today.
 | GET | `/v1/admin/facility/equipment` | Filter by branch, category, status, due-for-service. |
 | POST | `/v1/admin/facility/equipment` | |
 | PATCH | `/v1/admin/facility/equipment/:equipmentId` | Includes status transitions. |
+| POST | `/v1/admin/facility/equipment/:equipmentId/return-to-service` | Lifts a safety hold. Requires a note. |
 | GET | `/v1/admin/facility/work-orders` | Filter by state, severity, assignee, overdue. |
 | POST | `/v1/admin/facility/work-orders` | |
 | PATCH | `/v1/admin/facility/work-orders/:workOrderId` | Assign, change state, resolve. |
@@ -258,10 +260,17 @@ screen**, which is the most visible gap in the console today.
 - A **safety**-severity work order is a plain-register surface and escalates to
   the Command Center exception list.
 - Closing a work order requires a resolution note.
+- `out_of_service` is a **safety hold, not a derived status**. Closing the last
+  safety work order SHALL NOT return an asset to service; only
+  `POST …/return-to-service` may, it is refused while open safety or blocked
+  work stands, it requires a management role on top of `facility.manage`, and it
+  records the justifying note in the audit log. A plain `PATCH … {status:
+  'available'}` on a held asset is refused for the same reason.
 
-**Edge cases:** equipment moved between branches with an open work order; a
-safety order left open past its SLA; a recurring task whose branch is
-temporarily closed.
+**Edge cases — all covered by tests:** equipment moved between branches with an
+open work order (assignees who do not cover the destination are unassigned and
+the clearance audited); a safety order left open past its SLA; a recurring task
+whose branch is temporarily closed.
 
 ---
 
@@ -469,13 +478,13 @@ merely fail the PR, it silently stops the demo from updating.
 |---|---|---|---|
 | — | **Rebase Phase 6 onto main** | — | PF-STAFF, PF-WORK |
 | 7 | Store | — | PF-POS-001…006 |
-| 8 | Equipment | — | PF-FAC-001…006 |
+| 8 | Equipment — **built** | — | PF-FAC-001…006 |
 | 9 | Support | — | PF-SUP-001…006 |
 | 10 | Reports | 7, 8 | PF-RPT-001…006 |
 | 11 | Settings | — | PF-TEN-001…006 |
 | 12 | Automations | 11 | PF-COMM-001…006 |
 | 13 | Platform | 11 | PF-PLAT-001…006 |
 
-Phases 7, 8, 9 and 11 have no dependency on each other and are the correct place
-to start. Phase 8 is the highest-value single phase, because the Command Center
-already raises a safety alert that currently links to a placeholder.
+Phases 7, 9 and 11 have no dependency on each other and are the correct place to
+start. Phase 8 is built: the safety alert the Command Center raises now lands on
+a working Equipment screen.

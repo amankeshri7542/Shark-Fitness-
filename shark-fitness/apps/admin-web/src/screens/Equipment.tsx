@@ -25,6 +25,8 @@ interface EquipmentRow {
   overdue: boolean;
   openWorkOrders: number;
   downtimeDays30: number;
+  safetyHold: boolean;
+  returnBlockedReason: string | null;
 }
 
 interface WorkOrderRow {
@@ -165,6 +167,8 @@ export default function EquipmentScreen() {
     onSuccess: refresh,
   });
 
+  const [returningEquipment, setReturningEquipment] = useState<EquipmentRow | null>(null);
+
   if (!canView) {
     return (
       <Page title="Equipment">
@@ -246,7 +250,20 @@ export default function EquipmentScreen() {
                         {item.overdue ? <Chip tone="warn" className="mt-1">overdue</Chip> : <Chip tone="good" className="mt-1">on schedule</Chip>}
                       </td>
                       <td className="font-display text-[16px] tabular-nums">{item.openWorkOrders}</td>
-                      <td><Chip tone={STATUS_TONE[item.status] ?? 'neutral'}>{item.status.replace(/_/g, ' ')}</Chip></td>
+                      <td>
+                        <Chip tone={STATUS_TONE[item.status] ?? 'neutral'}>{item.status.replace(/_/g, ' ')}</Chip>
+                        {item.safetyHold ? (
+                          <div className="mt-1.5">
+                            {item.returnBlockedReason ? (
+                              <div className="text-[10px] leading-snug text-foam-45">{item.returnBlockedReason}</div>
+                            ) : canManage ? (
+                              <Button variant="outline" onClick={() => setReturningEquipment(item)} disabled={!online}>Return to service</Button>
+                            ) : (
+                              <div className="text-[10px] leading-snug text-foam-45">A manager must return this asset to service.</div>
+                            )}
+                          </div>
+                        ) : null}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -267,6 +284,7 @@ export default function EquipmentScreen() {
       {showEquipmentForm ? <CreateEquipmentDialog branches={branches} activeBranchId={branchId} online={online} onClose={() => setShowEquipmentForm(false)} /> : null}
       {showIssueForm ? <CreateIssueDialog equipment={data.equipment} branches={branches} activeBranchId={branchId} online={online} onClose={() => setShowIssueForm(false)} /> : null}
       {showTaskForm ? <CreateTaskDialog branches={branches} activeBranchId={branchId} online={online} onClose={() => setShowTaskForm(false)} /> : null}
+      {returningEquipment ? <ReturnToServiceDialog equipment={returningEquipment} online={online} onClose={() => setReturningEquipment(null)} /> : null}
     </Page>
   );
 }
@@ -359,6 +377,32 @@ function CreateTaskDialog({ branches, activeBranchId, online, onClose }: { branc
   });
   const error = create.error instanceof ApiError ? create.error.message : create.isError ? 'That facility task could not be created.' : null;
   return <Dialog title="New facility task" onClose={onClose}><div className="flex flex-col gap-3"><Field label="Task" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Opening checks" autoFocus /><div className="grid grid-cols-1 gap-3 sm:grid-cols-3"><SelectField label="Branch" value={branchId} onChange={setBranchId} options={branches.map((branch) => [branch.id, branch.name] as [string, string])} /><SelectField label="Cadence" value={cadence} onChange={setCadence} options={[['once', 'Once'], ['daily', 'Daily'], ['weekly', 'Weekly'], ['monthly', 'Monthly'], ['quarterly', 'Quarterly']]} /><Field label="Next due" type="datetime-local" value={nextDueAt} onChange={(event) => setNextDueAt(event.target.value)} /></div><SelectField label="Assign to" value={assigneeId} onChange={setAssigneeId} options={[['', 'Unassigned'], ...(assignees.data?.items ?? []).map((person) => [person.id, person.name] as [string, string])]} /><Field label="Checklist" value={checklist} onChange={(event) => setChecklist(event.target.value)} hint="Comma-separated checks" placeholder="Floor walk, sanitiser stations" />{error ? <Panel tone="bad"><p className="px-3 py-2.5 text-[12px]">{error}</p></Panel> : null}</div><DialogActions onClose={onClose} isPending={create.isPending} disabled={!online || !title.trim() || !branchId || !checklist.trim()} label="Create task" onConfirm={() => create.mutate()} /></Dialog>;
+}
+
+/**
+ * Lifting a safety hold is deliberate, not a side effect of closing a ticket.
+ * The note is required because it is what the audit entry records.
+ */
+function ReturnToServiceDialog({ equipment, online, onClose }: { equipment: EquipmentRow; online: boolean; onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const [note, setNote] = useState('');
+  const returnToService = useMutation({
+    mutationFn: () => api(`/admin/facility/equipment/${equipment.id}/return-to-service`, { method: 'POST', body: { note: note.trim() } }),
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ['facility'] }); onClose(); },
+  });
+  const error = returnToService.error instanceof ApiError ? returnToService.error.message : returnToService.isError ? 'That asset could not be returned to service.' : null;
+  return (
+    <Dialog title="Return to service" onClose={onClose}>
+      <div className="flex flex-col gap-3">
+        <p className="text-[12px] leading-relaxed text-foam-65">
+          {equipment.name} · {equipment.assetTag} is out of service. Returning it puts it back in front of members, so record who checked it and what they verified.
+        </p>
+        <Field label="Safety check" value={note} onChange={(event) => setNote(event.target.value)} placeholder="Who inspected it and what they confirmed" autoFocus />
+        {error ? <Panel tone="bad"><p className="px-3 py-2.5 text-[12px]">{error}</p></Panel> : null}
+      </div>
+      <DialogActions onClose={onClose} isPending={returnToService.isPending} disabled={!online || !note.trim()} label="Return to service" onConfirm={() => returnToService.mutate()} />
+    </Dialog>
+  );
 }
 
 function Dialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {

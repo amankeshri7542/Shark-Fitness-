@@ -338,6 +338,198 @@ describe('Phase 8 — equipment and facility operations', () => {
     expect(((await available.json()) as { items: Array<{ id: string }> }).items.some((item) => item.id === equipmentId)).toBe(false);
   });
 
+  it('clears an assignee who does not cover the destination branch when equipment moves', async () => {
+    const owner = await signIn('owner@sharkfitness.in');
+    const equipmentId = await createEquipment(owner, 'br_kor');
+    const workOrderId = await createWorkOrder(owner, equipmentId);
+    // Sunita Rao manages Koramangala only, so the transfer strands her.
+    const branchBoundAssignee = staffId('manager@sharkfitness.in');
+
+    const assigned = await patch(owner, `/v1/admin/facility/work-orders/${workOrderId}`, { assigneeId: branchBoundAssignee });
+    expect(assigned.status).toBe(200);
+    expect(((await assigned.json()) as WorkOrderResponse).workOrder.state).toBe('assigned');
+
+    const moved = await patch(owner, `/v1/admin/facility/equipment/${equipmentId}`, { branchId: 'br_hsr' });
+    expect(moved.status).toBe(200);
+    const movedBody = (await moved.json()) as { movedWorkOrders: number; unassignedWorkOrders: number };
+    expect(movedBody.movedWorkOrders).toBe(1);
+    expect(movedBody.unassignedWorkOrders).toBe(1);
+
+    const order = db.select().from(schema.workOrders).where(and(eq(schema.workOrders.id, workOrderId), eq(schema.workOrders.tenantId, tenantId()))).get()!;
+    expect(order.branchId).toBe('br_hsr');
+    expect(order.assigneeId).toBeNull();
+    expect(order.state).toBe('open');
+
+    const actions = db
+      .select({ action: schema.auditLog.action })
+      .from(schema.auditLog)
+      .where(and(eq(schema.auditLog.entityType, 'work_order'), eq(schema.auditLog.entityId, workOrderId)))
+      .all()
+      .map((row) => row.action);
+    expect(actions).toContain('work_order.branch_transferred');
+    expect(actions).toContain('work_order.assignee_cleared');
+  });
+
+  it('keeps an assignee who does cover the destination branch when equipment moves', async () => {
+    const owner = await signIn('owner@sharkfitness.in');
+    const equipmentId = await createEquipment(owner, 'br_kor');
+    const workOrderId = await createWorkOrder(owner, equipmentId);
+    // Rehan Ahmed covers every branch, so the transfer must leave him in place.
+    const multiBranchAssignee = staffId('rehan@sharkfitness.in');
+
+    expect((await patch(owner, `/v1/admin/facility/work-orders/${workOrderId}`, { assigneeId: multiBranchAssignee })).status).toBe(200);
+
+    const moved = await patch(owner, `/v1/admin/facility/equipment/${equipmentId}`, { branchId: 'br_hsr' });
+    expect(moved.status).toBe(200);
+    expect(((await moved.json()) as { unassignedWorkOrders: number }).unassignedWorkOrders).toBe(0);
+
+    const order = db.select().from(schema.workOrders).where(and(eq(schema.workOrders.id, workOrderId), eq(schema.workOrders.tenantId, tenantId()))).get()!;
+    expect(order.branchId).toBe('br_hsr');
+    expect(order.assigneeId).toBe(multiBranchAssignee);
+    expect(order.state).toBe('assigned');
+
+    const actions = db
+      .select({ action: schema.auditLog.action })
+      .from(schema.auditLog)
+      .where(and(eq(schema.auditLog.entityType, 'work_order'), eq(schema.auditLog.entityId, workOrderId)))
+      .all()
+      .map((row) => row.action);
+    expect(actions).not.toContain('work_order.assignee_cleared');
+  });
+
+  it('keeps equipment out of service after the last safety work order closes', async () => {
+    const owner = await signIn('owner@sharkfitness.in');
+    const equipmentId = await createEquipment(owner);
+    const workOrderId = await createWorkOrder(owner, equipmentId, uniqueTag('safety-close'), 'safety');
+
+    const resolved = await patch(owner, `/v1/admin/facility/work-orders/${workOrderId}`, {
+      state: 'done',
+      resolutionNote: 'Guard rail refitted and torque checked.',
+    });
+    expect(resolved.status).toBe(200);
+    // The closing response must not claim the asset is usable again.
+    expect(((await resolved.json()) as { workOrder: { equipmentStatus: string | null } }).workOrder.equipmentStatus).toBe('out_of_service');
+
+    const detail = await get(owner, `/v1/admin/facility/equipment/${equipmentId}`);
+    const body = (await detail.json()) as { equipment: { status: string; safetyHold: boolean; returnBlockedReason: string | null } };
+    expect(body.equipment.status).toBe('out_of_service');
+    expect(body.equipment.safetyHold).toBe(true);
+    expect(body.equipment.returnBlockedReason).toBeNull();
+
+    const available = await get(owner, '/v1/admin/facility/equipment?status=available');
+    expect(((await available.json()) as { items: Array<{ id: string }> }).items.some((item) => item.id === equipmentId)).toBe(false);
+  });
+
+  it('refuses return to service while an open safety work order stands', async () => {
+    const owner = await signIn('owner@sharkfitness.in');
+    const equipmentId = await createEquipment(owner);
+    await createWorkOrder(owner, equipmentId, uniqueTag('safety-open'), 'safety');
+
+    const refused = await post(owner, `/v1/admin/facility/equipment/${equipmentId}/return-to-service`, { note: 'Trying to reopen too early.' });
+    expect(refused.status).toBe(422);
+
+    const detail = await get(owner, `/v1/admin/facility/equipment/${equipmentId}`);
+    const body = (await detail.json()) as { equipment: { status: string; returnBlockedReason: string | null } };
+    expect(body.equipment.status).toBe('out_of_service');
+    expect(body.equipment.returnBlockedReason).toContain('safety work order');
+  });
+
+  it('refuses return to service while a blocked work order stands', async () => {
+    const owner = await signIn('owner@sharkfitness.in');
+    const equipmentId = await createEquipment(owner);
+    const safetyId = await createWorkOrder(owner, equipmentId, uniqueTag('safety-blocked'), 'safety');
+    expect((await patch(owner, `/v1/admin/facility/work-orders/${safetyId}`, { state: 'done', resolutionNote: 'Safety fault cleared.' })).status).toBe(200);
+
+    const partsId = await createWorkOrder(owner, equipmentId, uniqueTag('awaiting-parts'));
+    expect((await patch(owner, `/v1/admin/facility/work-orders/${partsId}`, { state: 'blocked' })).status).toBe(200);
+
+    const refused = await post(owner, `/v1/admin/facility/equipment/${equipmentId}/return-to-service`, { note: 'Parts still on order.' });
+    expect(refused.status).toBe(422);
+    expect(((await refused.json()) as { error: { message: string } }).error.message).toContain('blocked work order');
+  });
+
+  it('returns equipment to service only through the explicit authorised action, and audits it', async () => {
+    const owner = await signIn('owner@sharkfitness.in');
+    const equipmentId = await createEquipment(owner);
+    const workOrderId = await createWorkOrder(owner, equipmentId, uniqueTag('safety-return'), 'safety');
+    expect((await patch(owner, `/v1/admin/facility/work-orders/${workOrderId}`, { state: 'done', resolutionNote: 'Cable replaced and load tested.' })).status).toBe(200);
+
+    // A plain status patch must not be able to smuggle the asset back.
+    const smuggled = await patch(owner, `/v1/admin/facility/equipment/${equipmentId}`, { status: 'available' });
+    expect(smuggled.status).toBe(422);
+    expect(((await smuggled.json()) as { error: { message: string } }).error.message).toContain('return to service');
+
+    const returned = await post(owner, `/v1/admin/facility/equipment/${equipmentId}/return-to-service`, { note: 'Independent safety inspection passed.' });
+    expect(returned.status).toBe(200);
+    expect(((await returned.json()) as { equipment: { status: string; safetyHold: boolean } }).equipment).toMatchObject({ status: 'available', safetyHold: false });
+
+    const detail = await get(owner, `/v1/admin/facility/equipment/${equipmentId}`);
+    expect(((await detail.json()) as EquipmentResponse).equipment.status).toBe('available');
+
+    const entry = db
+      .select({ action: schema.auditLog.action, reason: schema.auditLog.reason })
+      .from(schema.auditLog)
+      .where(and(eq(schema.auditLog.entityType, 'equipment'), eq(schema.auditLog.entityId, equipmentId), eq(schema.auditLog.action, 'equipment.returned_to_service')))
+      .get();
+    expect(entry?.reason).toBe('Independent safety inspection passed.');
+  });
+
+  it('leaves an asset in maintenance when routine work outlives the safety hold', async () => {
+    const owner = await signIn('owner@sharkfitness.in');
+    const equipmentId = await createEquipment(owner);
+    const safetyId = await createWorkOrder(owner, equipmentId, uniqueTag('safety-then-routine'), 'safety');
+    const routineId = await createWorkOrder(owner, equipmentId, uniqueTag('routine-service'));
+    expect((await patch(owner, `/v1/admin/facility/work-orders/${safetyId}`, { state: 'done', resolutionNote: 'Hazard removed.' })).status).toBe(200);
+
+    const returned = await post(owner, `/v1/admin/facility/equipment/${equipmentId}/return-to-service`, { note: 'Safety cleared; routine service continues.' });
+    expect(returned.status).toBe(200);
+    expect(((await returned.json()) as { equipment: { status: string } }).equipment.status).toBe('in_maintenance');
+
+    expect((await patch(owner, `/v1/admin/facility/work-orders/${routineId}`, { state: 'done', resolutionNote: 'Routine service finished.' })).status).toBe(200);
+    const detail = await get(owner, `/v1/admin/facility/equipment/${equipmentId}`);
+    expect(((await detail.json()) as EquipmentResponse).equipment.status).toBe('available');
+  });
+
+  it('refuses return to service to a facility viewer and across branch and tenant scope', async () => {
+    const owner = await signIn('owner@sharkfitness.in');
+    const viewer = await signIn('rehan@sharkfitness.in');
+    const manager = await signIn('manager@sharkfitness.in');
+
+    const equipmentId = await createEquipment(owner);
+    const workOrderId = await createWorkOrder(owner, equipmentId, uniqueTag('safety-scope'), 'safety');
+    expect((await patch(owner, `/v1/admin/facility/work-orders/${workOrderId}`, { state: 'done', resolutionNote: 'Fault cleared.' })).status).toBe(200);
+
+    expect((await post(viewer, `/v1/admin/facility/equipment/${equipmentId}/return-to-service`, { note: 'No permission.' })).status).toBe(403);
+
+    // Out of the manager's branch scope: absent, not merely refused.
+    const otherBranchId = await createEquipment(owner, 'br_ind');
+    expect((await post(manager, `/v1/admin/facility/equipment/${otherBranchId}/return-to-service`, { note: 'Wrong branch.' })).status).toBe(404);
+
+    const foreignId = id('eqp');
+    db.insert(schema.equipment).values({
+      id: foreignId,
+      tenantId: id('ten'),
+      branchId: 'br_kor',
+      name: 'Other tenant asset',
+      assetTag: uniqueTag('OTHER-RTS'),
+      area: 'Other floor',
+      model: '',
+      serial: '',
+      vendor: '',
+      warrantyUntil: null,
+      status: 'out_of_service',
+      lastServicedOn: null,
+      serviceIntervalDays: 90,
+      linkedExerciseId: null,
+      createdAt: now(),
+    }).run();
+    expect((await post(owner, `/v1/admin/facility/equipment/${foreignId}/return-to-service`, { note: 'Wrong tenant.' })).status).toBe(404);
+
+    // The asset is still held after every refused attempt.
+    const detail = await get(owner, `/v1/admin/facility/equipment/${equipmentId}`);
+    expect(((await detail.json()) as EquipmentResponse).equipment.status).toBe('out_of_service');
+  });
+
   it('creates and completes a recurring checklist task', async () => {
     const owner = await signIn('owner@sharkfitness.in');
     const created = await post(owner, '/v1/admin/facility/tasks', {
