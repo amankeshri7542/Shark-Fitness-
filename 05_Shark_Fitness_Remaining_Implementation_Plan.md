@@ -16,10 +16,17 @@ repository-specific detail to that contract; it does not replace it.
 
 ### Status of this document
 
-Verified against `main` on **16 August 2026**. Verification evidence: `pnpm
-typecheck` clean across 6 packages, `pnpm test` 203 passing (101 domain, 102 API
-integration), `pnpm build` clean, and both frontends driven in a real browser
-against the production single-origin server.
+Verified on `feat/phase-8-facility` on **18 August 2026** (Node 22, as CI pins).
+Verification evidence: `pnpm typecheck` clean across 6 packages, `pnpm test`
+**243 passing** (101 domain, 142 API integration), `pnpm build` clean, and the
+production single-origin server exercised over HTTP — hashed JS and CSS assets
+served with their own content types rather than SPA HTML, `/admin/` rendering
+`Shark Fitness — Operations`, and the Phase 8 safety-hold and branch-transfer
+paths driven end to end against seeded data.
+
+The previous revision of this line recorded 203 tests against `main` on 16
+August 2026, and stated `22 of 29` API route modules — that denominator counted
+a module that does not exist. Counts below are taken from the tree.
 
 ---
 
@@ -35,8 +42,8 @@ Do not re-implement any of this. Read it before planning a change.
 | `@shark/domain` | Membership state machine, booking eligibility, access decisions, strength maths, adaptive engine, gamification, money, permissions, safety scanning, retention risk. 101 tests. |
 | `@shark/design-tokens` | The Sonar system and the bounded copy register (`tone.ts`). |
 | Member PWA | **All 18 screens implemented.** No stubs remain. |
-| Admin console | 12 of 21 screens implemented. |
-| API | 22 of 29 route modules implemented. |
+| Admin console | **15 of 21 screens implemented.** The 6 placeholders are Automations, Platform, Reports, Settings, Store and Support. |
+| API | **24 of 28 route modules implemented.** The 4 stubs are `admin/reports`, `admin/settings`, `admin/store` and `admin/support`. All 28 are mounted in `app.ts`. |
 
 **The critical fact for planning: no module in this plan needs a migration.**
 Every table, index, permission key and seed fixture it requires already exists.
@@ -232,7 +239,7 @@ an order placed at a branch the caller cannot see.
 **Files:** `apps/api/src/routes/admin/facility.ts` (thin adapter),
 `apps/api/src/services/facility.ts` (every rule),
 `apps/admin-web/src/screens/Equipment.tsx`,
-`apps/api/src/__tests__/phase8-facility.integration.test.ts` (21 tests).
+`apps/api/src/__tests__/phase8-facility.integration.test.ts` (25 tests).
 
 **Tables — all exist:** `equipment`, `work_orders`, `facility_tasks`. All three
 are seeded, including an overdue safety work order that the Command Center
@@ -260,12 +267,22 @@ surfaces as an exception. That alert now lands on a working screen.
 - A **safety**-severity work order is a plain-register surface and escalates to
   the Command Center exception list.
 - Closing a work order requires a resolution note.
-- `out_of_service` is a **safety hold, not a derived status**. Closing the last
-  safety work order SHALL NOT return an asset to service; only
-  `POST …/return-to-service` may, it is refused while open safety or blocked
-  work stands, it requires a management role on top of `facility.manage`, and it
-  records the justifying note in the audit log. A plain `PATCH … {status:
-  'available'}` on a held asset is refused for the same reason.
+- `out_of_service` is a **hold, not a derived status**. Closing the last safety
+  work order SHALL NOT return an asset to service. `out_of_service` is never
+  lifted by an automatic transition; only `POST …/return-to-service` lifts it,
+  it requires a note recorded in the audit log, and it is refused while open
+  safety or blocked work stands. The resulting status is re-derived, so an asset
+  with open routine work returns as `in_maintenance`, not `available`.
+- The ceremony is **proportional to the risk**. An asset with any safety work
+  order in its history is a *safety hold*: lifting it additionally requires a
+  management role, checked against `ctx.role` rather than `facility.manage` so
+  that widening that permission cannot silently widen who may clear a hold, and
+  a plain `PATCH … {status: 'available'}` on it is refused. An asset that was
+  only ever administratively down — pulled for a relocation, say — carries no
+  such history, and needs only `facility.manage`.
+- A work order that keeps its `in_progress` or `blocked` state after losing its
+  assignee is reported with `needsReassignment`, so work that is live but
+  unstaffed is visible rather than merely unassigned.
 
 **Edge cases — all covered by tests:** equipment moved between branches with an
 open work order (assignees who do not cover the destination are unassigned and

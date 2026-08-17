@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
+import type { Role } from '@shark/contracts';
+import { permissionsFor } from '@shark/domain';
 import { app } from '../app.js';
 import { db, schema } from '../db/client.js';
 import { id } from '../lib/ids.js';
 import { now } from '../lib/time.js';
+import type { RequestContext } from '../lib/context.js';
+import { returnEquipmentToService } from '../services/facility.js';
 
 interface Session {
   cookie: string;
@@ -70,6 +74,33 @@ function staffId(email: string): string {
     .innerJoin(schema.users, eq(schema.users.id, schema.staff.userId))
     .where(and(eq(schema.staff.tenantId, tenantId()), eq(schema.users.email, email)))
     .get()!.id;
+}
+
+/**
+ * A request context for a chosen role, carrying every permission that role would
+ * ever be granted plus `facility.manage`. The safety-hold guard reads `ctx.role`
+ * rather than the permission set, and this is how that separation is proved:
+ * no role in today's matrix holds `facility.manage` without also being a
+ * management role, so the route alone cannot exercise the distinction.
+ */
+function contextFor(role: Role, branchIds = ['br_kor', 'br_ind', 'br_hsr']): RequestContext {
+  return {
+    requestId: id('req'),
+    sessionId: id('ses'),
+    authMethod: 'cookie',
+    tenantId: tenantId(),
+    userId: id('usr'),
+    memberId: null,
+    staffId: null,
+    role,
+    name: `Synthetic ${role}`,
+    branchIds,
+    activeBranchId: null,
+    permissions: [...new Set([...permissionsFor(role), 'facility.view' as const, 'facility.manage' as const])],
+    ip: '127.0.0.1',
+    userAgent: 'vitest',
+    impersonatorId: null,
+  };
 }
 
 function uniqueTag(prefix = 'P8'): string {
@@ -528,6 +559,79 @@ describe('Phase 8 — equipment and facility operations', () => {
     // The asset is still held after every refused attempt.
     const detail = await get(owner, `/v1/admin/facility/equipment/${equipmentId}`);
     expect(((await detail.json()) as EquipmentResponse).equipment.status).toBe('out_of_service');
+  });
+
+  it('refuses to lift a safety hold for a non-management role that holds facility.manage', async () => {
+    const owner = await signIn('owner@sharkfitness.in');
+    const equipmentId = await createEquipment(owner);
+    const workOrderId = await createWorkOrder(owner, equipmentId, uniqueTag('safety-role-gate'), 'safety');
+    expect((await patch(owner, `/v1/admin/facility/work-orders/${workOrderId}`, { state: 'done', resolutionNote: 'Fault cleared.' })).status).toBe(200);
+
+    // Reception is not a management role. Grant it facility.manage anyway: the
+    // hold must still hold, which is what makes the check worth having.
+    const reception = contextFor('reception');
+    expect(reception.permissions).toContain('facility.manage');
+    expect(() => returnEquipmentToService(reception, equipmentId, 'Trying without authority.')).toThrowError(/manager or owner/i);
+
+    const stillHeld = db.select({ status: schema.equipment.status }).from(schema.equipment).where(and(eq(schema.equipment.id, equipmentId), eq(schema.equipment.tenantId, tenantId()))).get()!;
+    expect(stillHeld.status).toBe('out_of_service');
+
+    // The same call from a management role succeeds, so the refusal above is
+    // the role gate and not some unrelated precondition.
+    const returned = returnEquipmentToService(contextFor('branch_manager'), equipmentId, 'Inspected and signed off.');
+    expect(returned.equipment.status).toBe('available');
+  });
+
+  it('treats administrative downtime as a plain edit rather than a safety hold', async () => {
+    const owner = await signIn('owner@sharkfitness.in');
+    const equipmentId = await createEquipment(owner);
+    // Taken off the floor for a relocation — no safety fault was ever raised.
+    expect((await patch(owner, `/v1/admin/facility/equipment/${equipmentId}`, { status: 'out_of_service' })).status).toBe(200);
+
+    const detail = await get(owner, `/v1/admin/facility/equipment/${equipmentId}`);
+    const body = (await detail.json()) as { equipment: { status: string; outOfService: boolean; safetyHold: boolean } };
+    expect(body.equipment).toMatchObject({ status: 'out_of_service', outOfService: true, safetyHold: false });
+
+    // No safety history, so a straight status edit is allowed again...
+    const restored = await patch(owner, `/v1/admin/facility/equipment/${equipmentId}`, { status: 'available' });
+    expect(restored.status).toBe(200);
+    expect(((await restored.json()) as { equipment: { status: string } }).equipment.status).toBe('available');
+
+    // ...and reception may use the explicit action too, since nothing unsafe
+    // ever happened to this asset.
+    expect((await patch(owner, `/v1/admin/facility/equipment/${equipmentId}`, { status: 'out_of_service' })).status).toBe(200);
+    expect(returnEquipmentToService(contextFor('reception'), equipmentId, 'Relocation finished.').equipment.status).toBe('available');
+  });
+
+  it('flags work left in progress with nobody on it after a transfer', async () => {
+    const owner = await signIn('owner@sharkfitness.in');
+    const equipmentId = await createEquipment(owner, 'br_kor');
+    const workOrderId = await createWorkOrder(owner, equipmentId);
+    const branchBoundAssignee = staffId('manager@sharkfitness.in');
+
+    expect((await patch(owner, `/v1/admin/facility/work-orders/${workOrderId}`, { assigneeId: branchBoundAssignee })).status).toBe(200);
+    expect((await patch(owner, `/v1/admin/facility/work-orders/${workOrderId}`, { state: 'in_progress' })).status).toBe(200);
+
+    expect((await patch(owner, `/v1/admin/facility/equipment/${equipmentId}`, { branchId: 'br_hsr' })).status).toBe(200);
+
+    const detail = await get(owner, `/v1/admin/facility/work-orders/${workOrderId}`);
+    const order = (await detail.json()) as { workOrder: { state: string; assigneeId: string | null; needsReassignment: boolean } };
+    // Started work keeps its state — resetting it would discard the fact that
+    // the job was begun — but it must not look staffed.
+    expect(order.workOrder.state).toBe('in_progress');
+    expect(order.workOrder.assigneeId).toBeNull();
+    expect(order.workOrder.needsReassignment).toBe(true);
+  });
+
+  it('does not flag ordinary unassigned work as needing reassignment', async () => {
+    const owner = await signIn('owner@sharkfitness.in');
+    const equipmentId = await createEquipment(owner);
+    const workOrderId = await createWorkOrder(owner, equipmentId);
+
+    const detail = await get(owner, `/v1/admin/facility/work-orders/${workOrderId}`);
+    const order = (await detail.json()) as { workOrder: { state: string; needsReassignment: boolean } };
+    expect(order.workOrder.state).toBe('open');
+    expect(order.workOrder.needsReassignment).toBe(false);
   });
 
   it('creates and completes a recurring checklist task', async () => {

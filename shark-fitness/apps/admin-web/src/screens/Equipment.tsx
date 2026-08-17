@@ -25,6 +25,7 @@ interface EquipmentRow {
   overdue: boolean;
   openWorkOrders: number;
   downtimeDays30: number;
+  outOfService: boolean;
   safetyHold: boolean;
   returnBlockedReason: string | null;
 }
@@ -50,6 +51,7 @@ interface WorkOrderRow {
   duplicateOfId: string | null;
   restricted: boolean;
   overdue: boolean;
+  needsReassignment: boolean;
 }
 
 interface FacilityTaskRow {
@@ -252,7 +254,8 @@ export default function EquipmentScreen() {
                       <td className="font-display text-[16px] tabular-nums">{item.openWorkOrders}</td>
                       <td>
                         <Chip tone={STATUS_TONE[item.status] ?? 'neutral'}>{item.status.replace(/_/g, ' ')}</Chip>
-                        {item.safetyHold ? (
+                        {item.safetyHold ? <Chip tone="bad" className="mt-1">safety hold</Chip> : null}
+                        {item.outOfService ? (
                           <div className="mt-1.5">
                             {item.returnBlockedReason ? (
                               <div className="text-[10px] leading-snug text-foam-45">{item.returnBlockedReason}</div>
@@ -301,7 +304,7 @@ function WorkOrderCard({ order, canManage, online, isPending, onComplete }: { or
         <div className="min-w-0 flex-1"><div className="truncate text-[13px]">{order.title}</div><div className="mt-1 font-utility text-[10px] uppercase tracking-[0.1em] text-foam-35">{order.reference} · {order.branchName}{order.equipmentName ? ` · ${order.equipmentName}` : ''}</div></div>
         <Chip tone={SEVERITY_TONE[order.severity] ?? 'neutral'}>{order.severity}</Chip>
       </div>
-      <div className="mt-2 flex flex-wrap items-center gap-1.5"><Chip tone={STATE_TONE[order.state] ?? 'neutral'}>{order.state.replace(/_/g, ' ')}</Chip>{order.overdue ? <Chip tone="bad">overdue</Chip> : null}{order.duplicateOfId ? <Chip tone="warn">possible duplicate</Chip> : null}{order.restricted ? <Chip tone="bad">restricted details</Chip> : null}</div>
+      <div className="mt-2 flex flex-wrap items-center gap-1.5"><Chip tone={STATE_TONE[order.state] ?? 'neutral'}>{order.state.replace(/_/g, ' ')}</Chip>{order.overdue ? <Chip tone="bad">overdue</Chip> : null}{order.needsReassignment ? <Chip tone="warn">needs reassignment</Chip> : null}{order.duplicateOfId ? <Chip tone="warn">possible duplicate</Chip> : null}{order.restricted ? <Chip tone="bad">restricted details</Chip> : null}</div>
       <div className="mt-2 text-[11px] text-foam-45">Reported by {order.reportedByName} · {order.assigneeName ? `assigned to ${order.assigneeName}` : 'unassigned'} · opened {dateLabel(order.openedAt)}</div>
       {order.description ? <p className="mt-2 border-t border-line pt-2 text-[11px] leading-relaxed text-foam-65">{order.description}</p> : null}
       {canManage && order.state !== 'done' && order.state !== 'cancelled' ? <div className="mt-3 flex items-end gap-2"><Field label="Resolution note" value={resolutionNote} onChange={(event) => setResolutionNote(event.target.value)} placeholder="What was fixed and verified?" className="min-w-0 flex-1" /><Button variant="outline" onClick={() => onComplete(resolutionNote.trim())} disabled={!online || isPending || !resolutionNote.trim()}>{isPending ? 'Closing…' : 'Close work order'}</Button></div> : null}

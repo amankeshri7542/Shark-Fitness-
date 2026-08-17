@@ -222,6 +222,32 @@ function equipmentStatusForOrders(current: EquipmentStatusValue, orders: WorkOrd
   return open.length === 0 ? 'available' : 'in_maintenance';
 }
 
+/**
+ * Whether an asset has ever carried a safety fault.
+ *
+ * This is what separates a genuine safety hold from ordinary administrative
+ * downtime. An asset pulled off the floor for a relocation was never a safety
+ * case, and making that reversal as ceremonious as clearing an injury would
+ * teach operators to read the ceremony as noise — which is how a real hold gets
+ * waved through later.
+ */
+function hasSafetyHistory(orders: WorkOrderRow[]): boolean {
+  return orders.some((row) => row.severity === 'safety');
+}
+
+/**
+ * Work that was under way but has nobody on it.
+ *
+ * A branch transfer clears an assignee who cannot reach the destination, and
+ * `in_progress` / `blocked` deliberately keep their state — resetting them to
+ * `open` would throw away the fact that the job was started. The cost is an
+ * order that reads as live but is nobody's, so it is flagged rather than left
+ * to be noticed.
+ */
+function needsReassignment(row: WorkOrderRow): boolean {
+  return activeWorkOrder(row) && !row.assigneeId && (row.state === 'in_progress' || row.state === 'blocked');
+}
+
 /** Why an asset may not be returned to service yet, in reader-facing words. */
 function returnToServiceBlocker(orders: WorkOrderRow[]): string | null {
   if (orders.some((row) => activeWorkOrder(row) && row.severity === 'safety')) {
@@ -250,7 +276,8 @@ function downtimeDays30(equipmentId: string, orders: WorkOrderRow[], atMs: numbe
 function toEquipment(row: EquipmentRow, workOrders: WorkOrderRow[], branchName: string) {
   const due = nextServiceDue(row);
   const mine = workOrders.filter((order) => order.equipmentId === row.id);
-  const safetyHold = row.status === 'out_of_service';
+  const outOfService = row.status === 'out_of_service';
+  const safetyHold = outOfService && hasSafetyHistory(mine);
   return {
     id: row.id,
     name: row.name,
@@ -271,8 +298,9 @@ function toEquipment(row: EquipmentRow, workOrders: WorkOrderRow[], branchName: 
     openWorkOrders: mine.filter(activeWorkOrder).length,
     downtimeDays30: downtimeDays30(row.id, workOrders, now()),
     linkedExerciseId: row.linkedExerciseId,
+    outOfService,
     safetyHold,
-    returnBlockedReason: safetyHold ? returnToServiceBlocker(mine) : null,
+    returnBlockedReason: outOfService ? returnToServiceBlocker(mine) : null,
   };
 }
 
@@ -300,6 +328,7 @@ function toWorkOrder(ctx: RequestContext, row: WorkOrderRow, equipmentById: Map<
     overdue: workOrderOverdue(row),
     duplicateOfId: row.duplicateOfId,
     restricted,
+    needsReassignment: needsReassignment(row),
   };
 }
 
@@ -565,10 +594,11 @@ export function updateEquipment(ctx: RequestContext, equipmentId: string, patch:
   if (patch.branchId) assertActiveBranch(ctx, patch.branchId);
   const nextBranchId = patch.branchId ?? equipment.branchId;
 
-  // Returning an asset to service is an explicit, authorised act — it may not
-  // ride in on a general field update.
-  if (patch.status === 'available' && equipment.status === 'out_of_service') {
-    throw invalid('This asset is out of service. Use return to service to bring it back, so the safety check is recorded.');
+  // Lifting a safety hold is an explicit, authorised act — it may not ride in on
+  // a general field update. Assets that were only ever administratively down
+  // carry no such history and stay a plain edit.
+  if (patch.status === 'available' && equipment.status === 'out_of_service' && hasSafetyHistory(workOrdersForEquipment(ctx, equipment))) {
+    throw invalid('This asset is under a safety hold. Use return to service to bring it back, so the safety check is recorded.');
   }
 
   let movedWorkOrders = 0;
@@ -601,19 +631,27 @@ export function updateEquipment(ctx: RequestContext, equipmentId: string, patch:
 }
 
 /**
- * Lifts a safety hold. Requires a safety-authority role on top of
- * `facility.manage`, refuses while blocking or open safety work stands, and
- * records the note that justified it. The resulting status is re-derived from
- * whatever work remains, so an asset with an open routine order comes back as
- * `in_maintenance` rather than `available`.
+ * Brings an out-of-service asset back.
+ *
+ * An asset with safety history is a safety hold: it additionally requires a
+ * management role, checked here against `ctx.role` rather than against
+ * `facility.manage`, so that widening that permission later cannot silently
+ * widen who may clear a hold. Ordinary administrative downtime needs only
+ * `facility.manage` and the note.
+ *
+ * Either way it refuses while blocking or open safety work stands, and the
+ * resulting status is re-derived from whatever work remains — an asset with an
+ * open routine order comes back as `in_maintenance`, not `available`.
  */
 export function returnEquipmentToService(ctx: RequestContext, equipmentId: string, note: string) {
   const equipment = loadEquipmentInScope(ctx, equipmentId);
-  if (!canViewRestricted(ctx)) throw forbidden('Only a manager or owner can return an asset to service.');
   if (equipment.status === 'retired') throw invalid('That asset is retired. Restore it before returning it to service.');
   if (equipment.status !== 'out_of_service') throw invalid('That asset is not out of service.');
 
   const orders = workOrdersForEquipment(ctx, equipment);
+  if (hasSafetyHistory(orders) && !canViewRestricted(ctx)) {
+    throw forbidden('Only a manager or owner can lift a safety hold.');
+  }
   const blocker = returnToServiceBlocker(orders);
   if (blocker) throw invalid(blocker);
 
@@ -636,7 +674,9 @@ export function returnEquipmentToService(ctx: RequestContext, equipmentId: strin
     });
     emit({ tenantId: ctx.tenantId, branchId: equipment.branchId, channel: channels.branch(equipment.branchId), topic: 'alert.raised', payload: { kind: 'equipment_returned_to_service', equipmentId: equipment.id, branchId: equipment.branchId } });
   });
-  return { equipment: { id: equipment.id, status: nextStatus, safetyHold: false } };
+  // `nextStatus` is only ever 'available' or 'in_maintenance' here, so the hold
+  // is lifted by construction.
+  return { equipment: { id: equipment.id, status: nextStatus, outOfService: false, safetyHold: false } };
 }
 
 /* ------------------------------------------------------------ work orders */
