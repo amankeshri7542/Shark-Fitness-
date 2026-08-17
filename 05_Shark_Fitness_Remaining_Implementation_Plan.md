@@ -51,35 +51,29 @@ The remaining work is route handlers plus console screens.
 
 ---
 
-# 2. Blocking prerequisite — resolve before Phase 7
+# 2. Resolved prerequisite — Phase 6 is on `main`
 
-`main` does **not** contain Phase 6 (Staff & Training admin). That work is
-complete on the branch `agent/phase-6-staff-training` (2 commits, ~3,500 lines):
-`services/staff.ts`, `services/training-admin.ts`, the full `admin/staff.ts` and
-`admin/training.ts` routes, `StaffDetail.tsx`, `TrainingBuilder.tsx`,
-`lib/idempotency.ts`, and 477 lines of tests.
+**This is no longer a blocker.** Phase 6 (Staff & Training admin) was rebased
+onto `main` and merged as **PR #5** (`b98761b`, "rebase Phase 6 staff and
+training work onto main"). Verified present on `main`: `services/staff.ts`
+(626 lines), `services/training-admin.ts` (1,114), `admin/staff.ts` (213),
+`admin/training.ts` (294), `lib/idempotency.ts`, and the `phase6-staff` /
+`phase6-training` suites. `admin/staff.ts` and `admin/training.ts` are full
+route modules; the Staff and Training screens are no longer placeholders.
 
-**That branch must not be merged naively.** It was cut before the deployment
-fixes landed on `main`, and its diff would revert them:
+The merge was done the required way rather than naively, which matters because
+the Phase 6 branch predated the deployment fixes and a naive merge would have
+reverted them. All three regression points held:
 
-| File | What a naive merge would undo |
-|---|---|
-| `apps/api/src/server.ts` | The relative-root fix for `serveStatic` and the HTML/asset cache boundaries. Reverting it makes every JS and CSS file serve as the SPA HTML fallback — the app loads as a blank page. |
-| `apps/member-pwa/vite.config.ts` | `navigateFallbackDenylist`. Reverting it lets the member service worker answer `/admin/*` with the member shell, making the console unreachable in any browser that has opened the member app. |
-| `apps/api/src/__tests__/phase5-staff-branch-scope.integration.test.ts` | Deletes the test outright. |
+| File | Risk a naive merge carried | State on `main` |
+|---|---|---|
+| `apps/api/src/server.ts` | Reverting the relative-root `serveStatic` fix and the HTML/asset cache boundaries would serve every JS and CSS file as the SPA HTML fallback — a blank page. | Intact. Assets serve with their own content types. |
+| `apps/member-pwa/vite.config.ts` | Reverting `navigateFallbackDenylist` would let the member service worker answer `/admin/*` with the member shell, making the console unreachable. | Intact. |
+| `apps/api/src/__tests__/phase5-staff-branch-scope.integration.test.ts` | Deleting the test outright. | Present (123 lines) and passing. |
 
-**Required approach.** Rebase `agent/phase-6-staff-training` onto current `main`
-and resolve `server.ts`, `vite.config.ts` and `lib/security.ts` in favour of
-`main`, keeping only the Phase 6 additions. Then confirm, before opening a PR:
-
-- `pnpm test` passes, including `phase5-staff-branch-scope` **and** the two
-  `phase6-*` suites.
-- CI's production smoke step passes — it asserts assets are not the HTML
-  fallback and that cache headers are present. That step is the regression gate
-  for both reverts above.
-
-Until this is resolved, `admin/staff.ts` and `admin/training.ts` on `main` are
-7-line stubs and the Staff and Training screens render placeholders.
+Keep CI's production smoke step as the standing regression gate for the first
+two: it asserts assets are not the HTML fallback and that cache headers are
+present.
 
 ---
 
@@ -493,15 +487,15 @@ merely fail the PR, it silently stops the demo from updating.
 
 | Phase | Module | Depends on | Requirement IDs |
 |---|---|---|---|
-| — | **Rebase Phase 6 onto main** | — | PF-STAFF, PF-WORK |
-| 7 | Store | — | PF-POS-001…006 |
-| 8 | Equipment — **built** | — | PF-FAC-001…006 |
+| — | ~~Rebase Phase 6 onto main~~ — **merged** (PR #5) | — | PF-STAFF, PF-WORK |
+| 7 | Store — **next** | — | PF-POS-001…006 |
+| 8 | Equipment — **built** (PR #6) | — | PF-FAC-001…006 |
 | 9 | Support | — | PF-SUP-001…006 |
 | 10 | Reports | 7, 8 | PF-RPT-001…006 |
 | 11 | Settings | — | PF-TEN-001…006 |
 | 12 | Automations | 11 | PF-COMM-001…006 |
 | 13 | Platform | 11 | PF-PLAT-001…006 |
 
-Phases 7, 9 and 11 have no dependency on each other and are the correct place to
-start. Phase 8 is built: the safety alert the Command Center raises now lands on
-a working Equipment screen.
+Phases 7, 9 and 11 have no dependency on each other. **Phase 7 (Store) is the
+next one to start**, once PR #6 is on `main`. Phase 8 is built: the safety alert
+the Command Center raises now lands on a working Equipment screen.
