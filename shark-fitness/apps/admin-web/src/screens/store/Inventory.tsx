@@ -54,7 +54,10 @@ export default function Inventory({
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('all');
   const [filter, setFilter] = useState<Filter>('all');
-  const [detail, setDetail] = useState<StoreProduct | null>(null);
+  // Held by id, not by value: after a stock adjustment the list refetches, and
+  // a captured row object would leave the open drawer quoting an on-hand figure
+  // the table behind it had already corrected.
+  const [detailId, setDetailId] = useState<string | null>(null);
   const [editing, setEditing] = useState<StoreProduct | 'new' | null>(null);
   const [managingSuppliers, setManagingSuppliers] = useState(false);
 
@@ -62,6 +65,8 @@ export default function Inventory({
     () => [...new Set(products.map((p) => p.category))].filter(Boolean).sort(),
     [products],
   );
+
+  const detail = detailId === null ? null : (products.find((p) => p.id === detailId) ?? null);
 
   const rows = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -164,7 +169,7 @@ export default function Inventory({
               </THead>
               <tbody>
                 {rows.map((product) => (
-                  <TR key={product.id} selected={detail?.id === product.id} onClick={() => setDetail(product)}>
+                  <TR key={product.id} selected={detailId === product.id} onClick={() => setDetailId(product.id)}>
                     <TD>
                       <div className="max-w-[26ch] truncate">{product.displayName}</div>
                       <div className="font-utility text-[10px] uppercase tracking-[0.1em] text-foam-35">
@@ -192,7 +197,7 @@ export default function Inventory({
                       <Button
                         onClick={(e) => {
                           e.stopPropagation();
-                          setDetail(product);
+                          setDetailId(product.id);
                         }}
                       >
                         Open
@@ -211,9 +216,9 @@ export default function Inventory({
         branchId={branchId}
         canManage={canManage}
         financial={financial}
-        onClose={() => setDetail(null)}
+        onClose={() => setDetailId(null)}
         onEdit={(p) => {
-          setDetail(null);
+          setDetailId(null);
           setEditing(p);
         }}
       />
@@ -431,8 +436,15 @@ function ProductDrawer({
                     <TD className="text-[12px] text-foam-65">{row.actorName}</TD>
                     <TD className="whitespace-nowrap text-[11px] text-foam-45">{dateTime(row.at)}</TD>
                     {financial?.canSeeCost ? (
+                      // This column only exists when cost is visible, so a null
+                      // here means the movement had no cost — stock leaving a
+                      // shelf never does — not that it is being withheld.
                       <TD numeric className="text-foam-65">
-                        <Money minor={row.unitCostMinor} />
+                        {row.unitCostMinor === null ? (
+                          <span className="text-foam-35">—</span>
+                        ) : (
+                          money(row.unitCostMinor)
+                        )}
                       </TD>
                     ) : null}
                   </TR>

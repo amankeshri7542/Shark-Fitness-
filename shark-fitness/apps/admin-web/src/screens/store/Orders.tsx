@@ -252,6 +252,10 @@ function OrderDrawer({
       <Drawer
         open
         onClose={onClose}
+        // Wider than the default sheet: a receipt is six columns before the
+        // return stepper is added, and clipping the item name is the one thing
+        // a refund cannot afford to do.
+        width="w-[min(720px,100vw)]"
         kicker={order ? dateTime(order.createdAt) : 'Loading'}
         title={order?.reference ?? 'Receipt'}
         footer={

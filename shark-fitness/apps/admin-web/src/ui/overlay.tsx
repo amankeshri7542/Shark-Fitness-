@@ -3,9 +3,9 @@ import { Button, Display, Label, cx } from './console';
 
 /* ============================================================================
    Floating surfaces — the same hairline geometry as the console grid, lifted
-   off it. Nothing here rounds a corner, tints a shadow or animates for
-   decoration; a drawer slides because it came from an edge, and the global
-   reduced-motion rule in sonar.css turns that off for anyone who asked.
+   off it by a scrim and a border, nothing else. No rounded corner, no tinted
+   shadow, and no entrance animation: a stock drawer is opened and closed dozens
+   of times in a stocktake, and a transition on that is a tax, not a delight.
 
    Both surfaces trap focus and give it back. A till operator working by
    keyboard must not be able to tab out of a payment dialog into the catalogue

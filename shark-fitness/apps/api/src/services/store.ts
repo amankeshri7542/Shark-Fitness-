@@ -1989,7 +1989,9 @@ export function reports(
       const qty = stock.get(p.id) ?? 0;
       if (qty > 0 && wantsValuation) valuationMinor += qty * averageCost(ctx.tenantId, p.id, p.costMinor);
       if (p.active && qty <= p.reorderAt) {
-        lowStock.push({ id: p.id, name: p.name, sku: p.sku, onHand: qty, reorderAt: p.reorderAt });
+        // The variant is the stock-keeping unit, so "Shark Whey 1kg" alone
+        // does not tell a manager which one to reorder.
+        lowStock.push({ id: p.id, name: displayNameOf(p), sku: p.sku, onHand: qty, reorderAt: p.reorderAt });
       }
     }
   }

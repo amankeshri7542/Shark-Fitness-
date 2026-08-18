@@ -2623,7 +2623,7 @@ for (const [groupName, category] of [
 
 const TEE_SIZES = ['S', 'M', 'L'] as const;
 const productIdsByCategory = new Map<string, string[]>();
-const allProductIds: Array<{ id: string; price: number; cost: number }> = [];
+const allProductIds: Array<{ id: string; name: string; price: number; cost: number }> = [];
 
 RETAIL.forEach((p, retailIndex) => {
   const productId = id('rtl');
@@ -2649,7 +2649,16 @@ RETAIL.forEach((p, retailIndex) => {
     })
     .run();
 
-  allProductIds.push({ id: productId, price: p.price, cost: p.cost });
+  allProductIds.push({
+    id: productId,
+    name: isWhey
+      ? `Shark Whey 1kg — ${p.name.includes('Chocolate') ? 'Chocolate' : 'Vanilla'}`
+      : isTee
+        ? 'Shark Tee — Black · M'
+        : p.name,
+    price: p.price,
+    cost: p.cost,
+  });
   const bucket = productIdsByCategory.get(p.category) ?? [];
   bucket.push(productId);
   productIdsByCategory.set(p.category, bucket);
@@ -2678,7 +2687,7 @@ RETAIL.forEach((p, retailIndex) => {
           createdAt: NOW - 200 * DAY,
         })
         .run();
-      allProductIds.push({ id: variantId, price: p.price, cost: p.cost });
+      allProductIds.push({ id: variantId, name: `Shark Tee — Black · ${size}`, price: p.price, cost: p.cost });
       for (const b of BRANCHES) {
         db.insert(schema.stockLedger)
           .values({
@@ -2824,7 +2833,7 @@ RETAIL.forEach((p, retailIndex) => {
             tenantId,
             orderId,
             productId: line.pick.id,
-            name: 'Retail item',
+            name: line.pick.name,
             quantity: line.quantity,
             unitMinor: line.pick.price,
             taxRateBp: 1800,
