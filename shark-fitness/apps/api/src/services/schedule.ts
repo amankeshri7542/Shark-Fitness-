@@ -795,9 +795,6 @@ export function releaseBooking(ctx: RequestContext, bookingId: string, reason: s
     throw precondition('That booking is already closed.');
   }
 
-  const branch = db.select().from(schema.branches).where(eq(schema.branches.id, session.branchId)).get();
-  const tz = branch?.timezone ?? 'Asia/Kolkata';
-
   // Staff releasing a seat uses the same deadline policy as the member, so a
   // desk cancellation is not a way to dodge a late-cancellation charge.
   const outcome = classifyCancellation(
@@ -855,7 +852,7 @@ export function releaseBooking(ctx: RequestContext, bookingId: string, reason: s
       payload: { bookingId: booking.id, sessionId: session.id, memberId: booking.memberId, state: outcome.state },
     });
 
-    return promoteFromWaitlist(ctx, session, atMs, tz);
+    return promoteFromWaitlist(ctx, session, atMs);
   });
 
   return { state: outcome.state, creditsReturned: outcome.refundCredit ? booking.creditsUsed : 0, promoted };
@@ -875,7 +872,6 @@ export function promoteFromWaitlist(
   ctx: RequestContext,
   session: { id: string; branchId: string; creditsRequired: number },
   atMs: number,
-  tz: string,
 ): { memberId: string; offerExpiresAt: string } | null {
   const queue = db
     .select()

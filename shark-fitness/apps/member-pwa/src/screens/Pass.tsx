@@ -241,37 +241,55 @@ function shortCode(token: string): string {
   return hash.toString(36).toUpperCase().padStart(7, '0').slice(0, 7);
 }
 
+const PASS_GRID_SIZE = 25;
+
+function isFinderCell(row: number, col: number, row0: number, col0: number): boolean {
+  const y = row - row0;
+  const x = col - col0;
+  if (x < 0 || y < 0 || x > 6 || y > 6) return false;
+  return x === 0 || y === 0 || x === 6 || y === 6 || (x >= 2 && x <= 4 && y >= 2 && y <= 4);
+}
+
+/**
+ * Deterministic fill for the pass grid: the same token always draws the same
+ * block, so the visual is stable across re-renders without being random.
+ *
+ * This lives outside the component because the xorshift step reassigns `state`
+ * while mapping, which is not something a render pass may do. Same arithmetic,
+ * same output — only the scope changed.
+ */
+export function passCells(token: string, size: number = PASS_GRID_SIZE): boolean[] {
+  let state = 2166136261;
+  for (let index = 0; index < token.length; index += 1) {
+    state ^= token.charCodeAt(index);
+    state = Math.imul(state, 16777619) >>> 0;
+  }
+
+  return Array.from({ length: size * size }, (_, index) => {
+    const row = Math.floor(index / size);
+    const col = index % size;
+    if (
+      isFinderCell(row, col, 1, 1) ||
+      isFinderCell(row, col, 1, size - 8) ||
+      isFinderCell(row, col, size - 8, 1)
+    ) {
+      return true;
+    }
+    state ^= state << 13;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    return (state >>> 0) % 2 === 0;
+  });
+}
+
 /**
  * Visual transport for the signed token. It deliberately does not pretend to
  * be a standards-compliant QR encoder; native reader integration can replace
  * this component without changing the signed-token protocol.
  */
 function SignedPassBlock({ token }: { token: string }) {
-  const size = 25;
-  const cells = useMemo(() => {
-    let state = 2166136261;
-    for (let index = 0; index < token.length; index += 1) {
-      state ^= token.charCodeAt(index);
-      state = Math.imul(state, 16777619) >>> 0;
-    }
-
-    const finder = (row: number, col: number, row0: number, col0: number): boolean => {
-      const y = row - row0;
-      const x = col - col0;
-      if (x < 0 || y < 0 || x > 6 || y > 6) return false;
-      return x === 0 || y === 0 || x === 6 || y === 6 || (x >= 2 && x <= 4 && y >= 2 && y <= 4);
-    };
-
-    return Array.from({ length: size * size }, (_, index) => {
-      const row = Math.floor(index / size);
-      const col = index % size;
-      if (finder(row, col, 1, 1) || finder(row, col, 1, size - 8) || finder(row, col, size - 8, 1)) return true;
-      state ^= state << 13;
-      state ^= state >>> 17;
-      state ^= state << 5;
-      return (state >>> 0) % 2 === 0;
-    });
-  }, [token]);
+  const size = PASS_GRID_SIZE;
+  const cells = useMemo(() => passCells(token, size), [token, size]);
 
   return (
     <div

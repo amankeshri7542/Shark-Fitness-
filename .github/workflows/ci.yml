@@ -2,9 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main, 'agent/**']
+    branches: [main, 'agent/**', 'chore/**', 'feat/**', 'fix/**']
+  # No branch filter: a pull request stacked onto a feature branch has to be
+  # verified too, not just one targeting main.
   pull_request:
-    branches: [main]
 
 permissions:
   contents: read
@@ -38,12 +39,16 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          # Read from .node-version so CI and local tooling cannot drift.
+          node-version-file: .node-version
           cache: pnpm
           cache-dependency-path: shark-fitness/pnpm-lock.yaml
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Lint all packages
+        run: pnpm lint
 
       - name: Type-check all packages
         run: pnpm typecheck
@@ -161,3 +166,103 @@ jobs:
           fi
 
           SHARK_BASE_URL=http://localhost:8787 node scripts/admin-browser-smoke.mjs
+
+  # The Dockerfile is what Render actually deploys, and nothing used to build
+  # it before it reached production. This job builds the real image and proves
+  # the container serves both apps, so a broken runtime fails here instead of
+  # on the live demo.
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build the production image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          load: true
+          tags: shark-fitness:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Report image size
+        run: |
+          docker image inspect shark-fitness:ci --format 'image size {{.Size}} bytes'
+          docker images shark-fitness:ci
+
+      - name: Confirm the runtime carries no build tooling
+        run: |
+          set -euo pipefail
+          # A dev dependency in the runtime image means the prod-only install
+          # regressed back to shipping the whole workspace.
+          for pkg in vite vitest eslint typescript drizzle-kit tailwindcss; do
+            if docker run --rm --entrypoint sh shark-fitness:ci -c "test -e node_modules/$pkg || test -e apps/api/node_modules/$pkg"; then
+              echo "dev dependency present in runtime image: $pkg"
+              exit 1
+            fi
+          done
+          echo 'no build tooling in the runtime image'
+
+      - name: Confirm the container does not run as root
+        run: |
+          set -euo pipefail
+          user="$(docker run --rm --entrypoint sh shark-fitness:ci -c 'id -un')"
+          echo "container user: $user"
+          test "$user" = 'node'
+
+      - name: Smoke-test the container
+        run: |
+          set -euo pipefail
+
+          docker run -d --name shark-ci -p 8787:8787 \
+            -e SHARK_PASS_SECRET=ci-image-smoke-secret \
+            -e SHARK_ALLOWED_ORIGINS=http://localhost:8787,http://127.0.0.1:8787 \
+            shark-fitness:ci
+          cleanup() {
+            docker logs shark-ci 2>&1 | tail -60 || true
+            docker rm -f shark-ci >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          ready=0
+          for _ in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8787/health >/tmp/health.json 2>/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          test "$ready" -eq 1
+          grep -q '"ok":true' /tmp/health.json
+
+          # Both single-origin apps must be served by the one container.
+          curl -fsS http://127.0.0.1:8787/ | grep -q '/assets/'
+          curl -fsS http://127.0.0.1:8787/admin/ | grep -q '/admin/assets/'
+
+          # A hashed asset must never come back as the SPA HTML fallback.
+          asset="$(curl -fsS http://127.0.0.1:8787/ | grep -o '/assets/[^"]*\.js' | head -n 1)"
+          test -n "$asset"
+          headers="$(mktemp)"
+          curl -fsS -D "$headers" -o /tmp/asset.js "http://127.0.0.1:8787${asset}"
+          grep -qi '^content-type: .*javascript' "$headers"
+          ! head -c 256 /tmp/asset.js | grep -Eqi '<!doctype html|<html'
+
+          test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8787/assets/missing.js)" = '404'
+
+          # The seeded demo has to be usable, not just reachable.
+          code="$(curl -sS -o /tmp/signin.json -w '%{http_code}' \
+            -X POST http://127.0.0.1:8787/v1/auth/password \
+            -H 'content-type: application/json' \
+            -H 'origin: http://127.0.0.1:8787' \
+            -d '{"tenantSlug":"shark","email":"owner@sharkfitness.in","password":"shark1234"}')"
+          echo "sign-in status: $code"
+          test "$code" = '200'
+          grep -q '"csrfToken"' /tmp/signin.json
+
+          echo 'container smoke passed'

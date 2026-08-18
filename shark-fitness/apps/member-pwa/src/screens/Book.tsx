@@ -12,8 +12,6 @@ import {
   Label,
   Metric,
   Panel,
-  Seam,
-  SeamCell,
   Skeleton,
   cx,
 } from '../ui/primitives';

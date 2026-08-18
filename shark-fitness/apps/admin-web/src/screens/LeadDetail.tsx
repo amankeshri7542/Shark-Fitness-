@@ -64,14 +64,6 @@ export default function LeadDetailScreen() {
     enabled: canView,
   });
 
-  if (!canView) {
-    return (
-      <Page title="Lead">
-        <PermissionState what="This lead" />
-      </Page>
-    );
-  }
-
   const invalidate = (): void => {
     void queryClient.invalidateQueries({ queryKey: ['lead', leadId] });
     void queryClient.invalidateQueries({ queryKey: ['leads'] });
@@ -105,6 +97,18 @@ export default function LeadDetailScreen() {
     },
     onError: (e) => setError(e instanceof ApiError ? e.message : 'That did not work.'),
   });
+
+  // Every hook above this line has to run on each render. Returning early for
+  // a viewer without lead.view used to sit above the three useMutation calls,
+  // so the hook count changed the moment the permission resolved and React
+  // threw "rendered more hooks than during the previous render".
+  if (!canView) {
+    return (
+      <Page title="Lead">
+        <PermissionState what="This lead" />
+      </Page>
+    );
+  }
 
   if (isLoading) {
     return (

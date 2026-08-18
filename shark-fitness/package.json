@@ -5,7 +5,8 @@
   "type": "module",
   "packageManager": "pnpm@10.28.0",
   "engines": {
-    "node": ">=22.0.0"
+    "node": "22.x",
+    "pnpm": "10.28.0"
   },
   "scripts": {
     "dev": "concurrently -n api,member,admin -c cyan,magenta,yellow \"pnpm -F @shark/api dev\" \"pnpm -F @shark/member-pwa dev\" \"pnpm -F @shark/admin-web dev\"",
@@ -15,11 +16,17 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
-    "lint": "pnpm -r lint"
+    "lint": "eslint . --max-warnings=0",
+    "lint:fix": "eslint . --fix"
   },
   "devDependencies": {
+    "@eslint/js": "10.0.1",
     "concurrently": "9.1.2",
+    "eslint": "10.8.1",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "globals": "17.11.0",
     "typescript": "5.7.3",
+    "typescript-eslint": "8.67.0",
     "vitest": "3.0.5"
   },
   "pnpm": {

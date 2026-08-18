@@ -10,7 +10,6 @@ import {
   closeAllVisits,
   hourlyArrivals,
   isOverridable,
-  loadBranchInScope,
   manualCheckIn,
   manualCheckOut,
   occupancyByBranch,

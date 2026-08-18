@@ -7,7 +7,6 @@ import {
   Bar,
   Button,
   Chip,
-  Display,
   ErrorState,
   Freshness,
   Label,

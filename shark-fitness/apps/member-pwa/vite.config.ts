@@ -47,6 +47,23 @@ export default defineConfig({
       devOptions: { enabled: false },
     }),
   ],
+  build: {
+    rollupOptions: {
+      output: {
+        // Only two vendor groups, both chosen because they are large, shared
+        // by every route and change far less often than app code — so they
+        // keep their long-lived cache entry across deploys that rewrite the
+        // app chunks. Everything else (zod, zustand, idb) is small or needed
+        // at boot anyway, and splitting it would just add requests.
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined;
+          if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) return 'react-vendor';
+          if (id.includes('@tanstack')) return 'tanstack-vendor';
+          return undefined;
+        },
+      },
+    },
+  },
   resolve: {
     alias: [
       { find: '@', replacement: fileURLToPath(new URL('./src', import.meta.url)) },

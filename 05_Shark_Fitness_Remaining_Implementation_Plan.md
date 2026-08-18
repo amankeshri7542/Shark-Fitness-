@@ -16,13 +16,20 @@ repository-specific detail to that contract; it does not replace it.
 
 ### Status of this document
 
-Verified on `feat/phase-8-facility` on **18 August 2026** (Node 22, as CI pins).
-Verification evidence: `pnpm typecheck` clean across 6 packages, `pnpm test`
-**243 passing** (101 domain, 142 API integration), `pnpm build` clean, and the
-production single-origin server exercised over HTTP — hashed JS and CSS assets
-served with their own content types rather than SPA HTML, `/admin/` rendering
-`Shark Fitness — Operations`, and the Phase 8 safety-hold and branch-transfer
-paths driven end to end against seeded data.
+Verified on `chore/production-hardening` on **18 August 2026** (Node 22.23.2,
+as `.node-version` pins and CI reads). Verification evidence: `pnpm lint`,
+`pnpm typecheck` clean across 6 packages, `pnpm test` **282 passing** (101
+domain, 142 API integration, 24 member PWA, 15 admin console), `pnpm build`
+clean, and the production single-origin server exercised over HTTP and in a
+real browser — all 45 hashed JS and CSS assets served with their own content
+types rather than SPA HTML, missing assets returning 404, `/admin/` rendering
+`Shark Fitness — Operations` after the member service worker had claimed `/`,
+route chunks fetched on demand, and the Phase 8 equipment registry rendering
+16 seeded assets with its safety hold intact.
+
+The 243-test figure in the previous revision predates the front-end component
+suites added on `chore/production-hardening`; the API and domain counts are
+unchanged by that branch.
 
 The previous revision of this line recorded 203 tests against `main` on 16
 August 2026, and stated `22 of 29` API route modules — that denominator counted
@@ -36,7 +43,7 @@ Do not re-implement any of this. Read it before planning a change.
 
 | Layer | State |
 |---|---|
-| Database schema | **87 tables** across 5 schema files, with indexes and append-only guard triggers. Complete for every module in this plan. |
+| Database schema | **85 tables** across 5 schema files (counted as `sqliteTable()` definitions, and matching `CREATE TABLE` in the generated migration), with 110 indexes and 7 append-only guard triggers. Complete for every module in this plan. |
 | Migrations | Generated and checked in at `infrastructure/migrations/`. |
 | `@shark/contracts` | Zod schemas, enums, error envelope, realtime events. |
 | `@shark/domain` | Membership state machine, booking eligibility, access decisions, strength maths, adaptive engine, gamification, money, permissions, safety scanning, retention risk. 101 tests. |
