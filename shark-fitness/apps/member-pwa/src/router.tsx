@@ -3,29 +3,52 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
+  lazyRouteComponent,
   redirect,
 } from '@tanstack/react-router';
 import { AppHeader, BottomNav } from './ui/shell';
 import { useActiveBranch, useSession } from './lib/store';
 
+// Sign-in stays in the entry chunk. It is the first screen an unauthenticated
+// visitor sees, so making them wait on a second request to render it would
+// trade a smaller bundle for a slower first paint on the one path everybody
+// hits. Every screen behind the session gate is fetched on demand instead,
+// and `defaultPreload: 'intent'` warms the chunk as soon as a tab is hovered
+// or touched, so navigation still feels immediate.
 import SignInScreen from './screens/SignIn';
-import HomeScreen from './screens/Home';
-import PassScreen from './screens/Pass';
-import TrainScreen from './screens/Train';
-import WorkoutScreen from './screens/Workout';
-import SummaryScreen from './screens/Summary';
-import ExerciseScreen from './screens/Exercise';
-import BookScreen from './screens/Book';
-import ProgressScreen from './screens/Progress';
-import HabitsScreen from './screens/Habits';
-import PackScreen from './screens/Pack';
-import ChallengeScreen from './screens/Challenge';
-import MessagesScreen from './screens/Messages';
-import ConversationScreen from './screens/Conversation';
-import BillingScreen from './screens/Billing';
-import LibraryScreen from './screens/Library';
-import ProfileScreen from './screens/Profile';
-import NotificationsScreen from './screens/Notifications';
+
+const HomeScreen = lazyRouteComponent(() => import('./screens/Home'));
+const PassScreen = lazyRouteComponent(() => import('./screens/Pass'));
+const TrainScreen = lazyRouteComponent(() => import('./screens/Train'));
+const WorkoutScreen = lazyRouteComponent(() => import('./screens/Workout'));
+const SummaryScreen = lazyRouteComponent(() => import('./screens/Summary'));
+const ExerciseScreen = lazyRouteComponent(() => import('./screens/Exercise'));
+const BookScreen = lazyRouteComponent(() => import('./screens/Book'));
+const ProgressScreen = lazyRouteComponent(() => import('./screens/Progress'));
+const HabitsScreen = lazyRouteComponent(() => import('./screens/Habits'));
+const PackScreen = lazyRouteComponent(() => import('./screens/Pack'));
+const ChallengeScreen = lazyRouteComponent(() => import('./screens/Challenge'));
+const MessagesScreen = lazyRouteComponent(() => import('./screens/Messages'));
+const ConversationScreen = lazyRouteComponent(() => import('./screens/Conversation'));
+const BillingScreen = lazyRouteComponent(() => import('./screens/Billing'));
+const LibraryScreen = lazyRouteComponent(() => import('./screens/Library'));
+const ProfileScreen = lazyRouteComponent(() => import('./screens/Profile'));
+const NotificationsScreen = lazyRouteComponent(() => import('./screens/Notifications'));
+
+/** Shown while a route chunk is in flight. Mirrors the boot splash so a slow
+ *  network looks like the app loading, not the app breaking. */
+function RoutePending() {
+  return (
+    <div className="grid min-h-[40vh] place-items-center">
+      <span
+        aria-hidden="true"
+        className="h-1.5 w-16"
+        style={{ background: 'repeating-linear-gradient(90deg, var(--sf-sonar) 0 2px, transparent 2px 6px)' }}
+      />
+      <span className="sr-only">Loading</span>
+    </div>
+  );
+}
 
 /* The chrome the tabbed screens share. Full-screen surfaces — the workout
    logger, the entry pass — deliberately sit outside it so nothing competes
@@ -139,6 +162,7 @@ const routeTree = rootRoute.addChildren([
 export const router = createRouter({
   routeTree,
   defaultPreload: 'intent',
+  defaultPendingComponent: RoutePending,
 });
 
 declare module '@tanstack/react-router' {

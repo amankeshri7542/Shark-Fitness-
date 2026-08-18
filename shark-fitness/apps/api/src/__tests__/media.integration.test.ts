@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { and, eq, sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { app } from '../app.js';
 import { db, schema } from '../db/client.js';
 

@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { and, asc, desc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { validate } from '../../middleware/validate.js';
 import { channels } from '@shark/contracts';
@@ -12,7 +12,7 @@ import { audit } from '../../lib/audit.js';
 import { emit } from '../../lib/events.js';
 import { id } from '../../lib/ids.js';
 import { DAY, MINUTE, isoDate, localTime, now } from '../../lib/time.js';
-import { AppError, capacityExhausted, conflict, entitlementMissing, notFound, precondition } from '../../lib/errors.js';
+import { AppError, conflict, entitlementMissing, notFound, precondition } from '../../lib/errors.js';
 import {
   LIVE_BOOKING_STATES,
   LIVE_WAITLIST_STATES,

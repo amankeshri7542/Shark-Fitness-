@@ -43,7 +43,8 @@ socket.addEventListener('message', (event) => {
     const waiter = pending.get(message.id);
     if (!waiter) return;
     pending.delete(message.id);
-    message.error ? waiter.reject(new Error(message.error.message)) : waiter.resolve(message.result);
+    if (message.error) waiter.reject(new Error(message.error.message));
+    else waiter.resolve(message.result);
     return;
   }
   if (message.method === 'Runtime.exceptionThrown') {
@@ -119,7 +120,7 @@ async function pageSnapshot() {
 }
 
 async function failWithDiagnostics(label, error) {
-  let snapshot = null;
+  let snapshot;
   try { snapshot = await pageSnapshot(); } catch (snapshotError) { snapshot = { error: String(snapshotError) }; }
   console.error(`[browser-smoke] ${label}: ${error?.message ?? error}`);
   console.error(JSON.stringify(snapshot, null, 2));

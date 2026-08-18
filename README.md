@@ -27,33 +27,56 @@ Shark Fitness provides an end-to-end multi-tenant platform comprising:
     │   ├── api/                                   # Hono API & SQLite backend
     │   ├── member-pwa/                            # Member PWA (React + Vite)
     │   └── admin-web/                             # Admin Dashboard (React + Vite)
-    └── packages/
-        ├── contracts/                             # Shared Zod schemas & API contracts
-        ├── design-tokens/                         # Sonar CSS tokens & tone copy register
-        ├── domain/                                # Pure business logic & 101 unit tests
-        └── ui/                                    # Shared UI components
+    ├── packages/
+    │   ├── contracts/                             # Shared Zod schemas & API contracts
+    │   ├── design-tokens/                         # Sonar CSS tokens & tone copy register
+    │   └── domain/                                # Pure business logic & 101 unit tests
+    ├── infrastructure/migrations/                 # Generated Drizzle SQL migrations
+    └── scripts/                                   # CI browser smoke harness
 ```
 
 ---
 
 ## 🚦 Current Implementation Status
 
+Verified on `chore/production-hardening` (Node 22.23.2) on 18 August 2026:
+`pnpm lint`, `pnpm typecheck`, `pnpm test` and `pnpm build` all clean, and the
+production single-origin server exercised over HTTP and in a browser.
+
 ### ✅ Completed & Working
-- **Domain Engine:** 101 unit tests passing across membership, access decisions, training algorithms, and fair scheduling.
-- **Database & Migrations:** 86 SQLite tables, 110 indexes, 7 SQL triggers, deterministic seed data.
-- **Type Checking & Build:** `pnpm typecheck` and `pnpm -r build` pass with **0 errors**.
-- **Member PWA:** `SignIn`, `Home`, `Workout` (set logger + plate math + timer), `Pass` (30s dynamic entry QR), `Train` (program syllabus), `Book` (class timetable & reservation), `Progress` (1RM & recovery charts), `Pack` (leaderboard & squad feed).
-- **Admin Web:** `SignIn`, `CommandCenter` (live occupancy trace & alerts), `Members` (searchable grid), `MemberDetail` (360° profile drawer & membership actions).
-- **API Core & Routes:** Auth, profile (`me`), member routes (`home`, `pass`, `training`, `schedule`, `progress`, `habits`, `messages`, `engagement`), admin routes (`dashboard`, `members`, `support`).
+- **Domain Engine:** 101 unit tests across membership, access decisions, training algorithms and fair scheduling.
+- **Test suite:** **282 tests** in 25 files — 101 domain, 142 API integration, 24 member PWA, 15 admin console.
+- **Database & Migrations:** 85 SQLite tables across 5 schema files, 110 indexes, 7 append-only/guard triggers, deterministic seed data.
+- **Quality gates:** `pnpm lint` (ESLint 10 flat config, `--max-warnings=0`), `pnpm typecheck` and `pnpm build` pass with 0 errors, all gated in CI.
+- **Member PWA:** all 18 screens implemented — no stubs remain.
+- **Admin Web:** 15 of 21 screens implemented.
+- **API Routes:** auth, profile, the member surface, and the admin `attendance`, `billing`, `facility`, `leads`, `schedule`, `staff` and `training` modules.
+- **Production serving:** one origin serves the member PWA at `/` and the admin console at `/admin/`, with hashed assets returning their own content types rather than the SPA HTML fallback.
 
 ### ⏳ Remaining to Implement
-- **Member PWA (10 screens):** `Summary`, `Exercise`, `Library`, `Habits`, `Challenge`, `Messages`, `Conversation`, `Billing`, `Profile`, `Notifications`.
-- **Admin Web (15 screens):** `Leads`, `LeadDetail`, `Floor`, `Schedule`, `Training`, `Billing`, `Plans`, `Staff`, `Store`, `Equipment`, `Automations`, `Reports`, `Support`, `Settings`, `Platform`.
-- **Admin API Route Adapters (10 stubs):** `attendance`, `billing`, `facility`, `leads`, `reports`, `schedule`, `settings`, `staff`, `store`, `training`.
+- **Admin Web (6 placeholder screens):** `Automations`, `Platform`, `Reports`, `Settings`, `Store`, `Support`.
+- **Admin API Route Adapters (3 stubs):** `reports`, `settings`, `store`.
+
+See [05_Shark_Fitness_Remaining_Implementation_Plan.md](./05_Shark_Fitness_Remaining_Implementation_Plan.md) for the sequenced plan.
 
 ---
 
 ## 🚀 Quick Start
+
+### 0. Use Node 22
+
+The project is pinned to **Node 22.x** (`.node-version`, `.nvmrc`, and
+`engines` in `shark-fitness/package.json`). CI resolves its Node version from
+`.node-version`, so local and CI agree by construction.
+
+Node 24 aborts `better-sqlite3` partway through `pnpm db:seed` with an opaque
+`SIGABRT`. `engine-strict=true` in `shark-fitness/.npmrc` therefore refuses an
+unsupported runtime at install time, with a readable message instead.
+
+```bash
+fnm use    # or: nvm use
+node -v    # expect v22.x
+```
 
 ### 1. Install Dependencies
 ```bash
@@ -88,7 +111,46 @@ pnpm dev
 
 ```bash
 cd shark-fitness
-pnpm typecheck              # Verifies TypeScript across all packages (0 errors)
-pnpm -F @shark/domain test   # Runs 101 domain unit tests
-pnpm -r build               # Verifies production bundle builds
+pnpm lint         # ESLint across the workspace; --max-warnings=0
+pnpm typecheck    # TypeScript across all 6 packages
+pnpm test         # 282 tests (domain, API integration, member PWA, admin console)
+pnpm build        # Production bundles for both front ends
+```
+
+All four run in CI on every push and pull request.
+
+### Production single-origin check
+
+One process serves both apps, which is how the demo is deployed:
+
+```bash
+cd shark-fitness
+pnpm build
+NODE_ENV=production SHARK_SERVE_STATIC=true PORT=8787 \
+  SHARK_PASS_SECRET=local-smoke-secret \
+  SHARK_ALLOWED_ORIGINS=http://localhost:8787,http://127.0.0.1:8787 \
+  pnpm -F @shark/api start
+```
+
+- Member PWA: http://localhost:8787/
+- Admin console: http://localhost:8787/admin/
+
+The member service worker is scoped to `/` and explicitly denies `/admin/*`,
+`/v1/*` and `/health`, so the admin console is never answered with the member
+app shell.
+
+---
+
+## 🐳 Container
+
+The published image builds the front ends in one stage, resolves **production
+dependencies only** in a second, and copies just the API sources, the built
+front ends and the migration SQL into the runtime stage. It runs as the
+non-root `node` user and carries no front-end toolchain, compiler or test
+runner. CI builds this image and smoke-tests the running container on every
+push and pull request.
+
+```bash
+docker build -t shark-fitness .
+docker run --rm -p 8787:8787 -e SHARK_PASS_SECRET=local-secret shark-fitness
 ```

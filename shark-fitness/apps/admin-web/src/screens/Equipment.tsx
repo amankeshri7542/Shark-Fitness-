@@ -370,7 +370,7 @@ function CreateTaskDialog({ branches, activeBranchId, online, onClose }: { branc
   const [branchId, setBranchId] = useState(activeBranchId ?? branches[0]?.id ?? '');
   const [title, setTitle] = useState('');
   const [cadence, setCadence] = useState('daily');
-  const [nextDueAt, setNextDueAt] = useState(toLocalInput(Date.now() + DAY));
+  const [nextDueAt, setNextDueAt] = useState(() => toLocalInput(Date.now() + DAY));
   const [checklist, setChecklist] = useState('');
   const [assigneeId, setAssigneeId] = useState('');
   const assignees = useQuery({ queryKey: ['facility', 'assignees', branchId], queryFn: () => api<{ items: Assignee[] }>(`/admin/facility/assignees?branchId=${encodeURIComponent(branchId)}`), enabled: Boolean(branchId) });

@@ -5,8 +5,20 @@
 **/data
 **/.env
 **/.DS_Store
+
+# Test sources must not reach a runtime image. The vitest/eslint config files
+# stay in context because tsconfig references them during the build's
+# type-check step.
+**/__tests__
+**/*.test.ts
+**/*.test.tsx
+**/src/test
+
+# Reference material and the standalone prototype are not part of the build.
 Shark-inspired member app prototype
+docs
 01_Shark_Fitness_Product_Functional_PRD.md
 02_Shark_Fitness_Engineering_Technical_PRD.md
 03_Shark_Fitness_Design_UIUX_PRD.md
 04_Shark_Fitness_Enterprise_Compliance_PRD.md
+05_Shark_Fitness_Remaining_Implementation_Plan.md

@@ -413,7 +413,7 @@ describe('billing — member self-service', () => {
     const owner = await signIn('owner@sharkfitness.in');
     const memberId = await freshMember(owner);
     const assign = await app.request(`/v1/admin/billing/members/${memberId}/assign-plan`, { method: 'POST', headers: headers(owner, true), body: JSON.stringify({ productId: 'prd_daypass' }) });
-    const { invoiceId, membershipId } = (await assign.json()) as { invoiceId: string; membershipId: string };
+    const { membershipId } = (await assign.json()) as { invoiceId: string; membershipId: string };
 
     // Sign in as the newly converted member directly via a password reset is
     // out of scope for this test — exercise the member endpoints using the
