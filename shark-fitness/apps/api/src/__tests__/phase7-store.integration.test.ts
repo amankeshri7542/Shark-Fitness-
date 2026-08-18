@@ -363,9 +363,9 @@ describe('Checkout (PF-POS-002)', () => {
       ],
     });
     expect(response.status).toBe(201);
-    const body = (await response.json()) as { payments: Array<{ method: string; amountMinor: number }> };
-    expect(body.payments).toHaveLength(2);
-    expect(body.payments.reduce((sum, p) => sum + p.amountMinor, 0)).toBe(118_000);
+    const body = (await response.json()) as { tenders: Array<{ method: string; amountMinor: number }> };
+    expect(body.tenders).toHaveLength(2);
+    expect(body.tenders.reduce((sum, p) => sum + p.amountMinor, 0)).toBe(118_000);
   });
 
   it('refuses tender that does not add up to the sale', async () => {
@@ -815,5 +815,313 @@ describe('Reports (PF-POS-006)', () => {
       scope: { branches: number };
     };
     expect(body.scope.branches).toBeLessThan(ownerScope.scope.branches);
+  });
+});
+
+/* ==========================================================================
+   Financial visibility (PF-RPT-005, Product PRD §4.20)
+
+   Running the shop and knowing what the shop earns are different jobs. These
+   assert the line rather than the implementation, so the four roles are read
+   as a matrix: who may see unit cost, and who may see margin.
+   ========================================================================= */
+
+describe('Financial visibility', () => {
+  let accountant: Session;
+
+  beforeAll(async () => {
+    accountant = await signIn('accounts@sharkfitness.in');
+  });
+
+  it('shows an owner both cost and margin', async () => {
+    const response = await get(owner, '/v1/admin/store/reports?branchId=br_kor');
+    const body = (await response.json()) as {
+      margin: { marginMinor: number } | null;
+      valuation: { valuationMinor: number } | null;
+      shrinkage: { units: number; costMinor: number | null };
+      financial: { canSeeMargin: boolean; canSeeCost: boolean };
+    };
+    expect(body.financial).toEqual({ canSeeMargin: true, canSeeCost: true, restricted: [] });
+    expect(body.margin).not.toBeNull();
+    expect(body.valuation).not.toBeNull();
+    expect(body.shrinkage.costMinor).not.toBeNull();
+  });
+
+  it('withholds margin and valuation from reception rather than zeroing them', async () => {
+    const response = await get(reception, '/v1/admin/store/reports?branchId=br_kor');
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      sales: { revenueMinor: number };
+      margin: unknown;
+      valuation: unknown;
+      shrinkage: { units: number; costMinor: number | null };
+      financial: { canSeeMargin: boolean; canSeeCost: boolean; restricted: string[] };
+    };
+    // Null, not 0. A margin of zero is a real and alarming figure in a shop;
+    // it must never stand in for "your role may not see this".
+    expect(body.margin).toBeNull();
+    expect(body.valuation).toBeNull();
+    expect(body.shrinkage.costMinor).toBeNull();
+    expect(body.financial.canSeeMargin).toBe(false);
+    expect(body.financial.restricted).toContain('marginMinor');
+    // Takings stay visible — reception sees every order total in the history
+    // anyway, so withholding the sum would be theatre rather than security.
+    expect(Number.isInteger(body.sales.revenueMinor)).toBe(true);
+    expect(Number.isInteger(body.shrinkage.units)).toBe(true);
+  });
+
+  it('withholds unit cost from a reception product list', async () => {
+    const response = await get(reception, '/v1/admin/store/products?branchId=br_kor');
+    const body = (await response.json()) as {
+      items: Array<{ costMinor: number | null; valuationMinor: number | null; priceMinor: number; onHand: number }>;
+      financial: { canSeeCost: boolean };
+    };
+    expect(body.financial.canSeeCost).toBe(false);
+    expect(body.items.length).toBeGreaterThan(0);
+    for (const item of body.items) {
+      expect(item.costMinor).toBeNull();
+      expect(item.valuationMinor).toBeNull();
+      // What it sells for and how many are on the shelf are the shop's job.
+      expect(Number.isInteger(item.priceMinor)).toBe(true);
+      expect(Number.isInteger(item.onHand)).toBe(true);
+    }
+  });
+
+  it('gives a branch manager cost but not margin', async () => {
+    // Cost is an operational input — whoever books in a delivery types it —
+    // so `inventory.manage` reads it. Margin is a commercial figure and needs
+    // `report.financial`, which a branch manager does not hold.
+    const products = (await (await get(manager, '/v1/admin/store/products?branchId=br_kor')).json()) as {
+      items: Array<{ costMinor: number | null; valuationMinor: number | null }>;
+      financial: { canSeeCost: boolean; canSeeMargin: boolean };
+    };
+    expect(products.financial).toMatchObject({ canSeeCost: true, canSeeMargin: false });
+    expect(products.items[0]!.costMinor).not.toBeNull();
+    expect(products.items[0]!.valuationMinor).toBeNull();
+
+    const report = (await (await get(manager, '/v1/admin/store/reports?branchId=br_kor')).json()) as {
+      margin: unknown;
+    };
+    expect(report.margin).toBeNull();
+  });
+
+  it('gives an accountant margin without making them a stock manager', async () => {
+    const report = (await (await get(accountant, '/v1/admin/store/reports')).json()) as {
+      margin: { marginBp: number } | null;
+      financial: { canSeeMargin: boolean; canSeeCost: boolean };
+    };
+    expect(report.financial).toMatchObject({ canSeeMargin: true, canSeeCost: false });
+    expect(report.margin).not.toBeNull();
+  });
+
+  it('withholds the cost captured on a sold line from reception', async () => {
+    const productId = freshProduct('br_kor', 10);
+    const sale = await post(owner, '/v1/admin/store/orders', {
+      branchId: 'br_kor',
+      lines: [{ productId, quantity: 1 }],
+      payments: [{ method: 'cash', amountMinor: 118_000 }],
+    });
+    const orderId = ((await sale.json()) as { order: { id: string } }).order.id;
+
+    const asOwner = (await (await get(owner, `/v1/admin/store/orders/${orderId}`)).json()) as {
+      lines: Array<{ unitCostMinor: number | null }>;
+    };
+    expect(asOwner.lines[0]!.unitCostMinor).toBe(40_000);
+
+    const asReception = (await (await get(reception, `/v1/admin/store/orders/${orderId}`)).json()) as {
+      lines: Array<{ unitCostMinor: number | null }>;
+    };
+    expect(asReception.lines[0]!.unitCostMinor).toBeNull();
+  });
+
+  it('withholds inbound cost on the movement ledger from reception', async () => {
+    const productId = freshProduct('br_kor', 6);
+    const asOwner = (await (await get(owner, `/v1/admin/store/products/${productId}/ledger`)).json()) as {
+      items: Array<{ unitCostMinor: number | null }>;
+    };
+    expect(asOwner.items[0]!.unitCostMinor).toBe(40_000);
+
+    const asReception = (await (await get(reception, `/v1/admin/store/products/${productId}/ledger`)).json()) as {
+      items: Array<{ unitCostMinor: number | null }>;
+      financial: { canSeeCost: boolean };
+    };
+    expect(asReception.financial.canSeeCost).toBe(false);
+    expect(asReception.items[0]!.unitCostMinor).toBeNull();
+  });
+});
+
+/* ==========================================================================
+   Wire shapes and realtime topics
+   ========================================================================= */
+
+/**
+ * Events of one topic since a moment, optionally narrowed to one product.
+ *
+ * The timestamp alone is not selective enough: `now()` is millisecond
+ * precision and the suite emits fast, so a neighbouring test's event can land
+ * in the same millisecond as this one's cutoff.
+ */
+function eventsFor(
+  topic: string,
+  since: number,
+  productId?: string,
+): Array<{ channel: string; payload: Record<string, unknown> }> {
+  return db
+    .select({ channel: schema.outboxEvents.channel, payload: schema.outboxEvents.payload })
+    .from(schema.outboxEvents)
+    .where(and(eq(schema.outboxEvents.topic, topic), sql`${schema.outboxEvents.at} >= ${since}`))
+    .all()
+    .map((r) => ({ channel: r.channel, payload: r.payload as Record<string, unknown> }))
+    .filter((e) => productId === undefined || e.payload.productId === productId);
+}
+
+describe('Store contracts and realtime topics', () => {
+  it('serves timestamps as ISO-8601 and names branches rather than leaking ids alone', async () => {
+    const body = (await (await get(owner, '/v1/admin/store/orders?branchId=br_kor')).json()) as {
+      items: Array<{ createdAt: string; branchName: string; branchId: string }>;
+    };
+    const row = body.items[0]!;
+    expect(row.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+    expect(row.branchName.length).toBeGreaterThan(0);
+    expect(row.branchName).not.toBe(row.branchId);
+  });
+
+  it('publishes a sale as pos.sale_completed, never as a billing payment', async () => {
+    const at = now();
+    const productId = freshProduct('br_kor', 5);
+    await post(owner, '/v1/admin/store/orders', {
+      branchId: 'br_kor',
+      lines: [{ productId, quantity: 1 }],
+      payments: [{ method: 'cash', amountMinor: 118_000 }],
+    });
+
+    const sales = eventsFor('pos.sale_completed', at);
+    expect(sales).toHaveLength(1);
+    expect(sales[0]!.channel).toBe('branch:br_kor');
+    // Reusing payment.succeeded would tell dunning and reconciliation that an
+    // invoice moved, which a cash counter sale did not do.
+    expect(eventsFor('payment.succeeded', at)).toHaveLength(0);
+    expect(eventsFor('stock.changed', at).length).toBeGreaterThan(0);
+  });
+
+  it('raises stock.low only once the shelf actually crosses its reorder point', async () => {
+    const productId = freshProduct('br_kor', 40, { reorderAt: 3 });
+    const before = now();
+    await post(owner, `/v1/admin/store/products/${productId}/stock`, {
+      branchId: 'br_kor',
+      delta: -30,
+      reason: 'adjustment',
+      note: 'stocktake correction',
+    });
+    expect(eventsFor('stock.low', before, productId)).toHaveLength(0);
+
+    const at = now();
+    await post(owner, `/v1/admin/store/products/${productId}/stock`, {
+      branchId: 'br_kor',
+      delta: -8,
+      reason: 'damage',
+      note: 'water damage',
+    });
+    const low = eventsFor('stock.low', at, productId);
+    expect(low).toHaveLength(1);
+    expect(low[0]!.payload.onHand).toBe(2);
+  });
+
+  it('tells both branches about a transfer, because it is never one shelf', async () => {
+    const productId = freshProduct('br_kor', 10);
+    const at = now();
+    await post(owner, '/v1/admin/store/transfers', {
+      fromBranchId: 'br_kor',
+      toBranchId: 'br_hsr',
+      lines: [{ productId, quantity: 2 }],
+    });
+    const channelsSeen = eventsFor('transfer.updated', at).map((e) => e.channel).sort();
+    expect(channelsSeen).toEqual(['branch:br_hsr', 'branch:br_kor']);
+  });
+
+  it('publishes a return and a void under their own topics', async () => {
+    const productId = freshProduct('br_kor', 10);
+    const sale = await post(owner, '/v1/admin/store/orders', {
+      branchId: 'br_kor',
+      lines: [{ productId, quantity: 2 }],
+      payments: [{ method: 'cash', amountMinor: 236_000 }],
+    });
+    const body = (await sale.json()) as { order: { id: string }; lines: Array<{ id: string }> };
+
+    const atReturn = now();
+    await post(owner, `/v1/admin/store/orders/${body.order.id}/refund`, {
+      reason: 'Wrong size',
+      lines: [{ lineId: body.lines[0]!.id, quantity: 1 }],
+    });
+    expect(eventsFor('pos.return_completed', atReturn)).toHaveLength(1);
+
+    const atVoid = now();
+    await post(owner, `/v1/admin/store/orders/${body.order.id}/void`, { reason: 'Till error' });
+    expect(eventsFor('pos.order_voided', atVoid)).toHaveLength(1);
+  });
+});
+
+/* ==========================================================================
+   Account tender and the billing relationship
+   ========================================================================= */
+
+describe('Account tender (pos_orders.invoice_id)', () => {
+  function anyMemberId(): string {
+    return db.select({ id: schema.members.id }).from(schema.members).limit(1).get()!.id;
+  }
+
+  it('leaves a cash sale standalone rather than minting a paid invoice', async () => {
+    const productId = freshProduct('br_kor', 5);
+    const response = await post(owner, '/v1/admin/store/orders', {
+      branchId: 'br_kor',
+      lines: [{ productId, quantity: 1 }],
+      payments: [{ method: 'cash', amountMinor: 118_000 }],
+    });
+    const body = (await response.json()) as { order: { invoiceId: string | null } };
+    // The money is in the drawer. There is no receivable, so there is no
+    // invoice — deliberately, not for want of wiring.
+    expect(body.order.invoiceId).toBeNull();
+  });
+
+  it('raises a real open invoice for the on-account share of a sale', async () => {
+    const productId = freshProduct('br_kor', 5);
+    const memberId = anyMemberId();
+    const response = await post(owner, '/v1/admin/store/orders', {
+      branchId: 'br_kor',
+      memberId,
+      lines: [{ productId, quantity: 1 }],
+      payments: [
+        { method: 'cash', amountMinor: 18_000 },
+        { method: 'account', amountMinor: 100_000 },
+      ],
+    });
+    expect(response.status).toBe(201);
+    const body = (await response.json()) as { order: { invoiceId: string | null; reference: string } };
+    expect(body.order.invoiceId).not.toBeNull();
+
+    const invoice = db
+      .select()
+      .from(schema.invoices)
+      .where(eq(schema.invoices.id, body.order.invoiceId!))
+      .get()!;
+    // Only the unsettled share is billed. The ₹180 taken in cash is not a debt.
+    expect(invoice.totalMinor).toBe(100_000);
+    expect(invoice.state).toBe('open');
+    expect(invoice.paidMinor).toBe(0);
+    expect(invoice.memberId).toBe(memberId);
+    expect(invoice.refType).toBe('pos_order');
+    expect(invoice.number).toMatch(/^SF-\d{4}-\d{5}$/);
+  });
+
+  it('refuses to charge a walk-in to an account it cannot name', async () => {
+    const productId = freshProduct('br_kor', 5);
+    const response = await post(owner, '/v1/admin/store/orders', {
+      branchId: 'br_kor',
+      lines: [{ productId, quantity: 1 }],
+      payments: [{ method: 'account', amountMinor: 118_000 }],
+    });
+    // `invoices.member_id` is NOT NULL, so there is no honest row to write.
+    expect(response.status).toBe(422);
+    expect(await onHandOf(productId, 'br_kor')).toBe(5);
   });
 });

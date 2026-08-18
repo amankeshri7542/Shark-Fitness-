@@ -104,60 +104,8 @@ export type CommissionLine = z.infer<typeof CommissionLine>;
 
 /* — Inventory and POS (PF-POS) ———————————————————————————————— */
 
-export const RetailProduct = z.object({
-  id: Id,
-  name: z.string(),
-  sku: z.string(),
-  barcode: z.string().nullable(),
-  category: z.string(),
-  priceMinor: Money,
-  costMinor: Money,
-  taxRateBp: z.number().int(),
-  stock: z.number().int(),
-  reorderAt: z.number().int(),
-  lowStock: z.boolean(),
-  marginPct: z.number(),
-});
-export type RetailProduct = z.infer<typeof RetailProduct>;
-
-export const StockMovement = z.object({
-  id: Id,
-  productId: Id,
-  productName: z.string(),
-  branchId: Id,
-  delta: z.number().int(),
-  reason: z.enum(['purchase', 'sale', 'return', 'transfer_out', 'transfer_in', 'adjustment', 'damage']),
-  refType: z.string().nullable(),
-  refId: Id.nullable(),
-  actorName: z.string(),
-  note: z.string().nullable(),
-  at: IsoDateTime,
-});
-export type StockMovement = z.infer<typeof StockMovement>;
-
-export const PosOrder = z.object({
-  id: Id,
-  reference: z.string(),
-  branchId: Id,
-  memberId: Id.nullable(),
-  memberName: z.string().nullable(),
-  lines: z.array(
-    z.object({
-      productId: Id,
-      name: z.string(),
-      quantity: z.number().int(),
-      unitMinor: Money,
-      totalMinor: Money,
-    }),
-  ),
-  subtotalMinor: Money,
-  taxMinor: Money,
-  totalMinor: Money,
-  state: z.enum(['open', 'paid', 'voided', 'returned', 'partially_returned']),
-  staffName: z.string(),
-  createdAt: IsoDateTime,
-});
-export type PosOrder = z.infer<typeof PosOrder>;
+/* Moved to ./pos.ts. The shapes here were placeholders written before the
+   Store module was built and never matched what it actually serves. */
 
 /* — Facility (PF-FAC) ————————————————————————————————————————— */
 

@@ -1,5 +1,30 @@
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { channels } from '@shark/contracts';
+import type {
+  PosOrderDetail,
+  PosOrderList,
+  PosOrderKind,
+  PosOrderLine,
+  PosOrderState,
+  PosOrderSummary,
+  PosTender,
+  PosTenderMethod,
+  ProductGroup,
+  StockAdjustResult,
+  StockLedgerPage,
+  StockMovement,
+  StockReason as StockReasonContract,
+  StockTransfer,
+  StockTransferDetail,
+  StockTransferLine,
+  StockTransferList,
+  StockTransferState,
+  StoreFinancialAccess,
+  StoreProduct,
+  StoreProductList,
+  StoreReport,
+  Supplier,
+} from '@shark/contracts';
 import { db, schema, transact } from '../db/client.js';
 import { audit } from '../lib/audit.js';
 import type { RequestContext } from '../lib/context.js';
@@ -7,7 +32,8 @@ import { requireBranch, requirePermission } from '../lib/context.js';
 import { conflict, invalid, notFound, precondition } from '../lib/errors.js';
 import { emit } from '../lib/events.js';
 import { id } from '../lib/ids.js';
-import { now } from '../lib/time.js';
+import { addDays, isoDate, now } from '../lib/time.js';
+import { nextInvoiceNumber } from './billing.js';
 
 /**
  * Store: point of sale and inventory (PF-POS-001…006).
@@ -124,6 +150,323 @@ function orderInScope(ctx: RequestContext, orderId: string) {
   // are concerned.
   if (!ctx.branchIds.includes(order.branchId)) throw notFound('That order');
   return order;
+}
+
+/* ——— Financial visibility ————————————————————————————————————— */
+
+/**
+ * Who may see what a thing cost.
+ *
+ * Running the shop and knowing what the shop earns are two different jobs, and
+ * the Product PRD separates them: reception has `inventory.view` so it can sell
+ * and reorder, and explicitly "no access to sensitive global reports", while
+ * §4.20 files product margin under *financial* reports. Handing margin to
+ * everyone holding `inventory.view` would have made every receptionist a reader
+ * of the gym's commercial position.
+ *
+ * The line lands in two places rather than one, because cost is two things:
+ *
+ * - **Unit cost** is an operational input. Whoever receives a delivery types it
+ *   in, so `inventory.manage` sees it. Hiding it would make product editing
+ *   lossy — a branch manager would have to save a form with a field they were
+ *   not allowed to read.
+ * - **Margin, valuation and shrinkage value** are derived commercial figures.
+ *   Those need `report.financial`.
+ *
+ * A withheld figure is `null`, never `0`. Zero margin is a real and alarming
+ * number in a shop; substituting it for "you may not see this" would put a
+ * falsehood in a report (PF-RPT-005).
+ */
+export function financialAccess(ctx: RequestContext): StoreFinancialAccess {
+  const canSeeMargin = ctx.permissions.includes('report.financial');
+  const canSeeCost = ctx.permissions.includes('inventory.manage');
+  const restricted: string[] = [];
+  if (!canSeeCost) restricted.push('costMinor', 'unitCostMinor');
+  if (!canSeeMargin) restricted.push('marginMinor', 'valuationMinor', 'shrinkageCostMinor');
+  return { canSeeMargin, canSeeCost, restricted };
+}
+
+/* ——— Serialisation ———————————————————————————————————————————— */
+
+/* Rows go out in the shapes `@shark/contracts` declares, not as raw tables.
+   The console used to hold its own copy of these interfaces, which typechecked
+   perfectly while drifting from what the server actually sent. */
+
+const iso = (ms: number): string => new Date(ms).toISOString();
+const isoOrNull = (ms: number | null): string | null => (ms === null ? null : new Date(ms).toISOString());
+
+/** Branch ids are not a user-facing label. Resolved once per response. */
+function branchNames(tenantId: string): Map<string, string> {
+  return new Map(
+    db
+      .select({ id: schema.branches.id, name: schema.branches.name })
+      .from(schema.branches)
+      .where(eq(schema.branches.tenantId, tenantId))
+      .all()
+      .map((b) => [b.id, b.name]),
+  );
+}
+
+function memberNames(tenantId: string, memberIds: string[]): Map<string, string> {
+  const unique = [...new Set(memberIds)];
+  if (unique.length === 0) return new Map();
+  return new Map(
+    db
+      .select({ id: schema.members.id, firstName: schema.members.firstName, lastName: schema.members.lastName })
+      .from(schema.members)
+      .where(and(eq(schema.members.tenantId, tenantId), inArray(schema.members.id, unique)))
+      .all()
+      .map((m) => [m.id, `${m.firstName} ${m.lastName}`.trim()]),
+  );
+}
+
+export const displayNameOf = (p: { name: string; variantName: string | null }): string =>
+  p.variantName ? `${p.name} — ${p.variantName}` : p.name;
+
+interface ProductExtras {
+  onHand: number;
+  valuationMinor: number;
+  groupName: string | null;
+  supplierName: string | null;
+}
+
+function toProduct(
+  row: typeof schema.retailProducts.$inferSelect,
+  extras: ProductExtras,
+  access: StoreFinancialAccess,
+): StoreProduct {
+  return {
+    id: row.id,
+    name: row.name,
+    displayName: displayNameOf(row),
+    sku: row.sku,
+    barcode: row.barcode,
+    category: row.category,
+    variantName: row.variantName ?? '',
+    groupId: row.groupId,
+    groupName: extras.groupName,
+    supplierId: row.supplierId,
+    supplierName: extras.supplierName,
+    priceMinor: row.priceMinor,
+    taxRateBp: row.taxRateBp,
+    reorderAt: row.reorderAt,
+    active: row.active,
+    onHand: extras.onHand,
+    lowStock: extras.onHand <= row.reorderAt,
+    costMinor: access.canSeeCost ? row.costMinor : null,
+    valuationMinor: access.canSeeMargin ? extras.valuationMinor : null,
+    createdAt: iso(row.createdAt),
+  };
+}
+
+function toMovement(
+  row: typeof schema.stockLedger.$inferSelect,
+  branches: Map<string, string>,
+  access: StoreFinancialAccess,
+): StockMovement {
+  return {
+    id: row.id,
+    productId: row.productId,
+    branchId: row.branchId,
+    branchName: branches.get(row.branchId) ?? row.branchId,
+    delta: row.delta,
+    reason: row.reason as StockReasonContract,
+    refType: row.refType,
+    refId: row.refId,
+    actorName: row.actorName,
+    note: row.note,
+    unitCostMinor: access.canSeeCost ? row.unitCostMinor : null,
+    negativeOverride: row.negativeOverride,
+    overrideReason: row.overrideReason,
+    at: iso(row.at),
+  };
+}
+
+function toOrderSummary(
+  row: typeof schema.posOrders.$inferSelect,
+  branches: Map<string, string>,
+  members: Map<string, string>,
+): PosOrderSummary {
+  return {
+    id: row.id,
+    reference: row.reference,
+    branchId: row.branchId,
+    branchName: branches.get(row.branchId) ?? row.branchId,
+    memberId: row.memberId,
+    memberName: row.memberId ? (members.get(row.memberId) ?? null) : null,
+    kind: row.kind as PosOrderKind,
+    state: row.state as PosOrderState,
+    subtotalMinor: row.subtotalMinor,
+    discountMinor: row.discountMinor,
+    taxMinor: row.taxMinor,
+    totalMinor: row.totalMinor,
+    staffId: row.staffId,
+    staffName: row.staffName,
+    invoiceId: row.invoiceId,
+    returnOfOrderId: row.returnOfOrderId,
+    voidReason: row.voidReason,
+    voidedAt: isoOrNull(row.voidedAt),
+    createdAt: iso(row.createdAt),
+  };
+}
+
+function toOrderLine(
+  row: typeof schema.posOrderLines.$inferSelect,
+  access: StoreFinancialAccess,
+): PosOrderLine {
+  return {
+    id: row.id,
+    productId: row.productId,
+    name: row.name,
+    quantity: row.quantity,
+    unitMinor: row.unitMinor,
+    discountMinor: row.discountMinor,
+    taxRateBp: row.taxRateBp,
+    taxMinor: row.taxMinor,
+    totalMinor: row.totalMinor,
+    quantityReturned: row.quantityReturned,
+    // A return order's own lines are already negative; nothing about them is
+    // returnable, so the console never offers to return a return.
+    quantityReturnable: row.quantity > 0 ? row.quantity - row.quantityReturned : 0,
+    unitCostMinor: access.canSeeMargin ? row.unitCostMinor : null,
+  };
+}
+
+const toTender = (row: typeof schema.posPayments.$inferSelect): PosTender => ({
+  id: row.id,
+  method: row.method as PosTenderMethod,
+  amountMinor: row.amountMinor,
+  reference: row.reference,
+  at: iso(row.at),
+});
+
+function toTransfer(
+  row: typeof schema.stockTransfers.$inferSelect,
+  lines: Array<typeof schema.stockTransferLines.$inferSelect>,
+  branches: Map<string, string>,
+): StockTransfer {
+  return {
+    id: row.id,
+    reference: row.reference,
+    fromBranchId: row.fromBranchId,
+    fromBranchName: branches.get(row.fromBranchId) ?? row.fromBranchId,
+    toBranchId: row.toBranchId,
+    toBranchName: branches.get(row.toBranchId) ?? row.toBranchId,
+    state: row.state as StockTransferState,
+    note: row.note,
+    createdBy: row.createdBy,
+    dispatchedAt: isoOrNull(row.dispatchedAt),
+    dispatchedBy: row.dispatchedBy,
+    receivedAt: isoOrNull(row.receivedAt),
+    receivedBy: row.receivedBy,
+    cancelledAt: isoOrNull(row.cancelledAt),
+    createdAt: iso(row.createdAt),
+    // Only a dispatched transfer holds stock that is on neither shelf.
+    unitsInTransit:
+      row.state === 'dispatched' ? lines.reduce((sum, l) => sum + (l.quantity - l.quantityReceived), 0) : 0,
+  };
+}
+
+function toTransferLine(
+  row: typeof schema.stockTransferLines.$inferSelect,
+  product: { name: string; variantName: string | null; sku: string } | undefined,
+  state: StockTransferState,
+  access: StoreFinancialAccess,
+): StockTransferLine {
+  return {
+    id: row.id,
+    productId: row.productId,
+    productName: product ? displayNameOf(product) : row.productId,
+    sku: product?.sku ?? '',
+    quantity: row.quantity,
+    quantityReceived: row.quantityReceived,
+    // Shortfall only means anything once someone has counted what arrived.
+    shortfall: state === 'received' ? row.quantity - row.quantityReceived : 0,
+    unitCostMinor: access.canSeeMargin ? row.unitCostMinor : null,
+  };
+}
+
+/* ——— Realtime ————————————————————————————————————————————————— */
+
+/**
+ * Tell the branch its shelf moved.
+ *
+ * One event per movement batch rather than per line: a five-line sale is one
+ * fact about the shop, and five events would make five consoles refetch five
+ * times each. The payload carries the affected products so a client can decide
+ * whether it cares without a round trip.
+ */
+function emitStockChanged(
+  ctx: RequestContext,
+  branchId: string,
+  products: Array<{ productId: string; name: string; onHand: number }>,
+  reason: string,
+): void {
+  if (products.length === 0) return;
+  emit({
+    tenantId: ctx.tenantId,
+    branchId,
+    channel: channels.branch(branchId),
+    topic: 'stock.changed',
+    payload: { reason, products },
+  });
+}
+
+/**
+ * A transfer moved. Published to **both** branches, because the destination
+ * needs to know a van is coming and the source needs to know it landed — and a
+ * transfer is the one Store fact that is never about a single shelf.
+ */
+function emitTransferUpdated(ctx: RequestContext, transferId: string, state: StockTransferState): void {
+  const transfer = db
+    .select()
+    .from(schema.stockTransfers)
+    .where(eq(schema.stockTransfers.id, transferId))
+    .get();
+  if (!transfer) return;
+  const payload = {
+    transferId,
+    reference: transfer.reference,
+    state,
+    fromBranchId: transfer.fromBranchId,
+    toBranchId: transfer.toBranchId,
+  };
+  for (const branchId of new Set([transfer.fromBranchId, transfer.toBranchId])) {
+    emit({
+      tenantId: ctx.tenantId,
+      branchId,
+      channel: channels.branch(branchId),
+      topic: 'transfer.updated',
+      payload,
+    });
+  }
+}
+
+/** Fires for every product a completed order pushed under its reorder point. */
+function emitLowStockFor(ctx: RequestContext, branchId: string, productIds: string[]): void {
+  for (const productId of [...new Set(productIds)]) {
+    const product = db
+      .select()
+      .from(schema.retailProducts)
+      .where(eq(schema.retailProducts.id, productId))
+      .get();
+    if (!product) continue;
+    const qty = onHand(ctx.tenantId, branchId, productId);
+    if (qty > product.reorderAt) continue;
+    emit({
+      tenantId: ctx.tenantId,
+      branchId,
+      channel: channels.branch(branchId),
+      topic: 'stock.low',
+      payload: {
+        productId,
+        name: displayNameOf(product),
+        sku: product.sku,
+        onHand: qty,
+        reorderAt: product.reorderAt,
+      },
+    });
+  }
 }
 
 /* ——— Ledger ————————————————————————————————————————————————— */
@@ -264,6 +607,11 @@ export function checkout(ctx: RequestContext, input: CheckoutInput) {
   requireBranch(ctx, input.branchId);
   if (input.lines.length === 0) throw invalid('A sale needs at least one line.');
   if (input.payments.length === 0) throw invalid('A sale needs at least one payment.');
+  // Checked here as well as in `raiseAccountInvoice` so the till is told before
+  // it starts pricing a basket it cannot settle.
+  if (!input.memberId && input.payments.some((p) => p.method === 'account')) {
+    throw invalid('Charging a sale to an account needs a member. Pick one, or take another tender.');
+  }
 
   return transact(() => {
     const priced: PricedLine[] = [];
@@ -369,25 +717,167 @@ export function checkout(ctx: RequestContext, input: CheckoutInput) {
         .run();
     }
 
+    // An `account` tender is the one that does not settle at the counter, so
+    // it is the only one that becomes a receivable. See `raiseAccountInvoice`.
+    const onAccountMinor = input.payments
+      .filter((p) => p.method === 'account')
+      .reduce((sum, p) => sum + p.amountMinor, 0);
+    const invoiceId =
+      onAccountMinor > 0
+        ? raiseAccountInvoice(ctx, {
+            orderId,
+            reference,
+            branchId: input.branchId,
+            memberId: input.memberId ?? null,
+            amountMinor: onAccountMinor,
+            lines: priced,
+          })
+        : null;
+    if (invoiceId) {
+      db.update(schema.posOrders).set({ invoiceId }).where(eq(schema.posOrders.id, orderId)).run();
+    }
+
     audit(ctx, {
       action: 'store.sale',
       entityType: 'pos_order',
       entityId: orderId,
       entityLabel: reference,
       branchId: input.branchId,
-      after: { totalMinor, lines: priced.length, memberId: input.memberId ?? null },
+      after: {
+        totalMinor,
+        lines: priced.length,
+        memberId: input.memberId ?? null,
+        onAccountMinor,
+        invoiceId,
+      },
     });
 
     emit({
       tenantId: ctx.tenantId,
       branchId: input.branchId,
       channel: channels.branch(input.branchId),
-      topic: 'payment.succeeded',
-      payload: { source: 'pos', orderId, reference, totalMinor },
+      topic: 'pos.sale_completed',
+      payload: {
+        orderId,
+        reference,
+        totalMinor,
+        lines: priced.length,
+        memberId: input.memberId ?? null,
+        invoiceId,
+      },
     });
+    emitStockChanged(
+      ctx,
+      input.branchId,
+      priced.map((l) => ({
+        productId: l.productId,
+        name: l.name,
+        onHand: onHand(ctx.tenantId, input.branchId, l.productId),
+      })),
+      'sale',
+    );
+    emitLowStockFor(ctx, input.branchId, priced.map((l) => l.productId));
 
     return getOrder(ctx, orderId);
   });
+}
+
+/* ——— Account tender ———————————————————————————————————————————— */
+
+interface AccountInvoiceInput {
+  orderId: string;
+  reference: string;
+  branchId: string;
+  memberId: string | null;
+  amountMinor: number;
+  lines: PricedLine[];
+}
+
+/**
+ * Turn the on-account portion of a sale into a real invoice.
+ *
+ * This is the whole of `pos_orders.invoice_id`, and the restraint is the point.
+ * Cash, card and UPI settle at the counter: the money is in the drawer before
+ * the customer leaves, there is no receivable, and minting an invoice that is
+ * born paid would double-count the day's takings against the billing ledger and
+ * put a stack of meaningless documents in the member's account. Those receipts
+ * stay standalone and `invoice_id` stays null — deliberately, not for want of
+ * wiring.
+ *
+ * An `account` tender is different in kind. Nothing was collected; the member
+ * owes the gym. That is exactly what an invoice is for, so it becomes one,
+ * using the same tables and numbering as the rest of billing rather than a
+ * parallel receivable only the shop knows about.
+ *
+ * `invoices.member_id` is NOT NULL, which is also the reason this cannot be
+ * generalised: a walk-in has no member to bill, so an account tender without a
+ * member is refused at the till rather than papered over with a placeholder.
+ */
+function raiseAccountInvoice(ctx: RequestContext, input: AccountInvoiceInput): string {
+  if (!input.memberId) {
+    throw invalid('Charging a sale to an account needs a member. Pick one, or take another tender.');
+  }
+
+  const invoiceId = id('inv');
+  const at = now();
+  const issuedOn = isoDate(at, 'Asia/Kolkata');
+
+  // Only the on-account share is billed. A basket half-settled in cash leaves a
+  // receivable for the remainder, not for the whole sale.
+  const share = input.amountMinor / input.lines.reduce((sum, l) => sum + l.totalMinor, 0);
+  const taxMinor = Math.round(input.lines.reduce((sum, l) => sum + l.taxMinor, 0) * share);
+
+  db.insert(schema.invoices)
+    .values({
+      id: invoiceId,
+      tenantId: ctx.tenantId,
+      branchId: input.branchId,
+      memberId: input.memberId,
+      number: nextInvoiceNumber(ctx.tenantId),
+      state: 'open',
+      issuedOn,
+      dueOn: addDays(issuedOn, 7),
+      currency: 'INR',
+      subtotalMinor: input.amountMinor - taxMinor,
+      discountMinor: 0,
+      taxMinor,
+      totalMinor: input.amountMinor,
+      paidMinor: 0,
+      refundedMinor: 0,
+      voided: false,
+      voidReason: null,
+      refType: 'pos_order',
+      refId: input.orderId,
+      createdAt: at,
+      updatedAt: at,
+    })
+    .run();
+
+  db.insert(schema.invoiceLines)
+    .values({
+      id: id('ivl'),
+      tenantId: ctx.tenantId,
+      invoiceId,
+      description: `Shop purchase ${input.reference}`,
+      quantity: 1,
+      unitMinor: input.amountMinor - taxMinor,
+      discountMinor: 0,
+      taxRateBp: 0,
+      taxMinor,
+      totalMinor: input.amountMinor,
+      productId: null,
+    })
+    .run();
+
+  emit({
+    tenantId: ctx.tenantId,
+    branchId: input.branchId,
+    channel: channels.member(input.memberId),
+    topic: 'invoice.updated',
+    payload: { invoiceId, state: 'open', source: 'pos', orderId: input.orderId },
+  });
+
+  return invoiceId;
 }
 
 /* ——— Return and void ————————————————————————————————————————— */
@@ -541,6 +1031,35 @@ export function returnOrder(
       after: { totalMinor: -totalMinor, returnedTo: returnBranch, of: orderId },
     });
 
+    emit({
+      tenantId: ctx.tenantId,
+      branchId: returnBranch,
+      channel: channels.branch(returnBranch),
+      topic: 'pos.return_completed',
+      payload: {
+        orderId: returnId,
+        reference: `${original.reference}-R`,
+        ofOrderId: orderId,
+        refundMinor: totalMinor,
+        fullyReturned,
+      },
+    });
+    // Stock came back at the branch that took the return, which may not be the
+    // branch that sold it — that shelf is the one whose console is now stale.
+    emitStockChanged(
+      ctx,
+      returnBranch,
+      lines.map((l) => {
+        const line = originalLines.find((o) => o.id === l.lineId);
+        return {
+          productId: line?.productId ?? '',
+          name: line?.name ?? '',
+          onHand: line ? onHand(ctx.tenantId, returnBranch, line.productId) : 0,
+        };
+      }),
+      'return',
+    );
+
     return getOrder(ctx, returnId);
   });
 }
@@ -591,13 +1110,31 @@ export function voidOrder(ctx: RequestContext, orderId: string, reason: string) 
       after: { state: 'voided' },
     });
 
+    emit({
+      tenantId: ctx.tenantId,
+      branchId: order.branchId,
+      channel: channels.branch(order.branchId),
+      topic: 'pos.order_voided',
+      payload: { orderId, reference: order.reference, totalMinor: order.totalMinor, reason },
+    });
+    emitStockChanged(
+      ctx,
+      order.branchId,
+      lines.map((l) => ({
+        productId: l.productId,
+        name: l.name,
+        onHand: onHand(ctx.tenantId, order.branchId, l.productId),
+      })),
+      'void',
+    );
+
     return getOrder(ctx, orderId);
   });
 }
 
 /* ——— Reads ——————————————————————————————————————————————————— */
 
-export function getOrder(ctx: RequestContext, orderId: string) {
+export function getOrder(ctx: RequestContext, orderId: string): PosOrderDetail {
   const order = orderInScope(ctx, orderId);
   const lines = db
     .select()
@@ -609,7 +1146,24 @@ export function getOrder(ctx: RequestContext, orderId: string) {
     .from(schema.posPayments)
     .where(and(eq(schema.posPayments.orderId, orderId), eq(schema.posPayments.tenantId, ctx.tenantId)))
     .all();
-  return { order, lines, payments };
+
+  const access = financialAccess(ctx);
+  const branches = branchNames(ctx.tenantId);
+  const original = order.returnOfOrderId
+    ? db.select().from(schema.posOrders).where(eq(schema.posOrders.id, order.returnOfOrderId)).get()
+    : null;
+  const members = memberNames(
+    ctx.tenantId,
+    [order.memberId, original?.memberId ?? null].filter((m): m is string => m !== null),
+  );
+
+  return {
+    order: toOrderSummary(order, branches, members),
+    lines: lines.map((l) => toOrderLine(l, access)),
+    tenders: payments.map(toTender),
+    returnedFrom: original ? toOrderSummary(original, branches, members) : null,
+    financial: access,
+  };
 }
 
 export interface OrderQuery {
@@ -619,9 +1173,11 @@ export interface OrderQuery {
   from?: number | null;
   to?: number | null;
   limit?: number;
+  /** Matches the receipt reference or the staff member who took the sale. */
+  search?: string | null;
 }
 
-export function listOrders(ctx: RequestContext, query: OrderQuery) {
+export function listOrders(ctx: RequestContext, query: OrderQuery): PosOrderList {
   requirePermission(ctx, 'inventory.view');
   const conditions = [eq(schema.posOrders.tenantId, ctx.tenantId)];
   if (query.branchId) {
@@ -654,7 +1210,17 @@ export function listOrders(ctx: RequestContext, query: OrderQuery) {
     );
     rows = rows.filter((r) => paid.has(r.id));
   }
-  return rows;
+
+  if (query.search) {
+    const needle = query.search.trim().toLowerCase();
+    rows = rows.filter(
+      (r) => r.reference.toLowerCase().includes(needle) || r.staffName.toLowerCase().includes(needle),
+    );
+  }
+
+  const branches = branchNames(ctx.tenantId);
+  const members = memberNames(ctx.tenantId, rows.map((r) => r.memberId).filter((m): m is string => m !== null));
+  return { items: rows.map((r) => toOrderSummary(r, branches, members)) };
 }
 
 export interface ProductQuery {
@@ -665,7 +1231,7 @@ export interface ProductQuery {
   search?: string | null;
 }
 
-export function listProducts(ctx: RequestContext, query: ProductQuery) {
+export function listProducts(ctx: RequestContext, query: ProductQuery): StoreProductList {
   requirePermission(ctx, 'inventory.view');
   const branchId = query.branchId ?? null;
   if (branchId) requireBranch(ctx, branchId);
@@ -700,17 +1266,22 @@ export function listProducts(ctx: RequestContext, query: ProductQuery) {
       .map((s) => [s.id, s]),
   );
 
+  const access = financialAccess(ctx);
   const search = query.search?.trim().toLowerCase();
   let items = products.map((p) => {
     const qty = stock.get(p.id) ?? 0;
-    return {
-      ...p,
-      onHand: qty,
-      lowStock: qty <= p.reorderAt,
-      groupName: p.groupId ? (groups.get(p.groupId)?.name ?? null) : null,
-      supplierName: p.supplierId ? (suppliers.get(p.supplierId)?.name ?? null) : null,
-      valuationMinor: qty * averageCost(ctx.tenantId, p.id, p.costMinor),
-    };
+    return toProduct(
+      p,
+      {
+        onHand: qty,
+        // Valuation is only computed when it will be shown. Weighted average
+        // cost is a query per product, and reception never sees the answer.
+        valuationMinor: access.canSeeMargin ? qty * averageCost(ctx.tenantId, p.id, p.costMinor) : 0,
+        groupName: p.groupId ? (groups.get(p.groupId)?.name ?? null) : null,
+        supplierName: p.supplierId ? (suppliers.get(p.supplierId)?.name ?? null) : null,
+      },
+      access,
+    );
   });
 
   if (query.lowStock) items = items.filter((i) => i.lowStock);
@@ -722,11 +1293,11 @@ export function listProducts(ctx: RequestContext, query: ProductQuery) {
         (i.barcode ?? '').toLowerCase().includes(search),
     );
   }
-  return items.sort((a, b) => a.name.localeCompare(b.name));
+  return { items: items.sort((a, b) => a.name.localeCompare(b.name)), financial: access };
 }
 
 /** Scan-to-sell: a barcode resolves to exactly one SKU or nothing. */
-export function findByBarcode(ctx: RequestContext, barcode: string) {
+export function findByBarcode(ctx: RequestContext, barcode: string, branchId?: string | null): StoreProduct {
   requirePermission(ctx, 'inventory.view');
   const product = db
     .select()
@@ -734,7 +1305,34 @@ export function findByBarcode(ctx: RequestContext, barcode: string) {
     .where(and(eq(schema.retailProducts.tenantId, ctx.tenantId), eq(schema.retailProducts.barcode, barcode)))
     .get();
   if (!product) throw notFound('That barcode');
-  return product;
+  if (branchId) requireBranch(ctx, branchId);
+  return hydrateProduct(ctx, product, branchId ?? null);
+}
+
+/** One product in the shape the console reads, with stock for a branch scope. */
+function hydrateProduct(
+  ctx: RequestContext,
+  row: typeof schema.retailProducts.$inferSelect,
+  branchId: string | null,
+): StoreProduct {
+  const access = financialAccess(ctx);
+  const qty = branchId ? onHand(ctx.tenantId, branchId, row.id) : (onHandMap(ctx.tenantId, null).get(row.id) ?? 0);
+  const group = row.groupId
+    ? db.select().from(schema.retailProductGroups).where(eq(schema.retailProductGroups.id, row.groupId)).get()
+    : null;
+  const supplier = row.supplierId
+    ? db.select().from(schema.suppliers).where(eq(schema.suppliers.id, row.supplierId)).get()
+    : null;
+  return toProduct(
+    row,
+    {
+      onHand: qty,
+      valuationMinor: access.canSeeMargin ? qty * averageCost(ctx.tenantId, row.id, row.costMinor) : 0,
+      groupName: group?.name ?? null,
+      supplierName: supplier?.name ?? null,
+    },
+    access,
+  );
 }
 
 /* ——— Catalogue ———————————————————————————————————————————————— */
@@ -765,7 +1363,7 @@ function assertBarcodeFree(ctx: RequestContext, barcode: string | null | undefin
   if (clash && clash.id !== exceptId) throw conflict(`That barcode already belongs to ${clash.name}.`);
 }
 
-export function createProduct(ctx: RequestContext, input: ProductInput) {
+export function createProduct(ctx: RequestContext, input: ProductInput): StoreProduct {
   requirePermission(ctx, 'inventory.manage');
   if (input.priceMinor < 0 || input.costMinor < 0) throw invalid('Price and cost cannot be negative.');
   assertBarcodeFree(ctx, input.barcode);
@@ -816,10 +1414,14 @@ export function createProduct(ctx: RequestContext, input: ProductInput) {
     entityLabel: input.name,
     after: { sku: input.sku, priceMinor: input.priceMinor },
   });
-  return productInTenant(ctx, productId);
+  return hydrateProduct(ctx, productInTenant(ctx, productId), null);
 }
 
-export function updateProduct(ctx: RequestContext, productId: string, patch: Partial<ProductInput> & { active?: boolean }) {
+export function updateProduct(
+  ctx: RequestContext,
+  productId: string,
+  patch: Partial<ProductInput> & { active?: boolean },
+): StoreProduct {
   requirePermission(ctx, 'inventory.manage');
   const before = productInTenant(ctx, productId);
   if (patch.barcode !== undefined) assertBarcodeFree(ctx, patch.barcode, productId);
@@ -850,10 +1452,13 @@ export function updateProduct(ctx: RequestContext, productId: string, patch: Par
     before: { priceMinor: before.priceMinor, costMinor: before.costMinor, active: before.active },
     after: { priceMinor: after.priceMinor, costMinor: after.costMinor, active: after.active },
   });
-  return after;
+  return hydrateProduct(ctx, after, null);
 }
 
-export function createSupplier(ctx: RequestContext, input: { name: string; contactName?: string; email?: string; phone?: string; leadTimeDays?: number }) {
+export function createSupplier(
+  ctx: RequestContext,
+  input: { name: string; contactName?: string; email?: string; phone?: string; leadTimeDays?: number },
+): Supplier {
   requirePermission(ctx, 'inventory.manage');
   const supplierId = id('sup');
   db.insert(schema.suppliers)
@@ -870,15 +1475,36 @@ export function createSupplier(ctx: RequestContext, input: { name: string; conta
     })
     .run();
   audit(ctx, { action: 'store.supplier_created', entityType: 'supplier', entityId: supplierId, entityLabel: input.name });
-  return db.select().from(schema.suppliers).where(eq(schema.suppliers.id, supplierId)).get()!;
+  return toSupplier(db.select().from(schema.suppliers).where(eq(schema.suppliers.id, supplierId)).get()!);
 }
 
-export function listSuppliers(ctx: RequestContext) {
+const toSupplier = (row: typeof schema.suppliers.$inferSelect): Supplier => ({
+  id: row.id,
+  name: row.name,
+  contactName: row.contactName,
+  email: row.email,
+  phone: row.phone,
+  leadTimeDays: row.leadTimeDays,
+  active: row.active,
+  createdAt: iso(row.createdAt),
+});
+
+export function listSuppliers(ctx: RequestContext): { items: Supplier[] } {
   requirePermission(ctx, 'inventory.view');
-  return db.select().from(schema.suppliers).where(eq(schema.suppliers.tenantId, ctx.tenantId)).all();
+  return {
+    items: db
+      .select()
+      .from(schema.suppliers)
+      .where(eq(schema.suppliers.tenantId, ctx.tenantId))
+      .all()
+      .map(toSupplier),
+  };
 }
 
-export function createGroup(ctx: RequestContext, input: { name: string; category: string; supplierId?: string | null }) {
+export function createGroup(
+  ctx: RequestContext,
+  input: { name: string; category: string; supplierId?: string | null },
+): ProductGroup {
   requirePermission(ctx, 'inventory.manage');
   const groupId = id('grp');
   db.insert(schema.retailProductGroups)
@@ -893,7 +1519,34 @@ export function createGroup(ctx: RequestContext, input: { name: string; category
     })
     .run();
   audit(ctx, { action: 'store.group_created', entityType: 'retail_product_group', entityId: groupId, entityLabel: input.name });
-  return db.select().from(schema.retailProductGroups).where(eq(schema.retailProductGroups.id, groupId)).get()!;
+  const row = db.select().from(schema.retailProductGroups).where(eq(schema.retailProductGroups.id, groupId)).get()!;
+  return {
+    id: row.id,
+    name: row.name,
+    category: row.category,
+    supplierId: row.supplierId,
+    active: row.active,
+    createdAt: iso(row.createdAt),
+  };
+}
+
+export function listGroups(ctx: RequestContext): { items: ProductGroup[] } {
+  requirePermission(ctx, 'inventory.view');
+  return {
+    items: db
+      .select()
+      .from(schema.retailProductGroups)
+      .where(eq(schema.retailProductGroups.tenantId, ctx.tenantId))
+      .all()
+      .map((row) => ({
+        id: row.id,
+        name: row.name,
+        category: row.category,
+        supplierId: row.supplierId,
+        active: row.active,
+        createdAt: iso(row.createdAt),
+      })),
+  };
 }
 
 /* ——— Stock adjustment ————————————————————————————————————————— */
@@ -907,7 +1560,7 @@ export interface AdjustInput {
   overrideReason?: string | null;
 }
 
-export function adjustStock(ctx: RequestContext, productId: string, input: AdjustInput) {
+export function adjustStock(ctx: RequestContext, productId: string, input: AdjustInput): StockAdjustResult {
   requirePermission(ctx, 'inventory.manage');
   requireBranch(ctx, input.branchId);
   const product = productInTenant(ctx, productId);
@@ -936,17 +1589,25 @@ export function adjustStock(ctx: RequestContext, productId: string, input: Adjus
       after: { delta: input.delta, onHand: qty, reason: input.reason },
     });
 
-    if (qty <= product.reorderAt) {
+    const lowStock = qty <= product.reorderAt;
+    emitStockChanged(ctx, input.branchId, [{ productId, name: displayNameOf(product), onHand: qty }], input.reason);
+    if (lowStock) {
       emit({
         tenantId: ctx.tenantId,
         branchId: input.branchId,
         channel: channels.branch(input.branchId),
-        topic: 'alert.raised',
-        payload: { kind: 'stock_low', productId, name: product.name, onHand: qty, reorderAt: product.reorderAt },
+        topic: 'stock.low',
+        payload: {
+          productId,
+          name: displayNameOf(product),
+          sku: product.sku,
+          onHand: qty,
+          reorderAt: product.reorderAt,
+        },
       });
     }
 
-    return { productId, branchId: input.branchId, onHand: qty };
+    return { productId, branchId: input.branchId, onHand: qty, lowStock };
   });
 }
 
@@ -1020,6 +1681,7 @@ export function createTransfer(
       branchId: input.fromBranchId,
       after: { to: input.toBranchId, lines: input.lines.length },
     });
+    emitTransferUpdated(ctx, transferId, 'draft');
     return getTransfer(ctx, transferId);
   });
 }
@@ -1036,27 +1698,63 @@ function transferInScope(ctx: RequestContext, transferId: string) {
   return transfer;
 }
 
-export function getTransfer(ctx: RequestContext, transferId: string) {
+export function getTransfer(ctx: RequestContext, transferId: string): StockTransferDetail {
   const transfer = transferInScope(ctx, transferId);
   const lines = db
     .select()
     .from(schema.stockTransferLines)
     .where(eq(schema.stockTransferLines.transferId, transferId))
     .all();
-  return { transfer, lines };
+
+  const access = financialAccess(ctx);
+  const products = new Map(
+    lines.length
+      ? db
+          .select()
+          .from(schema.retailProducts)
+          .where(inArray(schema.retailProducts.id, [...new Set(lines.map((l) => l.productId))]))
+          .all()
+          .map((p) => [p.id, p])
+      : [],
+  );
+  const state = transfer.state as StockTransferState;
+  return {
+    transfer: toTransfer(transfer, lines, branchNames(ctx.tenantId)),
+    lines: lines.map((l) => toTransferLine(l, products.get(l.productId), state, access)),
+    financial: access,
+  };
 }
 
-export function listTransfers(ctx: RequestContext, state?: string | null) {
+export function listTransfers(ctx: RequestContext, state?: string | null): StockTransferList {
   requirePermission(ctx, 'inventory.view');
   const conditions = [eq(schema.stockTransfers.tenantId, ctx.tenantId)];
   if (state) conditions.push(eq(schema.stockTransfers.state, state));
-  return db
+  const rows = db
     .select()
     .from(schema.stockTransfers)
     .where(and(...conditions))
     .orderBy(desc(schema.stockTransfers.createdAt))
     .all()
     .filter((t) => ctx.branchIds.includes(t.fromBranchId) || ctx.branchIds.includes(t.toBranchId));
+
+  // One query for every line rather than one per transfer, so the list stays
+  // flat as the history grows.
+  const allLines = rows.length
+    ? db
+        .select()
+        .from(schema.stockTransferLines)
+        .where(inArray(schema.stockTransferLines.transferId, rows.map((r) => r.id)))
+        .all()
+    : [];
+  const byTransfer = new Map<string, Array<typeof schema.stockTransferLines.$inferSelect>>();
+  for (const line of allLines) {
+    const bucket = byTransfer.get(line.transferId);
+    if (bucket) bucket.push(line);
+    else byTransfer.set(line.transferId, [line]);
+  }
+
+  const branches = branchNames(ctx.tenantId);
+  return { items: rows.map((r) => toTransfer(r, byTransfer.get(r.id) ?? [], branches)) };
 }
 
 export function dispatchTransfer(ctx: RequestContext, transferId: string, overrideReason?: string | null) {
@@ -1098,6 +1796,18 @@ export function dispatchTransfer(ctx: RequestContext, transferId: string, overri
       before: { state: 'draft' },
       after: { state: 'dispatched' },
     });
+    emitTransferUpdated(ctx, transferId, 'dispatched');
+    emitStockChanged(
+      ctx,
+      transfer.fromBranchId,
+      lines.map((l) => ({
+        productId: l.productId,
+        name: '',
+        onHand: onHand(ctx.tenantId, transfer.fromBranchId, l.productId),
+      })),
+      'transfer_out',
+    );
+    emitLowStockFor(ctx, transfer.fromBranchId, lines.map((l) => l.productId));
     return getTransfer(ctx, transferId);
   });
 }
@@ -1178,6 +1888,17 @@ export function receiveTransfer(
       before: { state: 'dispatched' },
       after: { state: 'received' },
     });
+    emitTransferUpdated(ctx, transferId, 'received');
+    emitStockChanged(
+      ctx,
+      transfer.toBranchId,
+      lines.map((l) => ({
+        productId: l.productId,
+        name: '',
+        onHand: onHand(ctx.tenantId, transfer.toBranchId, l.productId),
+      })),
+      'transfer_in',
+    );
     return getTransfer(ctx, transferId);
   });
 }
@@ -1202,6 +1923,7 @@ export function cancelTransfer(ctx: RequestContext, transferId: string, reason: 
     reason,
     after: { state: 'cancelled' },
   });
+  emitTransferUpdated(ctx, transferId, 'cancelled');
   return getTransfer(ctx, transferId);
 }
 
@@ -1214,7 +1936,10 @@ export function cancelTransfer(ctx: RequestContext, transferId: string, reason: 
  * cost, so restating a supplier price does not rewrite last month's profit.
  * Valuation uses the weighted average of what stock actually cost to buy.
  */
-export function reports(ctx: RequestContext, opts: { branchId?: string | null; from?: number | null; to?: number | null }) {
+export function reports(
+  ctx: RequestContext,
+  opts: { branchId?: string | null; from?: number | null; to?: number | null },
+): StoreReport {
   requirePermission(ctx, 'inventory.view');
   const branchId = opts.branchId ?? null;
   if (branchId) requireBranch(ctx, branchId);
@@ -1257,11 +1982,12 @@ export function reports(ctx: RequestContext, opts: { branchId?: string | null; f
 
   let valuationMinor = 0;
   const lowStock: Array<{ id: string; name: string; sku: string; onHand: number; reorderAt: number }> = [];
+  const wantsValuation = ctx.permissions.includes('report.financial');
   for (const branch of branchIds) {
     const stock = onHandMap(ctx.tenantId, branch);
     for (const p of products) {
       const qty = stock.get(p.id) ?? 0;
-      if (qty > 0) valuationMinor += qty * averageCost(ctx.tenantId, p.id, p.costMinor);
+      if (qty > 0 && wantsValuation) valuationMinor += qty * averageCost(ctx.tenantId, p.id, p.costMinor);
       if (p.active && qty <= p.reorderAt) {
         lowStock.push({ id: p.id, name: p.name, sku: p.sku, onHand: qty, reorderAt: p.reorderAt });
       }
@@ -1302,8 +2028,10 @@ export function reports(ctx: RequestContext, opts: { branchId?: string | null; f
     byProduct.set(l.productId, entry);
   }
 
+  const access = financialAccess(ctx);
+
   return {
-    scope: { branchId, from, to, branches: branchIds.length },
+    scope: { branchId, branches: branchIds.length, from: iso(from), to: iso(to) },
     sales: {
       orders: live.filter((o) => o.kind === 'sale').length,
       returns: live.filter((o) => o.kind === 'return').length,
@@ -1312,25 +2040,39 @@ export function reports(ctx: RequestContext, opts: { branchId?: string | null; f
       revenueMinor,
       taxMinor,
     },
-    margin: {
-      revenueMinor,
-      costMinor,
-      marginMinor,
-      // Basis points avoid a float percentage in a money report.
-      marginBp: revenueMinor === 0 ? 0 : Math.round((marginMinor / revenueMinor) * 10_000),
-    },
-    valuation: { valuationMinor, skus: products.length },
-    shrinkage: { units: shrinkageUnits, costMinor: shrinkageMinor },
+    // Withheld whole rather than zeroed. A margin of ₹0 is a real and alarming
+    // figure; it must never stand in for "your role may not see this".
+    margin: access.canSeeMargin
+      ? {
+          revenueMinor,
+          costMinor,
+          marginMinor,
+          // Basis points avoid a float percentage in a money report.
+          marginBp: revenueMinor === 0 ? 0 : Math.round((marginMinor / revenueMinor) * 10_000),
+        }
+      : null,
+    valuation: access.canSeeMargin ? { valuationMinor, skus: products.length } : null,
+    // Units lost is operational — a manager reorders against it — so it stays
+    // visible. What those units were worth is the financial half.
+    shrinkage: { units: shrinkageUnits, costMinor: access.canSeeMargin ? shrinkageMinor : null },
     lowStock: lowStock.sort((a, b) => a.onHand - b.onHand).slice(0, 50),
     topProducts: [...byProduct.entries()]
-      .map(([productId, v]) => ({ productId, ...v }))
+      .map(([productId, v]) => ({
+        productId,
+        name: v.name,
+        units: v.units,
+        revenueMinor: v.revenueMinor,
+        marginMinor: access.canSeeMargin ? v.marginMinor : null,
+      }))
       .sort((a, b) => b.revenueMinor - a.revenueMinor)
       .slice(0, 10),
+    asOf: iso(now()),
+    financial: access,
   };
 }
 
 /** Movement history for one product — the audit trail a stocktake argues with. */
-export function ledgerFor(ctx: RequestContext, productId: string, branchId?: string | null) {
+export function ledgerFor(ctx: RequestContext, productId: string, branchId?: string | null): StockLedgerPage {
   requirePermission(ctx, 'inventory.view');
   productInTenant(ctx, productId);
   const conditions = [eq(schema.stockLedger.tenantId, ctx.tenantId), eq(schema.stockLedger.productId, productId)];
@@ -1340,11 +2082,15 @@ export function ledgerFor(ctx: RequestContext, productId: string, branchId?: str
   } else {
     conditions.push(inArray(schema.stockLedger.branchId, ctx.branchIds));
   }
-  return db
+  const rows = db
     .select()
     .from(schema.stockLedger)
     .where(and(...conditions))
     .orderBy(desc(schema.stockLedger.at))
     .limit(200)
     .all();
+
+  const access = financialAccess(ctx);
+  const branches = branchNames(ctx.tenantId);
+  return { items: rows.map((r) => toMovement(r, branches, access)), financial: access };
 }

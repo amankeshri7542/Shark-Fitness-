@@ -17,6 +17,7 @@ import {
   getOrder,
   getTransfer,
   ledgerFor,
+  listGroups,
   listOrders,
   listProducts,
   listSuppliers,
@@ -132,6 +133,7 @@ const OrderQuery = z.object({
   from: z.coerce.number().int().optional(),
   to: z.coerce.number().int().optional(),
   limit: z.coerce.number().int().min(1).max(500).default(100),
+  q: z.string().trim().max(120).optional(),
 });
 
 const ReportQuery = z.object({
@@ -146,40 +148,43 @@ const flag = (v: 'true' | 'false' | undefined): boolean | null => (v === undefin
 
 storeRoutes.get('/products', validate('query', ProductQuery), (c) => {
   const q = c.req.valid('query');
-  return c.json({
-    items: listProducts(ctxOf(c), {
+  return c.json(
+    listProducts(ctxOf(c), {
       branchId: q.branchId ?? null,
       category: q.category ?? null,
       active: flag(q.active),
       lowStock: q.lowStock === 'true',
       search: q.q ?? null,
     }),
-  });
+  );
 });
 
 storeRoutes.get('/products/barcode/:barcode', (c) => {
-  return c.json({ product: findByBarcode(ctxOf(c), c.req.param('barcode')) });
+  return c.json({ product: findByBarcode(ctxOf(c), c.req.param('barcode'), c.req.query('branchId') ?? null) });
 });
 
 storeRoutes.get('/products/:productId/ledger', (c) => {
   const branchId = c.req.query('branchId') ?? null;
-  return c.json({ items: ledgerFor(ctxOf(c), c.req.param('productId'), branchId) });
+  return c.json(ledgerFor(ctxOf(c), c.req.param('productId'), branchId));
 });
 
-storeRoutes.get('/suppliers', (c) => c.json({ items: listSuppliers(ctxOf(c)) }));
+storeRoutes.get('/suppliers', (c) => c.json(listSuppliers(ctxOf(c))));
+
+storeRoutes.get('/groups', (c) => c.json(listGroups(ctxOf(c))));
 
 storeRoutes.get('/orders', validate('query', OrderQuery), (c) => {
   const q = c.req.valid('query');
-  return c.json({
-    items: listOrders(ctxOf(c), {
+  return c.json(
+    listOrders(ctxOf(c), {
       branchId: q.branchId ?? null,
       staffId: q.staffId ?? null,
       method: q.method ?? null,
       from: q.from ?? null,
       to: q.to ?? null,
       limit: q.limit,
+      search: q.q ?? null,
     }),
-  });
+  );
 });
 
 storeRoutes.get('/orders/:orderId', (c) => {
@@ -189,7 +194,7 @@ storeRoutes.get('/orders/:orderId', (c) => {
 });
 
 storeRoutes.get('/transfers', (c) => {
-  return c.json({ items: listTransfers(ctxOf(c), c.req.query('state') ?? null) });
+  return c.json(listTransfers(ctxOf(c), c.req.query('state') ?? null));
 });
 
 storeRoutes.get('/transfers/:transferId', (c) => {
