@@ -190,7 +190,7 @@ are normative and this plan does not restate them in full.
 
 ---
 
-## Phase 7 — Store: point of sale and inventory
+## Phase 7 — Store: point of sale and inventory — **BUILT**
 
 **Requirements:** PF-POS-001 … PF-POS-006.
 **Permissions:** `inventory.view`, `inventory.manage`.
@@ -198,8 +198,27 @@ are normative and this plan does not restate them in full.
 `apps/admin-web/src/screens/Store.tsx` (currently a placeholder).
 **New service:** `apps/api/src/services/store.ts`.
 
-**Tables — all exist, no migration:** `retail_products`, `stock_ledger`
-(append-only, trigger-guarded), `pos_orders`, `pos_order_lines`.
+**Tables — this claim was wrong.** An earlier revision of this plan said all
+tables existed and no migration was needed. Four of the six SHALL requirements
+have no home in `retail_products`, `stock_ledger`, `pos_orders` and
+`pos_order_lines` as they stood:
+
+| Gap | Requirement |
+|---|---|
+| variants, suppliers, unique barcode | PF-POS-001 |
+| discounts, per-line tax, mixed tender, returns, void reason | PF-POS-002 |
+| dispatch/receipt states — a ledger cannot express stock in transit | PF-POS-005 |
+| cost snapshot at sale, without which margin is rewritten by a price edit | PF-POS-006 |
+
+`infrastructure/migrations/0001_phase7_store.sql` adds `suppliers`,
+`retail_product_groups`, `pos_payments`, `stock_transfers` and
+`stock_transfer_lines`, plus additive columns on the four existing tables. The
+stock-keeping unit stays `retail_products` — it already carries the SKU,
+barcode, price and cost, and the ledger already points at it — so
+`retail_product_groups` is only the parent that turns "Shark Tee" into S/M/L,
+and no existing ledger or order-line row was rewritten. Every added column is
+nullable or defaulted; the migration was verified against a database seeded on
+the previous schema, with all rows intact afterwards.
 
 **Seed:** `retail_products` and `stock_ledger` are seeded. `pos_orders` and
 `pos_order_lines` are **not** — seed a realistic day of sales, including one
