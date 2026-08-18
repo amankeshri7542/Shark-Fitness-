@@ -16,10 +16,17 @@ repository-specific detail to that contract; it does not replace it.
 
 ### Status of this document
 
-Verified against `main` on **16 August 2026**. Verification evidence: `pnpm
-typecheck` clean across 6 packages, `pnpm test` 203 passing (101 domain, 102 API
-integration), `pnpm build` clean, and both frontends driven in a real browser
-against the production single-origin server.
+Verified on `feat/phase-8-facility` on **18 August 2026** (Node 22, as CI pins).
+Verification evidence: `pnpm typecheck` clean across 6 packages, `pnpm test`
+**243 passing** (101 domain, 142 API integration), `pnpm build` clean, and the
+production single-origin server exercised over HTTP — hashed JS and CSS assets
+served with their own content types rather than SPA HTML, `/admin/` rendering
+`Shark Fitness — Operations`, and the Phase 8 safety-hold and branch-transfer
+paths driven end to end against seeded data.
+
+The previous revision of this line recorded 203 tests against `main` on 16
+August 2026, and stated `22 of 29` API route modules — that denominator counted
+a module that does not exist. Counts below are taken from the tree.
 
 ---
 
@@ -35,8 +42,8 @@ Do not re-implement any of this. Read it before planning a change.
 | `@shark/domain` | Membership state machine, booking eligibility, access decisions, strength maths, adaptive engine, gamification, money, permissions, safety scanning, retention risk. 101 tests. |
 | `@shark/design-tokens` | The Sonar system and the bounded copy register (`tone.ts`). |
 | Member PWA | **All 18 screens implemented.** No stubs remain. |
-| Admin console | 12 of 21 screens implemented. |
-| API | 22 of 29 route modules implemented. |
+| Admin console | **15 of 21 screens implemented.** The 6 placeholders are Automations, Platform, Reports, Settings, Store and Support. |
+| API | **24 of 28 route modules implemented.** The 4 stubs are `admin/reports`, `admin/settings`, `admin/store` and `admin/support`. All 28 are mounted in `app.ts`. |
 
 **The critical fact for planning: no module in this plan needs a migration.**
 Every table, index, permission key and seed fixture it requires already exists.
@@ -44,35 +51,29 @@ The remaining work is route handlers plus console screens.
 
 ---
 
-# 2. Blocking prerequisite — resolve before Phase 7
+# 2. Resolved prerequisite — Phase 6 is on `main`
 
-`main` does **not** contain Phase 6 (Staff & Training admin). That work is
-complete on the branch `agent/phase-6-staff-training` (2 commits, ~3,500 lines):
-`services/staff.ts`, `services/training-admin.ts`, the full `admin/staff.ts` and
-`admin/training.ts` routes, `StaffDetail.tsx`, `TrainingBuilder.tsx`,
-`lib/idempotency.ts`, and 477 lines of tests.
+**This is no longer a blocker.** Phase 6 (Staff & Training admin) was rebased
+onto `main` and merged as **PR #5** (`b98761b`, "rebase Phase 6 staff and
+training work onto main"). Verified present on `main`: `services/staff.ts`
+(626 lines), `services/training-admin.ts` (1,114), `admin/staff.ts` (213),
+`admin/training.ts` (294), `lib/idempotency.ts`, and the `phase6-staff` /
+`phase6-training` suites. `admin/staff.ts` and `admin/training.ts` are full
+route modules; the Staff and Training screens are no longer placeholders.
 
-**That branch must not be merged naively.** It was cut before the deployment
-fixes landed on `main`, and its diff would revert them:
+The merge was done the required way rather than naively, which matters because
+the Phase 6 branch predated the deployment fixes and a naive merge would have
+reverted them. All three regression points held:
 
-| File | What a naive merge would undo |
-|---|---|
-| `apps/api/src/server.ts` | The relative-root fix for `serveStatic` and the HTML/asset cache boundaries. Reverting it makes every JS and CSS file serve as the SPA HTML fallback — the app loads as a blank page. |
-| `apps/member-pwa/vite.config.ts` | `navigateFallbackDenylist`. Reverting it lets the member service worker answer `/admin/*` with the member shell, making the console unreachable in any browser that has opened the member app. |
-| `apps/api/src/__tests__/phase5-staff-branch-scope.integration.test.ts` | Deletes the test outright. |
+| File | Risk a naive merge carried | State on `main` |
+|---|---|---|
+| `apps/api/src/server.ts` | Reverting the relative-root `serveStatic` fix and the HTML/asset cache boundaries would serve every JS and CSS file as the SPA HTML fallback — a blank page. | Intact. Assets serve with their own content types. |
+| `apps/member-pwa/vite.config.ts` | Reverting `navigateFallbackDenylist` would let the member service worker answer `/admin/*` with the member shell, making the console unreachable. | Intact. |
+| `apps/api/src/__tests__/phase5-staff-branch-scope.integration.test.ts` | Deleting the test outright. | Present (123 lines) and passing. |
 
-**Required approach.** Rebase `agent/phase-6-staff-training` onto current `main`
-and resolve `server.ts`, `vite.config.ts` and `lib/security.ts` in favour of
-`main`, keeping only the Phase 6 additions. Then confirm, before opening a PR:
-
-- `pnpm test` passes, including `phase5-staff-branch-scope` **and** the two
-  `phase6-*` suites.
-- CI's production smoke step passes — it asserts assets are not the HTML
-  fallback and that cache headers are present. That step is the regression gate
-  for both reverts above.
-
-Until this is resolved, `admin/staff.ts` and `admin/training.ts` on `main` are
-7-line stubs and the Staff and Training screens render placeholders.
+Keep CI's production smoke step as the standing regression gate for the first
+two: it asserts assets are not the HTML fallback and that cache headers are
+present.
 
 ---
 
@@ -225,17 +226,18 @@ an order placed at a branch the caller cannot see.
 
 ---
 
-## Phase 8 — Equipment: facility operations
+## Phase 8 — Equipment: facility operations — **BUILT**
 
 **Requirements:** PF-FAC-001 … PF-FAC-006.
 **Permissions:** `facility.view`, `facility.manage`.
-**Files:** `apps/api/src/routes/admin/facility.ts` (stub),
-`apps/admin-web/src/screens/Equipment.tsx` (placeholder).
+**Files:** `apps/api/src/routes/admin/facility.ts` (thin adapter),
+`apps/api/src/services/facility.ts` (every rule),
+`apps/admin-web/src/screens/Equipment.tsx`,
+`apps/api/src/__tests__/phase8-facility.integration.test.ts` (25 tests).
 
 **Tables — all exist:** `equipment`, `work_orders`, `facility_tasks`. All three
 are seeded, including an overdue safety work order that the Command Center
-already surfaces as an exception — **that alert currently links to a placeholder
-screen**, which is the most visible gap in the console today.
+surfaces as an exception. That alert now lands on a working screen.
 
 **Endpoints**
 
@@ -244,6 +246,7 @@ screen**, which is the most visible gap in the console today.
 | GET | `/v1/admin/facility/equipment` | Filter by branch, category, status, due-for-service. |
 | POST | `/v1/admin/facility/equipment` | |
 | PATCH | `/v1/admin/facility/equipment/:equipmentId` | Includes status transitions. |
+| POST | `/v1/admin/facility/equipment/:equipmentId/return-to-service` | Lifts a safety hold. Requires a note. |
 | GET | `/v1/admin/facility/work-orders` | Filter by state, severity, assignee, overdue. |
 | POST | `/v1/admin/facility/work-orders` | |
 | PATCH | `/v1/admin/facility/work-orders/:workOrderId` | Assign, change state, resolve. |
@@ -258,10 +261,27 @@ screen**, which is the most visible gap in the console today.
 - A **safety**-severity work order is a plain-register surface and escalates to
   the Command Center exception list.
 - Closing a work order requires a resolution note.
+- `out_of_service` is a **hold, not a derived status**. Closing the last safety
+  work order SHALL NOT return an asset to service. `out_of_service` is never
+  lifted by an automatic transition; only `POST …/return-to-service` lifts it,
+  it requires a note recorded in the audit log, and it is refused while open
+  safety or blocked work stands. The resulting status is re-derived, so an asset
+  with open routine work returns as `in_maintenance`, not `available`.
+- The ceremony is **proportional to the risk**. An asset with any safety work
+  order in its history is a *safety hold*: lifting it additionally requires a
+  management role, checked against `ctx.role` rather than `facility.manage` so
+  that widening that permission cannot silently widen who may clear a hold, and
+  a plain `PATCH … {status: 'available'}` on it is refused. An asset that was
+  only ever administratively down — pulled for a relocation, say — carries no
+  such history, and needs only `facility.manage`.
+- A work order that keeps its `in_progress` or `blocked` state after losing its
+  assignee is reported with `needsReassignment`, so work that is live but
+  unstaffed is visible rather than merely unassigned.
 
-**Edge cases:** equipment moved between branches with an open work order; a
-safety order left open past its SLA; a recurring task whose branch is
-temporarily closed.
+**Edge cases — all covered by tests:** equipment moved between branches with an
+open work order (assignees who do not cover the destination are unassigned and
+the clearance audited); a safety order left open past its SLA; a recurring task
+whose branch is temporarily closed.
 
 ---
 
@@ -467,15 +487,15 @@ merely fail the PR, it silently stops the demo from updating.
 
 | Phase | Module | Depends on | Requirement IDs |
 |---|---|---|---|
-| — | **Rebase Phase 6 onto main** | — | PF-STAFF, PF-WORK |
-| 7 | Store | — | PF-POS-001…006 |
-| 8 | Equipment | — | PF-FAC-001…006 |
+| — | ~~Rebase Phase 6 onto main~~ — **merged** (PR #5) | — | PF-STAFF, PF-WORK |
+| 7 | Store — **next** | — | PF-POS-001…006 |
+| 8 | Equipment — **built** (PR #6) | — | PF-FAC-001…006 |
 | 9 | Support | — | PF-SUP-001…006 |
 | 10 | Reports | 7, 8 | PF-RPT-001…006 |
 | 11 | Settings | — | PF-TEN-001…006 |
 | 12 | Automations | 11 | PF-COMM-001…006 |
 | 13 | Platform | 11 | PF-PLAT-001…006 |
 
-Phases 7, 8, 9 and 11 have no dependency on each other and are the correct place
-to start. Phase 8 is the highest-value single phase, because the Command Center
-already raises a safety alert that currently links to a placeholder.
+Phases 7, 9 and 11 have no dependency on each other. **Phase 7 (Store) is the
+next one to start**, once PR #6 is on `main`. Phase 8 is built: the safety alert
+the Command Center raises now lands on a working Equipment screen.
