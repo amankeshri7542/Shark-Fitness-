@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError, api, idempotencyKey } from '../lib/api';
+import { ApiError, api } from '../lib/api';
 import { usePermission } from '../lib/store';
 import { Page } from '../ui/shell';
 import { Button, Checkbox, Chip, EmptyState, ErrorState, Field, Label, Metric, Panel, PermissionState, Seam, SelectField, Skeleton, Table, TableScroll, type Tone } from '../ui/console';
 import { ConfirmDialog, Drawer, Modal } from '../ui/overlay';
+import { useIdempotentAttempt } from '../lib/idempotent-attempt';
 
 interface Summary {
   revenueThisMonthLabel: string;
@@ -417,13 +418,21 @@ function RecordPaymentSheet({ invoiceId, dueLabel, onClose, onDone }: { invoiceI
   const [reference, setReference] = useState('');
   const [error, setError] = useState<string | null>(null);
 
+  /* Money in. This endpoint takes its key in the body, so the fingerprint is
+     the payment's identity and the key it mints is placed inside the body that
+     gets sent. A retry after a lost response must not take the money twice. */
+  const attempt = useIdempotentAttempt('billing-payment', invoiceId);
   const record = useMutation({
-    mutationFn: () =>
-      api(`/admin/billing/invoices/${invoiceId}/payments`, {
+    mutationFn: () => {
+      const payload = { amountMinor: Math.round(Number(amount) * 100), method, reference: reference || undefined };
+      return api(`/admin/billing/invoices/${invoiceId}/payments`, {
         method: 'POST',
-        body: { amountMinor: Math.round(Number(amount) * 100), method, reference: reference || undefined, idempotencyKey: idempotencyKey('billing-payment', invoiceId) },
-      }),
-    onSuccess: onDone,
+        // The key is scoped to the invoice and fingerprinted on the payment,
+        // so correcting the amount before retrying is a different payment.
+        body: { ...payload, idempotencyKey: attempt.keyFor(payload) },
+      });
+    },
+    onSuccess: () => { attempt.retire(); onDone(); },
     onError: (e) => setError(e instanceof ApiError ? e.message : 'That did not work.'),
   });
 

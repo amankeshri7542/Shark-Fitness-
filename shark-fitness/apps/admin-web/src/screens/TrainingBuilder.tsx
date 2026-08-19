@@ -1,12 +1,13 @@
 import { useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError, OfflineError, api, idempotencyKey } from '../lib/api';
+import { ApiError, OfflineError, api } from '../lib/api';
 import { useOnline } from '../lib/realtime';
 import { usePermission } from '../lib/store';
 import { Page } from '../ui/shell';
 import { Button, Chip, EmptyState, ErrorState, Field, Label, Panel, PermissionState, Seam, SelectField as ConsoleSelectField, Skeleton, Toolbar, type Tone } from '../ui/console';
 import { Modal } from '../ui/overlay';
+import { useIdempotentAttempt } from '../lib/idempotent-attempt';
 
 interface Program { id: string; name: string; version: number; goal: string; daysPerWeek: number; weeks: number; authorName: string; state: 'draft' | 'published' | 'archived'; description: string; }
 interface Day { id: string; week: number; dayIndex: number; label: string; focus: string; isRest: boolean; estimatedMin: number; items: Item[]; }
@@ -35,6 +36,9 @@ export default function TrainingBuilderScreen() {
   const exercises = useQuery({ queryKey: ['training', 'exercises', 'builder'], queryFn: () => api<ExercisePayload>('/admin/training/exercises'), enabled: canView });
 
   const refresh = (): void => { void queryClient.invalidateQueries({ queryKey: ['training', 'program', programId] }); void queryClient.invalidateQueries({ queryKey: ['training', 'programs'] }); };
+  const dayAttempt = useIdempotentAttempt('program-day', programId);
+  const itemAttempt = useIdempotentAttempt('program-item');
+
   const mutate = (fn: () => Promise<unknown>, success?: () => void): void => { setActionError(null); void fn().then(() => { refresh(); success?.(); }).catch((error: unknown) => setActionError(error instanceof ApiError ? error.message : 'That change did not go through.')); };
 
   const updateMeta = useMutation({ mutationFn: (body: Record<string, unknown>) => api(`/admin/training/programs/${programId}`, { method: 'PATCH', body }) });
@@ -74,11 +78,11 @@ export default function TrainingBuilderScreen() {
         <MetaPanel program={program} editable={canManage && online && program.state === 'draft'} isPending={updateMeta.isPending} onSave={(body) => mutate(() => updateMeta.mutateAsync(body))} />
         <Panel title="Program outline" action={canManage && online && program.state === 'draft' ? <Button variant="ghost" onClick={() => setShowDayForm(true)}>Add day</Button> : null}>
           {!canPublish && program.state === 'draft' ? <p className="border-b border-line bg-wash-flare px-3.5 py-2.5 text-[12px]">Publishing needs at least one non-rest day with an active exercise.</p> : null}
-          {days.length === 0 ? <EmptyState title="No days yet" body="Add a week and day, then place exercises inside it." action={canManage && online && program.state === 'draft' ? <Button variant="cta" onClick={() => setShowDayForm(true)}>Add first day</Button> : undefined} /> : <div className="divide-y divide-line">{days.map((day) => <DayPanel key={day.id} day={day} editable={canManage && online && program.state === 'draft'} exercises={exerciseItems} itemDayId={itemDayId} setItemDayId={setItemDayId} onDelete={() => setConfirm({ kind: 'day', id: day.id })} onDeleteItem={(id) => setConfirm({ kind: 'item', id })} onAddItem={(body) => mutate(() => api(`/admin/training/days/${day.id}/items`, { method: 'POST', idempotencyKey: idempotencyKey('program-item', day.id, String(body.exerciseId ?? 'exercise')), body }), () => setItemDayId(null))} onMoveItem={(item, delta) => mutate(() => api(`/admin/training/items/${item.id}`, { method: 'PATCH', body: { orderIndex: Math.max(0, item.orderIndex + delta) } }))} />)}</div>}
+          {days.length === 0 ? <EmptyState title="No days yet" body="Add a week and day, then place exercises inside it." action={canManage && online && program.state === 'draft' ? <Button variant="cta" onClick={() => setShowDayForm(true)}>Add first day</Button> : undefined} /> : <div className="divide-y divide-line">{days.map((day) => <DayPanel key={day.id} day={day} editable={canManage && online && program.state === 'draft'} exercises={exerciseItems} itemDayId={itemDayId} setItemDayId={setItemDayId} onDelete={() => setConfirm({ kind: 'day', id: day.id })} onDeleteItem={(id) => setConfirm({ kind: 'item', id })} onAddItem={(body) => mutate(() => api(`/admin/training/days/${day.id}/items`, { method: 'POST', idempotencyKey: itemAttempt.keyFor({ dayId: day.id, ...body }), body }), () => { itemAttempt.retire(); setItemDayId(null); })} onMoveItem={(item, delta) => mutate(() => api(`/admin/training/items/${item.id}`, { method: 'PATCH', body: { orderIndex: Math.max(0, item.orderIndex + delta) } }))} />)}</div>}
         </Panel>
       </div>
       {program.state === 'published' && canManage && online ? <Panel title="Version lifecycle" action={<Button variant="danger" onClick={() => setConfirm({ kind: 'archive', id: program.id })}>Archive version</Button>}><p className="px-3.5 py-3 text-[12px] leading-relaxed text-foam-65">Publishing freezes this version so assigned members keep the exact prescription they received. Create a new version when the plan needs edits.</p></Panel> : null}
-      {showDayForm ? <DayForm program={program} isPending={false} onClose={() => setShowDayForm(false)} onSave={(body) => mutate(() => api(`/admin/training/programs/${program.id}/days`, { method: 'POST', idempotencyKey: idempotencyKey('program-day', program.id, String(body.week), String(body.dayIndex)), body }), () => setShowDayForm(false))} /> : null}
+      {showDayForm ? <DayForm program={program} isPending={false} onClose={() => setShowDayForm(false)} onSave={(body) => mutate(() => api(`/admin/training/programs/${program.id}/days`, { method: 'POST', idempotencyKey: dayAttempt.keyFor(body), body }), () => { dayAttempt.retire(); setShowDayForm(false); })} /> : null}
       {confirm ? <ConfirmDialog kind={confirm.kind} isPending={deleteDay.isPending || deleteItem.isPending || archive.isPending} onClose={() => setConfirm(null)} onConfirm={() => { if (confirm.kind === 'day') mutate(() => deleteDay.mutateAsync(confirm.id), () => setConfirm(null)); else if (confirm.kind === 'item') mutate(() => deleteItem.mutateAsync(confirm.id), () => setConfirm(null)); else doArchive(); }} /> : null}
     </Page>
   );

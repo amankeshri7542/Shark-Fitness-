@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError, OfflineError, api, idempotencyKey } from '../lib/api';
+import { ApiError, OfflineError, api } from '../lib/api';
 import { useAdmin, useBranchScope, usePermission } from '../lib/store';
 import { useOnline } from '../lib/realtime';
 import { Page } from '../ui/shell';
 import { Button, Chip, EmptyState, ErrorState, Field, Label, Metric, Panel, PermissionState, Seam, SelectField as ConsoleSelectField, Skeleton, Toolbar, type Tone } from '../ui/console';
 import { Modal } from '../ui/overlay';
+import { useIdempotentAttempt } from '../lib/idempotent-attempt';
 
 interface StaffRow { id: string; name: string; initials: string; email: string | null; role: string; employmentStatus: string; branchIds: string[]; specialties: string[]; assignedMemberCount: number; utilisationPct: number; }
 interface StaffListPayload { total: number; page: number; pageSize: number; totalPages: number; hasMore: boolean; totals: { active: number; trainers: number; onLeave: number; certificationsNeedingAttention: number }; items: StaffRow[]; }
@@ -54,7 +55,14 @@ function CreateStaffSheet({ branches, onClose }: { branches: Array<{ id: string;
   const queryClient = useQueryClient();
   const activeBranchId = useAdmin((state) => state.activeBranchId);
   const [name, setName] = useState(''); const [email, setEmail] = useState(''); const [phone, setPhone] = useState(''); const [role, setRole] = useState('trainer'); const [branchIds, setBranchIds] = useState(activeBranchId ? [activeBranchId] : branches[0] ? [branches[0].id] : []); const [specialties, setSpecialties] = useState(''); const [fieldError, setFieldError] = useState<string | null>(null);
-  const create = useMutation({ mutationFn: () => api('/admin/staff', { method: 'POST', idempotencyKey: idempotencyKey('staff-invite', email.trim() || name.trim()), body: { name: name.trim(), email: email.trim() || null, phone: phone.trim() || null, role, branchIds, specialties: specialties.split(',').map((value) => value.trim()).filter(Boolean) } }), onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ['staff'] }); onClose(); } });
+  const attempt = useIdempotentAttempt('staff-invite');
+  const create = useMutation({
+    mutationFn: () => {
+      const payload = { name: name.trim(), email: email.trim() || null, phone: phone.trim() || null, role, branchIds, specialties: specialties.split(',').map((value) => value.trim()).filter(Boolean) };
+      return api('/admin/staff', { method: 'POST', idempotencyKey: attempt.keyFor(payload), body: payload });
+    },
+    onSuccess: () => { attempt.retire(); void queryClient.invalidateQueries({ queryKey: ['staff'] }); onClose(); },
+  });
   const toggle = (id: string): void => setBranchIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
   const error = create.error instanceof ApiError ? create.error.message : create.isError ? 'That invitation could not be created.' : fieldError;
   return (

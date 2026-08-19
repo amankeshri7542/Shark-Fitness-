@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useParams } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError, OfflineError, api, idempotencyKey } from '../lib/api';
+import { ApiError, OfflineError, api } from '../lib/api';
 import { useAdmin, useBranchScope, usePermission } from '../lib/store';
 import { useOnline } from '../lib/realtime';
 import { Page } from '../ui/shell';
@@ -21,6 +21,7 @@ import {
   type Tone,
 } from '../ui/console';
 import { ConfirmDialog as ConsoleConfirmDialog } from '../ui/overlay';
+import { useIdempotentAttempt } from '../lib/idempotent-attempt';
 
 interface Certification {
   name: string;
@@ -179,7 +180,15 @@ function ShiftPanel({ staffId, shifts, branchNames, canManage, onChanged }: { st
   const [role, setRole] = useState('floor');
   const [error, setError] = useState<string | null>(null);
   const branches = useAdmin((state) => state.branches);
-  const create = useMutation({ mutationFn: () => api(`/admin/staff/${staffId}/shifts`, { method: 'POST', idempotencyKey: idempotencyKey('staff-shift', staffId, startsAt), body: { branchId, startsAt: new Date(startsAt).toISOString(), endsAt: new Date(endsAt).toISOString(), role, note: null } }), onSuccess: () => { setError(null); setStartsAt(''); setEndsAt(''); onChanged(); }, onError: (reason) => setError(reason instanceof ApiError ? reason.message : 'That shift could not be saved.') });
+  const attempt = useIdempotentAttempt('staff-shift', staffId);
+  const create = useMutation({
+    mutationFn: () => {
+      const payload = { branchId, startsAt: new Date(startsAt).toISOString(), endsAt: new Date(endsAt).toISOString(), role, note: null };
+      return api(`/admin/staff/${staffId}/shifts`, { method: 'POST', idempotencyKey: attempt.keyFor(payload), body: payload });
+    },
+    onSuccess: () => { attempt.retire(); setError(null); setStartsAt(''); setEndsAt(''); onChanged(); },
+    onError: (reason) => setError(reason instanceof ApiError ? reason.message : 'That shift could not be saved.'),
+  });
   return <Panel title="Shifts and availability"><div className="divide-y divide-line">{shifts.length === 0 ? <EmptyState title="No shifts in this window" body="Add a planned shift to make availability visible to the team." /> : shifts.map((shift) => <div key={shift.id} className="flex items-center gap-3 px-3.5 py-2.5"><div className="min-w-0 flex-1"><div className="text-[12px]">{new Date(shift.startsAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })} – {new Date(shift.endsAt).toLocaleTimeString('en-IN', { timeStyle: 'short' })}</div><div className="font-utility text-[10px] uppercase tracking-[0.1em] text-foam-35">{branchNames.get(shift.branchId) ?? shift.branchId} · {shift.role}</div></div><Chip tone={shift.conflict ? 'bad' : shift.state === 'completed' ? 'good' : 'neutral'}>{shift.conflict ? 'overlap' : shift.state.replace(/_/g, ' ')}</Chip></div>)}</div>{canManage ? <div className="grid grid-cols-1 gap-2 border-t border-line p-3.5 sm:grid-cols-2"><SelectField label="Branch" value={branchId} onChange={setBranchId} options={[['', 'Choose branch'], ...branches.map((branch) => [branch.id, branch.name] as [string, string])]} /><Field label="Shift role" value={role} onChange={(event) => setRole(event.target.value)} /><Field label="Starts" type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} /><Field label="Ends" type="datetime-local" value={endsAt} onChange={(event) => setEndsAt(event.target.value)} /><div className="sm:col-span-2">{error ? <p className="mb-2 text-[11px] text-chum">{error}</p> : null}<Button variant="outline" disabled={create.isPending || !branchId || !startsAt || !endsAt} onClick={() => create.mutate()}>{create.isPending ? 'Adding…' : 'Add shift'}</Button></div></div> : null}</Panel>;
 }
 

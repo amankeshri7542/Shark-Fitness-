@@ -1,12 +1,13 @@
 import { useState, type ReactNode } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError, OfflineError, api, idempotencyKey } from '../lib/api';
+import { ApiError, OfflineError, api } from '../lib/api';
 import { usePermission } from '../lib/store';
 import { useOnline } from '../lib/realtime';
 import { Page } from '../ui/shell';
 import { Button, Chip, EmptyState, ErrorState, Field, Label, Metric, Panel, PermissionState, Seam, SelectField as ConsoleSelectField, Skeleton, Toolbar, type Tone } from '../ui/console';
 import { Modal } from '../ui/overlay';
+import { useIdempotentAttempt } from '../lib/idempotent-attempt';
 
 interface ExerciseRow { id: string; slug: string; name: string; equipment: string; primaryMuscles: string[]; difficulty: string; archived: boolean; defaultRestSec: number; }
 interface ProgramRow { id: string; name: string; version: number; goal: string; daysPerWeek: number; weeks: number; authorName: string; state: 'draft' | 'published' | 'archived'; description: string; updatedAt: number; }
@@ -41,17 +42,19 @@ export default function TrainingScreen() {
     enabled: canView,
   });
 
+  const exerciseAttempt = useIdempotentAttempt('exercise-create');
   const createExercise = useMutation({
-    mutationFn: (body: Record<string, unknown>) => api('/admin/training/exercises', { method: 'POST', idempotencyKey: idempotencyKey('exercise-create', String(body.slug ?? 'exercise')), body }),
-    onSuccess: () => { setShowExerciseForm(false); void queryClient.invalidateQueries({ queryKey: ['training', 'exercises'] }); },
+    mutationFn: (body: Record<string, unknown>) => api('/admin/training/exercises', { method: 'POST', idempotencyKey: exerciseAttempt.keyFor(body), body }),
+    onSuccess: () => { exerciseAttempt.retire(); setShowExerciseForm(false); void queryClient.invalidateQueries({ queryKey: ['training', 'exercises'] }); },
   });
   const archiveExercise = useMutation({
     mutationFn: (id: string) => api(`/admin/training/exercises/${id}/archive`, { method: 'POST' }),
     onSuccess: () => { setArchiveId(null); void queryClient.invalidateQueries({ queryKey: ['training', 'exercises'] }); },
   });
+  const programAttempt = useIdempotentAttempt('program-create');
   const createProgram = useMutation({
-    mutationFn: (body: Record<string, unknown>) => api<{ program: { id: string } }>('/admin/training/programs', { method: 'POST', idempotencyKey: idempotencyKey('program-create', String(body.name ?? 'program')), body }),
-    onSuccess: ({ program }) => { setShowProgramForm(false); void navigate({ to: '/training/$programId', params: { programId: program.id } }); },
+    mutationFn: (body: Record<string, unknown>) => api<{ program: { id: string } }>('/admin/training/programs', { method: 'POST', idempotencyKey: programAttempt.keyFor(body), body }),
+    onSuccess: ({ program }) => { programAttempt.retire(); setShowProgramForm(false); void navigate({ to: '/training/$programId', params: { programId: program.id } }); },
   });
 
   if (!canView) return <Page title="Training"><PermissionState what="Training programs and the exercise library" /></Page>;

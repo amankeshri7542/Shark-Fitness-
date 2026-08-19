@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { Link, useParams } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError, api, idempotencyKey } from '../lib/api';
+import { ApiError, api } from '../lib/api';
 import { usePermission } from '../lib/store';
 import { Page } from '../ui/shell';
 import { Bar, Button, Checkbox, Chip, ErrorState, Field, Label, Metric, Panel, Seam, Skeleton, Table, TableScroll, cx, type Tone } from '../ui/console';
 import { Modal } from '../ui/overlay';
+import { useIdempotentAttempt } from '../lib/idempotent-attempt';
 
 interface Detail {
   member: {
@@ -532,13 +533,18 @@ function AssignTrainingSheet({ memberId, memberBranchName, currentTrainerId, has
     queryKey: ['training', 'programs', 'published'],
     queryFn: () => api<{ items: ProgramOption[] }>('/admin/training/programs?state=published'),
   });
+  const attempt = useIdempotentAttempt('training-assignment', memberId);
   const assign = useMutation({
     mutationFn: async () => {
       if (!trainerId) throw new Error('Choose a trainer before assigning a program.');
       if (!programId) throw new Error('Choose a published program.');
-      return api('/admin/training/assign-program', { method: 'POST', idempotencyKey: idempotencyKey('training-assignment', memberId, programId, startsOn), body: { memberId, programId, startsOn, trainerId, replaceActive } });
+      const payload = { memberId, programId, startsOn, trainerId, replaceActive };
+      return api('/admin/training/assign-program', { method: 'POST', idempotencyKey: attempt.keyFor(payload), body: payload });
     },
-    onSuccess: onDone,
+    onSuccess: () => {
+      attempt.retire();
+      onDone();
+    },
     onError: (reason) => setError(reason instanceof ApiError ? reason.message : reason instanceof Error ? reason.message : 'That program could not be assigned.'),
   });
 
