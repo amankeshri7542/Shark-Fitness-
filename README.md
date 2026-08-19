@@ -49,7 +49,7 @@ a real browser at 1440×900, 1024×768, 768×1024 and 375×812.
 
 ### ✅ Completed & Working
 - **Domain Engine:** 101 unit tests across membership, access decisions, training algorithms and fair scheduling.
-- **Test suite:** **572 tests** in 39 files — 130 domain, 253 API integration, 24 member PWA, 165 admin console.
+- **Test suite:** **585 tests** in 41 files — 130 domain, 253 API integration, 24 member PWA, 178 admin console.
 - **Database & Migrations:** 93 SQLite tables across 5 schema files, deterministic seed data, and 9 append-only/guard triggers protecting `audit_log`, `xp_ledger`, `stock_ledger` and `ticket_events`.
 - **Quality gates:** `pnpm lint` (ESLint 10 flat config, `--max-warnings=0`), `pnpm typecheck` and `pnpm build` pass with 0 errors, all gated in CI.
 - **Member PWA:** all 18 screens implemented — no stubs remain.
@@ -117,7 +117,7 @@ pnpm dev
 cd shark-fitness
 pnpm lint         # ESLint across the workspace; --max-warnings=0
 pnpm typecheck    # TypeScript across all 6 packages
-pnpm test         # 572 tests (domain, API integration, member PWA, admin console)
+pnpm test         # 585 tests (domain, API integration, member PWA, admin console)
 pnpm build        # Production bundles for both front ends
 ```
 

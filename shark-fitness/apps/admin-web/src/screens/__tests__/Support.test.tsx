@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
@@ -238,5 +238,127 @@ describe('Support — permission and offline', () => {
 
     expect(await screen.findByText(/no reply will reach a member/i)).toBeInTheDocument();
     online.mockRestore();
+  });
+});
+
+/* ============================================================================
+   Idempotency — one ticket, one key.
+
+   The server wraps ticket creation in `runIdempotently()`, which replays the
+   stored response rather than doing the work twice. That protection is only
+   ever as good as the key the client sends, and `idempotencyKey()` ends every
+   key with a random suffix — so a key minted inside `mutationFn` was a new key
+   on every press.
+
+   The failure that buys: the server writes the ticket, the response is lost on
+   the way back, the receptionist sees an error and presses "Raise ticket"
+   again. The member now has two threads for one complaint, the queue counts
+   the work twice, and the SLA clock starts again on a promise already made.
+   ========================================================================= */
+
+/** The `Idempotency-Key` each ticket-create POST carried. */
+function createKeys(): string[] {
+  return apiMock.mock.calls
+    .filter(([path, options]) => path === '/admin/support/tickets' && (options as { method?: string }).method === 'POST')
+    .map(([, options]) => (options as { idempotencyKey: string }).idempotencyKey);
+}
+
+async function compose(user: ReturnType<typeof userEvent.setup>) {
+  open();
+  await user.click(await screen.findByRole('button', { name: 'New ticket' }));
+  const drawer = await screen.findByRole('dialog');
+  await user.type(within(drawer).getByLabelText('Subject'), 'Charged twice in July');
+  await user.type(within(drawer).getByLabelText('What happened'), 'Two debits on the 3rd.');
+  return drawer;
+}
+
+describe('Support — one ticket, one key', () => {
+  it('retries a lost ticket under the same key rather than raising two', async () => {
+    const user = userEvent.setup();
+    const { OfflineError } = await import('../../lib/api');
+
+    apiMock.mockImplementation((path: string, options?: { method?: string }) => {
+      if (path === '/admin/support/tickets' && options?.method === 'POST') {
+        // The server committed; the response never arrived. From here that is
+        // indistinguishable from "nothing happened" — which is exactly why the
+        // key has to survive it.
+        if (createKeys().length === 1) {
+          const rejected = Promise.reject(new OfflineError());
+          rejected.catch(() => undefined);
+          return rejected;
+        }
+        return Promise.resolve({ ticket: { id: 'tkt_9' } });
+      }
+      return answer(path);
+    });
+
+    const drawer = await compose(user);
+    await user.click(within(drawer).getByRole('button', { name: 'Raise ticket' }));
+    await waitFor(() => expect(within(drawer).getByRole('alert')).toBeInTheDocument());
+
+    // The draft is intact, because as far as this screen knows nothing saved.
+    await user.click(within(drawer).getByRole('button', { name: 'Raise ticket' }));
+    await waitFor(() => expect(createKeys()).toHaveLength(2));
+
+    const keys = createKeys();
+    // One complaint, one key: the second request is answered from the first
+    // one's record, so one ticket and one SLA promise.
+    expect(keys[0]).toBe(keys[1]);
+  });
+
+  it('keeps the key across a server refusal so a straight retry cannot double-raise', async () => {
+    const user = userEvent.setup();
+    const { ApiError } = await import('../../lib/api');
+
+    apiMock.mockImplementation((path: string, options?: { method?: string }) => {
+      if (path === '/admin/support/tickets' && options?.method === 'POST') {
+        if (createKeys().length === 1) {
+          const rejected = Promise.reject(
+            new ApiError(500, { error: { code: 'INTERNAL', message: 'That did not save.', requestId: 'req_1' } }),
+          );
+          rejected.catch(() => undefined);
+          return rejected;
+        }
+        return Promise.resolve({ ticket: { id: 'tkt_9' } });
+      }
+      return answer(path);
+    });
+
+    const drawer = await compose(user);
+    await user.click(within(drawer).getByRole('button', { name: 'Raise ticket' }));
+    await waitFor(() => expect(within(drawer).getByRole('alert')).toBeInTheDocument());
+    await user.click(within(drawer).getByRole('button', { name: 'Raise ticket' }));
+    await waitFor(() => expect(createKeys()).toHaveLength(2));
+
+    expect(createKeys()[0]).toBe(createKeys()[1]);
+  });
+
+  it('mints a new key when the draft is materially changed', async () => {
+    const user = userEvent.setup();
+    const { ApiError } = await import('../../lib/api');
+
+    apiMock.mockImplementation((path: string, options?: { method?: string }) => {
+      if (path === '/admin/support/tickets' && options?.method === 'POST') {
+        const rejected = Promise.reject(
+          new ApiError(422, { error: { code: 'VALIDATION_FAILED', message: 'Say more than that.', requestId: 'req_2' } }),
+        );
+        rejected.catch(() => undefined);
+        return rejected;
+      }
+      return answer(path);
+    });
+
+    const drawer = await compose(user);
+    await user.click(within(drawer).getByRole('button', { name: 'Raise ticket' }));
+    await waitFor(() => expect(createKeys()).toHaveLength(1));
+
+    // A corrected draft is a different request. The server hashes the body
+    // alongside the key and refuses a key replayed against different content,
+    // so reusing it here would turn a correction into a hard 409.
+    await user.type(within(drawer).getByLabelText('What happened'), ' Reference SF-40219.');
+    await user.click(within(drawer).getByRole('button', { name: 'Raise ticket' }));
+    await waitFor(() => expect(createKeys()).toHaveLength(2));
+
+    expect(createKeys()[0]).not.toBe(createKeys()[1]);
   });
 });

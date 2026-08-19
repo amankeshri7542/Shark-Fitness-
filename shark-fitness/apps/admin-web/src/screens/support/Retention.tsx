@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { AtRiskMember, InterventionAction, RetentionView } from '@shark/contracts';
-import { ApiError, api, idempotencyKey } from '../../lib/api';
+import { ApiError, api } from '../../lib/api';
+import { useIdempotentAttempt } from '../../lib/idempotent-attempt';
 import {
   Button,
   Chip,
@@ -285,14 +286,23 @@ function PlanIntervention({
   const [dueInDays, setDueInDays] = useState(3);
   const [error, setError] = useState<string | null>(null);
 
+  /* One intervention, one key. A duplicate here is not just a stray row: the
+     member is assigned the same call twice, two staff can pick it up, and the
+     effectiveness measure that compares recommended against chosen action is
+     fed a repeat it should never have seen. */
+  const attempt = useIdempotentAttempt('support-intervention', member.memberId);
+
   const save = useMutation({
-    mutationFn: () =>
-      api('/admin/support/interventions', {
+    mutationFn: () => {
+      const payload = { memberId: member.memberId, action, note: note.trim(), dueInDays };
+      return api('/admin/support/interventions', {
         method: 'POST',
-        idempotencyKey: idempotencyKey('support-intervention', member.memberId),
-        body: { memberId: member.memberId, action, note: note.trim(), dueInDays },
-      }),
+        idempotencyKey: attempt.keyFor(payload),
+        body: payload,
+      });
+    },
     onSuccess: () => {
+      attempt.retire();
       void queryClient.invalidateQueries({ queryKey: ['support'] });
       onSaved();
     },

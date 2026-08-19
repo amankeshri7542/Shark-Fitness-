@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { TicketDetail, TicketPriority, TicketState } from '@shark/contracts';
-import { ApiError, OfflineError, api, idempotencyKey } from '../../lib/api';
+import { ApiError, OfflineError, api } from '../../lib/api';
+import { useIdempotentAttempt } from '../../lib/idempotent-attempt';
 import { Button, Chip, ErrorState, Label, Segmented, Skeleton, cx } from '../../ui/console';
 import { ConfirmDialog, Drawer } from '../../ui/overlay';
 import {
@@ -55,11 +56,10 @@ export default function TicketDrawer({
   /* One reply, one key.
 
      A support reply is visible to the member the moment it lands, so a retry
-     after a lost response must not send the same answer twice. Same shape as
-     the till: the key is minted against the text being sent and retired once
-     the server has taken it, so editing the draft mints a new one. */
-  const attempt = useState<{ fingerprint: string; key: string } | null>(null);
-  const [attemptRef, setAttemptRef] = attempt;
+     after a lost response must not send the same answer twice. The key is
+     minted against the text being sent and retired once the server has taken
+     it, so editing the draft mints a new one. */
+  const attempt = useIdempotentAttempt('support-reply', ticketId);
 
   const detail = useQuery({
     queryKey: ['support', 'ticket', ticketId],
@@ -73,19 +73,17 @@ export default function TicketDrawer({
 
   const sendReply = useMutation({
     mutationFn: () => {
-      const fingerprint = JSON.stringify({ ticketId, body: reply.trim(), internal });
-      const key = attemptRef?.fingerprint === fingerprint ? attemptRef.key : idempotencyKey('support-reply', ticketId);
-      setAttemptRef({ fingerprint, key });
+      const payload = { body: reply.trim(), internal };
       return api<TicketDetail>(`/admin/support/tickets/${ticketId}/reply`, {
         method: 'POST',
-        idempotencyKey: key,
-        body: { body: reply.trim(), internal },
+        idempotencyKey: attempt.keyFor(payload),
+        body: payload,
       });
     },
     onSuccess: () => {
       setReply('');
       setError(null);
-      setAttemptRef(null);
+      attempt.retire();
       settle();
       void detail.refetch();
     },

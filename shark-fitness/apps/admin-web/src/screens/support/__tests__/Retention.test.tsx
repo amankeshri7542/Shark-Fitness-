@@ -127,3 +127,100 @@ describe('Retention — planning an intervention', () => {
     });
   });
 });
+
+/* ============================================================================
+   Idempotency — one intervention, one key.
+
+   A duplicate here is not a stray row. The member is assigned the same call
+   twice, two staff can each pick one up and both phone them, and the
+   effectiveness measure — which exists to compare the recommended action
+   against the one staff actually chose — is fed a repeat it should never have
+   counted.
+
+   The server wraps the write in `runIdempotently()`. Whether a retry after a
+   lost response is safe is therefore decided entirely by whether it carries
+   the same `Idempotency-Key`; minting it inside `mutationFn` meant it never
+   did, because `idempotencyKey()` ends every key with a random suffix.
+   ========================================================================= */
+
+/** The `Idempotency-Key` each intervention POST carried. */
+function planKeys(): string[] {
+  return apiMock.mock.calls
+    .filter(
+      ([path, options]) =>
+        path === '/admin/support/interventions' && (options as { method?: string }).method === 'POST',
+    )
+    .map(([, options]) => (options as { idempotencyKey: string }).idempotencyKey);
+}
+
+function rejectWith(error: Error) {
+  const rejected = Promise.reject(error);
+  rejected.catch(() => undefined);
+  return rejected;
+}
+
+async function plan(user: ReturnType<typeof userEvent.setup>) {
+  open();
+  await user.click(screen.getByRole('button', { name: 'Plan' }));
+  return screen.findByRole('dialog');
+}
+
+describe('Retention — one intervention, one key', () => {
+  it('retries a lost assignment under the same key rather than assigning it twice', async () => {
+    const user = userEvent.setup();
+    const { OfflineError } = await import('../../../lib/api');
+
+    apiMock.mockImplementationOnce(() => rejectWith(new OfflineError()));
+    apiMock.mockResolvedValue({ interventionId: 'itv_9' });
+
+    const drawer = await plan(user);
+    await user.click(within(drawer).getByRole('button', { name: 'Assign this' }));
+    await waitFor(() => expect(within(drawer).getByRole('alert')).toBeInTheDocument());
+
+    // The drawer is still open on the same member, because as far as this
+    // screen knows nothing was assigned.
+    await user.click(within(drawer).getByRole('button', { name: 'Assign this' }));
+    await waitFor(() => expect(planKeys()).toHaveLength(2));
+
+    expect(planKeys()[0]).toBe(planKeys()[1]);
+  });
+
+  it('keeps the key across a server refusal so a straight retry cannot double-assign', async () => {
+    const user = userEvent.setup();
+    const { ApiError } = await import('../../../lib/api');
+
+    apiMock.mockImplementationOnce(() =>
+      rejectWith(new ApiError(500, { error: { code: 'INTERNAL', message: 'That did not save.', requestId: 'r1' } })),
+    );
+    apiMock.mockResolvedValue({ interventionId: 'itv_9' });
+
+    const drawer = await plan(user);
+    await user.click(within(drawer).getByRole('button', { name: 'Assign this' }));
+    await waitFor(() => expect(within(drawer).getByRole('alert')).toBeInTheDocument());
+    await user.click(within(drawer).getByRole('button', { name: 'Assign this' }));
+    await waitFor(() => expect(planKeys()).toHaveLength(2));
+
+    expect(planKeys()[0]).toBe(planKeys()[1]);
+  });
+
+  it('mints a new key when a different action is chosen', async () => {
+    const user = userEvent.setup();
+    const { ApiError } = await import('../../../lib/api');
+
+    apiMock.mockImplementation(() =>
+      rejectWith(new ApiError(500, { error: { code: 'INTERNAL', message: 'That did not save.', requestId: 'r2' } })),
+    );
+
+    const drawer = await plan(user);
+    await user.click(within(drawer).getByRole('button', { name: 'Assign this' }));
+    await waitFor(() => expect(planKeys()).toHaveLength(1));
+
+    // Changing the action changes the body, and the server refuses a key
+    // replayed against different content.
+    await user.selectOptions(within(drawer).getByLabelText('Intervention action'), 'visit_invite');
+    await user.click(within(drawer).getByRole('button', { name: 'Assign this' }));
+    await waitFor(() => expect(planKeys()).toHaveLength(2));
+
+    expect(planKeys()[0]).not.toBe(planKeys()[1]);
+  });
+});

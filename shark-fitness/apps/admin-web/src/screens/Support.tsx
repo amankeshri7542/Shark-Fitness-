@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { FeedbackSummary, RetentionView, TicketCategory, TicketQueue } from '@shark/contracts';
-import { ApiError, api, idempotencyKey } from '../lib/api';
+import { ApiError, api } from '../lib/api';
+import { useIdempotentAttempt } from '../lib/idempotent-attempt';
 import { useBranchScope, useBranchTimeZone, usePermission } from '../lib/store';
 import { useOnline } from '../lib/realtime';
 import { Page } from '../ui/shell';
@@ -284,20 +285,31 @@ function NewTicket({
     staleTime: 30_000,
   });
 
+  /* One ticket, one key. The key used to be minted inside `mutationFn`, so a
+     retry after a lost response raised a *second* ticket for the same
+     complaint: the member ends up with two threads, the queue counts the work
+     twice, and the SLA clock starts again on a promise already made. */
+  const attempt = useIdempotentAttempt('support-ticket');
+
   const create = useMutation({
-    mutationFn: () =>
-      api<{ ticket: { id: string } }>('/admin/support/tickets', {
+    mutationFn: () => {
+      const payload = {
+        memberId: member?.id ?? null,
+        branchId,
+        category,
+        subject: subject.trim(),
+        body: body.trim(),
+      };
+      return api<{ ticket: { id: string } }>('/admin/support/tickets', {
         method: 'POST',
-        idempotencyKey: idempotencyKey('support-ticket', subject.trim().slice(0, 40)),
-        body: {
-          memberId: member?.id ?? null,
-          branchId,
-          category,
-          subject: subject.trim(),
-          body: body.trim(),
-        },
-      }),
+        idempotencyKey: attempt.keyFor(payload),
+        body: payload,
+      });
+    },
     onSuccess: (result) => {
+      // Spent: the next ticket raised from this desk is a different ticket,
+      // even when someone reports the identical fault a minute later.
+      attempt.retire();
       void queryClient.invalidateQueries({ queryKey: ['support'] });
       onCreated(result.ticket.id);
     },

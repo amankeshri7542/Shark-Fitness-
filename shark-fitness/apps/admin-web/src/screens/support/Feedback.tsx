@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { FeedbackSummary } from '@shark/contracts';
-import { ApiError, api, idempotencyKey } from '../../lib/api';
+import { ApiError, api } from '../../lib/api';
+import { useIdempotentAttempt } from '../../lib/idempotent-attempt';
 import {
   Button,
   Chip,
@@ -280,20 +281,31 @@ function RecordFeedback({
   const [anonymous, setAnonymous] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  /* One response, one key. Feedback is what the satisfaction figures are
+     computed from, so a retry that recorded a second copy would quietly weight
+     one member's answer twice in every CSAT and NPS number after it. */
+  const attempt = useIdempotentAttempt('support-feedback');
+
   const save = useMutation({
-    mutationFn: () =>
-      api('/admin/support/feedback', {
+    mutationFn: () => {
+      const payload = {
+        kind,
+        score: score === '' ? null : Number.parseInt(score, 10),
+        comment: comment.trim(),
+        anonymous,
+        memberId: null,
+      };
+      return api('/admin/support/feedback', {
         method: 'POST',
-        idempotencyKey: idempotencyKey('support-feedback', kind, score, comment.slice(0, 40)),
-        body: {
-          kind,
-          score: score === '' ? null : Number.parseInt(score, 10),
-          comment: comment.trim(),
-          anonymous,
-          memberId: null,
-        },
-      }),
+        idempotencyKey: attempt.keyFor(payload),
+        body: payload,
+      });
+    },
     onSuccess: () => {
+      // Two members can genuinely give the same score with no comment, and the
+      // second one must be recorded rather than answered with the first's
+      // response. Retiring the attempt is what keeps that a real second row.
+      attempt.retire();
       void queryClient.invalidateQueries({ queryKey: ['support'] });
       onSaved();
       onClose();
