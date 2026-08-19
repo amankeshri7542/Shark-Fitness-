@@ -16,8 +16,22 @@ repository-specific detail to that contract; it does not replace it.
 
 ### Status of this document
 
-Verified on `feat/phase-7-store` on **19 August 2026** (Node 22.23.2, as
-`.node-version` pins and CI reads), after the hardening pass described below.
+Verified on `feat/phase-9-support` on **19 August 2026** (Node 22.23.2, as
+`.node-version` pins and CI reads). Phase 7 is **merged** — PR #8 squashed to
+`main` as `c782ea1`. Evidence for the current branch: `pnpm lint` and `pnpm
+typecheck` clean across 6 packages, `pnpm test` **572 passing** (130 domain,
+253 API integration, 24 member PWA, 165 admin console), `pnpm build` clean, the
+CI browser-smoke harness run locally against the production single-origin
+server, and a working session at a support desk at 1440×900, 1024×768, 768×1024
+and 375×812 with no console errors and no horizontal overflow.
+
+The Phase 7 numbers below are kept as the record of what that branch was
+verified at.
+
+### Phase 7 as verified before merge
+
+Verified on `feat/phase-7-store` on **19 August 2026**, after the hardening pass
+described below.
 Verification evidence: `pnpm lint` and `pnpm typecheck` clean across 6 packages,
 `pnpm test` **444 passing** (101 domain, 207 API integration, 24 member PWA, 112
 admin console), `pnpm build` clean, the CI browser-smoke harness
@@ -129,14 +143,14 @@ Do not re-implement any of this. Read it before planning a change.
 
 | Layer | State |
 |---|---|
-| Database schema | **90 tables** across 5 schema files (counted as `sqliteTable()` definitions, and matching `CREATE TABLE` in the generated migrations), with 110 indexes and 7 append-only guard triggers. Complete for every module in this plan. |
+| Database schema | **93 tables** across 5 schema files (counted as `sqliteTable()` definitions, and matching `CREATE TABLE` in the generated migrations), with 110 indexes and 7 append-only guard triggers. Complete for every module in this plan. |
 | Migrations | Generated and checked in at `infrastructure/migrations/`. |
 | `@shark/contracts` | Zod schemas, enums, error envelope, realtime events (29 topics, including 6 for POS). `schemas/pos.ts` is the Store's canonical wire shape — the console reads it rather than keeping its own copy. |
 | `@shark/domain` | Membership state machine, booking eligibility, access decisions, strength maths, adaptive engine, gamification, money, permissions, safety scanning, retention risk. 101 tests. |
 | `@shark/design-tokens` | The Sonar system and the bounded copy register (`tone.ts`). |
 | Member PWA | **All 18 screens implemented.** No stubs remain. |
-| Admin console | **16 of 21 screens implemented** (counted as files over 60 lines). The 5 placeholders are Automations, Platform, Reports, Settings and Support. Store is now five surfaces under `screens/store/`. |
-| API | **25 of 28 route modules implemented.** The 3 stubs are `admin/reports`, `admin/settings` and `admin/support`, each still 7 lines. All 28 are mounted in `app.ts`. |
+| Admin console | **17 of 21 screens implemented** (counted as files over 60 lines). The 4 placeholders are Automations, Platform, Reports and Settings. Store is five surfaces under `screens/store/`; Support is three under `screens/support/`. |
+| API | **26 of 28 route modules implemented.** The 2 stubs are `admin/reports` and `admin/settings`, each still 7 lines. All 28 are mounted in `app.ts`. |
 
 **Migrations: check, do not assume.** An earlier revision asserted that no
 module in this plan needs one. Phase 7 disproved that — four of its six SHALL
@@ -471,39 +485,110 @@ whose branch is temporarily closed.
 
 ---
 
-## Phase 9 — Support: tickets, SLA and retention
+## Phase 9 — Support: tickets, SLA and retention — **BUILT** (PR open)
 
-**Requirements:** PF-SUP-001 … PF-SUP-006.
+**Requirements:** PF-SUP-001 … PF-SUP-006 — all six implemented and tested.
 **Permissions:** `support.manage`.
-**Files:** `apps/api/src/routes/admin/support.ts` (stub — note the existing TODO
-already names the intended scope), `apps/admin-web/src/screens/Support.tsx`.
+**Files:** `apps/api/src/services/support.ts` (every rule, ~1,100 lines),
+`apps/api/src/routes/admin/support.ts` (thin adapter),
+`packages/domain/src/support.ts` (the pure rules — SLA, transitions,
+effectiveness, NPS/CSAT), `packages/contracts/src/schemas/support.ts` (the wire
+shapes), `apps/admin-web/src/screens/Support.tsx` plus `screens/support/*`
+(three surfaces), `apps/api/src/__tests__/phase9-support.integration.test.ts`
+(46 tests), `packages/domain/src/__tests__/support.test.ts` (29),
+`apps/admin-web/src/screens/__tests__/Support.test.tsx` and
+`screens/support/__tests__/*` (53).
 
-**Tables:** `tickets` (seeded), plus `conversations` and `messages` which the
-member-side messaging already uses — reuse them rather than adding a parallel
-thread model.
+**Migration:** `infrastructure/migrations/0002_phase9_support.sql` adds
+`ticket_events`, `feedback` and `interventions`, plus ten additive nullable
+columns on `tickets`. `ticket_events` gets `BEFORE UPDATE`/`BEFORE DELETE`
+guard triggers in `migrate.ts`, joining `audit_log`, `xp_ledger` and
+`stock_ledger` as append-only. **The table count is now 93.**
 
-**Endpoints**
+**Seed:** seven tickets across the states a desk actually has (one breaching,
+one answered inside its promise, one waiting on each side, one closed, one
+anonymous escalated complaint), their conversations and immutable timelines,
+51 feedback responses clearing the NPS and CSAT reporting floors, real
+cancellation reasons, and eight interventions with enough closed outcomes on
+one action to make a retention rate reportable.
 
-| Method | Path | Notes |
-|---|---|---|
-| GET | `/v1/admin/support/tickets` | Filter by state, severity, assignee, SLA breach. |
-| GET | `/v1/admin/support/tickets/:ticketId` | With full conversation thread. |
-| POST | `/v1/admin/support/tickets` | |
-| PATCH | `/v1/admin/support/tickets/:ticketId` | Assign, re-prioritise, change state. |
-| POST | `/v1/admin/support/tickets/:ticketId/reply` | Appends to the member conversation. |
-| POST | `/v1/admin/support/tickets/:ticketId/resolve` | Requires a resolution reason. |
+### Five decisions worth not re-litigating
 
-**Rules**
+**One history, not two.** A ticket already owns a `conversations` row with
+`kind: 'support'` and a `ticket_id`, created by the member app. A staff reply is
+a `messages` row in *that* conversation and emits the same `message.created` on
+the member's channel that their phone already listens to. A staff-side reply
+store would have produced two records of one exchange that disagree the first
+time either side edits or deletes — and a dispute is exactly when that matters.
+Verified in the browser: one reply, one message row, one `member:` event, one
+timeline entry carrying the message id.
 
-- **Plain register throughout.** Support is in `PLAIN_ONLY_SURFACES`.
-- SLA state is computed, never stored — mirror `leadSlaBreached` in
-  `services/leads.ts`.
-- A reply is visible to the member in the existing member messaging screens;
-  verify the realtime event reaches the member channel.
+**The SLA is computed; only the promise and the facts are stored.** `slaDueAt`,
+`slaResponseMinutes`, `openedAt` and `firstResponseAt` persist; the verdict is
+derived on every read. The clock stops at the **first reply**, not at
+resolution — a desk that answers in twenty minutes and then spends a week
+fixing a boiler has kept its promise — and once a first reply exists the verdict
+never changes again, because whether it was late is a fact about the past.
+Quietly resolving a never-answered ticket does not launder the breach.
 
-**Edge cases:** ticket raised by a member who has since been deleted; reassigning
-across branches; a reply written while the member is offline; SLA clock across a
-branch's closed hours.
+**The clock runs in open hours.** A four-hour promise made at 22:40 does not
+fall due at 02:40 with nobody in the building, and a queue sorted by such a
+deadline puts every overnight ticket at the top every morning — which is the
+same as having no priority order. `slaDeadline` walks forward through the
+branch's own hours in the branch's own timezone, via `lib/branch-time.ts`. The
+member app now computes its promise from the same table and the same helper, so
+the member and the desk cannot be told two different numbers about one ticket.
+
+**Anonymity is absence, not masking.** An anonymous report carries no
+`member_id` and no conversation. There is nothing to unmask because nothing was
+written down — which also means the desk cannot reply, stated plainly on the
+response rather than discovered by a button that fails. It remains fully
+workable: assignable, escalatable, resolvable.
+
+**Escalation is one-way.** PF-SUP-006 asks for immutable records for disputes
+and safety incidents. A flag that can be quietly lowered by whoever is being
+disputed with is not a record, so escalation takes an author and a reason and is
+never reversed; the ticket is resolved or closed instead. The timeline is a
+separate append-only table rather than the audit log, because `audit_log` needs
+`audit.view` — which reception and branch managers, the people who actually
+handle complaints, do not hold. Both are written; neither can be edited.
+
+### Realtime
+
+One new topic: `ticket.updated`, on the branch channel (tenant channel for a
+ticket that names no branch). There is deliberately **no** `ticket.replied`: a
+member-visible reply is already a `message.created` on the member's channel, and
+a second topic for the same fact would create the two histories the conversation
+model exists to prevent. Escalation reuses `alert.raised`, which the Command
+Center already consumes.
+
+### Console
+
+Three surfaces, because the module answers three questions at three rhythms:
+**Queue** (the table is the screen — filters, four counts that double as
+filters, breach-first ordering, ticket drawer with SLA, ownership, member
+context, the conversation and the immutable history), **Feedback** (NPS by its
+actual definition, CSAT, class and trainer ratings, and the cancellation-reason
+report), **Retention** (explainable risk with per-reason weights, the PF-SUP-005
+outreach refusal printed next to each member, intervention planning with the
+risk score frozen at creation, and effectiveness that excludes unreachable
+members and false positives from its rate).
+
+**Edge cases covered by tests:** an anonymous harassment report that cannot be
+replied to; a risk score suppressed because the branch was shut; a ticket left
+open and resolvable after its member record is deleted; a cancellation that
+conflicts with contract terms carried as both feedback and a real ticket; an
+assignee who does not cover the ticket's branch; a reopened dispute that keeps
+its reference, history and original first-reply verdict; a closed ticket that
+cannot be moved; a retried reply that does not tell the member twice; a
+cross-branch ticket returning 404 rather than 403.
+
+**Two defects the suite could not see, found in the browser:** an unfiltered
+read scoped to `ctx.activeBranchId` — set to the first permitted branch at
+sign-in and only moved by an `x-branch-id` header — so "All branches" in the
+console was a lie and an entire branch's complaints never reached an owner's
+queue; and `retentionRisk` labelling a lapsed membership "Expires in −5 days".
+Both fixed, both now have regression tests.
 
 ---
 
@@ -674,14 +759,16 @@ merely fail the PR, it silently stops the demo from updating.
 | Phase | Module | Depends on | Requirement IDs |
 |---|---|---|---|
 | — | ~~Rebase Phase 6 onto main~~ — **merged** (PR #5) | — | PF-STAFF, PF-WORK |
-| 7 | Store — **next** | — | PF-POS-001…006 |
+| 7 | Store — **merged** (PR #8, `c782ea1`) | — | PF-POS-001…006 |
 | 8 | Equipment — **built** (PR #6) | — | PF-FAC-001…006 |
-| 9 | Support | — | PF-SUP-001…006 |
+| 9 | Support — **built** (PR open) | — | PF-SUP-001…006 |
 | 10 | Reports | 7, 8 | PF-RPT-001…006 |
 | 11 | Settings | — | PF-TEN-001…006 |
 | 12 | Automations | 11 | PF-COMM-001…006 |
 | 13 | Platform | 11 | PF-PLAT-001…006 |
 
-Phases 7, 9 and 11 have no dependency on each other. **Phase 7 (Store) is the
-next one to start**, once PR #6 is on `main`. Phase 8 is built: the safety alert
-the Command Center raises now lands on a working Equipment screen.
+Phases 7 and 8 are on `main`; Phase 9 is built and awaiting review. **Phase 10
+(Reports) is the next one to start** — it depends on 7 and 8, both of which are
+merged, and Phase 9's feedback and retention surfaces give it two more real
+sources. Note `metric_rollups` is still **not seeded**, so plan for that before
+the first chart.

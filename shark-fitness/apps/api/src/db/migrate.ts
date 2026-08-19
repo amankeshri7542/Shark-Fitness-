@@ -52,6 +52,17 @@ const extras = [
      BEFORE UPDATE ON stock_ledger
      BEGIN SELECT RAISE(ABORT, 'stock_ledger is append-only'); END`,
 
+  // And the ticket timeline — PF-SUP-006 asks for immutable records for
+  // disputes and safety incidents, and a record that can be edited by whoever
+  // is being disputed with is not one. A correction is a new event.
+  `CREATE TRIGGER IF NOT EXISTS ticket_events_no_update
+     BEFORE UPDATE ON ticket_events
+     BEGIN SELECT RAISE(ABORT, 'ticket_events is append-only'); END`,
+
+  `CREATE TRIGGER IF NOT EXISTS ticket_events_no_delete
+     BEFORE DELETE ON ticket_events
+     BEGIN SELECT RAISE(ABORT, 'ticket_events is append-only'); END`,
+
   `CREATE INDEX IF NOT EXISTS outbox_undelivered_idx
      ON outbox_events (delivered_at, seq) WHERE delivered_at IS NULL`,
 ];

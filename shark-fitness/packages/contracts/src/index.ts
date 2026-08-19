@@ -9,3 +9,4 @@ export * from './schemas/progress.js';
 export * from './schemas/engagement.js';
 export * from './schemas/ops.js';
 export * from './schemas/pos.js';
+export * from './schemas/support.js';

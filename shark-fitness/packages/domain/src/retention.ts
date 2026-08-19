@@ -93,7 +93,14 @@ export function retentionRisk(i: RiskInput): RiskResult {
   if (i.daysUntilExpiry !== null && i.daysUntilExpiry <= 30 && !i.autoRenew) {
     reasons.push({
       code: 'expiring_no_renew',
-      label: `Expires in ${i.daysUntilExpiry} days with auto-renew off`,
+      // A membership that already lapsed reads "Expired 5 days ago", not
+      // "Expires in -5 days". The negative form was invisible until Phase 9
+      // put these labels on a screen staff read; the arithmetic was always
+      // right and the sentence was always wrong.
+      label:
+        i.daysUntilExpiry <= 0
+          ? `Expired ${Math.abs(i.daysUntilExpiry)} day${Math.abs(i.daysUntilExpiry) === 1 ? '' : 's'} ago with auto-renew off`
+          : `Expires in ${i.daysUntilExpiry} day${i.daysUntilExpiry === 1 ? '' : 's'} with auto-renew off`,
       points: i.daysUntilExpiry <= 14 ? 16 : 10,
     });
   }

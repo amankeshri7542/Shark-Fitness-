@@ -12,6 +12,7 @@ Shark Fitness provides an end-to-end multi-tenant platform comprising:
 - **API Backend (`apps/api`):** High-performance Hono server with Drizzle SQLite, transactional outbox, WebSocket hub, audit logging, rate limiting, and background schedulers.
 - **Domain Business Engine (`packages/domain`):** Pure TypeScript domain rules with **101 unit tests** covering membership state machines, 1RM progression, recovery index, plate math, XP tiers, and fair waitlists.
 - **Store / point of sale (`screens/store`, `routes/admin/store.ts`):** Till with mixed tender and a stable idempotency key per checkout attempt, stock derived from an append-only ledger, returns as compensating entries, inter-branch transfers with visible shrinkage, and cost/margin gated separately by permission.
+- **Support / retention (`screens/support`, `routes/admin/support.ts`):** Ticket queue with an SLA computed in the branch's *open* hours, staff replies flowing into the member's existing conversation rather than a parallel thread, an append-only ticket timeline for disputes, NPS/CSAT and cancellation reporting with honest reporting floors, and explainable retention risk with intervention effectiveness tracking.
 
 ---
 
@@ -40,25 +41,25 @@ Shark Fitness provides an end-to-end multi-tenant platform comprising:
 
 ## 🚦 Current Implementation Status
 
-Verified on `feat/phase-7-store` (Node 22.23.2) on 19 August 2026: `pnpm lint`,
-`pnpm typecheck`, `pnpm test` and `pnpm build` all clean, the production
+Verified on `feat/phase-9-support` (Node 22.23.2) on 19 August 2026: `pnpm
+lint`, `pnpm typecheck`, `pnpm test` and `pnpm build` all clean, the production
 single-origin server exercised over HTTP, the CI browser-smoke harness run
-locally against it, and a working session at the till in a real browser at
-1440×900, 1024×768, 768×1024 and 375×812.
+locally against it, and working sessions at the till and at the support desk in
+a real browser at 1440×900, 1024×768, 768×1024 and 375×812.
 
 ### ✅ Completed & Working
 - **Domain Engine:** 101 unit tests across membership, access decisions, training algorithms and fair scheduling.
-- **Test suite:** **444 tests** in 33 files — 101 domain, 207 API integration, 24 member PWA, 112 admin console.
-- **Database & Migrations:** 90 SQLite tables across 5 schema files, 110 indexes, 7 append-only/guard triggers, deterministic seed data.
+- **Test suite:** **585 tests** in 41 files — 130 domain, 253 API integration, 24 member PWA, 178 admin console.
+- **Database & Migrations:** 93 SQLite tables across 5 schema files, deterministic seed data, and 9 append-only/guard triggers protecting `audit_log`, `xp_ledger`, `stock_ledger` and `ticket_events`.
 - **Quality gates:** `pnpm lint` (ESLint 10 flat config, `--max-warnings=0`), `pnpm typecheck` and `pnpm build` pass with 0 errors, all gated in CI.
 - **Member PWA:** all 18 screens implemented — no stubs remain.
-- **Admin Web:** 16 of 21 screens implemented. Store is five surfaces — Register, Inventory, Orders, Transfers, Insights — under `screens/store/`.
-- **API Routes:** auth, profile, the member surface, and the admin `attendance`, `billing`, `facility`, `leads`, `schedule`, `staff`, `store` and `training` modules — 25 of 28 route modules.
+- **Admin Web:** 17 of 21 screens implemented. Store is five surfaces — Register, Inventory, Orders, Transfers, Insights — under `screens/store/`; Support is three — Queue, Feedback, Retention — under `screens/support/`.
+- **API Routes:** auth, profile, the member surface, and the admin `attendance`, `billing`, `facility`, `leads`, `schedule`, `staff`, `store`, `support` and `training` modules — 26 of 28 route modules.
 - **Production serving:** one origin serves the member PWA at `/` and the admin console at `/admin/`, with hashed assets returning their own content types rather than the SPA HTML fallback.
 
 ### ⏳ Remaining to Implement
-- **Admin Web (5 placeholder screens):** `Automations`, `Platform`, `Reports`, `Settings`, `Support`.
-- **Admin API Route Adapters (3 stubs):** `reports`, `settings`, `support`.
+- **Admin Web (4 placeholder screens):** `Automations`, `Platform`, `Reports`, `Settings`.
+- **Admin API Route Adapters (2 stubs):** `reports`, `settings`.
 
 See [05_Shark_Fitness_Remaining_Implementation_Plan.md](./05_Shark_Fitness_Remaining_Implementation_Plan.md) for the sequenced plan.
 
@@ -116,7 +117,7 @@ pnpm dev
 cd shark-fitness
 pnpm lint         # ESLint across the workspace; --max-warnings=0
 pnpm typecheck    # TypeScript across all 6 packages
-pnpm test         # 444 tests (domain, API integration, member PWA, admin console)
+pnpm test         # 585 tests (domain, API integration, member PWA, admin console)
 pnpm build        # Production bundles for both front ends
 ```
 

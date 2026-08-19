@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { PosOrderDetail, PosTenderMethod, StoreProduct } from '@shark/contracts';
-import { ApiError, OfflineError, api, idempotencyKey } from '../../lib/api';
+import { ApiError, OfflineError, api } from '../../lib/api';
+import { useIdempotentAttempt } from '../../lib/idempotent-attempt';
 import {
   Button,
   Chip,
@@ -91,18 +92,10 @@ export default function Register({
      second sale for the same goods and the same money. That is the exact
      failure the header exists to prevent, and a till is where it costs most.
 
-     `attempt` therefore holds a key against a fingerprint of the request body.
      Retrying an unchanged basket reuses the key; changing the basket, the
-     tender or the member changes the fingerprint and mints a new one, because
-     that is a different sale and must not replay the last one's receipt.
-
-     The fingerprint is the request body verbatim, not a summary of it. The
-     server hashes the validated body alongside the key and refuses a key
-     replayed against different content, so anything the body carries has to
-     be able to move the fingerprint. Counting lines and totalling money — what
-     this did before — collides on baskets that differ by which items they
-     hold. — */
-  const attempt = useRef<{ fingerprint: string; key: string } | null>(null);
+     tender or the member changes the body and mints a new one, because that is
+     a different sale and must not replay the last one's receipt. — */
+  const attempt = useIdempotentAttempt('pos', branchId ?? 'none');
 
   /* — Money. Mirrors the server's rule exactly: tax per line, then summed.
        Summing first and taxing the total drifts by a rupee or two on a
@@ -189,17 +182,12 @@ export default function Register({
   );
 
   const sell = useMutation({
-    mutationFn: () => {
-      const fingerprint = JSON.stringify(checkoutBody);
-      if (attempt.current?.fingerprint !== fingerprint) {
-        attempt.current = { fingerprint, key: idempotencyKey('pos', branchId ?? 'none') };
-      }
-      return api<PosOrderDetail>('/admin/store/orders', {
+    mutationFn: () =>
+      api<PosOrderDetail>('/admin/store/orders', {
         method: 'POST',
-        idempotencyKey: attempt.current.key,
+        idempotencyKey: attempt.keyFor(checkoutBody),
         body: checkoutBody,
-      });
-    },
+      }),
     onSuccess: (order) => {
       // The receipt is the server's answer, not a local echo of the basket.
       // Nothing is cleared until the sale is known to have happened.
@@ -212,7 +200,7 @@ export default function Register({
       // can buy exactly the same thing: an identical basket would otherwise
       // fingerprint the same, reuse this key, and be answered with *this*
       // receipt — a real second sale silently swallowed as a duplicate.
-      attempt.current = null;
+      attempt.retire();
       void queryClient.invalidateQueries({ queryKey: ['store'] });
     },
     onError: (e) => {

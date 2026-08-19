@@ -5,7 +5,7 @@ built to the four PRDs in the parent directory.
 
 ```
 apps/
-  api/            Hono + SQLite (D1-compatible) + Drizzle. 90 tables, migrations, seed.
+  api/            Hono + SQLite (D1-compatible) + Drizzle. 93 tables, migrations, seed.
   member-pwa/     React + Vite PWA, mobile-first, offline-capable.
   admin-web/      React + Vite operations console, desktop-first.
 packages/
@@ -57,7 +57,7 @@ reception and then as owner to see it.
 ```bash
 pnpm lint                   # ESLint across the workspace, --max-warnings=0
 pnpm typecheck              # all six packages, zero errors
-pnpm test                   # 444 tests: 101 domain, 207 API, 24 member, 112 console
+pnpm test                   # 572 tests: 130 domain, 253 API, 24 member, 165 console
 pnpm build                  # both apps
 ```
 
@@ -82,9 +82,12 @@ and D1 have no row-level security, so every query filters on `tenantId` and ever
 branch-scoped query checks `ctx.branchIds`. There is no code path that reads a business
 table without a tenant.
 
-**Append-only ledgers are enforced by triggers.** `audit_log`, `xp_ledger` and
-`stock_ledger` have `BEFORE UPDATE`/`BEFORE DELETE` triggers that abort. A correction
-is a compensating entry, never an edit.
+**Append-only ledgers are enforced by triggers.** `audit_log`, `xp_ledger`,
+`stock_ledger` and `ticket_events` have `BEFORE UPDATE`/`BEFORE DELETE` triggers that
+abort. A correction is a compensating entry, never an edit. `ticket_events` is separate
+from `audit_log` on purpose: the audit log needs `audit.view`, which reception and
+branch managers — the people who actually handle complaints — do not hold, and a
+dispute record nobody involved may read is not much of a record.
 
 **Overbooking is impossible at three levels**: the eligibility rule, the transactional
 claim, and a database trigger that aborts if `booked > capacity`. The last one should

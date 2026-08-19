@@ -23,6 +23,7 @@ import { db, schema, sqlite } from './client.js';
 import { hashPassword } from '../lib/crypto.js';
 import { id, initialsOf, normalizeEmail, normalizePhone, referralCode, token } from '../lib/ids.js';
 import { DAY, HOUR, MINUTE, addDays, daysBetween, isoDate, startOfWeek } from '../lib/time.js';
+import { RESPONSE_MINUTES as SUPPORT_RESPONSE_MINUTES } from '../services/support.js';
 import { EXERCISES } from './seed/exercises.js';
 import { makeRandom } from './seed/random.js';
 import {
@@ -44,6 +45,7 @@ const TODAY = isoDate(NOW, TZ);
 function wipe(): void {
   const tables = [
     'media_progress', 'media_assets', 'live_sessions', 'usage_meters',
+    'ticket_events', 'interventions', 'feedback',
     'messages', 'conversations', 'tickets',
     'reactions', 'comments', 'content_reports', 'blocks', 'posts',
     'challenge_participants', 'challenges', 'referrals', 'member_achievements', 'achievements',
@@ -221,6 +223,7 @@ const coachNikhil = staffByEmail.get('nikhil@sharkfitness.in')!;
 const coachPriya = staffByEmail.get('priya@sharkfitness.in')!;
 const reception = staffByEmail.get('reception@sharkfitness.in')!;
 const owner = staffByEmail.get('owner@sharkfitness.in')!;
+const branchManager = staffByEmail.get('manager@sharkfitness.in')!;
 const TRAINERS = [coachRehan, coachNikhil, coachPriya];
 
 db.insert(schema.commissionRates)
@@ -2480,6 +2483,425 @@ db.insert(schema.tickets)
     },
   ])
   .run();
+
+/* ============================================================================
+   Support desk, feedback and retention — Phase 9 (PF-SUP)
+
+   The tickets above predate Phase 9 and carry none of its columns, so they are
+   back-filled here rather than rewritten in place, and four more are added so
+   the queue opens on the states a desk actually has to work: one breaching its
+   promise, one answered inside it, one waiting on the member, one settled.
+   ========================================================================= */
+
+{
+  const seededTickets = db.select().from(schema.tickets).where(eq(schema.tickets.tenantId, tenantId)).all();
+  for (const t of seededTickets) {
+    const minutes = SUPPORT_RESPONSE_MINUTES[t.category] ?? 24 * 60;
+    db.update(schema.tickets)
+      .set({
+        slaResponseMinutes: minutes,
+        // The resolved one was answered comfortably; the open ones have not
+        // been answered at all, which is what makes the breach visible.
+        firstResponseAt: t.state === 'resolved' ? t.openedAt + 40 * MINUTE : null,
+        resolvedAt: t.state === 'resolved' ? t.closedAt : null,
+        resolvedBy: t.state === 'resolved' ? reception.name : null,
+        escalatedAt: t.escalated ? t.openedAt : null,
+        escalatedBy: t.escalated ? 'Raised by the member' : null,
+        escalationReason: t.escalated ? 'Complaint' : null,
+        vulnerabilityFlag: false,
+        safetyCategories: null,
+      })
+      .where(eq(schema.tickets.id, t.id))
+      .run();
+  }
+
+  const extraTickets = [
+    {
+      id: id('tkt'),
+      branchId: 'br_kor',
+      memberId: demoMember.memberId,
+      reference: 'SUP-1054',
+      category: 'class',
+      subject: 'Booked spin class was cancelled twice',
+      priority: 'high',
+      state: 'open',
+      assigneeId: null,
+      // Promised twelve open hours, opened well over a day ago: breaching, and
+      // the queue must lead with it.
+      openedAt: NOW - 40 * HOUR,
+      slaDueAt: NOW - 16 * HOUR,
+      slaResponseMinutes: 12 * 60,
+      firstResponseAt: null,
+      resolution: null,
+      resolvedAt: null,
+      resolvedBy: null,
+    },
+    {
+      id: id('tkt'),
+      branchId: 'br_kor',
+      memberId: rng.pick(membersSeeded).memberId,
+      reference: 'SUP-1055',
+      category: 'app',
+      subject: 'Cannot see my workout history after the update',
+      priority: 'normal',
+      state: 'pending_member',
+      assigneeId: reception.staffId,
+      openedAt: NOW - 30 * HOUR,
+      slaDueAt: NOW + 18 * HOUR,
+      slaResponseMinutes: 48 * 60,
+      // Answered inside the promise — the shape the desk should be judged on.
+      firstResponseAt: NOW - 27 * HOUR,
+      resolution: null,
+      resolvedAt: null,
+      resolvedBy: null,
+    },
+    {
+      id: id('tkt'),
+      branchId: 'br_hsr',
+      memberId: rng.pick(membersSeeded).memberId,
+      reference: 'SUP-1056',
+      category: 'membership',
+      subject: 'Cancelling — moving cities next month',
+      priority: 'normal',
+      state: 'pending_staff',
+      assigneeId: branchManager.staffId,
+      openedAt: NOW - 9 * HOUR,
+      slaDueAt: NOW + 15 * HOUR,
+      slaResponseMinutes: 24 * 60,
+      firstResponseAt: NOW - 8 * HOUR,
+      resolution: null,
+      resolvedAt: null,
+      resolvedBy: null,
+    },
+    {
+      id: id('tkt'),
+      branchId: 'br_ind',
+      memberId: rng.pick(membersSeeded).memberId,
+      reference: 'SUP-1057',
+      category: 'facility',
+      subject: 'Locker room bench loose',
+      priority: 'normal',
+      state: 'closed',
+      assigneeId: branchManager.staffId,
+      openedAt: NOW - 14 * DAY,
+      slaDueAt: NOW - 13 * DAY,
+      slaResponseMinutes: 24 * 60,
+      firstResponseAt: NOW - 13 * DAY - 2 * HOUR,
+      resolution: 'Bench re-bolted and checked by maintenance.',
+      resolvedAt: NOW - 12 * DAY,
+      resolvedBy: branchManager.name,
+    },
+  ] as const;
+
+  for (const t of extraTickets) {
+    db.insert(schema.tickets)
+      .values({
+        id: t.id,
+        tenantId,
+        branchId: t.branchId,
+        memberId: t.memberId,
+        reference: t.reference,
+        category: t.category,
+        subject: t.subject,
+        priority: t.priority,
+        state: t.state,
+        assigneeId: t.assigneeId,
+        slaDueAt: t.slaDueAt,
+        slaResponseMinutes: t.slaResponseMinutes,
+        firstResponseAt: t.firstResponseAt,
+        resolution: t.resolution,
+        resolvedAt: t.resolvedAt,
+        resolvedBy: t.resolvedBy,
+        anonymous: false,
+        escalated: false,
+        escalatedAt: null,
+        escalatedBy: null,
+        escalationReason: null,
+        reopenCount: 0,
+        vulnerabilityFlag: false,
+        safetyCategories: null,
+        openedAt: t.openedAt,
+        lastUpdateAt: t.firstResponseAt ?? t.openedAt,
+        closedAt: t.state === 'closed' ? t.resolvedAt : null,
+      })
+      .run();
+
+    // Every ticket carries a conversation, because that is the one place the
+    // member and the desk read the same history.
+    const conversationId = id('cnv');
+    db.insert(schema.conversations)
+      .values({
+        id: conversationId,
+        tenantId,
+        kind: 'support',
+        title: `${t.reference} · ${t.subject}`,
+        memberId: t.memberId,
+        staffId: t.assigneeId,
+        ticketId: t.id,
+        state: t.state === 'closed' ? 'closed' : 'open',
+        muted: false,
+        lastMessageAt: t.firstResponseAt ?? t.openedAt,
+        createdAt: t.openedAt,
+      })
+      .run();
+
+    db.insert(schema.messages)
+      .values({
+        id: id('msg'),
+        tenantId,
+        conversationId,
+        senderUserId: 'seed',
+        senderName: 'Member',
+        senderRole: 'member',
+        body: t.subject,
+        attachments: [],
+        state: 'read',
+        clientId: null,
+        createdAt: t.openedAt,
+        readAt: t.openedAt,
+        safetyFlagged: false,
+      })
+      .run();
+
+    if (t.firstResponseAt) {
+      db.insert(schema.messages)
+        .values({
+          id: id('msg'),
+          tenantId,
+          conversationId,
+          senderUserId: 'seed',
+          senderName: reception.name,
+          senderRole: 'reception',
+          body: 'Thanks for flagging this — looking into it now and I will come back to you today.',
+          attachments: [],
+          state: 'read',
+          clientId: null,
+          createdAt: t.firstResponseAt,
+          readAt: null,
+          safetyFlagged: false,
+        })
+        .run();
+    }
+  }
+
+  // The immutable timeline for every ticket in the tenant, including the three
+  // that predate Phase 9 — a record that starts mid-history is not a record.
+  for (const t of db.select().from(schema.tickets).where(eq(schema.tickets.tenantId, tenantId)).all()) {
+    db.insert(schema.ticketEvents)
+      .values({
+        id: id('tev'),
+        tenantId,
+        ticketId: t.id,
+        kind: 'opened',
+        actorId: null,
+        actorName: t.anonymous ? 'Anonymous' : 'Member',
+        actorRole: 'member',
+        summary: `${t.reference} opened: ${t.subject}`,
+        detail: { category: t.category, priority: t.priority },
+        messageId: null,
+        at: t.openedAt,
+      })
+      .run();
+    if (t.firstResponseAt) {
+      db.insert(schema.ticketEvents)
+        .values({
+          id: id('tev'),
+          tenantId,
+          ticketId: t.id,
+          kind: 'replied',
+          actorId: t.assigneeId,
+          actorName: reception.name,
+          actorRole: 'reception',
+          summary: `${reception.name} replied to the member`,
+          detail: { firstResponse: true },
+          messageId: null,
+          at: t.firstResponseAt,
+        })
+        .run();
+    }
+    if (t.resolvedAt) {
+      db.insert(schema.ticketEvents)
+        .values({
+          id: id('tev'),
+          tenantId,
+          ticketId: t.id,
+          kind: 'resolved',
+          actorId: t.assigneeId,
+          actorName: t.resolvedBy ?? reception.name,
+          actorRole: 'reception',
+          summary: `Resolved: ${t.resolution ?? 'closed off'}`,
+          detail: null,
+          messageId: null,
+          at: t.resolvedAt,
+        })
+        .run();
+    }
+  }
+
+  /* — Feedback (PF-SUP-002). Enough NPS and CSAT to clear the reporting floor,
+       a spread of class and trainer ratings, and real cancellation reasons —
+       the one report that changes what a gym does next quarter. — */
+
+  const NPS_SCORES = [10, 9, 9, 8, 7, 10, 6, 9, 4, 10, 8, 9, 3, 10, 9, 7, 10, 2];
+  for (const [i, score] of NPS_SCORES.entries()) {
+    const m = membersSeeded[i % membersSeeded.length]!;
+    db.insert(schema.feedback)
+      .values({
+        id: id('fbk'),
+        tenantId,
+        branchId: rng.pick(['br_kor', 'br_ind', 'br_hsr']),
+        memberId: score <= 4 && i % 3 === 0 ? null : m.memberId,
+        kind: 'nps',
+        score,
+        comment:
+          score >= 9
+            ? 'Staff know my name and the kit is never broken.'
+            : score <= 4
+              ? 'Too crowded at 7pm and the showers are hit and miss.'
+              : '',
+        // A detractor is exactly who most wants to answer without their name on it.
+        anonymous: score <= 4 && i % 3 === 0,
+        subjectType: null,
+        subjectId: null,
+        subjectLabel: null,
+        ticketId: null,
+        createdAt: NOW - rng.int(1, 80) * DAY,
+      })
+      .run();
+  }
+
+  const CSAT_SCORES = [5, 4, 5, 3, 5, 4, 4, 5, 2, 5, 4, 5];
+  for (const [i, score] of CSAT_SCORES.entries()) {
+    db.insert(schema.feedback)
+      .values({
+        id: id('fbk'),
+        tenantId,
+        branchId: 'br_kor',
+        memberId: membersSeeded[(i + 3) % membersSeeded.length]!.memberId,
+        kind: 'csat',
+        score,
+        comment: score <= 2 ? 'Took three messages to get an answer.' : '',
+        anonymous: false,
+        subjectType: 'ticket',
+        subjectId: null,
+        subjectLabel: 'Support interaction',
+        ticketId: null,
+        createdAt: NOW - rng.int(1, 45) * DAY,
+      })
+      .run();
+  }
+
+  for (let i = 0; i < 14; i += 1) {
+    const session = rng.pick(sessionsSeeded);
+    db.insert(schema.feedback)
+      .values({
+        id: id('fbk'),
+        tenantId,
+        branchId: session.branchId,
+        memberId: membersSeeded[(i * 5) % membersSeeded.length]!.memberId,
+        kind: i % 3 === 0 ? 'trainer' : 'class',
+        score: rng.pick([5, 5, 4, 4, 4, 3, 5]),
+        comment: i % 4 === 0 ? 'Great energy, would book again.' : '',
+        anonymous: false,
+        subjectType: i % 3 === 0 ? 'staff' : 'class_session',
+        subjectId: session.id,
+        subjectLabel: session.name,
+        ticketId: null,
+        createdAt: NOW - rng.int(1, 60) * DAY,
+      })
+      .run();
+  }
+
+  const CANCELLATION_REASONS = [
+    'Moving away from the area',
+    'Too expensive',
+    'Moving away from the area',
+    'Not using it enough',
+    'Too expensive',
+    'Injury',
+    'Not using it enough',
+    'Moving away from the area',
+    'Joined a gym closer to work',
+  ];
+  for (const [i, reason] of CANCELLATION_REASONS.entries()) {
+    db.insert(schema.feedback)
+      .values({
+        id: id('fbk'),
+        tenantId,
+        branchId: rng.pick(['br_kor', 'br_ind', 'br_hsr']),
+        memberId: membersSeeded[(i * 7) % membersSeeded.length]!.memberId,
+        kind: 'cancellation',
+        score: null,
+        comment: reason,
+        anonymous: false,
+        subjectType: 'membership',
+        subjectId: null,
+        subjectLabel: null,
+        ticketId: null,
+        createdAt: NOW - rng.int(2, 120) * DAY,
+      })
+      .run();
+  }
+
+  /* — Interventions (PF-SUP-004). Enough closed ones on one action to clear
+       the three-case floor that lets a retention rate be reported at all, and
+       one still open so the screen opens on work rather than on history. — */
+
+  const INTERVENTIONS: Array<{
+    action: string;
+    outcome: string | null;
+    state: string;
+    daysAgo: number;
+    score: number;
+    band: string;
+  }> = [
+    { action: 'call', outcome: 'retained', state: 'done', daysAgo: 60, score: 62, band: 'high' },
+    { action: 'call', outcome: 'retained', state: 'done', daysAgo: 48, score: 71, band: 'high' },
+    { action: 'call', outcome: 'churned', state: 'done', daysAgo: 40, score: 78, band: 'high' },
+    { action: 'call', outcome: 'no_contact', state: 'done', daysAgo: 33, score: 58, band: 'high' },
+    { action: 'coach_checkin', outcome: 'retained', state: 'done', daysAgo: 27, score: 34, band: 'watch' },
+    { action: 'coach_checkin', outcome: 'false_positive', state: 'dismissed', daysAgo: 21, score: 30, band: 'watch' },
+    { action: 'offer_review', outcome: 'churned', state: 'done', daysAgo: 15, score: 66, band: 'high' },
+    { action: 'call', outcome: null, state: 'open', daysAgo: 1, score: 69, band: 'high' },
+  ];
+
+  for (const [i, plan] of INTERVENTIONS.entries()) {
+    const m = membersSeeded[(i * 11) % membersSeeded.length]!;
+    const created = NOW - plan.daysAgo * DAY;
+    db.insert(schema.interventions)
+      .values({
+        id: id('itv'),
+        tenantId,
+        branchId: 'br_kor',
+        memberId: m.memberId,
+        ticketId: null,
+        riskScoreAtCreation: plan.score,
+        riskBandAtCreation: plan.band,
+        riskReasonsAtCreation: [
+          { code: 'attendance_drop', label: 'Attendance down on their own norm', points: 20 },
+          { code: 'absent_10', label: 'Not seen for 12 days', points: 14 },
+        ],
+        recommendedAction:
+          plan.band === 'high'
+            ? 'A personal call from someone they know, this week. Not an automated message.'
+            : 'Have their coach check in. Ask what changed rather than pitching anything.',
+        action: plan.action,
+        note: '',
+        assigneeId: reception.staffId,
+        assigneeName: reception.name,
+        dueAt: created + 3 * DAY,
+        state: plan.state,
+        outcome: plan.outcome,
+        outcomeNote: plan.outcome === 'false_positive' ? 'Was on holiday, back in this week.' : null,
+        createdBy: branchManager.name,
+        createdAt: created,
+        completedAt: plan.state === 'open' ? null : created + 2 * DAY,
+      })
+      .run();
+  }
+}
+
+console.log('  support tickets, feedback, interventions');
 
 for (const asset of MEDIA_SEED) {
   db.insert(schema.mediaAssets)
