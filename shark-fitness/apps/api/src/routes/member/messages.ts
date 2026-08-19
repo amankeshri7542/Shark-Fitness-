@@ -10,7 +10,8 @@ import { audit } from '../../lib/audit.js';
 import { emit } from '../../lib/events.js';
 import { conflict, invalid, notFound, precondition } from '../../lib/errors.js';
 import { id, initialsOf } from '../../lib/ids.js';
-import { HOUR, MINUTE, isoDate, localMinutes, now, relativeTime } from '../../lib/time.js';
+import { MINUTE, isoDate, localMinutes, now, relativeTime } from '../../lib/time.js';
+import { RESPONSE_MINUTES, promisedMinutes, responseDeadline } from '../../services/support.js';
 
 export const messagesRoutes = new Hono();
 
@@ -263,15 +264,18 @@ function unreadCount(conversationId: string, userId: string): number {
 type SlaState = 'resolved' | 'breached' | 'due_soon' | 'on_track' | 'none';
 
 /** Hours the gym gives itself, by what the member is asking about. */
-const SLA_HOURS: Record<string, number> = {
-  billing: 8,
-  membership: 24,
-  facility: 24,
-  class: 12,
-  app: 48,
-  complaint: 4,
-  other: 24,
-};
+/**
+ * The reply promise, in hours, per category.
+ *
+ * Derived from `RESPONSE_MINUTES` in `services/support.ts` rather than written
+ * out again. This module tells the member "someone will reply within 8 hours"
+ * and the support desk sorts its queue by the deadline that produces; two
+ * copies of the table would eventually promise the member one thing and hold
+ * the desk to another.
+ */
+const SLA_HOURS: Record<string, number> = Object.fromEntries(
+  Object.entries(RESPONSE_MINUTES).map(([category, minutes]) => [category, Math.round(minutes / 60)]),
+);
 
 function slaView(ticket: typeof schema.tickets.$inferSelect, at: number): {
   state: SlaState;
@@ -456,7 +460,13 @@ messagesRoutes.post('/tickets', validate('json', TicketOpenInput), (c) => {
     : escalated || input.category === 'billing'
       ? 'high'
       : 'normal';
-  const slaHours = signals.length > 0 ? Math.min(SLA_HOURS[input.category] ?? 24, 4) : (SLA_HOURS[input.category] ?? 24);
+  const responseMinutes = promisedMinutes(input.category, signals.length > 0);
+  const slaHours = Math.round(responseMinutes / 60);
+  // Counted in the branch's *open* hours, so a ticket raised at 22:40 is not
+  // due at 02:40 with nobody in the building. The support desk reads the same
+  // deadline from the same helper.
+  const slaDueAt =
+    responseDeadline(ctx.tenantId, member.homeBranchId, at, responseMinutes) ?? at + responseMinutes * MINUTE;
 
   const ticketId = id('tkt');
   const conversationId = input.anonymous ? null : id('cnv');
@@ -477,10 +487,24 @@ messagesRoutes.post('/tickets', validate('json', TicketOpenInput), (c) => {
         priority,
         state: 'open',
         assigneeId: null,
-        slaDueAt: at + slaHours * HOUR,
+        slaDueAt,
+        slaResponseMinutes: responseMinutes,
         resolution: null,
         anonymous: input.anonymous,
         escalated,
+        escalatedAt: escalated ? at : null,
+        escalatedBy: escalated ? 'Raised by the member' : null,
+        escalationReason: escalated
+          ? signals.length > 0
+            ? 'Safety wording in the report'
+            : 'Complaint'
+          : null,
+        firstResponseAt: null,
+        resolvedAt: null,
+        resolvedBy: null,
+        reopenCount: 0,
+        vulnerabilityFlag: signals.some((s) => s.action === 'show_resources'),
+        safetyCategories: signals.length > 0 ? signals.map((s) => s.category) : null,
         openedAt: at,
         lastUpdateAt: at,
         closedAt: null,
@@ -598,7 +622,7 @@ messagesRoutes.post('/tickets', validate('json', TicketOpenInput), (c) => {
         subject: input.subject,
         priority,
         state: 'open',
-        slaDueAt: new Date(at + slaHours * HOUR).toISOString(),
+        slaDueAt: new Date(slaDueAt).toISOString(),
         slaLabel: `Reply due in ${slaHours}h`,
       },
       conversationId,

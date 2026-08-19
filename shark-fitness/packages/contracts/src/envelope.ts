@@ -141,6 +141,17 @@ export const EVENT_TOPICS = [
   /** On-hand crossed the reorder threshold. Actionable, unlike the above. */
   'stock.low',
   'transfer.updated',
+  /* Support — PF-SUP. A ticket queue is watched by several people at once, and
+     an assignment or a state change made at one desk has to reach the others
+     before two of them answer the same complaint.
+
+     There is deliberately no `ticket.replied` topic. A member-visible reply is
+     already a `message.created` on the member's channel — the same event the
+     member app listens to — and publishing a second topic for the same fact
+     would create two histories of one message, which is exactly what the
+     conversation model exists to prevent. Staff consoles learn about it from
+     `ticket.updated`, which they need anyway because the SLA clock stopped. */
+  'ticket.updated',
 ] as const;
 
 export const EventTopic = z.enum(EVENT_TOPICS);

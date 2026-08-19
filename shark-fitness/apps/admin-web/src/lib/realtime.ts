@@ -78,7 +78,9 @@ const INVALIDATES: Partial<Record<EventTopic, string[][]>> = {
   'session.updated': [['schedule']],
   'session.cancelled': [['schedule'], ['dashboard']],
   'lead.stage_changed': [['leads']],
-  'alert.raised': [['dashboard']],
+  // An escalated ticket raises this too, and the support queue is where it has
+  // to be acted on.
+  'alert.raised': [['dashboard'], ['support']],
   // Store. A till, a stockroom and a manager's console all watch one shelf, so
   // any of these can make another console's catalogue wrong.
   'pos.sale_completed': [['store'], ['dashboard']],
@@ -87,10 +89,14 @@ const INVALIDATES: Partial<Record<EventTopic, string[][]>> = {
   'stock.changed': [['store']],
   'stock.low': [['store'], ['dashboard']],
   'transfer.updated': [['store']],
+  // Support. A queue is worked by several people at once, so an assignment or
+  // a state change made at one desk has to reach the others before two of them
+  // answer the same complaint.
+  'ticket.updated': [['support'], ['dashboard']],
 };
 
 /** Refetched wholesale after a reconnect, when replay cannot be trusted. */
-const LIVE_SURFACES = [['floor'], ['schedule'], ['dashboard'], ['store']];
+const LIVE_SURFACES = [['floor'], ['schedule'], ['dashboard'], ['store'], ['support']];
 
 export async function connectRealtime(queryClient: QueryClient, subscribeTo: string[]): Promise<void> {
   client = queryClient;

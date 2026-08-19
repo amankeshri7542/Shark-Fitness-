@@ -617,8 +617,164 @@ export const tickets = sqliteTable(
     openedAt: integer('opened_at').notNull(),
     lastUpdateAt: integer('last_update_at').notNull(),
     closedAt: integer('closed_at'),
+
+    /* ——— Phase 9 (PF-SUP). All additive and nullable. ——— */
+
+    /**
+     * When a human first answered. The SLA a support desk is actually judged on
+     * is time-to-first-reply, and it is a fact about the past: once set it never
+     * moves, so a ticket that was answered in twenty minutes cannot later be
+     * reported as breaching because it stayed open for a week.
+     */
+    firstResponseAt: integer('first_response_at'),
+    /** Set alongside `slaDueAt` so a later policy change cannot silently
+     *  restate what was promised at the time. */
+    slaResponseMinutes: integer('sla_response_minutes'),
+    resolvedAt: integer('resolved_at'),
+    resolvedBy: text('resolved_by'),
+    /** PF-SUP-006. Escalation is a recorded act with an author and a reason,
+     *  not a boolean somebody flipped. */
+    escalatedAt: integer('escalated_at'),
+    escalatedBy: text('escalated_by'),
+    escalationReason: text('escalation_reason'),
+    /** How many times this ticket came back. A reopened ticket is the same
+     *  dispute, so it keeps its reference and its history. */
+    reopenCount: integer('reopen_count').notNull().default(0),
+    /** PF-SUP-005. Set by a human; suppresses every automated outreach path. */
+    vulnerabilityFlag: integer('vulnerability_flag', { mode: 'boolean' }).notNull().default(false),
+    /** Safety categories the member's own words tripped, from `scanForSafety`. */
+    safetyCategories: text('safety_categories', { mode: 'json' }).$type<string[]>(),
   },
-  (t) => ({ byState: index('tickets_state_idx').on(t.tenantId, t.state, t.slaDueAt) }),
+  (t) => ({
+    byState: index('tickets_state_idx').on(t.tenantId, t.state, t.slaDueAt),
+    byAssignee: index('tickets_assignee_idx').on(t.tenantId, t.assigneeId, t.state),
+    byMember: index('tickets_member_idx').on(t.tenantId, t.memberId),
+  }),
+);
+
+/**
+ * The ticket's own timeline — PF-SUP-006.
+ *
+ * Append-only, enforced by `BEFORE UPDATE`/`BEFORE DELETE` triggers in
+ * `migrate.ts`, exactly like `audit_log`, `xp_ledger` and `stock_ledger`.
+ *
+ * This is deliberately *not* the audit log. `audit_log` is the tenant's legal
+ * record and reading it needs `audit.view`, which reception and branch managers
+ * do not hold — yet they are the people who handle complaints and who a dispute
+ * will be argued with. A record nobody involved may read is not much of a
+ * record, so the ticket carries its own immutable history at the permission
+ * level of the ticket. Both are written; neither can be edited.
+ */
+export const ticketEvents = sqliteTable(
+  'ticket_events',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    ticketId: text('ticket_id').notNull(),
+    /** opened · assigned · priority_changed · state_changed · replied ·
+     *  internal_note · escalated · resolved · reopened · closed · risk_linked */
+    kind: text('kind').notNull(),
+    actorId: text('actor_id'),
+    actorName: text('actor_name').notNull(),
+    actorRole: text('actor_role').notNull(),
+    /** One plain sentence, already written for a human to read. */
+    summary: text('summary').notNull(),
+    /** Structured before/after for anything a dispute might turn on. */
+    detail: text('detail', { mode: 'json' }).$type<Record<string, unknown>>(),
+    /** Set when this event is a member-visible reply, so the timeline and the
+     *  conversation can never tell two different stories about one message. */
+    messageId: text('message_id'),
+    at: integer('at').notNull(),
+  },
+  (t) => ({ byTicket: index('ticket_events_ticket_idx').on(t.ticketId, t.at) }),
+);
+
+/**
+ * Transactional feedback — PF-SUP-002.
+ *
+ * One table for NPS, CSAT, class ratings, trainer ratings, facility comments
+ * and cancellation reasons, because they are the same shape (a subject, a
+ * score, some words, an author who may wish to stay unnamed) and splitting
+ * them into five would make "what is this branch's CSAT" a five-way union.
+ *
+ * `anonymous` is configurable per submission and is honoured by *omission*, not
+ * by masking: an anonymous row carries no `member_id` at all, so there is
+ * nothing to leak and nothing to join back.
+ */
+export const feedback = sqliteTable(
+  'feedback',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    branchId: text('branch_id'),
+    /** Null when anonymous. Not "hidden" — absent. */
+    memberId: text('member_id'),
+    /** nps · csat · class · trainer · facility · cancellation */
+    kind: text('kind').notNull(),
+    /** 0–10 for NPS, 1–5 for CSAT and ratings, null for a reason-only row. */
+    score: integer('score'),
+    comment: text('comment').notNull().default(''),
+    anonymous: integer('anonymous', { mode: 'boolean' }).notNull().default(false),
+    /** What it is about: class_session · staff · membership · branch. */
+    subjectType: text('subject_type'),
+    subjectId: text('subject_id'),
+    subjectLabel: text('subject_label'),
+    /** Set when a poor score was turned into a ticket, so the two are one
+     *  story rather than a complaint filed twice. */
+    ticketId: text('ticket_id'),
+    createdAt: integer('created_at').notNull(),
+  },
+  (t) => ({
+    byKind: index('feedback_kind_idx').on(t.tenantId, t.kind, t.createdAt),
+    byBranch: index('feedback_branch_idx').on(t.tenantId, t.branchId, t.createdAt),
+  }),
+);
+
+/**
+ * Staff intervention tasks — PF-SUP-004.
+ *
+ * The risk score that prompted one is copied onto the row at creation. Risk is
+ * recomputed live from the ledgers on every read, so without that snapshot
+ * "did contacting people at 71 work?" becomes unanswerable the moment their
+ * score moves — which is the whole of effectiveness tracking.
+ */
+export const interventions = sqliteTable(
+  'interventions',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    branchId: text('branch_id').notNull(),
+    memberId: text('member_id').notNull(),
+    /** Set when the intervention came out of a complaint rather than a score. */
+    ticketId: text('ticket_id'),
+    /** Frozen at creation — see above. */
+    riskScoreAtCreation: integer('risk_score_at_creation').notNull(),
+    riskBandAtCreation: text('risk_band_at_creation').notNull(),
+    riskReasonsAtCreation: text('risk_reasons_at_creation', { mode: 'json' })
+      .$type<Array<{ code: string; label: string; points: number }>>()
+      .notNull(),
+    /** What the engine suggested, kept even when staff chose otherwise — the
+     *  disagreement is the signal worth measuring. */
+    recommendedAction: text('recommended_action').notNull(),
+    /** call · coach_checkin · offer_review · visit_invite · no_action */
+    action: text('action').notNull(),
+    note: text('note').notNull().default(''),
+    assigneeId: text('assignee_id'),
+    assigneeName: text('assignee_name'),
+    dueAt: integer('due_at').notNull(),
+    /** open · done · dismissed */
+    state: text('state').notNull().default('open'),
+    /** retained · churned · no_contact · false_positive */
+    outcome: text('outcome'),
+    outcomeNote: text('outcome_note'),
+    createdBy: text('created_by').notNull(),
+    createdAt: integer('created_at').notNull(),
+    completedAt: integer('completed_at'),
+  },
+  (t) => ({
+    byMember: index('interventions_member_idx').on(t.tenantId, t.memberId, t.createdAt),
+    byState: index('interventions_state_idx').on(t.tenantId, t.state, t.dueAt),
+  }),
 );
 
 export const commissionRates = sqliteTable('commission_rates', {

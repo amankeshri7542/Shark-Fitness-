@@ -134,7 +134,26 @@ const storeRoute = createRoute({
 const equipmentRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/equipment', component: EquipmentScreen });
 const automationsRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/automations', component: AutomationsScreen });
 const reportsRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/reports', component: ReportsScreen });
-const supportRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/support', component: SupportScreen });
+/** Same reasoning as Store: which surface is open belongs in the URL, and the
+ *  validator returns a concrete value so search accumulating down the pathless
+ *  console layout cannot hand the screen a tab that does not exist. */
+const SUPPORT_TABS = ['queue', 'feedback', 'retention'] as const;
+
+export interface SupportSearch {
+  tab: (typeof SUPPORT_TABS)[number];
+  /** A ticket reference deep-link, so a breach alert can point straight at it. */
+  ticket?: string;
+}
+
+const supportRoute = createRoute({
+  getParentRoute: () => consoleRoute,
+  path: '/support',
+  component: SupportScreen,
+  validateSearch: (search: Record<string, unknown>): SupportSearch => ({
+    tab: SUPPORT_TABS.includes(search.tab as never) ? (search.tab as SupportSearch['tab']) : 'queue',
+    ...(typeof search.ticket === 'string' && search.ticket.length > 0 ? { ticket: search.ticket } : {}),
+  }),
+});
 const settingsRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/settings', component: SettingsScreen });
 const platformRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/platform', component: PlatformScreen });
 

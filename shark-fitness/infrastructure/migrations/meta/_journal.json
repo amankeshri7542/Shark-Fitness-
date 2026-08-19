@@ -15,6 +15,13 @@
       "when": 1787052170337,
       "tag": "0001_phase7_store",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787119734228,
+      "tag": "0002_phase9_support",
+      "breakpoints": true
     }
   ]
 }
