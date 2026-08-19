@@ -123,6 +123,24 @@ export const EVENT_TOPICS = [
   'challenge.score_changed',
   'lead.stage_changed',
   'alert.raised',
+  /* Store — PF-POS. Branch-channel topics: a till, a stockroom and a manager's
+     console are all looking at the same shelf.
+
+     These are deliberately not `payment.*`. A `payment.succeeded` event means a
+     billing payment moved against an invoice, and everything downstream of it —
+     dunning, reconciliation, membership activation — is entitled to assume so.
+     A counter sale settling in cash satisfies none of that, so reusing the
+     topic to get a free refresh would put a lie on the wire. The one POS tender
+     that does raise a receivable emits `invoice.updated` as well, because in
+     that case an invoice really was created. */
+  'pos.sale_completed',
+  'pos.return_completed',
+  'pos.order_voided',
+  /** On-hand moved for a reason the viewing client did not cause. */
+  'stock.changed',
+  /** On-hand crossed the reorder threshold. Actionable, unlike the above. */
+  'stock.low',
+  'transfer.updated',
 ] as const;
 
 export const EventTopic = z.enum(EVENT_TOPICS);

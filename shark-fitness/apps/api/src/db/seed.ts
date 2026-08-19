@@ -8,7 +8,7 @@
  * happy-path data hides exactly the states the PRD asks us to build.
  */
 
-import { sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { AccessRules, CancellationPolicy, FreezeRules, Product } from '@shark/contracts';
 import {
   computeStreak,
@@ -53,7 +53,9 @@ function wipe(): void {
     'adaptive_decisions', 'personal_records', 'workout_sets', 'workouts',
     'assignment_overrides', 'assignments', 'program_items', 'program_days', 'programs', 'exercises',
     'facility_tasks', 'work_orders', 'equipment',
-    'pos_order_lines', 'pos_orders', 'stock_ledger', 'retail_products',
+    'pos_payments', 'pos_order_lines', 'pos_orders',
+    'stock_transfer_lines', 'stock_transfers',
+    'stock_ledger', 'retail_products', 'retail_product_groups', 'suppliers',
     'appointments', 'waitlist_entries', 'bookings', 'class_sessions', 'rooms', 'class_types',
     'used_access_windows', 'check_ins', 'access_tokens',
     'dunning_attempts', 'provider_events', 'refunds', 'payments', 'invoice_lines', 'invoices',
@@ -117,6 +119,9 @@ db.insert(schema.tenants)
       quietHoursTo: '08:00',
       waitlistOfferMinutes: 15,
       holdSeconds: 120,
+      /** PF-POS-004. Off by default: a shop that never decided has not
+       *  consented to selling stock it does not have. */
+      allowNegativeStock: false,
     },
     createdAt: NOW - 900 * DAY,
     updatedAt: NOW,
@@ -2571,16 +2576,70 @@ for (let i = 0; i < 34; i++) {
     .run();
 }
 
-for (const p of RETAIL) {
+const SUPPLIERS = [
+  { name: 'Bengaluru Sports Nutrition', contact: 'Ravi Iyer', email: 'ravi@bsn.example', lead: 5 },
+  { name: 'Coastal Apparel Works', contact: 'Meera Shetty', email: 'meera@coastal.example', lead: 12 },
+] as const;
+
+const supplierIds = SUPPLIERS.map((sup) => {
+  const supplierId = id('sup');
+  db.insert(schema.suppliers)
+    .values({
+      id: supplierId,
+      tenantId,
+      name: sup.name,
+      contactName: sup.contact,
+      email: sup.email,
+      phone: `+9198${rng.int(10000000, 99999999)}`,
+      leadTimeDays: sup.lead,
+      active: true,
+      createdAt: NOW - 300 * DAY,
+    })
+    .run();
+  return supplierId;
+});
+
+/** The whey tubs are one product in two flavours; the tee is one in three
+ *  sizes. Everything else is a single-variant product. */
+const groupFor = new Map<string, string>();
+for (const [groupName, category] of [
+  ['Shark Whey 1kg', 'Supplements'],
+  ['Shark Tee', 'Apparel'],
+] as const) {
+  const groupId = id('grp');
+  db.insert(schema.retailProductGroups)
+    .values({
+      id: groupId,
+      tenantId,
+      name: groupName,
+      category,
+      supplierId: category === 'Apparel' ? (supplierIds[1] ?? null) : (supplierIds[0] ?? null),
+      active: true,
+      createdAt: NOW - 300 * DAY,
+    })
+    .run();
+  groupFor.set(groupName, groupId);
+}
+
+const TEE_SIZES = ['S', 'M', 'L'] as const;
+const productIdsByCategory = new Map<string, string[]>();
+const allProductIds: Array<{ id: string; name: string; price: number; cost: number }> = [];
+
+RETAIL.forEach((p, retailIndex) => {
   const productId = id('rtl');
+  const isWhey = p.name.startsWith('Shark Whey');
+  const isTee = p.name.startsWith('Shark Tee');
   db.insert(schema.retailProducts)
     .values({
       id: productId,
       tenantId,
-      name: p.name,
+      name: isWhey ? 'Shark Whey 1kg' : isTee ? 'Shark Tee' : p.name,
       sku: p.sku,
       barcode: `890${rng.int(1000000000, 9999999999)}`,
       category: p.category,
+      groupId: isWhey ? (groupFor.get('Shark Whey 1kg') ?? null) : isTee ? (groupFor.get('Shark Tee') ?? null) : null,
+      variantName: isWhey ? (p.name.includes('Chocolate') ? 'Chocolate' : 'Vanilla') : isTee ? 'Black · M' : '',
+      supplierId: p.category === 'Apparel' ? (supplierIds[1] ?? null) : (supplierIds[0] ?? null),
       priceMinor: p.price,
       costMinor: p.cost,
       taxRateBp: 1800,
@@ -2590,25 +2649,96 @@ for (const p of RETAIL) {
     })
     .run();
 
+  allProductIds.push({
+    id: productId,
+    name: isWhey
+      ? `Shark Whey 1kg — ${p.name.includes('Chocolate') ? 'Chocolate' : 'Vanilla'}`
+      : isTee
+        ? 'Shark Tee — Black · M'
+        : p.name,
+    price: p.price,
+    cost: p.cost,
+  });
+  const bucket = productIdsByCategory.get(p.category) ?? [];
+  bucket.push(productId);
+  productIdsByCategory.set(p.category, bucket);
+
+  // The remaining tee sizes, so the variant model has something to show.
+  if (isTee) {
+    for (const size of TEE_SIZES) {
+      if (size === 'M') continue;
+      const variantId = id('rtl');
+      db.insert(schema.retailProducts)
+        .values({
+          id: variantId,
+          tenantId,
+          name: 'Shark Tee',
+          sku: `${p.sku}-${size}`,
+          barcode: `890${rng.int(1000000000, 9999999999)}`,
+          category: p.category,
+          groupId: groupFor.get('Shark Tee') ?? null,
+          variantName: `Black · ${size}`,
+          supplierId: supplierIds[1] ?? null,
+          priceMinor: p.price,
+          costMinor: p.cost,
+          taxRateBp: 1800,
+          reorderAt: 6,
+          active: true,
+          createdAt: NOW - 200 * DAY,
+        })
+        .run();
+      allProductIds.push({ id: variantId, name: `Shark Tee — Black · ${size}`, price: p.price, cost: p.cost });
+      for (const b of BRANCHES) {
+        db.insert(schema.stockLedger)
+          .values({
+            id: id('stk'),
+            tenantId,
+            branchId: b.id,
+            productId: variantId,
+            delta: rng.int(8, 24),
+            reason: 'purchase',
+            refType: null,
+            refId: null,
+            actorName: reception.name,
+            note: 'Opening stock',
+            unitCostMinor: p.cost,
+            negativeOverride: false,
+            overrideReason: null,
+            at: NOW - 200 * DAY,
+          })
+          .run();
+      }
+    }
+  }
+
   for (const b of BRANCHES) {
+    // Opening stock always exceeds what is sold below. Stock drifting
+    // negative in the demo would contradict PF-POS-004, the rule that
+    // on-hand only goes under zero with an explicit override.
+    const opening = rng.int(60, 140);
     db.insert(schema.stockLedger)
       .values({
         id: id('stk'),
         tenantId,
         branchId: b.id,
         productId,
-        delta: rng.int(12, 45),
+        delta: opening,
         reason: 'purchase',
         refType: null,
         refId: null,
         actorName: reception.name,
         note: 'Opening stock',
+        unitCostMinor: p.cost,
+        negativeOverride: false,
+        overrideReason: null,
         at: NOW - 200 * DAY,
       })
       .run();
 
-    // Sales, so a couple of lines fall under the reorder threshold.
-    const sold = rng.int(8, 40);
+    // Every fifth product is deliberately left under its reorder threshold so
+    // the low-stock report and the reorder badge have real rows to show.
+    const target = retailIndex % 5 === 0 ? rng.int(0, 5) : rng.int(20, 70);
+    const sold = Math.max(1, opening - target);
     db.insert(schema.stockLedger)
       .values({
         id: id('stk'),
@@ -2622,6 +2752,285 @@ for (const p of RETAIL) {
         actorName: reception.name,
         note: null,
         at: NOW - rng.int(1, 60) * DAY,
+      })
+      .run();
+  }
+});
+
+/* A day of trading, so the register does not open empty: ordinary sales, one
+   settled on mixed tender, one refunded, and a transfer still in the van. */
+{
+  const till = STAFF_SEED.length ? reception : reception;
+  let orderSeq = 0;
+
+  for (const b of BRANCHES) {
+    const salesToday = rng.int(4, 7);
+    for (let i = 0; i < salesToday; i += 1) {
+      orderSeq += 1;
+      const orderId = id('pos');
+      const at = NOW - rng.int(1, 10) * HOUR;
+      const basket = rng.int(1, 3);
+      // Only sell what the branch actually holds. The seed obeys the same rule
+      // the service enforces, so the demo never opens with negative stock.
+      const onHandHere = new Map(
+        db
+          .select({
+            productId: schema.stockLedger.productId,
+            qty: sql<number>`coalesce(sum(${schema.stockLedger.delta}), 0)`,
+          })
+          .from(schema.stockLedger)
+          .where(eq(schema.stockLedger.branchId, b.id))
+          .groupBy(schema.stockLedger.productId)
+          .all()
+          .map((r) => [r.productId, r.qty]),
+      );
+      const picks = [...allProductIds]
+        .filter((candidate) => (onHandHere.get(candidate.id) ?? 0) >= 4)
+        .sort(() => rng.int(0, 2) - 1)
+        .slice(0, basket);
+      if (picks.length === 0) continue;
+
+      let subtotal = 0;
+      let taxTotal = 0;
+      let total = 0;
+      const lines = picks.map((pick) => {
+        const quantity = rng.int(1, 2);
+        const gross = pick.price * quantity;
+        const tax = Math.round((gross * 1800) / 10_000);
+        subtotal += gross;
+        taxTotal += tax;
+        total += gross + tax;
+        return { pick, quantity, gross, tax };
+      });
+
+      db.insert(schema.posOrders)
+        .values({
+          id: orderId,
+          tenantId,
+          branchId: b.id,
+          reference: `SF-${TODAY.replaceAll('-', '')}-${String(orderSeq).padStart(4, '0')}`,
+          memberId: i === 0 ? demoMember.memberId : null,
+          subtotalMinor: subtotal,
+          discountMinor: 0,
+          taxMinor: taxTotal,
+          totalMinor: total,
+          state: 'paid',
+          kind: 'sale',
+          returnOfOrderId: null,
+          voidReason: null,
+          voidedAt: null,
+          staffId: till.staffId,
+          staffName: till.name,
+          invoiceId: null,
+          createdAt: at,
+        })
+        .run();
+
+      for (const line of lines) {
+        db.insert(schema.posOrderLines)
+          .values({
+            id: id('pol'),
+            tenantId,
+            orderId,
+            productId: line.pick.id,
+            name: line.pick.name,
+            quantity: line.quantity,
+            unitMinor: line.pick.price,
+            taxRateBp: 1800,
+            taxMinor: line.tax,
+            discountMinor: 0,
+            unitCostMinor: line.pick.cost,
+            quantityReturned: 0,
+            totalMinor: line.gross + line.tax,
+          })
+          .run();
+
+        db.insert(schema.stockLedger)
+          .values({
+            id: id('stk'),
+            tenantId,
+            branchId: b.id,
+            productId: line.pick.id,
+            delta: -line.quantity,
+            reason: 'sale',
+            refType: 'pos_order',
+            refId: orderId,
+            actorName: till.name,
+            note: null,
+            unitCostMinor: null,
+            negativeOverride: false,
+            overrideReason: null,
+            at,
+          })
+          .run();
+      }
+
+      // The second sale of each day is settled half cash, half card.
+      if (i === 1) {
+        const half = Math.floor(total / 2);
+        db.insert(schema.posPayments)
+          .values({ id: id('pay'), tenantId, orderId, method: 'cash', amountMinor: half, reference: '', at })
+          .run();
+        db.insert(schema.posPayments)
+          .values({ id: id('pay'), tenantId, orderId, method: 'card', amountMinor: total - half, reference: 'VISA·4421', at })
+          .run();
+      } else {
+        db.insert(schema.posPayments)
+          .values({ id: id('pay'), tenantId, orderId, method: i % 2 === 0 ? 'upi' : 'card', amountMinor: total, reference: '', at })
+          .run();
+      }
+    }
+  }
+
+  // One refund at the first branch, as a separate order pointing at the sale.
+  const firstBranch = BRANCHES[0];
+  if (firstBranch) {
+    const sale = db
+      .select()
+      .from(schema.posOrders)
+      .where(and(eq(schema.posOrders.branchId, firstBranch.id), eq(schema.posOrders.kind, 'sale')))
+      .all()[0];
+    const saleLine = sale
+      ? db.select().from(schema.posOrderLines).where(eq(schema.posOrderLines.orderId, sale.id)).all()[0]
+      : undefined;
+
+    if (sale && saleLine) {
+      const returnId = id('pos');
+      const at = NOW - 30 * MINUTE;
+      const refundTotal = saleLine.unitMinor + saleLine.taxMinor;
+      db.insert(schema.posOrders)
+        .values({
+          id: returnId,
+          tenantId,
+          branchId: firstBranch.id,
+          reference: `${sale.reference}-R`,
+          memberId: sale.memberId,
+          subtotalMinor: -saleLine.unitMinor,
+          discountMinor: 0,
+          taxMinor: -saleLine.taxMinor,
+          totalMinor: -refundTotal,
+          state: 'paid',
+          kind: 'return',
+          returnOfOrderId: sale.id,
+          voidReason: null,
+          voidedAt: null,
+          staffId: reception.staffId,
+          staffName: reception.name,
+          invoiceId: null,
+          createdAt: at,
+        })
+        .run();
+      db.insert(schema.posOrderLines)
+        .values({
+          id: id('pol'),
+          tenantId,
+          orderId: returnId,
+          productId: saleLine.productId,
+          name: saleLine.name,
+          quantity: -1,
+          unitMinor: saleLine.unitMinor,
+          taxRateBp: saleLine.taxRateBp,
+          taxMinor: -saleLine.taxMinor,
+          discountMinor: 0,
+          unitCostMinor: saleLine.unitCostMinor,
+          quantityReturned: 0,
+          totalMinor: -refundTotal,
+        })
+        .run();
+      db.update(schema.posOrderLines).set({ quantityReturned: 1 }).where(eq(schema.posOrderLines.id, saleLine.id)).run();
+      db.update(schema.posOrders)
+        .set({ state: saleLine.quantity > 1 ? 'partially_returned' : 'returned' })
+        .where(eq(schema.posOrders.id, sale.id))
+        .run();
+      db.insert(schema.stockLedger)
+        .values({
+          id: id('stk'),
+          tenantId,
+          branchId: firstBranch.id,
+          productId: saleLine.productId,
+          delta: 1,
+          reason: 'return',
+          refType: 'pos_order',
+          refId: returnId,
+          actorName: reception.name,
+          note: 'Wrong flavour',
+          unitCostMinor: saleLine.unitCostMinor,
+          negativeOverride: false,
+          overrideReason: null,
+          at,
+        })
+        .run();
+    }
+  }
+
+  // A transfer already dispatched and not yet received, so the receiving
+  // screen has something real to accept.
+  const source = BRANCHES[0];
+  const destination = BRANCHES[1];
+  // Dispatch from something the source branch can actually spare.
+  const sourceStock = source
+    ? new Map(
+        db
+          .select({
+            productId: schema.stockLedger.productId,
+            qty: sql<number>`coalesce(sum(${schema.stockLedger.delta}), 0)`,
+          })
+          .from(schema.stockLedger)
+          .where(eq(schema.stockLedger.branchId, source.id))
+          .groupBy(schema.stockLedger.productId)
+          .all()
+          .map((r) => [r.productId, r.qty]),
+      )
+    : new Map<string, number>();
+  const moving = allProductIds.find((candidate) => (sourceStock.get(candidate.id) ?? 0) >= 12);
+  if (source && destination && moving) {
+    const transferId = id('trf');
+    const dispatchedAt = NOW - 4 * HOUR;
+    db.insert(schema.stockTransfers)
+      .values({
+        id: transferId,
+        tenantId,
+        reference: `TR-${transferId.slice(-6).toUpperCase()}`,
+        fromBranchId: source.id,
+        toBranchId: destination.id,
+        state: 'dispatched',
+        note: 'Weekly rebalance',
+        createdBy: reception.name,
+        dispatchedAt,
+        dispatchedBy: reception.name,
+        receivedAt: null,
+        receivedBy: null,
+        cancelledAt: null,
+        createdAt: dispatchedAt - HOUR,
+      })
+      .run();
+    db.insert(schema.stockTransferLines)
+      .values({
+        id: id('trl'),
+        tenantId,
+        transferId,
+        productId: moving.id,
+        quantity: 6,
+        quantityReceived: 0,
+        unitCostMinor: moving.cost,
+      })
+      .run();
+    db.insert(schema.stockLedger)
+      .values({
+        id: id('stk'),
+        tenantId,
+        branchId: source.id,
+        productId: moving.id,
+        delta: -6,
+        reason: 'transfer_out',
+        refType: 'stock_transfer',
+        refId: transferId,
+        actorName: reception.name,
+        note: 'Weekly rebalance',
+        unitCostMinor: null,
+        negativeOverride: false,
+        overrideReason: null,
+        at: dispatchedAt,
       })
       .run();
   }

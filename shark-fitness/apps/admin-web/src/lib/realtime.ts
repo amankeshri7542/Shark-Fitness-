@@ -79,10 +79,18 @@ const INVALIDATES: Partial<Record<EventTopic, string[][]>> = {
   'session.cancelled': [['schedule'], ['dashboard']],
   'lead.stage_changed': [['leads']],
   'alert.raised': [['dashboard']],
+  // Store. A till, a stockroom and a manager's console all watch one shelf, so
+  // any of these can make another console's catalogue wrong.
+  'pos.sale_completed': [['store'], ['dashboard']],
+  'pos.return_completed': [['store'], ['dashboard']],
+  'pos.order_voided': [['store'], ['dashboard']],
+  'stock.changed': [['store']],
+  'stock.low': [['store'], ['dashboard']],
+  'transfer.updated': [['store']],
 };
 
 /** Refetched wholesale after a reconnect, when replay cannot be trusted. */
-const LIVE_SURFACES = [['floor'], ['schedule'], ['dashboard']];
+const LIVE_SURFACES = [['floor'], ['schedule'], ['dashboard'], ['store']];
 
 export async function connectRealtime(queryClient: QueryClient, subscribeTo: string[]): Promise<void> {
   client = queryClient;

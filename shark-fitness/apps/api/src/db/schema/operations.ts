@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { index, integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 /* ——— Billing ——————————————————————————————————————————————— */
@@ -313,6 +314,54 @@ export const appointments = sqliteTable(
 
 /* ——— Store and facility ——————————————————————————————————— */
 
+/**
+ * Phase 7 (PF-POS) additions.
+ *
+ * The implementation plan claimed the store needed no migration. It was wrong:
+ * variants, suppliers, mixed tender, returns, inter-branch transfers and
+ * margin reporting each have a SHALL clause with nowhere to live. What follows
+ * is the smallest set of additions that makes those honest.
+ *
+ * The stock-keeping unit stays `retail_products`. That row already carries the
+ * SKU, barcode, price and cost, and the ledger already points at it, so making
+ * it the variant costs no data migration; `retail_product_groups` is the
+ * parent that turns "Shark Tee" into S/M/L. Every column added below is
+ * nullable or defaulted, so the migration is safe against a seeded database.
+ */
+
+export const suppliers = sqliteTable(
+  'suppliers',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    name: text('name').notNull(),
+    contactName: text('contact_name').notNull().default(''),
+    email: text('email').notNull().default(''),
+    phone: text('phone').notNull().default(''),
+    leadTimeDays: integer('lead_time_days').notNull().default(7),
+    active: integer('active', { mode: 'boolean' }).notNull().default(true),
+    createdAt: integer('created_at').notNull(),
+  },
+  (t) => ({ nameUq: uniqueIndex('supplier_name_uq').on(t.tenantId, t.name) }),
+);
+
+/** The sellable thing a customer names ("Shark Tee"); its variants are rows in
+ *  `retail_products` (PF-POS-001). */
+export const retailProductGroups = sqliteTable(
+  'retail_product_groups',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    name: text('name').notNull(),
+    category: text('category').notNull(),
+    supplierId: text('supplier_id'),
+    active: integer('active', { mode: 'boolean' }).notNull().default(true),
+    createdAt: integer('created_at').notNull(),
+  },
+  (t) => ({ byTenant: index('retail_group_idx').on(t.tenantId, t.name) }),
+);
+
+
 export const retailProducts = sqliteTable(
   'retail_products',
   {
@@ -322,6 +371,10 @@ export const retailProducts = sqliteTable(
     sku: text('sku').notNull(),
     barcode: text('barcode'),
     category: text('category').notNull(),
+    /** Parent group and the label that distinguishes this variant within it. */
+    groupId: text('group_id'),
+    variantName: text('variant_name').notNull().default(''),
+    supplierId: text('supplier_id'),
     priceMinor: integer('price_minor').notNull(),
     costMinor: integer('cost_minor').notNull(),
     taxRateBp: integer('tax_rate_bp').notNull().default(1800),
@@ -329,7 +382,14 @@ export const retailProducts = sqliteTable(
     active: integer('active', { mode: 'boolean' }).notNull().default(true),
     createdAt: integer('created_at').notNull(),
   },
-  (t) => ({ skuUq: uniqueIndex('retail_sku_uq').on(t.tenantId, t.sku) }),
+  (t) => ({
+    skuUq: uniqueIndex('retail_sku_uq').on(t.tenantId, t.sku),
+    // Partial: many products legitimately have no barcode, but a barcode that
+    // exists must scan to exactly one SKU (PF-POS edge case).
+    barcodeUq: uniqueIndex('retail_barcode_uq')
+      .on(t.tenantId, t.barcode)
+      .where(sql`barcode is not null`),
+  }),
 );
 
 /** Immutable ledger. Stock on hand is the sum of deltas, never a stored
@@ -347,6 +407,13 @@ export const stockLedger = sqliteTable(
     refId: text('ref_id'),
     actorName: text('actor_name').notNull(),
     note: text('note'),
+    /** What a unit cost on the way in. Only set on inbound movements; the
+     *  weighted average of these is what stock is worth (PF-POS-006). */
+    unitCostMinor: integer('unit_cost_minor'),
+    /** Set only when the tenant policy allowed this movement to drive stock
+     *  negative. The reason is mandatory in that case (PF-POS-004). */
+    negativeOverride: integer('negative_override', { mode: 'boolean' }).notNull().default(false),
+    overrideReason: text('override_reason'),
     at: integer('at').notNull(),
   },
   (t) => ({ byProduct: index('stock_product_idx').on(t.productId, t.branchId, t.at) }),
@@ -361,9 +428,17 @@ export const posOrders = sqliteTable(
     reference: text('reference').notNull(),
     memberId: text('member_id'),
     subtotalMinor: integer('subtotal_minor').notNull(),
+    discountMinor: integer('discount_minor').notNull().default(0),
     taxMinor: integer('tax_minor').notNull(),
     totalMinor: integer('total_minor').notNull(),
+    /** `paid` | `voided` | `returned` | `partially_returned` */
     state: text('state').notNull().default('paid'),
+    /** `sale` | `return`. A return is its own order pointing at the original,
+     *  never an edit of it (PF-POS-002). */
+    kind: text('kind').notNull().default('sale'),
+    returnOfOrderId: text('return_of_order_id'),
+    voidReason: text('void_reason'),
+    voidedAt: integer('voided_at'),
     staffId: text('staff_id'),
     staffName: text('staff_name').notNull(),
     invoiceId: text('invoice_id'),
@@ -382,9 +457,79 @@ export const posOrderLines = sqliteTable(
     name: text('name').notNull(),
     quantity: integer('quantity').notNull(),
     unitMinor: integer('unit_minor').notNull(),
+    /** Tax is computed per line and then summed, never on the order total. */
+    taxRateBp: integer('tax_rate_bp').notNull().default(0),
+    taxMinor: integer('tax_minor').notNull().default(0),
+    discountMinor: integer('discount_minor').notNull().default(0),
+    /** Unit cost at the moment of sale. Margin must not move when someone
+     *  edits the product's cost later (PF-POS-006). */
+    unitCostMinor: integer('unit_cost_minor').notNull().default(0),
+    quantityReturned: integer('quantity_returned').notNull().default(0),
     totalMinor: integer('total_minor').notNull(),
   },
   (t) => ({ byOrder: index('pos_lines_idx').on(t.orderId) }),
+);
+
+/** One row per tender. A sale settled half in cash and half on a card is two
+ *  rows summing to the order total (PF-POS-002). */
+export const posPayments = sqliteTable(
+  'pos_payments',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    orderId: text('order_id').notNull(),
+    /** `cash` | `card` | `upi` | `account` */
+    method: text('method').notNull(),
+    amountMinor: integer('amount_minor').notNull(),
+    reference: text('reference').notNull().default(''),
+    at: integer('at').notNull(),
+  },
+  (t) => ({ byOrder: index('pos_payments_idx').on(t.orderId) }),
+);
+
+/**
+ * Stock in motion between branches (PF-POS-005).
+ *
+ * This cannot be expressed by the ledger alone: dispatched-but-not-received
+ * stock has left one branch and not yet arrived at the other, and something
+ * has to own that interval. Dispatch writes the outbound ledger row, receipt
+ * writes the inbound one, so the ledger stays the only source of on-hand.
+ */
+export const stockTransfers = sqliteTable(
+  'stock_transfers',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    reference: text('reference').notNull(),
+    fromBranchId: text('from_branch_id').notNull(),
+    toBranchId: text('to_branch_id').notNull(),
+    /** `draft` | `dispatched` | `received` | `cancelled` */
+    state: text('state').notNull().default('draft'),
+    note: text('note'),
+    createdBy: text('created_by').notNull().default(''),
+    dispatchedAt: integer('dispatched_at'),
+    dispatchedBy: text('dispatched_by'),
+    receivedAt: integer('received_at'),
+    receivedBy: text('received_by'),
+    cancelledAt: integer('cancelled_at'),
+    createdAt: integer('created_at').notNull(),
+  },
+  (t) => ({ byBranch: index('stock_transfer_idx').on(t.tenantId, t.state, t.createdAt) }),
+);
+
+export const stockTransferLines = sqliteTable(
+  'stock_transfer_lines',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    transferId: text('transfer_id').notNull(),
+    productId: text('product_id').notNull(),
+    quantity: integer('quantity').notNull(),
+    /** Receipt may be short — the shortfall is shrinkage, not a silent loss. */
+    quantityReceived: integer('quantity_received').notNull().default(0),
+    unitCostMinor: integer('unit_cost_minor').notNull().default(0),
+  },
+  (t) => ({ byTransfer: index('stock_transfer_lines_idx').on(t.transferId) }),
 );
 
 export const equipment = sqliteTable(

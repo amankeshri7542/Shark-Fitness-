@@ -99,6 +99,30 @@ export function usePermission(permission: Permission): boolean {
   return role ? can(role, permission) : false;
 }
 
+/**
+ * The zone the console reads business dates in.
+ *
+ * Stored timestamps are UTC and travel as ISO-8601; what a branch means by
+ * "today" is its own clock (Engineering PRD: "Times stored in UTC; branch
+ * timezone retained for presentation"). Formatting with the browser's zone
+ * instead puts a sale on the wrong day for any operator working from a laptop
+ * that is not set to the gym's city — including the owner of a chain, and
+ * anyone reading a hosted demo.
+ *
+ * With one branch selected the answer is that branch. Across a multi-branch
+ * scope there is no single right answer, and no tenant zone reaches the client,
+ * so the first permitted branch stands for the scope: one consistent clock for
+ * the whole table rather than rows silently read against different ones. Every
+ * branch of one gym shares a zone in practice; where that stops being true,
+ * selecting the branch gives the exact figure.
+ */
+export function useBranchTimeZone(): string {
+  const branchId = useAdmin((s) => s.activeBranchId);
+  const branches = useAdmin((s) => s.branches);
+  const active = branchId ? branches.find((b) => b.id === branchId) : undefined;
+  return active?.timezone ?? branches[0]?.timezone ?? 'Asia/Kolkata';
+}
+
 export function useBranchScope(): { branchId: string | null; branchName: string } {
   // Zustand 5 uses React's external-store subscription semantics. Returning a
   // fresh object directly from the selector makes every snapshot look changed

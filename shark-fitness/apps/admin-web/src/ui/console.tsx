@@ -296,14 +296,379 @@ export function PermissionState({ what }: { what: string }) {
   );
 }
 
-/** Freshness is stated, never implied (PF-DASH-003). */
-export function Freshness({ kind, asOf }: { kind: 'realtime' | 'near_realtime' | 'batch'; asOf: string }) {
+/**
+ * Freshness is stated, never implied (PF-DASH-003).
+ *
+ * The time is the *branch's*, not the browser's. "Live · 14:32" against a
+ * machine set to another zone is a figure that reads as fact and is off by
+ * hours, which is worse than not stating it at all. Callers pass
+ * `useBranchTimeZone()`.
+ */
+export function Freshness({
+  kind,
+  asOf,
+  timeZone,
+}: {
+  kind: 'realtime' | 'near_realtime' | 'batch';
+  asOf: string;
+  timeZone: string;
+}) {
   const label = { realtime: 'Live', near_realtime: 'Near real-time', batch: 'Batch' }[kind];
   const tone: Tone = kind === 'realtime' ? 'accent' : kind === 'near_realtime' ? 'neutral' : 'warn';
   return (
     <span className="inline-flex items-center gap-1.5 font-utility text-[9px] uppercase tracking-[0.12em] text-foam-35">
       <LiveDot tone={tone} />
-      {label} · {new Date(asOf).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+      {label} · {new Date(asOf).toLocaleTimeString('en-GB', { timeZone, hour: '2-digit', minute: '2-digit' })}
+    </span>
+  );
+}
+
+/* ============================================================================
+   Dense data — added for the Store workspace, shaped to be reused.
+
+   A shop's inventory is the first screen in this console with more rows than
+   fit and more columns than a phone can hold, so the table primitives below
+   solve that once: the header stays put while the body scrolls, and the
+   *table* scrolls sideways inside its own box rather than pushing the page
+   into a horizontal scrollbar.
+   ========================================================================= */
+
+/** The horizontal-scroll boundary. Wide content stops here, never at the page. */
+export function TableScroll({ children, className }: { children: ReactNode; className?: string }) {
+  return <div className={cx('min-w-0 overflow-x-auto overflow-y-auto', className)}>{children}</div>;
+}
+
+export function Table({ children, className }: { children: ReactNode; className?: string }) {
+  return <table className={cx('w-full min-w-max border-collapse text-[13px]', className)}>{children}</table>;
+}
+
+/**
+ * A sticky header row. `bg-hull` is opaque on purpose — a translucent header
+ * over scrolling numbers is unreadable, and this table is nothing but numbers.
+ */
+export function THead({ children }: { children: ReactNode }) {
+  return (
+    <thead className="sticky top-0 z-10 bg-hull">
+      <tr className="border-b border-line">{children}</tr>
+    </thead>
+  );
+}
+
+export function TH({
+  children,
+  align = 'left',
+  className,
+  sort,
+  onSort,
+}: {
+  children: ReactNode;
+  align?: 'left' | 'right' | 'center';
+  className?: string;
+  sort?: 'asc' | 'desc' | null;
+  onSort?: () => void;
+}) {
+  const alignment = { left: 'text-left', right: 'text-right', center: 'text-center' }[align];
+  const label = (
+    <span className="font-utility text-[10px] font-semibold uppercase tracking-[0.14em] text-foam-45">
+      {children}
+      {sort ? <span aria-hidden="true"> {sort === 'asc' ? '↑' : '↓'}</span> : null}
+    </span>
+  );
+  return (
+    <th
+      scope="col"
+      aria-sort={sort ? (sort === 'asc' ? 'ascending' : 'descending') : onSort ? 'none' : undefined}
+      className={cx('whitespace-nowrap px-3 py-2', alignment, className)}
+    >
+      {onSort ? (
+        <button type="button" onClick={onSort} className="cursor-pointer hover:text-sonar">
+          {label}
+        </button>
+      ) : (
+        label
+      )}
+    </th>
+  );
+}
+
+export function TD({
+  children,
+  align = 'left',
+  numeric,
+  className,
+}: {
+  children: ReactNode;
+  align?: 'left' | 'right' | 'center';
+  /** Right-aligns and locks digit width so a column does not dance as it ticks. */
+  numeric?: boolean;
+  className?: string;
+}) {
+  const alignment = { left: 'text-left', right: 'text-right', center: 'text-center' }[
+    numeric ? 'right' : align
+  ];
+  return (
+    <td className={cx('px-3 py-2 align-middle', alignment, numeric && 'tabular-nums', className)}>{children}</td>
+  );
+}
+
+/**
+ * A table row.
+ *
+ * `onClick` is a **pointer convenience only**, and deliberately carries no
+ * role, no `tabIndex` and no key handler. This row used to declare
+ * `role="button"`, which does not add a button to a table — it removes a row
+ * from one. The row's `row` role, its position, and the column headers that
+ * name each cell all disappear from the accessibility tree, so a screen-reader
+ * user hears "button, SF-20260818-AB12C Koramangala Walk-in Deepa Kumar Sold
+ * ₹1,180.00" instead of a navigable grid, and the table above it reports the
+ * wrong number of rows. A real `grid` would need roles on every cell and
+ * two-dimensional arrow-key handling; this is a table, so it stays a table.
+ *
+ * Keyboard operation belongs to a control *inside* the row — see `RowOpen` —
+ * which is also what the Design PRD asks for: "Row click and inline controls
+ * must not conflict. Interactive cells require explicit hit areas."
+ */
+export function TR({
+  children,
+  onClick,
+  selected,
+  className,
+}: {
+  children: ReactNode;
+  onClick?: () => void;
+  selected?: boolean;
+  className?: string;
+}) {
+  return (
+    <tr
+      onClick={onClick}
+      // Says which row is open rather than relying on a colour wash alone.
+      aria-current={selected ? true : undefined}
+      className={cx(
+        'border-b border-line-10',
+        onClick && 'cursor-pointer hover:bg-wash-sonar-soft',
+        selected && 'bg-wash-sonar',
+        className,
+      )}
+    >
+      {children}
+    </tr>
+  );
+}
+
+/**
+ * The control that opens a row, living in the cell that identifies it.
+ *
+ * Keyboard and screen-reader users reach the receipt number, the reference or
+ * the product name and press it; pointer users can still hit anywhere in the
+ * row. One name, one action, and the row keeps its semantics.
+ */
+export function RowOpen({
+  children,
+  onClick,
+  className,
+}: {
+  children: ReactNode;
+  onClick: () => void;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        // The row handles the same click; letting it through would open and
+        // then immediately re-open, and on a toggle would cancel itself out.
+        e.stopPropagation();
+        onClick();
+      }}
+      className={cx(
+        'cursor-pointer text-left underline-offset-4 hover:text-sonar hover:underline focus-visible:underline',
+        className,
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+/* — Workspace navigation ———————————————————————————————————————— */
+
+export interface TabItem {
+  key: string;
+  label: string;
+  /** Shown after the label. A count, not a badge for its own sake. */
+  hint?: string;
+}
+
+/**
+ * The section switcher for a module with several working surfaces.
+ *
+ * Not numbered: these are five places to stand, not five steps to take, and
+ * numbering them would claim an order the work does not have. The active mark
+ * is the rail's left bar rotated flat, so a module's inside reads like its
+ * outside.
+ */
+export function Tabs({
+  items,
+  active,
+  onChange,
+  label,
+}: {
+  items: TabItem[];
+  active: string;
+  onChange: (key: string) => void;
+  label: string;
+}) {
+  return (
+    <div role="tablist" aria-label={label} className="flex min-w-0 overflow-x-auto border-b border-line bg-hull">
+      {items.map((item) => {
+        const isActive = item.key === active;
+        return (
+          <button
+            key={item.key}
+            type="button"
+            role="tab"
+            id={`tab-${item.key}`}
+            aria-selected={isActive}
+            aria-controls={`panel-${item.key}`}
+            onClick={() => onChange(item.key)}
+            onKeyDown={(e) => {
+              if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+              e.preventDefault();
+              const at = items.findIndex((i) => i.key === active);
+              const next = e.key === 'ArrowRight' ? at + 1 : at - 1;
+              const target = items[(next + items.length) % items.length];
+              if (target) {
+                onChange(target.key);
+                document.getElementById(`tab-${target.key}`)?.focus();
+              }
+            }}
+            className={cx(
+              'relative min-h-10 whitespace-nowrap border-r border-line px-4 font-utility text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors',
+              isActive ? 'bg-wash-sonar text-sonar' : 'text-foam-50 hover:bg-wash-sonar-soft hover:text-foam',
+            )}
+          >
+            <span aria-hidden="true" className={cx('absolute inset-x-0 bottom-0 h-0.5', isActive ? 'bg-sonar' : 'bg-transparent')} />
+            {item.label}
+            {item.hint ? <span className="ml-1.5 tabular-nums text-foam-35">{item.hint}</span> : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** A small exclusive choice: a tender method, a state filter. */
+export function Segmented<T extends string>({
+  options,
+  value,
+  onChange,
+  label,
+  size = 'sm',
+}: {
+  options: Array<{ value: T; label: string }>;
+  value: T;
+  onChange: (value: T) => void;
+  label: string;
+  size?: 'sm' | 'md';
+}) {
+  const height = size === 'md' ? 'min-h-10 text-[12px]' : 'min-h-8 text-[10px]';
+  return (
+    <div role="group" aria-label={label} className="flex min-w-0 border border-line-strong">
+      {options.map((option, index) => {
+        const isActive = option.value === value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            aria-pressed={isActive}
+            onClick={() => onChange(option.value)}
+            className={cx(
+              'flex-1 cursor-pointer whitespace-nowrap px-2.5 font-utility font-semibold uppercase tracking-[0.12em] transition-colors',
+              height,
+              index > 0 && 'border-l border-line',
+              isActive ? 'bg-sonar text-on-accent' : 'text-foam-50 hover:text-sonar',
+            )}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * A quantity control. The label names the thing being counted, because "plus"
+ * announced twelve times down a catalogue tells a screen-reader user nothing.
+ */
+export function Stepper({
+  value,
+  onChange,
+  min = 0,
+  max,
+  label,
+  disabled,
+}: {
+  value: number;
+  onChange: (value: number) => void;
+  min?: number;
+  max?: number;
+  /** The item being counted, e.g. "Shark Tee — M". */
+  label: string;
+  disabled?: boolean;
+}) {
+  const atMin = disabled || value <= min;
+  const atMax = disabled || (max !== undefined && value >= max);
+  return (
+    <div className="flex items-center gap-1">
+      <Button
+        aria-label={`Remove one ${label}`}
+        disabled={atMin}
+        onClick={() => onChange(Math.max(min, value - 1))}
+        className="!px-2.5"
+      >
+        <span aria-hidden="true">−</span>
+      </Button>
+      <input
+        type="number"
+        aria-label={`Quantity of ${label}`}
+        value={value}
+        min={min}
+        {...(max !== undefined ? { max } : {})}
+        disabled={disabled}
+        onChange={(e) => {
+          const next = Number.parseInt(e.target.value, 10);
+          if (Number.isNaN(next)) return;
+          onChange(Math.min(max ?? Number.MAX_SAFE_INTEGER, Math.max(min, next)));
+        }}
+        className="sf-field !min-h-9 !w-14 !px-1 !py-1 !text-center !text-[13px] tabular-nums"
+      />
+      <Button
+        aria-label={`Add one ${label}`}
+        disabled={atMax}
+        onClick={() => onChange(value + 1)}
+        className="!px-2.5"
+      >
+        <span aria-hidden="true">+</span>
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * A money value the viewer's role may not see.
+ *
+ * Never a blank cell and never a zero: PF-RPT-005 asks for a permission state,
+ * and in a shop `₹0.00` is a real figure that would read as fact.
+ */
+export function Restricted({ label = 'Restricted' }: { label?: string }) {
+  return (
+    <span
+      title="Your role does not include financial figures"
+      className="font-utility text-[10px] uppercase tracking-[0.12em] text-foam-35"
+    >
+      {label}
     </span>
   );
 }

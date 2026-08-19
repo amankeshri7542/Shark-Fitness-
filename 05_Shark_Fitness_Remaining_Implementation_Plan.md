@@ -16,24 +16,110 @@ repository-specific detail to that contract; it does not replace it.
 
 ### Status of this document
 
-Verified on `chore/production-hardening` on **18 August 2026** (Node 22.23.2,
-as `.node-version` pins and CI reads). Verification evidence: `pnpm lint`,
-`pnpm typecheck` clean across 6 packages, `pnpm test` **282 passing** (101
-domain, 142 API integration, 24 member PWA, 15 admin console), `pnpm build`
-clean, and the production single-origin server exercised over HTTP and in a
-real browser — all 45 hashed JS and CSS assets served with their own content
-types rather than SPA HTML, missing assets returning 404, `/admin/` rendering
-`Shark Fitness — Operations` after the member service worker had claimed `/`,
-route chunks fetched on demand, and the Phase 8 equipment registry rendering
-16 seeded assets with its safety hold intact.
+Verified on `feat/phase-7-store` on **19 August 2026** (Node 22.23.2, as
+`.node-version` pins and CI reads), after the hardening pass described below.
+Verification evidence: `pnpm lint` and `pnpm typecheck` clean across 6 packages,
+`pnpm test` **444 passing** (101 domain, 207 API integration, 24 member PWA, 112
+admin console), `pnpm build` clean, the CI browser-smoke harness
+(`scripts/admin-browser-smoke.mjs`) run locally against the production
+single-origin server, and that server worked by hand at 1440×900, 1024×768,
+768×1024 and 375×812.
 
-The 243-test figure in the previous revision predates the front-end component
-suites added on `chore/production-hardening`; the API and domain counts are
-unchanged by that branch.
+The table count is **90**, not the 85 an earlier revision recorded — Phase 7's
+migration added five and the line was not updated. Counted two ways from the
+tree: `sqliteTable()` definitions in the five schema files, and unique
+`CREATE TABLE` names in the generated migrations. They agree.
 
-The previous revision of this line recorded 203 tests against `main` on 16
-August 2026, and stated `22 of 29` API route modules — that denominator counted
-a module that does not exist. Counts below are taken from the tree.
+The browser pass was a working session at a till rather than a page load: a
+two-line sale settled across cash and card, a partial refund against it, a stock
+adjustment of +24 with a reason, and an inter-branch transfer received one unit
+short. Stock figures updated live from the realtime topics without a reload,
+`Store-*.js` was fetched on demand as a single 64 kB chunk, every
+`/v1/admin/store/*` call returned 200, and the console was clean. `document.body`
+did not scroll horizontally at any of the four viewports; the dense tables
+contain their own overflow.
+
+That session found five defects the test suite could not see — a null unit cost
+rendering as "Restricted" rather than "not applicable", a product drawer quoting
+a stale on-hand after its own adjustment, low-stock rows naming a product
+without its variant, an order drawer too narrow for the return steppers, and
+seeded receipt lines all reading "Retail item". All five are fixed in `d97cf59`
+and re-verified in the browser. **A green suite is not a smoke test**; on a
+module that handles money, run both.
+
+### The hardening pass — what a second reading found
+
+A green suite and a clean browser session are still not an audit. A deliberate
+re-read of Phase 7 against the PRDs found eight more defects, two of which could
+take a customer's money twice or hide a figure from the person who entered it.
+They are fixed and each one has a test that fails without the fix.
+
+**The till could sell the same basket twice.** `Register.tsx` built its
+`Idempotency-Key` *inside* `mutationFn`, and `idempotencyKey()` ends every key
+it returns with a random suffix. So the header that exists to make a retry safe
+was a different value on every press: server commits, response is lost, cashier
+presses again, second sale. The key is now minted once per checkout attempt,
+against a fingerprint of the exact request body, and held in a ref: a retry of
+an unchanged basket reuses it, a changed basket mints a new one, and a completed
+sale retires it — because the next customer buying the same thing must not be
+answered with the last one's receipt. The API side gained the counting tests
+that prove a replay leaves one order, one tender and one movement, and that a
+key replayed against a different basket is a 409 rather than either a second
+sale or the wrong receipt.
+
+**Unit cost was gated two different ways.** `toOrderLine` and `toTransferLine`
+withheld `unitCostMinor` on `report.financial` while
+`financialAccess().restricted` filed it under `inventory.manage`. The response
+therefore contradicted itself: a branch manager was told "Restricted" about a
+cost they had typed in when the delivery arrived, and an accountant was handed
+one their own `restricted` list said they could not have. All four unit costs —
+product, ledger row, sold line, transfer line — now follow `inventory.manage`,
+and a role-matrix test asserts, for owner / branch manager / reception /
+accountant across five surfaces, that `restricted` is an exact account of which
+fields came back `null`.
+
+**Business dates were not the branch's.** The POS receipt reference took its
+date from `toISOString()` — UTC — and `raiseAccountInvoice` hard-coded
+`Asia/Kolkata`, so the same sale could be filed on two different days and the
+invoice due date inherited the drift. Both now read `lib/branch-time.ts`, the
+one place that answers *which* zone (branch, then tenant, then the column
+default). The console had the mirror problem: every Store timestamp and the
+shared `Freshness` component formatted in the *browser's* zone, so a manager
+reading from another city saw the wrong hour stated as fact.
+`useBranchTimeZone()` supplies it and `Freshness` now requires it.
+
+**An error rendered as an empty shop.** Orders, Transfers and Insights all read
+`data?.items ?? []`, so a failed request and a quiet day looked identical — and
+the Orders and Transfer drawers sat on their skeleton for ever rather than
+saying the read failed. Each surface now names the read it cannot work without
+and shows what happened with a retry, which is what the Design PRD's "permission
+denial SHALL NOT masquerade as missing data" means for the other failure too.
+
+**An account tender with no member was clickable.** The Register warned about it
+and then let the button be pressed anyway, spending a round trip to be told
+something the screen already knew. The server stays authoritative — that refusal
+is still tested — and the button now holds.
+
+**Smaller, but real:** the member picker asked `/admin/members` for
+`firstName`/`lastName` against a route that has only ever sent one `name`, so
+every result rendered as a blank line above its member number — the client-side
+fork of a server shape that `schemas/pos.ts` exists to prevent, hidden because
+the test fixture invented the missing fields. Clickable table rows declared
+`role="button"`, which does not add a button to a table but removes a row from
+one; rows keep their semantics and the identifying cell now carries the control.
+Opening the till fetched the whole sales history and ran the full report before
+anything was scanned; those two load with their surface. The member lookup fired
+a request per keystroke and is now debounced. The open surface lives in the URL,
+so a reload lands back at the till. And the command palette offered to search
+members, invoices and classes against an index holding only modules — a promise
+answered with "nothing matches", which reads as "that member does not exist".
+
+The 282-test figure in the previous revision was correct for
+`chore/production-hardening`; this revision adds 15 API and 66 admin console
+tests on top of it. The 243-test figure before that predates the front-end
+component suites. The revision before that recorded 203 tests against `main` on
+16 August 2026 and stated `22 of 29` API route modules — that denominator
+counted a module that does not exist. Counts here are taken from the tree.
 
 ---
 
@@ -43,17 +129,21 @@ Do not re-implement any of this. Read it before planning a change.
 
 | Layer | State |
 |---|---|
-| Database schema | **85 tables** across 5 schema files (counted as `sqliteTable()` definitions, and matching `CREATE TABLE` in the generated migration), with 110 indexes and 7 append-only guard triggers. Complete for every module in this plan. |
+| Database schema | **90 tables** across 5 schema files (counted as `sqliteTable()` definitions, and matching `CREATE TABLE` in the generated migrations), with 110 indexes and 7 append-only guard triggers. Complete for every module in this plan. |
 | Migrations | Generated and checked in at `infrastructure/migrations/`. |
-| `@shark/contracts` | Zod schemas, enums, error envelope, realtime events. |
+| `@shark/contracts` | Zod schemas, enums, error envelope, realtime events (29 topics, including 6 for POS). `schemas/pos.ts` is the Store's canonical wire shape — the console reads it rather than keeping its own copy. |
 | `@shark/domain` | Membership state machine, booking eligibility, access decisions, strength maths, adaptive engine, gamification, money, permissions, safety scanning, retention risk. 101 tests. |
 | `@shark/design-tokens` | The Sonar system and the bounded copy register (`tone.ts`). |
 | Member PWA | **All 18 screens implemented.** No stubs remain. |
-| Admin console | **15 of 21 screens implemented.** The 6 placeholders are Automations, Platform, Reports, Settings, Store and Support. |
-| API | **24 of 28 route modules implemented.** The 4 stubs are `admin/reports`, `admin/settings`, `admin/store` and `admin/support`. All 28 are mounted in `app.ts`. |
+| Admin console | **16 of 21 screens implemented** (counted as files over 60 lines). The 5 placeholders are Automations, Platform, Reports, Settings and Support. Store is now five surfaces under `screens/store/`. |
+| API | **25 of 28 route modules implemented.** The 3 stubs are `admin/reports`, `admin/settings` and `admin/support`, each still 7 lines. All 28 are mounted in `app.ts`. |
 
-**The critical fact for planning: no module in this plan needs a migration.**
-Every table, index, permission key and seed fixture it requires already exists.
+**Migrations: check, do not assume.** An earlier revision asserted that no
+module in this plan needs one. Phase 7 disproved that — four of its six SHALL
+requirements had nowhere to live, and `0001_phase7_store.sql` was written. The
+tables for Phases 9–13 do all exist today, but confirm against the schema
+before planning rather than trusting this line.
+
 The remaining work is route handlers plus console screens.
 
 ---
@@ -190,46 +280,135 @@ are normative and this plan does not restate them in full.
 
 ---
 
-## Phase 7 — Store: point of sale and inventory
+## Phase 7 — Store: point of sale and inventory — **COMPLETE**
 
-**Requirements:** PF-POS-001 … PF-POS-006.
-**Permissions:** `inventory.view`, `inventory.manage`.
-**Files:** `apps/api/src/routes/admin/store.ts` (currently a 7-line stub),
-`apps/admin-web/src/screens/Store.tsx` (currently a placeholder).
-**New service:** `apps/api/src/services/store.ts`.
+**Requirements:** PF-POS-001 … PF-POS-006 — all six implemented and tested.
+**Permissions:** `inventory.view`, `inventory.manage`, and — see below —
+`report.financial`.
+**Files:** `apps/api/src/services/store.ts` (every rule),
+`apps/api/src/routes/admin/store.ts` (thin adapter),
+`packages/contracts/src/schemas/pos.ts` (the wire shapes),
+`apps/admin-web/src/screens/Store.tsx` plus `screens/store/*` (five surfaces),
+`apps/admin-web/src/ui/overlay.tsx` (drawer and confirm dialog),
+`apps/api/src/__tests__/phase7-store.integration.test.ts` (57 tests),
+`apps/admin-web/src/screens/store/__tests__/*` and `ui/__tests__/overlay.test.tsx`
+(66 tests).
 
-**Tables — all exist, no migration:** `retail_products`, `stock_ledger`
-(append-only, trigger-guarded), `pos_orders`, `pos_order_lines`.
+**Migration:** `infrastructure/migrations/0001_phase7_store.sql` adds
+`suppliers`, `retail_product_groups`, `pos_payments`, `stock_transfers` and
+`stock_transfer_lines`, plus additive columns on the four existing tables. An
+earlier revision of this plan claimed no migration was needed; that was wrong,
+and four of the six SHALL requirements had no home without it. The
+stock-keeping unit stays `retail_products` — it already carries the SKU,
+barcode, price and cost, and the ledger already points at it — so
+`retail_product_groups` is only the parent that turns "Shark Tee" into S/M/L,
+and no existing ledger or order-line row was rewritten. Every added column is
+nullable or defaulted.
 
-**Seed:** `retail_products` and `stock_ledger` are seeded. `pos_orders` and
-`pos_order_lines` are **not** — seed a realistic day of sales, including one
-refunded order and one order that took a member's account balance, or the screen
-opens empty.
+**Seed:** products, stock, suppliers, groups, a realistic day of sales
+including a refund, and one open inter-branch transfer.
 
-**Endpoints**
+### Three decisions worth not re-litigating
 
-| Method | Path | Notes |
+**Contracts are canonical, and the console does not fork them.** `ops.ts` once
+carried `RetailProduct`, `StockMovement` and `PosOrder`, written before the
+module existed. Nothing imported them, none matched what the API served, and
+the console kept private copies instead — a client-side fork of a server shape
+that typechecks while it drifts. They are gone; `schemas/pos.ts` is what the
+routes serialise and what the console reads. Timestamps are ISO-8601 on the
+wire like every other module, and branch ids always travel with branch names.
+
+**Cost and margin are not `inventory.view`.** The Product PRD files product
+margin under financial reports (§4.20) and gives reception "no access to
+sensitive global reports", so:
+
+| Figure | Permission | Why |
 |---|---|---|
-| GET | `/v1/admin/store/products` | Filter by category, active, low-stock. Paginated. |
-| POST | `/v1/admin/store/products` | `inventory.manage`. |
-| PATCH | `/v1/admin/store/products/:productId` | |
-| POST | `/v1/admin/store/products/:productId/stock` | Stock adjustment. Writes a `stock_ledger` entry — never updates a quantity in place. |
-| GET | `/v1/admin/store/orders` | Filter by date range, branch, staff, payment method. |
-| GET | `/v1/admin/store/orders/:orderId` | |
-| POST | `/v1/admin/store/orders` | Sell. Transactional: decrement stock, write ledger, create invoice lines. Takes `Idempotency-Key`. |
-| POST | `/v1/admin/store/orders/:orderId/refund` | Compensating ledger entry, never an edit. |
+| stock on hand, price, reorder point, units sold, low stock, takings | `inventory.view` | running the shop |
+| unit cost on a product, a ledger row or a purchase | `inventory.manage` | an operational input — whoever books in a delivery types it |
+| margin, stock valuation, shrinkage **value**, per-product margin | `report.financial` | the gym's commercial position |
 
-**Rules that must not be got wrong**
+A withheld figure is `null` and flagged in a `financial` block on the response,
+never `0`. Zero margin is a real and alarming number in a shop, and
+substituting it for "you may not see this" would put a falsehood in a report
+(PF-RPT-005). The console renders those as a permission state, not a blank.
+Tested as a matrix across owner, branch manager, reception and accountant.
 
-- Stock is derived from `stock_ledger`, never stored as a mutable column.
-- Selling below zero stock SHALL be refused with a domain error, not clamped.
-- Tax per line, summed. Integer minor units.
-- A refund restores stock via a **new** ledger entry.
+**`pos_orders.invoice_id` is set for exactly one tender.** An `account` charge
+is the only tender that does not settle at the counter, so it is the only one
+that raises a receivable, using the existing `invoices` / `invoice_lines`
+tables and `nextInvoiceNumber`. Only the on-account share is billed, so a
+basket half-settled in cash leaves a debt for the remainder and not for the
+whole sale. Cash, card and UPI receipts stay standalone **deliberately**:
+minting an invoice that is born paid would double-count the day's takings
+against the billing ledger and put a stack of meaningless documents in the
+member's account. `invoices.member_id` is NOT NULL, which is also why an
+account tender without a member is refused at the till rather than papered over
+with a placeholder.
 
-**Edge cases to test:** sale of an item that went out of stock between the
-screen loading and the sale; refund of an order whose product was since retired;
-stock adjustment by a user holding `inventory.view` but not `inventory.manage`;
-an order placed at a branch the caller cannot see.
+### Realtime
+
+Six POS topics replace the single borrowed `payment.succeeded` the first cut
+emitted: `pos.sale_completed`, `pos.return_completed`, `pos.order_voided`,
+`stock.changed`, `stock.low`, `transfer.updated`. A counter sale settling in
+cash is not a billing payment, and publishing it as one told dunning,
+reconciliation and membership activation something untrue in exchange for a
+free cache invalidation. `transfer.updated` publishes to **both** branches,
+because a transfer is the one Store fact that is never about a single shelf.
+The old `alert.raised` with `kind: 'stock_low'` had no consumer and did not
+match the `low_stock` value in the alert contract; it is gone.
+
+### Console
+
+Five surfaces rather than one screen, because a shop is five jobs: **Register**
+(barcode or name entry, member lookup, per-line discount, tax breakdown, true
+mixed tender with a running remaining balance, tender references, an
+authoritative server receipt), **Inventory** (dense sticky-header table,
+create/edit product, suppliers, stock adjustment with a reason, per-product
+movement ledger), **Orders** (searchable history, order detail, partial and
+full return, reason-gated void stating its consequence), **Transfers** (draft,
+dispatch, per-line receipt with visible shrinkage, cancel), **Insights** (sales,
+low stock, valuation, shrinkage, top products, permission-aware).
+
+New Sonar primitives, added because they earn their keep across several of
+those: sticky-header tables that contain their own horizontal scroll, a
+focus-trapping `Drawer` and `ConfirmDialog`, `Tabs`, `Stepper`, `Segmented`,
+`Restricted`.
+
+**Rules that must not be got wrong** — unchanged and still enforced: stock is
+derived from `stock_ledger` and never stored; selling below zero is refused
+unless the tenant enabled it *and* a reason is given; tax is per line then
+summed, in integer minor units; a refund is a compensating entry, never an
+edit; mixed tender must sum to the total exactly.
+
+**Edge cases covered by tests:** sale of an item that went out of stock between
+the screen loading and the sale; refund of an order whose product was since
+retired; a return taken at a different branch from the sale; a stock adjustment
+by a user holding `inventory.view` but not `inventory.manage`; an order at a
+branch the caller cannot see (404, not 403); a duplicate barcode; a stocktake
+against a dispatched transfer; a transfer received short; a failed sale leaving
+no order, line, payment or stock movement behind; a sale that committed and lost
+its response, retried by the cashier; the same key replayed against a different
+basket; two customers buying an identical basket back to back; the full
+cost/margin visibility matrix across four roles and five surfaces; and a receipt
+reference and account invoice dated by a branch two zones from the server.
+
+### Two things to carry into the phases that follow
+
+**`lib/branch-time.ts` is where "which zone" is answered.** It exists because
+Store had the question in two places and got two answers. Four modules still
+inline the same query and one hard-codes the literal; they were left alone here
+because they are outside this PR, but Phase 10 (timezone cutoffs are normative
+in PF-RPT-002), Phase 11 (a branch created in another timezone is a named edge
+case) and Phase 12 (quiet hours are evaluated in the branch's zone) should all
+use the helper rather than add a sixth spelling.
+
+**A retryable write needs a stable key on the client, not just a header on the
+server.** `runIdempotently` was correct throughout; the till defeated it by
+minting a new key per press. Any screen that takes money or claims a seat should
+be read with that in mind — the key belongs to the *attempt*, and the attempt
+outlives the request.
+
 
 ---
 

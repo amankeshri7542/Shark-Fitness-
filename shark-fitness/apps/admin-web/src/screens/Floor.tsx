@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, api } from '../lib/api';
-import { useBranchScope, usePermission } from '../lib/store';
+import { useBranchScope, useBranchTimeZone, usePermission } from '../lib/store';
 import { useOnline } from '../lib/realtime';
 import { Page } from '../ui/shell';
 import {
@@ -131,6 +131,7 @@ export default function FloorScreen() {
   const canCheckIn = usePermission('attendance.checkin');
   const canOverride = usePermission('attendance.override');
   const { branchId, branchName } = useBranchScope();
+  const timeZone = useBranchTimeZone();
   const online = useOnline();
   const queryClient = useQueryClient();
 
@@ -271,7 +272,7 @@ export default function FloorScreen() {
     <Page
       title="Floor"
       kicker={branchName}
-      actions={<Freshness kind="realtime" asOf={current.data.at} />}
+      actions={<Freshness kind="realtime" asOf={current.data.at} timeZone={timeZone} />}
     >
       {/* Network state is a first-class condition at a desk: "nothing is
           happening" and "this machine is offline" must never look the same. */}

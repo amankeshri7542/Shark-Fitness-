@@ -5,7 +5,7 @@ built to the four PRDs in the parent directory.
 
 ```
 apps/
-  api/            Hono + SQLite (D1-compatible) + Drizzle. 86 tables, migrations, seed.
+  api/            Hono + SQLite (D1-compatible) + Drizzle. 90 tables, migrations, seed.
   member-pwa/     React + Vite PWA, mobile-first, offline-capable.
   admin-web/      React + Vite operations console, desktop-first.
 packages/
@@ -55,10 +55,16 @@ reception and then as owner to see it.
 ## Verifying
 
 ```bash
-pnpm typecheck              # all five packages, zero errors
-pnpm -F @shark/domain test  # 101 tests
+pnpm lint                   # ESLint across the workspace, --max-warnings=0
+pnpm typecheck              # all six packages, zero errors
+pnpm test                   # 444 tests: 101 domain, 207 API, 24 member, 112 console
 pnpm build                  # both apps
 ```
+
+A green suite is not a smoke test. On anything that touches money, also run the
+production single-origin server and work the screen by hand — the last two
+rounds of Store defects were both invisible to the suite and obvious in a
+browser within a minute. `docs/BUILD-PLAN.md` has the commands.
 
 ## The parts worth knowing about
 
@@ -83,6 +89,21 @@ is a compensating entry, never an edit.
 **Overbooking is impossible at three levels**: the eligibility rule, the transactional
 claim, and a database trigger that aborts if `booked > capacity`. The last one should
 never fire; it exists because the first two are code.
+
+**A retryable write owns its key for as long as it is the same write.** The
+till builds one `Idempotency-Key` per checkout attempt and reuses it across
+retries, so a lost response costs a retry rather than a second charge; a
+changed basket mints a new one, and a completed sale retires it so the next
+customer's identical basket is not swallowed as a duplicate. The server stores
+the request hash beside the key and refuses a key replayed against different
+content.
+
+**Money visibility is three tiers, not two.** Stock, price and takings are
+`inventory.view`; unit cost — on a product, a ledger row, a sold line or a
+transfer line — is `inventory.manage`, because whoever books in a delivery
+types it; margin, stock valuation and shrinkage *value* are `report.financial`.
+A withheld figure is `null` and named in the response's `restricted` list,
+never `0`.
 
 **Offline is real on the member app.** Every write that can happen on a gym floor goes
 through an IndexedDB outbox with a client-generated id that doubles as the idempotency

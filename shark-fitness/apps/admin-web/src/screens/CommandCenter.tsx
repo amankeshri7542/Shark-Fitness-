@@ -1,7 +1,7 @@
 import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
-import { useAdmin } from '../lib/store';
+import { useAdmin, useBranchTimeZone } from '../lib/store';
 import { OccupancyTrace } from '../ui/OccupancyTrace';
 import {
   Bar,
@@ -83,6 +83,7 @@ interface Dashboard {
 
 export default function CommandCenterScreen() {
   const branchId = useAdmin((s) => s.activeBranchId);
+  const timeZone = useBranchTimeZone();
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['dashboard', branchId],
@@ -108,7 +109,7 @@ export default function CommandCenterScreen() {
     <Page
       title="Command"
       kicker={data.scope.allBranches ? `All branches · ${data.scope.branchNames.length}` : data.scope.branchNames[0]}
-      actions={<Freshness kind="realtime" asOf={data.asOf} />}
+      actions={<Freshness kind="realtime" asOf={data.asOf} timeZone={timeZone} />}
     >
       {/* Exceptions before vanity metrics. This is the whole point of the
           screen and it sits above everything else (PF-DASH-005). */}
@@ -269,6 +270,7 @@ export default function CommandCenterScreen() {
 }
 
 function KpiCell({ kpi }: { kpi: Kpi }) {
+  const timeZone = useBranchTimeZone();
   const good =
     kpi.goodDirection === 'neutral'
       ? null
@@ -309,7 +311,7 @@ function KpiCell({ kpi }: { kpi: Kpi }) {
                 {Math.abs(kpi.changePct)}%
               </span>
             ) : null}
-            <Freshness kind={kpi.freshness} asOf={kpi.asOf} />
+            <Freshness kind={kpi.freshness} asOf={kpi.asOf} timeZone={timeZone} />
           </div>
         </>
       )}

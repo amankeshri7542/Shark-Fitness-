@@ -91,7 +91,46 @@ const trainingRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/
 const trainingBuilderRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/training/$programId', component: TrainingBuilderScreen });
 const staffRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/staff', component: StaffScreen });
 const staffDetailRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/staff/$staffId', component: StaffDetailScreen });
-const storeRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/store', component: StoreScreen });
+/**
+ * Store is the first module with several working surfaces behind one path, and
+ * which surface is open is worth putting in the URL: a manager sends "the
+ * transfers screen" to a colleague, a cashier reloads the till after a browser
+ * update and expects to still be at the till, and back returns to where they
+ * were rather than to the register. TanStack Router validates search on the
+ * route, so an unknown or hand-edited value falls back rather than rendering
+ * an empty pane.
+ */
+const STORE_TABS = ['register', 'inventory', 'orders', 'transfers', 'insights'] as const;
+/** `7d` rather than `7`: the default serialiser JSON-quotes a string that
+ *  parses as a number, and `?window=%2230%22` is not a URL anyone should be
+ *  asked to read or paste. */
+const STORE_WINDOWS = ['7d', '30d', '90d'] as const;
+
+export interface StoreSearch {
+  tab: (typeof STORE_TABS)[number];
+  window: (typeof STORE_WINDOWS)[number];
+}
+
+const storeRoute = createRoute({
+  getParentRoute: () => consoleRoute,
+  path: '/store',
+  component: StoreScreen,
+  /*
+   * Both keys always resolve to a valid value, and that is load-bearing rather
+   * than tidy. Search params accumulate down the route tree: the pathless
+   * `console` layout validates nothing, so whatever is in the URL reaches its
+   * children, and a child validator that *omits* an unrecognised key leaves the
+   * raw one standing underneath. `?tab=accounting` then reaches the screen as
+   * `accounting`, matches no surface, and renders a blank pane. Returning a
+   * concrete value overrides it, so the screen can never be handed a tab that
+   * does not exist. The cost is two visible params on a bare `/admin/store`,
+   * which is a fair price for a link that cannot land nowhere.
+   */
+  validateSearch: (search: Record<string, unknown>): StoreSearch => ({
+    tab: STORE_TABS.includes(search.tab as never) ? (search.tab as StoreSearch['tab']) : 'register',
+    window: STORE_WINDOWS.includes(search.window as never) ? (search.window as StoreSearch['window']) : '30d',
+  }),
+});
 const equipmentRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/equipment', component: EquipmentScreen });
 const automationsRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/automations', component: AutomationsScreen });
 const reportsRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/reports', component: ReportsScreen });
