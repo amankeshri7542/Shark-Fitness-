@@ -19,6 +19,8 @@ import {
   Toolbar,
   cx,
   type Tone,
+  Table,
+  TableScroll,
 } from '../ui/console';
 
 interface MemberRow {
@@ -232,7 +234,7 @@ export default function MembersScreen() {
           }
         />
       ) : (
-        <table className="console-table">
+        <TableScroll><Table>
           <thead>
             <tr>
               <th className="w-8">
@@ -314,7 +316,7 @@ export default function MembersScreen() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table></TableScroll>
       )}
 
       {!data.columns.balanceVisible ? (

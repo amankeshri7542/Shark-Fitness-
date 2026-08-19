@@ -5,7 +5,8 @@ import { ApiError, OfflineError, api, idempotencyKey } from '../lib/api';
 import { useAdmin, useBranchScope, usePermission } from '../lib/store';
 import { useOnline } from '../lib/realtime';
 import { Page } from '../ui/shell';
-import { Button, Chip, Display, EmptyState, ErrorState, Field, Label, Metric, Panel, PermissionState, Seam, Skeleton, Toolbar, type Tone } from '../ui/console';
+import { Button, Chip, EmptyState, ErrorState, Field, Label, Metric, Panel, PermissionState, Seam, SelectField as ConsoleSelectField, Skeleton, Toolbar, type Tone } from '../ui/console';
+import { Modal } from '../ui/overlay';
 
 interface StaffRow { id: string; name: string; initials: string; email: string | null; role: string; employmentStatus: string; branchIds: string[]; specialties: string[]; assignedMemberCount: number; utilisationPct: number; }
 interface StaffListPayload { total: number; page: number; pageSize: number; totalPages: number; hasMore: boolean; totals: { active: number; trainers: number; onLeave: number; certificationsNeedingAttention: number }; items: StaffRow[]; }
@@ -56,7 +57,33 @@ function CreateStaffSheet({ branches, onClose }: { branches: Array<{ id: string;
   const create = useMutation({ mutationFn: () => api('/admin/staff', { method: 'POST', idempotencyKey: idempotencyKey('staff-invite', email.trim() || name.trim()), body: { name: name.trim(), email: email.trim() || null, phone: phone.trim() || null, role, branchIds, specialties: specialties.split(',').map((value) => value.trim()).filter(Boolean) } }), onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ['staff'] }); onClose(); } });
   const toggle = (id: string): void => setBranchIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
   const error = create.error instanceof ApiError ? create.error.message : create.isError ? 'That invitation could not be created.' : fieldError;
-  return <div className="fixed inset-0 z-50 grid place-items-center bg-scrim p-6" role="presentation"><div className="max-h-[85vh] w-[min(560px,100%)] overflow-auto border border-line-strong bg-overlay p-4" role="dialog" aria-modal="true"><div className="flex items-center gap-2"><Display size="sm" as="h2">Invite staff</Display><span className="flex-1" /><Button variant="ghost" onClick={onClose} aria-label="Close dialog">Close</Button></div><div className="mt-4 flex flex-col gap-3"><Field label="Name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Full name" autoFocus /><div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><Field label="Email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@example.com" /><Field label="Phone" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+91 …" /></div><SelectField label="Role" value={role} onChange={setRole} options={Object.entries(ROLE_LABEL).filter(([value]) => value !== 'owner').map(([value, label]) => [value, label] as [string, string])} /><div><Label>Assigned branches</Label><div className="mt-1.5 flex flex-wrap gap-2">{branches.map((branch) => <Button key={branch.id} variant={branchIds.includes(branch.id) ? 'cta' : 'outline'} onClick={() => toggle(branch.id)} aria-pressed={branchIds.includes(branch.id)}>{branch.name}</Button>)}</div></div><Field label="Specialties" value={specialties} onChange={(event) => setSpecialties(event.target.value)} hint="Comma-separated" placeholder="Strength, mobility" />{error ? <Panel tone="bad"><p className="px-3 py-2.5 text-[12px]">{error}</p></Panel> : null}</div><Toolbar className="-mx-4 mt-4 border-t"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="cta" disabled={create.isPending} onClick={() => { if (!name.trim()) { setFieldError('Name is required.'); return; } if (branchIds.length === 0) { setFieldError('Choose at least one branch.'); return; } create.mutate(); }}>{create.isPending ? 'Inviting…' : 'Invite staff'}</Button></Toolbar></div></div>;
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Invite staff"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="cta" pending={create.isPending} pendingLabel="Inviting…" onClick={() => { if (!name.trim()) { setFieldError('Name is required.'); return; } if (branchIds.length === 0) { setFieldError('Choose at least one branch.'); return; } create.mutate(); }}>Invite staff</Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3 p-4"><Field label="Name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Full name" autoFocus /><div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><Field label="Email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@example.com" /><Field label="Phone" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+91 …" /></div><SelectField label="Role" value={role} onChange={setRole} options={Object.entries(ROLE_LABEL).filter(([value]) => value !== 'owner').map(([value, label]) => [value, label] as [string, string])} /><div><Label>Assigned branches</Label><div className="mt-1.5 flex flex-wrap gap-2">{branches.map((branch) => <Button key={branch.id} variant={branchIds.includes(branch.id) ? 'cta' : 'outline'} onClick={() => toggle(branch.id)} aria-pressed={branchIds.includes(branch.id)}>{branch.name}</Button>)}</div></div><Field label="Specialties" value={specialties} onChange={(event) => setSpecialties(event.target.value)} hint="Comma-separated" placeholder="Strength, mobility" />{error ? <Panel tone="bad"><p className="px-3 py-2.5 text-[12px]">{error}</p></Panel> : null}</div>
+    </Modal>
+  );
 }
 
-function SelectField({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: Array<[string, string]> }) { return <div className="flex flex-col gap-1"><Label>{label}</Label><select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} className="sf-field !min-h-9 !py-2 !text-[13px]">{options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}</select></div>; }
+/* Tuple-shaped call sites, shared control underneath. Three screens each had
+   their own byte-identical copy of this select's styling, which is how the
+   label gap and control height came to differ by screen. */
+function SelectField({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: Array<[string, string]> }) {
+  return (
+    <ConsoleSelectField
+      label={label}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      options={options.map(([optionValue, optionLabel]) => ({ value: optionValue, label: optionLabel }))}
+    />
+  );
+}

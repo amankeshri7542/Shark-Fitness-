@@ -8,7 +8,6 @@ import { Page } from '../ui/shell';
 import {
   Button,
   Chip,
-  Display,
   EmptyState,
   ErrorState,
   Field,
@@ -21,6 +20,7 @@ import {
   Toolbar,
   type Tone,
 } from '../ui/console';
+import { ConfirmDialog as ConsoleConfirmDialog } from '../ui/overlay';
 
 interface Certification {
   name: string;
@@ -185,7 +185,22 @@ function ShiftPanel({ staffId, shifts, branchNames, canManage, onChanged }: { st
 
 function ConfirmDialog({ staff, isPending, onClose, onConfirm }: { staff: StaffDetailPayload['staff']; isPending: boolean; onClose: () => void; onConfirm: () => void }) {
   const disabling = staff.accountState !== 'disabled';
-  return <div className="fixed inset-0 z-50 grid place-items-center bg-scrim p-6" role="presentation"><div className="w-[min(480px,100%)] border border-line-strong bg-overlay p-4" role="dialog" aria-modal="true" aria-labelledby="staff-status-title"><Display size="sm" as="h2">{disabling ? 'Deactivate staff account?' : 'Activate staff account?'}</Display><p className="mt-2 text-[13px] leading-relaxed text-foam-65">{disabling ? `${staff.name} will no longer be able to sign in. Their employment record and training history remain available.` : `${staff.name} will be able to sign in again. Confirm their employment status separately if they are returning from leave.`}</p><div className="mt-4 flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant={disabling ? 'danger' : 'cta'} disabled={isPending} onClick={onConfirm}>{isPending ? 'Saving…' : disabling ? 'Deactivate' : 'Activate'}</Button></div></div></div>;
+  return (
+    <ConsoleConfirmDialog
+      open
+      onClose={onClose}
+      onConfirm={onConfirm}
+      title={disabling ? 'Deactivate staff account?' : 'Activate staff account?'}
+      consequence={
+        disabling
+          ? `${staff.name} will no longer be able to sign in. Their employment record and training history remain available.`
+          : `${staff.name} will be able to sign in again. Confirm their employment status separately if they are returning from leave.`
+      }
+      confirmLabel={disabling ? 'Deactivate' : 'Activate'}
+      tone={disabling ? 'danger' : 'cta'}
+      pending={isPending}
+    />
+  );
 }
 
 function SelectField({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: Array<[string, string]> }) { return <div className="flex flex-col gap-1"><Label>{label}</Label><select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} className="sf-field !min-h-9 !py-2 !text-[13px]">{options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}</select></div>; }

@@ -4,7 +4,8 @@ import { ApiError, OfflineError, api, idempotencyKey } from '../lib/api';
 import { useAdmin, useBranchScope, usePermission } from '../lib/store';
 import { useOnline } from '../lib/realtime';
 import { Page } from '../ui/shell';
-import { Button, Chip, Display, EmptyState, ErrorState, Field, Label, Metric, Panel, PermissionState, Seam, Skeleton, Toolbar, type Tone } from '../ui/console';
+import { Button, Chip, EmptyState, ErrorState, Field, Label, Metric, Panel, PermissionState, Seam, SelectField as ConsoleSelectField, Skeleton, Table, TableScroll, Toolbar, type Tone } from '../ui/console';
+import { Modal } from '../ui/overlay';
 
 interface EquipmentRow {
   id: string;
@@ -235,8 +236,7 @@ export default function EquipmentScreen() {
           {data.equipment.length === 0 ? (
             <EmptyState title="No equipment in this view" body={search || status ? 'Nothing matches these filters.' : 'Add the first asset to start the registry.'} action={canManage ? <Button variant="cta" onClick={() => setShowEquipmentForm(true)} disabled={!online}>Add equipment</Button> : undefined} />
           ) : (
-            <div className="overflow-x-auto">
-              <table className="console-table">
+            <TableScroll><Table>
                 <thead><tr><th>Asset</th><th>Location</th><th>Service</th><th>Open work</th><th>Status</th></tr></thead>
                 <tbody>
                   {data.equipment.map((item) => (
@@ -270,8 +270,7 @@ export default function EquipmentScreen() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
-            </div>
+              </Table></TableScroll>
           )}
         </Panel>
 
@@ -408,16 +407,33 @@ function ReturnToServiceDialog({ equipment, online, onClose }: { equipment: Equi
   );
 }
 
+/* The shared modal, not a local copy of one. This wrapper used to be its own
+   scrim and panel: it declared `aria-modal="true"` and then let focus tab
+   straight out into the page behind it, with no Escape and no restore. */
 function Dialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
-  return <div className="fixed inset-0 z-50 grid place-items-center bg-scrim p-6" role="presentation"><div className="max-h-[88vh] w-[min(640px,100%)] overflow-auto border border-line-strong bg-overlay p-4" role="dialog" aria-modal="true" aria-label={title}><div className="flex items-center gap-2"><Display size="sm" as="h2">{title}</Display><span className="flex-1" /><Button variant="ghost" onClick={onClose} aria-label="Close dialog">Close</Button></div><div className="mt-4">{children}</div></div></div>;
+  return (
+    <Modal open onClose={onClose} title={title} width="w-[min(640px,100%)]">
+      <div className="p-4">{children}</div>
+    </Modal>
+  );
 }
 
 function DialogActions({ onClose, isPending, disabled, label, onConfirm }: { onClose: () => void; isPending: boolean; disabled: boolean; label: string; onConfirm: () => void }) {
   return <div className="mt-5 flex justify-end gap-2 border-t border-line pt-3"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="cta" disabled={disabled || isPending} onClick={onConfirm}>{isPending ? 'Saving…' : label}</Button></div>;
 }
 
+/* Tuple-shaped call sites, shared control underneath. Three screens each had
+   their own byte-identical copy of this select's styling, which is how the
+   label gap and control height came to differ by screen. */
 function SelectField({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: Array<[string, string]> }) {
-  return <div className="flex flex-col gap-1"><Label>{label}</Label><select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} className="sf-field !min-h-9 !py-2 !text-[13px]">{options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}</select></div>;
+  return (
+    <ConsoleSelectField
+      label={label}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      options={options.map(([optionValue, optionLabel]) => ({ value: optionValue, label: optionLabel }))}
+    />
+  );
 }
 
 function dateLabel(value: string): string {
