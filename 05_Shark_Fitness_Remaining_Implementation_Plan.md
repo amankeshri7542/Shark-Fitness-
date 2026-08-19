@@ -16,12 +16,19 @@ repository-specific detail to that contract; it does not replace it.
 
 ### Status of this document
 
-Verified on `feat/phase-7-store` at `d97cf59` on **18 August 2026** (Node
-22.23.2, as `.node-version` pins and CI reads). Verification evidence: `pnpm
-lint` and `pnpm typecheck` clean across 6 packages, `pnpm test` **405 passing**
-(101 domain, 199 API integration, 24 member PWA, 81 admin console), `pnpm build`
-clean, and the production single-origin server exercised over HTTP and in a real
-browser at 1440×900, 1024×768, 768×1024 and 375×812, in both themes.
+Verified on `feat/phase-7-store` on **19 August 2026** (Node 22.23.2, as
+`.node-version` pins and CI reads), after the hardening pass described below.
+Verification evidence: `pnpm lint` and `pnpm typecheck` clean across 6 packages,
+`pnpm test` **444 passing** (101 domain, 207 API integration, 24 member PWA, 112
+admin console), `pnpm build` clean, the CI browser-smoke harness
+(`scripts/admin-browser-smoke.mjs`) run locally against the production
+single-origin server, and that server worked by hand at 1440×900, 1024×768,
+768×1024 and 375×812.
+
+The table count is **90**, not the 85 an earlier revision recorded — Phase 7's
+migration added five and the line was not updated. Counted two ways from the
+tree: `sqliteTable()` definitions in the five schema files, and unique
+`CREATE TABLE` names in the generated migrations. They agree.
 
 The browser pass was a working session at a till rather than a page load: a
 two-line sale settled across cash and card, a partial refund against it, a stock
@@ -40,6 +47,73 @@ seeded receipt lines all reading "Retail item". All five are fixed in `d97cf59`
 and re-verified in the browser. **A green suite is not a smoke test**; on a
 module that handles money, run both.
 
+### The hardening pass — what a second reading found
+
+A green suite and a clean browser session are still not an audit. A deliberate
+re-read of Phase 7 against the PRDs found eight more defects, two of which could
+take a customer's money twice or hide a figure from the person who entered it.
+They are fixed and each one has a test that fails without the fix.
+
+**The till could sell the same basket twice.** `Register.tsx` built its
+`Idempotency-Key` *inside* `mutationFn`, and `idempotencyKey()` ends every key
+it returns with a random suffix. So the header that exists to make a retry safe
+was a different value on every press: server commits, response is lost, cashier
+presses again, second sale. The key is now minted once per checkout attempt,
+against a fingerprint of the exact request body, and held in a ref: a retry of
+an unchanged basket reuses it, a changed basket mints a new one, and a completed
+sale retires it — because the next customer buying the same thing must not be
+answered with the last one's receipt. The API side gained the counting tests
+that prove a replay leaves one order, one tender and one movement, and that a
+key replayed against a different basket is a 409 rather than either a second
+sale or the wrong receipt.
+
+**Unit cost was gated two different ways.** `toOrderLine` and `toTransferLine`
+withheld `unitCostMinor` on `report.financial` while
+`financialAccess().restricted` filed it under `inventory.manage`. The response
+therefore contradicted itself: a branch manager was told "Restricted" about a
+cost they had typed in when the delivery arrived, and an accountant was handed
+one their own `restricted` list said they could not have. All four unit costs —
+product, ledger row, sold line, transfer line — now follow `inventory.manage`,
+and a role-matrix test asserts, for owner / branch manager / reception /
+accountant across five surfaces, that `restricted` is an exact account of which
+fields came back `null`.
+
+**Business dates were not the branch's.** The POS receipt reference took its
+date from `toISOString()` — UTC — and `raiseAccountInvoice` hard-coded
+`Asia/Kolkata`, so the same sale could be filed on two different days and the
+invoice due date inherited the drift. Both now read `lib/branch-time.ts`, the
+one place that answers *which* zone (branch, then tenant, then the column
+default). The console had the mirror problem: every Store timestamp and the
+shared `Freshness` component formatted in the *browser's* zone, so a manager
+reading from another city saw the wrong hour stated as fact.
+`useBranchTimeZone()` supplies it and `Freshness` now requires it.
+
+**An error rendered as an empty shop.** Orders, Transfers and Insights all read
+`data?.items ?? []`, so a failed request and a quiet day looked identical — and
+the Orders and Transfer drawers sat on their skeleton for ever rather than
+saying the read failed. Each surface now names the read it cannot work without
+and shows what happened with a retry, which is what the Design PRD's "permission
+denial SHALL NOT masquerade as missing data" means for the other failure too.
+
+**An account tender with no member was clickable.** The Register warned about it
+and then let the button be pressed anyway, spending a round trip to be told
+something the screen already knew. The server stays authoritative — that refusal
+is still tested — and the button now holds.
+
+**Smaller, but real:** the member picker asked `/admin/members` for
+`firstName`/`lastName` against a route that has only ever sent one `name`, so
+every result rendered as a blank line above its member number — the client-side
+fork of a server shape that `schemas/pos.ts` exists to prevent, hidden because
+the test fixture invented the missing fields. Clickable table rows declared
+`role="button"`, which does not add a button to a table but removes a row from
+one; rows keep their semantics and the identifying cell now carries the control.
+Opening the till fetched the whole sales history and ran the full report before
+anything was scanned; those two load with their surface. The member lookup fired
+a request per keystroke and is now debounced. The open surface lives in the URL,
+so a reload lands back at the till. And the command palette offered to search
+members, invoices and classes against an index holding only modules — a promise
+answered with "nothing matches", which reads as "that member does not exist".
+
 The 282-test figure in the previous revision was correct for
 `chore/production-hardening`; this revision adds 15 API and 66 admin console
 tests on top of it. The 243-test figure before that predates the front-end
@@ -55,7 +129,7 @@ Do not re-implement any of this. Read it before planning a change.
 
 | Layer | State |
 |---|---|
-| Database schema | **85 tables** across 5 schema files (counted as `sqliteTable()` definitions, and matching `CREATE TABLE` in the generated migration), with 110 indexes and 7 append-only guard triggers. Complete for every module in this plan. |
+| Database schema | **90 tables** across 5 schema files (counted as `sqliteTable()` definitions, and matching `CREATE TABLE` in the generated migrations), with 110 indexes and 7 append-only guard triggers. Complete for every module in this plan. |
 | Migrations | Generated and checked in at `infrastructure/migrations/`. |
 | `@shark/contracts` | Zod schemas, enums, error envelope, realtime events (29 topics, including 6 for POS). `schemas/pos.ts` is the Store's canonical wire shape — the console reads it rather than keeping its own copy. |
 | `@shark/domain` | Membership state machine, booking eligibility, access decisions, strength maths, adaptive engine, gamification, money, permissions, safety scanning, retention risk. 101 tests. |
@@ -313,7 +387,27 @@ retired; a return taken at a different branch from the sale; a stock adjustment
 by a user holding `inventory.view` but not `inventory.manage`; an order at a
 branch the caller cannot see (404, not 403); a duplicate barcode; a stocktake
 against a dispatched transfer; a transfer received short; a failed sale leaving
-no order, line, payment or stock movement behind.
+no order, line, payment or stock movement behind; a sale that committed and lost
+its response, retried by the cashier; the same key replayed against a different
+basket; two customers buying an identical basket back to back; the full
+cost/margin visibility matrix across four roles and five surfaces; and a receipt
+reference and account invoice dated by a branch two zones from the server.
+
+### Two things to carry into the phases that follow
+
+**`lib/branch-time.ts` is where "which zone" is answered.** It exists because
+Store had the question in two places and got two answers. Four modules still
+inline the same query and one hard-codes the literal; they were left alone here
+because they are outside this PR, but Phase 10 (timezone cutoffs are normative
+in PF-RPT-002), Phase 11 (a branch created in another timezone is a named edge
+case) and Phase 12 (quiet hours are evaluated in the branch's zone) should all
+use the helper rather than add a sixth spelling.
+
+**A retryable write needs a stable key on the client, not just a header on the
+server.** `runIdempotently` was correct throughout; the till defeated it by
+minting a new key per press. Any screen that takes money or claims a seat should
+be read with that in mind — the key belongs to the *attempt*, and the attempt
+outlives the request.
 
 
 ---

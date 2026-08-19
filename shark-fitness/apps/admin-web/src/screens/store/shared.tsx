@@ -31,14 +31,32 @@ export function Money({ minor, className }: { minor: number | null; className?: 
   return <span className={className}>{money(minor)}</span>;
 }
 
-export const time = (iso: string): string =>
-  new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+/* — Time.
 
-export const dateTime = (iso: string): string =>
-  new Date(iso).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+   Every stamp on the wire is ISO-8601 UTC. What a shop means by "when" is the
+   branch's clock, not the browser's: a receipt taken at 00:30 in Bengaluru is
+   that day's takings whether the manager reads it from the next desk or from
+   a laptop still set to London. These formatters therefore take the zone
+   rather than defaulting to the machine's, and callers pass the scope's zone
+   from `useBranchTimeZone()`.
 
-export const dayMonth = (iso: string): string =>
-  new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+   When the console is scoped to *all* branches the rows can come from several,
+   and a summary row carries a branch name but not a zone. The scope's zone is
+   used for the whole table in that case — one consistent clock beats a column
+   where adjacent rows are read against different ones. Open a single branch
+   and every figure is that branch's own. — */
+
+export const time = (iso: string, timeZone: string): string =>
+  new Date(iso).toLocaleTimeString('en-IN', { timeZone, hour: '2-digit', minute: '2-digit' });
+
+export const dateTime = (iso: string, timeZone: string): string =>
+  new Date(iso).toLocaleString('en-IN', {
+    timeZone,
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 
 /* — Status ————————————————————————————————————————————————————— */
 

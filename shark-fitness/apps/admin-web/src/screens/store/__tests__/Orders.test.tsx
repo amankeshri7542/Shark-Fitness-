@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const apiMock = vi.hoisted(() => vi.fn());
@@ -10,7 +10,7 @@ vi.mock('../../../lib/api', async (importOriginal) => {
 });
 
 import Orders from '../Orders';
-import { allowAll, order, renderPanel } from './harness';
+import { TZ, allowAll, noFinancials, order, renderPanel } from './harness';
 
 function callTo(path: string) {
   return apiMock.mock.calls.find(([p]) => p === path) as [string, { body?: unknown }] | undefined;
@@ -18,7 +18,15 @@ function callTo(path: string) {
 
 function open(overrides: Partial<Parameters<typeof Orders>[0]> = {}) {
   return renderPanel(
-    <Orders orders={[order()]} loading={false} canManage online onRefetch={() => undefined} {...overrides} />,
+    <Orders
+      orders={[order()]}
+      loading={false}
+      canManage
+      online
+      timeZone={TZ}
+      onRefetch={() => undefined}
+      {...overrides}
+    />,
   );
 }
 
@@ -213,5 +221,71 @@ describe('Orders — voiding', () => {
     await screen.findByRole('dialog');
     expect(screen.queryByRole('button', { name: 'Void sale' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Return items' })).not.toBeInTheDocument();
+  });
+});
+
+describe('Orders — a receipt that could not be read', () => {
+  it('says the read failed instead of sitting on the skeleton for ever', async () => {
+    const user = userEvent.setup();
+    open();
+    apiMock.mockImplementation(() => {
+      const rejected = Promise.reject(new Error('boom'));
+      rejected.catch(() => undefined);
+      return rejected;
+    });
+
+    await user.click(screen.getByRole('button', { name: /SF-20260818-AB12C/ }));
+
+    expect(await screen.findByText('Could not load this receipt')).toBeInTheDocument();
+    expect(screen.getByText(/Nothing has been refunded or voided/)).toBeInTheDocument();
+    // No refund or void may be offered against a receipt nobody has read.
+    expect(screen.queryByRole('button', { name: 'Void sale' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Return items' })).not.toBeInTheDocument();
+  });
+});
+
+describe('Orders — the branch clock', () => {
+  it('dates a receipt by the branch, not by the machine reading it', () => {
+    // 20:30 UTC is 02:00 the next morning in Bengaluru. A manager in London
+    // must see the day the till saw, or the sale files itself against the
+    // wrong day's takings.
+    const late = order({ createdAt: '2026-08-18T20:30:00.000Z' });
+    open({ orders: [late], timeZone: 'Asia/Kolkata' });
+    expect(screen.getByText(/19 Aug/)).toBeInTheDocument();
+
+    cleanup();
+    open({ orders: [late], timeZone: 'Europe/London' });
+    expect(screen.getByText(/18 Aug/)).toBeInTheDocument();
+  });
+});
+
+describe('Orders — cost at sale', () => {
+  it('shows the cost captured on a line to a role that holds inventory.manage', async () => {
+    const user = userEvent.setup();
+    // A branch manager: `inventory.manage`, no `report.financial`. The server
+    // sends the unit cost and says so in `restricted`; the panel must agree.
+    apiMock.mockResolvedValue({
+      ...detail,
+      financial: { canSeeMargin: false, canSeeCost: true, restricted: ['marginMinor', 'valuationMinor', 'shrinkageCostMinor'] },
+    });
+    open();
+
+    await user.click(screen.getByRole('button', { name: /SF-20260818-AB12C/ }));
+    expect(await screen.findByText('Cost at sale')).toBeInTheDocument();
+    expect(screen.getByText('₹200.00')).toBeInTheDocument();
+  });
+
+  it('withholds it from a role that does not', async () => {
+    const user = userEvent.setup();
+    apiMock.mockResolvedValue({
+      ...detail,
+      lines: [{ ...detail.lines[0]!, unitCostMinor: null }],
+      financial: noFinancials,
+    });
+    open();
+
+    await user.click(screen.getByRole('button', { name: /SF-20260818-AB12C/ }));
+    await screen.findByRole('dialog');
+    expect(screen.queryByText('Cost at sale')).not.toBeInTheDocument();
   });
 });

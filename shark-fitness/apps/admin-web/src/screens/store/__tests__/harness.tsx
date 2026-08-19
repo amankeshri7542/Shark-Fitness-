@@ -92,6 +92,9 @@ export function transfer(overrides: Partial<StockTransfer> = {}): StockTransfer 
   };
 }
 
+/** The branch clock the panels format against, so a run in London agrees. */
+export const TZ = 'Asia/Kolkata';
+
 export const allowAll = { canSeeMargin: true, canSeeCost: true, restricted: [] };
 export const noFinancials = {
   canSeeMargin: false,

@@ -10,7 +10,7 @@ vi.mock('../../../lib/api', async (importOriginal) => {
 });
 
 import Inventory from '../Inventory';
-import { allowAll, noFinancials, product, renderPanel } from './harness';
+import { TZ, allowAll, noFinancials, product, renderPanel } from './harness';
 
 /** The panel refetches after a successful write, so the call under test is not
  *  necessarily the last one. Pick it out by path and method instead. */
@@ -28,6 +28,8 @@ function open(overrides: Partial<Parameters<typeof Inventory>[0]> = {}) {
       loading={false}
       branchId="br_kor"
       canManage
+      online
+      timeZone={TZ}
       {...overrides}
     />,
   );
@@ -39,10 +41,28 @@ const emptyLedger = { items: [], financial: allowAll };
 describe('Inventory — the catalogue table', () => {
   it('shows what the shop needs to run: stock, reorder point and price', () => {
     open();
-    const row = screen.getByRole('button', { name: /Shark Tee/ });
+    // A row is a row. It was `role="button"`, which took the table's rows out
+    // of the accessibility tree entirely; the control that opens it lives in
+    // the cell instead, so both queries below have to keep working.
+    const row = screen.getByRole('row', { name: /Shark Tee/ });
     expect(within(row).getByText('TEE-M')).toBeInTheDocument();
     expect(within(row).getByText('Coastal Apparel')).toBeInTheDocument();
     expect(within(row).getByText('₹1,000.00')).toBeInTheDocument();
+    expect(within(row).getByRole('button', { name: 'Shark Tee — M' })).toBeInTheDocument();
+  });
+
+  it('opens a product from the keyboard without the row pretending to be a button', async () => {
+    const user = userEvent.setup();
+    apiMock.mockResolvedValue(emptyLedger);
+    open();
+
+    // Tab reaches the row's own control — the row itself is not a tab stop,
+    // because a row is not an interactive element.
+    const opener = screen.getByRole('row', { name: /Shark Tee/ }).querySelector('button');
+    opener!.focus();
+    await user.keyboard('{Enter}');
+
+    expect(await screen.findByRole('dialog', { name: 'Shark Tee — M' })).toBeInTheDocument();
   });
 
   it('filters to what needs reordering', async () => {
@@ -214,5 +234,67 @@ describe('Inventory — stock adjustment', () => {
     expect(within(drawer).queryByRole('button', { name: 'Edit product' })).not.toBeInTheDocument();
     // The ledger itself stays readable — seeing history is not managing it.
     expect(within(drawer).getByText('Movement ledger')).toBeInTheDocument();
+  });
+});
+
+describe('Inventory — states other than a table of rows', () => {
+  it('says the ledger could not be read rather than "nothing has moved yet"', async () => {
+    const user = userEvent.setup();
+    apiMock.mockImplementation(() => {
+      const rejected = Promise.reject(new Error('boom'));
+      rejected.catch(() => undefined);
+      return rejected;
+    });
+    open();
+
+    await user.click(screen.getByRole('button', { name: /Shark Tee/ }));
+
+    // "Nothing has moved yet" against a product that has moved forty times is
+    // the worst thing this panel could say, and it is what it used to say.
+    expect(await screen.findByText('Could not load the movement history')).toBeInTheDocument();
+    expect(screen.queryByText(/Nothing has moved yet/)).not.toBeInTheDocument();
+  });
+
+  it('offers no stock write at all while offline', async () => {
+    const user = userEvent.setup();
+    apiMock.mockResolvedValue(emptyLedger);
+    open({ online: false });
+
+    expect(screen.getByRole('button', { name: 'Offline' })).toBeDisabled();
+
+    await user.click(screen.getByRole('button', { name: /Shark Tee/ }));
+    const drawer = await screen.findByRole('dialog');
+    expect(within(drawer).getByRole('button', { name: /Offline — cannot adjust stock/ })).toBeDisabled();
+    expect(within(drawer).getByRole('button', { name: /Offline — cannot edit/ })).toBeDisabled();
+  });
+
+  it('dates a ledger row by the branch clock', async () => {
+    const user = userEvent.setup();
+    apiMock.mockResolvedValue({
+      items: [
+        {
+          id: 'stk_1',
+          productId: 'rtl_tee',
+          branchId: 'br_kor',
+          branchName: 'Koramangala',
+          delta: 24,
+          reason: 'purchase',
+          refType: null,
+          refId: null,
+          actorName: 'Sunita Rao',
+          note: null,
+          unitCostMinor: 40_000,
+          negativeOverride: false,
+          overrideReason: null,
+          at: '2026-08-18T20:30:00.000Z',
+        },
+      ],
+      financial: allowAll,
+    });
+    open({ timeZone: 'Asia/Kolkata' });
+
+    await user.click(screen.getByRole('button', { name: /Shark Tee/ }));
+    const drawer = await screen.findByRole('dialog');
+    expect(within(drawer).getByText(/19 Aug/)).toBeInTheDocument();
   });
 });

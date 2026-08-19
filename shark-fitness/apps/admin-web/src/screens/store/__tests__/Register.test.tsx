@@ -17,6 +17,27 @@ import { product, renderPanel } from './harness';
 /* The till is where money is taken, so these assert the arithmetic and the
    conditions under which the button is allowed to be pressed at all. */
 
+/** What the server sends back for a one-line cash sale. */
+const soldResponse = {
+  order: {
+    id: 'pos_9',
+    reference: 'SF-20260818-ZZ99Z',
+    totalMinor: 118_000,
+    invoiceId: null,
+    memberName: null,
+  },
+  lines: [{ id: 'pol_1', name: 'Shark Tee — M', quantity: 1, totalMinor: 118_000 }],
+  tenders: [{ id: 'pay_1', method: 'cash', amountMinor: 118_000, reference: '' }],
+  financial: { canSeeMargin: true, canSeeCost: true, restricted: [] },
+};
+
+/** The `Idempotency-Key` header the nth checkout POST carried. */
+function checkoutKeys(): string[] {
+  return apiMock.mock.calls
+    .filter(([path, options]) => path === '/admin/store/orders' && (options as { method?: string }).method === 'POST')
+    .map(([, options]) => (options as { idempotencyKey: string }).idempotencyKey);
+}
+
 function open(overrides: Partial<Parameters<typeof Register>[0]> = {}) {
   return renderPanel(
     <Register
@@ -121,6 +142,50 @@ describe('Register — mixed tender', () => {
 
     expect(screen.getByText(/An account charge needs a member/)).toBeInTheDocument();
   });
+
+  it('will not send an account tender with no member, settled or not', async () => {
+    const user = userEvent.setup();
+    open();
+    await user.click(screen.getByRole('button', { name: /Add Shark Tee — M/ }));
+    // A fresh tender defaults to the full balance, so the sale is *settled* —
+    // the remaining balance reads zero and the old button read "Take
+    // ₹1,180.00" and was enabled. `invoices.member_id` is NOT NULL, so the
+    // server was always going to refuse it; spending a round trip to be told
+    // that, in front of a customer, is the part worth fixing. The server stays
+    // authoritative — the API test asserts the refusal — but the till knows.
+    await user.click(screen.getByRole('button', { name: 'On account' }));
+    expect(screen.getByText('Settled')).toBeInTheDocument();
+
+    const take = screen.getByRole('button', { name: 'Attach a member to charge an account' });
+    expect(take).toBeDisabled();
+    await user.click(take);
+    expect(apiMock).not.toHaveBeenCalled();
+  });
+
+  it('takes the sale once a member is attached to the account tender', async () => {
+    const user = userEvent.setup();
+    apiMock.mockImplementation((path: string) =>
+      path.startsWith('/admin/members')
+        ? Promise.resolve({
+            // Exactly what `/admin/members` serves: one `name`. The fixture
+            // used to invent `firstName`/`lastName`, which hid a picker that
+            // rendered every result as a blank line above its member number.
+            items: [{ id: 'mbr_1', memberNo: 'SF-0001', name: 'Asha Iyer', lifecycle: 'active' }],
+          })
+        : Promise.resolve(soldResponse),
+    );
+    open();
+
+    await user.click(screen.getByRole('button', { name: /Add Shark Tee — M/ }));
+    await user.click(screen.getByRole('button', { name: 'On account' }));
+    await user.type(screen.getByLabelText(/Attach a member to this sale/), 'Asha');
+
+    await user.click(await screen.findByRole('button', { name: /Asha Iyer/ }));
+    expect(await screen.findByRole('button', { name: /Take ₹1,180.00/ })).toBeEnabled();
+    // The attached member is named, not just numbered.
+    expect(screen.getByText('Asha Iyer')).toBeInTheDocument();
+    expect(screen.getByText(/SF-0001/)).toBeInTheDocument();
+  });
 });
 
 describe('Register — when it must not sell', () => {
@@ -167,19 +232,6 @@ describe('Register — when it must not sell', () => {
 });
 
 describe('Register — the receipt', () => {
-  const soldResponse = {
-    order: {
-      id: 'pos_9',
-      reference: 'SF-20260818-ZZ99Z',
-      totalMinor: 118_000,
-      invoiceId: null,
-      memberName: null,
-    },
-    lines: [{ id: 'pol_1', name: 'Shark Tee — M', quantity: 1, totalMinor: 118_000 }],
-    tenders: [{ id: 'pay_1', method: 'cash', amountMinor: 118_000, reference: '' }],
-    financial: { canSeeMargin: true, canSeeCost: true, restricted: [] },
-  };
-
   it('shows the server’s receipt, not a local echo of the basket', async () => {
     const user = userEvent.setup();
     apiMock.mockResolvedValue(soldResponse);
@@ -224,5 +276,153 @@ describe('Register — the receipt', () => {
     const totals = within(screen.getByRole('region', { name: 'Sale totals' }));
     expect(totals.getByText('₹1,180.00')).toBeInTheDocument();
     expect(screen.queryByText('Sold')).not.toBeInTheDocument();
+  });
+});
+
+/* ============================================================================
+   Idempotency.
+
+   The failure these guard against is the worst one a till has: the server
+   commits the sale, the response is lost on the way back, the cashier sees an
+   error and presses the button again. Whether that charges the customer twice
+   is decided entirely by whether the second request carries the same
+   `Idempotency-Key` as the first.
+
+   It did not. The key was built inside `mutationFn`, and `idempotencyKey()`
+   appends a random suffix to everything it returns, so every press minted a
+   new one and the server — correctly, given a new key — sold the goods again.
+   ========================================================================= */
+
+describe('Register — one attempt, one key', () => {
+  it('retries a lost sale under the same key rather than selling twice', async () => {
+    const user = userEvent.setup();
+    const { OfflineError } = await import('../../../lib/api');
+
+    // The server committed; the response never arrived. `fetch` rejecting is
+    // exactly what that looks like from here, and it is indistinguishable from
+    // "nothing happened" — which is why the key has to survive it.
+    apiMock.mockImplementationOnce(() => {
+      const rejected = Promise.reject(new OfflineError());
+      rejected.catch(() => undefined);
+      return rejected;
+    });
+    apiMock.mockResolvedValue(soldResponse);
+    open();
+
+    await user.click(screen.getByRole('button', { name: /Add Shark Tee — M/ }));
+    await user.click(screen.getByRole('button', { name: 'Cash' }));
+    fireEvent.click(screen.getByRole('button', { name: /Take ₹1,180.00/ }));
+
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/No connection/));
+    // The basket is intact, because as far as this screen knows nothing sold.
+    await user.click(screen.getByRole('button', { name: /Take ₹1,180.00/ }));
+    await waitFor(() => expect(screen.getByText('Sold')).toBeInTheDocument());
+
+    const keys = checkoutKeys();
+    expect(keys).toHaveLength(2);
+    // One logical checkout, one key: the second request is answered from the
+    // first one's record, so one order, one payment and one stock movement.
+    expect(keys[0]).toBe(keys[1]);
+  });
+
+  it('keeps the key across a refusal so a corrected retry cannot double-sell', async () => {
+    const user = userEvent.setup();
+    const { ApiError } = await import('../../../lib/api');
+    apiMock.mockImplementationOnce(() => {
+      const rejected = Promise.reject(
+        new ApiError(500, { error: { code: 'INTERNAL', message: 'Something failed.', requestId: 'req_2' } }),
+      );
+      rejected.catch(() => undefined);
+      return rejected;
+    });
+    apiMock.mockResolvedValue(soldResponse);
+    open();
+
+    await user.click(screen.getByRole('button', { name: /Add Shark Tee — M/ }));
+    await user.click(screen.getByRole('button', { name: 'Cash' }));
+    fireEvent.click(screen.getByRole('button', { name: /Take ₹1,180.00/ }));
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: /Take ₹1,180.00/ }));
+    await waitFor(() => expect(screen.getByText('Sold')).toBeInTheDocument());
+
+    // A 5xx is precisely the case where the client cannot know whether the
+    // write landed, so the retry must be the same question, not a new one.
+    expect(checkoutKeys()[0]).toBe(checkoutKeys()[1]);
+  });
+
+  it('mints a new key when the basket changes, because that is a different sale', async () => {
+    const user = userEvent.setup();
+    const { OfflineError } = await import('../../../lib/api');
+    apiMock.mockImplementationOnce(() => {
+      const rejected = Promise.reject(new OfflineError());
+      rejected.catch(() => undefined);
+      return rejected;
+    });
+    apiMock.mockResolvedValue(soldResponse);
+    open();
+
+    await user.click(screen.getByRole('button', { name: /Add Shark Tee — M/ }));
+    await user.click(screen.getByRole('button', { name: 'Cash' }));
+    fireEvent.click(screen.getByRole('button', { name: /Take ₹1,180.00/ }));
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+
+    // A second unit. Reusing the key here would be worse than useless: the
+    // server hashes the body alongside the key and would refuse the whole
+    // thing as a conflicting replay.
+    await user.click(screen.getByRole('button', { name: 'Add one Shark Tee — M' }));
+    await user.click(screen.getByRole('button', { name: 'Cash' }));
+    fireEvent.click(screen.getByRole('button', { name: /Take ₹2,360.00/ }));
+    await waitFor(() => expect(screen.getByText('Sold')).toBeInTheDocument());
+
+    const keys = checkoutKeys();
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).not.toBe(keys[1]);
+  });
+
+  it('gives the next customer a new key even for an identical basket', async () => {
+    const user = userEvent.setup();
+    apiMock.mockResolvedValue(soldResponse);
+    open();
+
+    // Two people in a row buy the same tee and pay cash. The request bodies are
+    // byte-identical, so a key keyed only on the basket would replay the first
+    // receipt and swallow a real second sale — the mirror image of the double
+    // charge, and just as expensive.
+    await user.click(screen.getByRole('button', { name: /Add Shark Tee — M/ }));
+    await user.click(screen.getByRole('button', { name: 'Cash' }));
+    await user.click(screen.getByRole('button', { name: /Take ₹1,180.00/ }));
+    await waitFor(() => expect(screen.getByText('Sold')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'New sale' }));
+    await user.click(screen.getByRole('button', { name: /Add Shark Tee — M/ }));
+    await user.click(screen.getByRole('button', { name: 'Cash' }));
+    await user.click(screen.getByRole('button', { name: /Take ₹1,180.00/ }));
+    await waitFor(() => expect(screen.getByText('Sold')).toBeInTheDocument());
+
+    const keys = checkoutKeys();
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).not.toBe(keys[1]);
+  });
+
+  it('sends the same body it fingerprinted', async () => {
+    const user = userEvent.setup();
+    apiMock.mockResolvedValue(soldResponse);
+    open();
+
+    await user.click(screen.getByRole('button', { name: /Add Shark Tee — M/ }));
+    await user.click(screen.getByRole('button', { name: 'Cash' }));
+    await user.click(screen.getByRole('button', { name: /Take ₹1,180.00/ }));
+    await waitFor(() => expect(screen.getByText('Sold')).toBeInTheDocument());
+
+    // The server refuses a key replayed against a different request hash, so
+    // the fingerprint has to be the body itself and nothing less.
+    const [, options] = apiMock.mock.calls.find(([path]) => path === '/admin/store/orders')!;
+    expect((options as { body: unknown }).body).toEqual({
+      branchId: 'br_kor',
+      memberId: null,
+      lines: [{ productId: 'rtl_tee', quantity: 1, discountMinor: 0 }],
+      payments: [{ method: 'cash', amountMinor: 118_000, reference: '' }],
+    });
   });
 });

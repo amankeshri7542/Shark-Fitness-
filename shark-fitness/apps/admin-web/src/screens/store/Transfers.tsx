@@ -6,8 +6,10 @@ import {
   Button,
   Chip,
   EmptyState,
+  ErrorState,
   Label,
   Panel,
+  RowOpen,
   Segmented,
   Skeleton,
   Stepper,
@@ -45,6 +47,8 @@ export default function Transfers({
   branches,
   loading,
   canManage,
+  online,
+  timeZone,
   onRefetch,
 }: {
   transfers: StockTransfer[];
@@ -52,6 +56,9 @@ export default function Transfers({
   branches: Branch[];
   loading: boolean;
   canManage: boolean;
+  /** Stock cannot move without a connection, and the screen says so up front. */
+  online: boolean;
+  timeZone: string;
   onRefetch: () => void;
 }) {
   const [scope, setScope] = useState<Scope>('open');
@@ -80,8 +87,8 @@ export default function Transfers({
         {inTransit > 0 ? <Chip tone="warn">{inTransit} in transit</Chip> : null}
         <span className="flex-1" />
         {canManage ? (
-          <Button variant="cta" onClick={() => setCreating(true)}>
-            New transfer
+          <Button variant="cta" disabled={!online} onClick={() => setCreating(true)}>
+            {online ? 'New transfer' : 'Offline'}
           </Button>
         ) : null}
       </Toolbar>
@@ -94,7 +101,7 @@ export default function Transfers({
             title={scope === 'open' ? 'Nothing in transit' : 'No transfers yet'}
             body="Stock moving between branches shows here from the moment it is drafted until it is counted in at the other end."
             action={
-              canManage ? (
+              canManage && online ? (
                 <Button variant="cta" onClick={() => setCreating(true)}>
                   New transfer
                 </Button>
@@ -116,7 +123,9 @@ export default function Transfers({
               <tbody>
                 {rows.map((transfer) => (
                   <TR key={transfer.id} selected={openId === transfer.id} onClick={() => setOpenId(transfer.id)}>
-                    <TD className="font-utility text-[11px]">{transfer.reference}</TD>
+                    <TD className="font-utility text-[11px]">
+                      <RowOpen onClick={() => setOpenId(transfer.id)}>{transfer.reference}</RowOpen>
+                    </TD>
                     <TD className="text-[12px] text-foam-65">{transfer.fromBranchName}</TD>
                     <TD className="text-[12px] text-foam-65">{transfer.toBranchName}</TD>
                     <TD align="center">
@@ -125,7 +134,9 @@ export default function Transfers({
                     <TD numeric className={transfer.unitsInTransit > 0 ? 'text-flare' : 'text-foam-35'}>
                       {transfer.unitsInTransit || '—'}
                     </TD>
-                    <TD className="whitespace-nowrap text-[12px] text-foam-65">{dateTime(transfer.createdAt)}</TD>
+                    <TD className="whitespace-nowrap text-[12px] text-foam-65">
+                      {dateTime(transfer.createdAt, timeZone)}
+                    </TD>
                     <TD className="text-[12px] text-foam-65">{transfer.createdBy}</TD>
                   </TR>
                 ))}
@@ -139,6 +150,8 @@ export default function Transfers({
         <TransferDrawer
           transferId={openId}
           canManage={canManage}
+          online={online}
+          timeZone={timeZone}
           onClose={() => setOpenId(null)}
           onChanged={onRefetch}
         />
@@ -161,11 +174,15 @@ export default function Transfers({
 function TransferDrawer({
   transferId,
   canManage,
+  online,
+  timeZone,
   onClose,
   onChanged,
 }: {
   transferId: string;
   canManage: boolean;
+  online: boolean;
+  timeZone: string;
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -247,7 +264,7 @@ function TransferDrawer({
         kicker={transfer ? `${transfer.fromBranchName} → ${transfer.toBranchName}` : 'Loading'}
         title={transfer?.reference ?? 'Transfer'}
         footer={
-          canManage && transfer ? (
+          canManage && online && transfer && !detail.isError ? (
             <div className="flex items-center gap-2">
               {transfer.state === 'draft' ? (
                 <>
@@ -267,7 +284,13 @@ function TransferDrawer({
           ) : null
         }
       >
-        {detail.isLoading || !transfer ? (
+        {detail.isError ? (
+          <ErrorState
+            title="Could not load this transfer"
+            body="The API did not answer. No stock has been dispatched, received or cancelled — close this and try again."
+            onRetry={() => void detail.refetch()}
+          />
+        ) : detail.isPending || !transfer ? (
           <Skeleton className="m-3 h-48" />
         ) : (
           <>
@@ -277,9 +300,12 @@ function TransferDrawer({
             </div>
 
             <dl className="grid grid-cols-2 gap-px bg-line">
-              <Fact label="Dispatched" value={transfer.dispatchedAt ? dateTime(transfer.dispatchedAt) : '—'} />
+              <Fact
+                label="Dispatched"
+                value={transfer.dispatchedAt ? dateTime(transfer.dispatchedAt, timeZone) : '—'}
+              />
               <Fact label="By" value={transfer.dispatchedBy ?? '—'} />
-              <Fact label="Received" value={transfer.receivedAt ? dateTime(transfer.receivedAt) : '—'} />
+              <Fact label="Received" value={transfer.receivedAt ? dateTime(transfer.receivedAt, timeZone) : '—'} />
               <Fact label="By" value={transfer.receivedBy ?? '—'} />
             </dl>
 
@@ -350,6 +376,12 @@ function TransferDrawer({
             {error ? (
               <p role="alert" className="border-t border-line bg-wash-chum px-3 py-2 text-[12px] text-foam-80">
                 {error}
+              </p>
+            ) : null}
+
+            {!online ? (
+              <p className="border-t border-line bg-wash-flare px-3 py-2 text-[12px] text-foam-80">
+                Offline. Dispatch, receipt and cancellation all need a connection.
               </p>
             ) : null}
           </>

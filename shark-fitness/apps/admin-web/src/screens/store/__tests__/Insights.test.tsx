@@ -3,7 +3,7 @@ import { screen } from '@testing-library/react';
 import type { StoreReport } from '@shark/contracts';
 
 import Insights from '../Insights';
-import { allowAll, noFinancials, renderPanel } from './harness';
+import { TZ, allowAll, noFinancials, renderPanel } from './harness';
 
 function report(overrides: Partial<StoreReport> = {}): StoreReport {
   return {
@@ -30,7 +30,7 @@ const restricted = report({
 });
 
 function open(value: StoreReport) {
-  return renderPanel(<Insights report={value} loading={false} window="30" onWindow={() => undefined} />);
+  return renderPanel(<Insights report={value} loading={false} window="30d" timeZone={TZ} onWindow={() => undefined} />);
 }
 
 describe('Insights — with financial access', () => {

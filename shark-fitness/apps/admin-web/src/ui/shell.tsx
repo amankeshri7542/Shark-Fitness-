@@ -249,7 +249,18 @@ export function Page({ title, kicker, actions, children }: {
   );
 }
 
-/** Global search and commands. ⌘K, permission-aware results. */
+/**
+ * ⌘K. Jumps to a module, filtered to what the role may open.
+ *
+ * It says "module" because that is all it does. The placeholder used to offer
+ * members, invoices and classes, and the no-results line suggested trying a
+ * member name — against an index that has only ever held the fifteen or so
+ * modules in the rail. Typing a member's name returned "nothing matches",
+ * which reads as "that member does not exist": a promise the console does not
+ * keep, answered with a statement that is not true. Member and invoice search
+ * live on their own screens and are reachable from here in one press; when
+ * this palette can genuinely search them, the copy can say so again.
+ */
 export function CommandPalette() {
   const open = useAdmin((s) => s.paletteOpen);
   const togglePalette = useAdmin((s) => s.togglePalette);
@@ -292,7 +303,7 @@ export function CommandPalette() {
           autoFocus
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Jump to a module, member, invoice or class"
+          placeholder="Jump to a module"
           className="w-full border-0 border-b border-line bg-transparent px-4 py-3.5 text-[15px] outline-none placeholder:text-foam-35"
         />
         <ul className="max-h-[50vh] overflow-y-auto">
@@ -318,12 +329,12 @@ export function CommandPalette() {
           ))}
           {modules.length === 0 ? (
             <li className="px-4 py-4 text-[13px] text-foam-45">
-              Nothing matches “{query}”. Try a member name or an invoice number.
+              No module matches “{query}”. Members and invoices are searched on their own screens.
             </li>
           ) : null}
         </ul>
         <div className="border-t border-line px-4 py-2 font-utility text-[9px] uppercase tracking-[0.12em] text-foam-35">
-          Results are limited to what your role can see
+          Modules your role can open
         </div>
       </div>
     </div>

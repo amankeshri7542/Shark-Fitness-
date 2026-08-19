@@ -67,6 +67,20 @@ export type StockTransferState = z.infer<typeof StockTransferState>;
  * shop's operating data. `inventory.view` runs the shop; `report.financial`
  * sees what it earns (Product PRD §4.20 lists product margin as a financial
  * report, and reception explicitly has no access to sensitive reports).
+ *
+ * The split is three ways and every serialiser in the module obeys it:
+ *
+ * | Figure | Permission |
+ * |---|---|
+ * | stock on hand, price, reorder point, units, takings, low stock | `inventory.view` |
+ * | unit cost — on a product, a ledger row, a sold line, a transfer line | `inventory.manage` |
+ * | margin, stock valuation, shrinkage **value** | `report.financial` |
+ *
+ * `restricted` is the machine-readable form of that table for this response,
+ * and it is the contract: a field named there is `null` in the body, and a
+ * field not named there carries a real number. The two disagreeing is a bug,
+ * because the console renders the permission state from `restricted` while
+ * reading the value from the field.
  */
 export const StoreFinancialAccess = z.object({
   /** True when the caller holds `report.financial`. */
@@ -195,7 +209,9 @@ export const PosOrderLine = z.object({
   /** Still returnable. Zero on a return order's own lines. */
   quantityReturnable: z.number().int(),
   /** Cost captured at the moment of sale, so a later price edit cannot
-   *  rewrite last month's margin. Null without `report.financial`. */
+   *  rewrite last month's margin. Null without `inventory.manage` — it is the
+   *  same operational figure as `StoreProduct.costMinor`, frozen. The margin
+   *  *derived* from it is the part that needs `report.financial`. */
   unitCostMinor: Money.nullable(),
 });
 export type PosOrderLine = z.infer<typeof PosOrderLine>;
@@ -261,7 +277,7 @@ export const StockTransferLine = z.object({
   quantityReceived: z.number().int(),
   /** Dispatched minus received. Written off as damage at the destination. */
   shortfall: z.number().int(),
-  /** Null without `report.financial`. */
+  /** Null without `inventory.manage`, like every other unit cost. */
   unitCostMinor: Money.nullable(),
 });
 export type StockTransferLine = z.infer<typeof StockTransferLine>;

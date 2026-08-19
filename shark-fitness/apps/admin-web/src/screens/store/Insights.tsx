@@ -29,17 +29,20 @@ import { FinancialGate, Money, money } from './shared';
    denial must not look like an empty result.
    ========================================================================= */
 
-export type Window = '7' | '30' | '90';
+export type Window = '7d' | '30d' | '90d';
 
 export default function Insights({
   report,
   loading,
   window,
+  timeZone,
   onWindow,
 }: {
   report: StoreReport | undefined;
   loading: boolean;
   window: Window;
+  /** The branch's zone — "Live · 14:32" has to be the shop's 14:32. */
+  timeZone: string;
   onWindow: (value: Window) => void;
 }) {
   if (loading || !report) {
@@ -52,9 +55,9 @@ export default function Insights({
             value={window}
             onChange={onWindow}
             options={[
-              { value: '7', label: '7 days' },
-              { value: '30', label: '30 days' },
-              { value: '90', label: '90 days' },
+              { value: '7d', label: '7 days' },
+              { value: '30d', label: '30 days' },
+              { value: '90d', label: '90 days' },
             ]}
           />
         </Toolbar>
@@ -74,9 +77,9 @@ export default function Insights({
           value={window}
           onChange={onWindow}
           options={[
-            { value: '7', label: '7 days' },
-            { value: '30', label: '30 days' },
-            { value: '90', label: '90 days' },
+            { value: '7d', label: '7 days' },
+            { value: '30d', label: '30 days' },
+            { value: '90d', label: '90 days' },
           ]}
         />
         <span className="flex-1" />
@@ -84,7 +87,7 @@ export default function Insights({
           {report.scope.branches} branch{report.scope.branches === 1 ? '' : 'es'}
         </span>
         {/* Computed from the ledger on every request, so it really is live. */}
-        <Freshness kind="realtime" asOf={report.asOf} />
+        <Freshness kind="realtime" asOf={report.asOf} timeZone={timeZone} />
       </Toolbar>
 
       {/* — Headline. Operating figures first; commercial ones only if allowed. — */}

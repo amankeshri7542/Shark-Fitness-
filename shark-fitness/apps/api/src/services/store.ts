@@ -32,6 +32,7 @@ import { requireBranch, requirePermission } from '../lib/context.js';
 import { conflict, invalid, notFound, precondition } from '../lib/errors.js';
 import { emit } from '../lib/events.js';
 import { id } from '../lib/ids.js';
+import { branchTimeZone } from '../lib/branch-time.js';
 import { addDays, isoDate, now } from '../lib/time.js';
 import { nextInvoiceNumber } from './billing.js';
 
@@ -169,9 +170,19 @@ function orderInScope(ctx: RequestContext, orderId: string) {
  * - **Unit cost** is an operational input. Whoever receives a delivery types it
  *   in, so `inventory.manage` sees it. Hiding it would make product editing
  *   lossy — a branch manager would have to save a form with a field they were
- *   not allowed to read.
+ *   not allowed to read. That holds for *every* unit cost the module serves:
+ *   on the product, on a ledger row, on a sold order line and on a transfer
+ *   line. They are one figure at four moments in its life, and gating the last
+ *   two on margin instead told a branch manager "restricted" about a number
+ *   they had typed in themselves, while handing it to an accountant whose
+ *   `restricted` list said they could not have it.
  * - **Margin, valuation and shrinkage value** are derived commercial figures.
  *   Those need `report.financial`.
+ *
+ * `restricted` is the response's own account of which of the two it withheld,
+ * and the serialisers below are the only writers of those fields — so keep the
+ * list and the nulls in step. The console renders a permission state from the
+ * list and the number from the field; disagreement puts one of them in a lie.
  *
  * A withheld figure is `null`, never `0`. Zero margin is a real and alarming
  * number in a shop; substituting it for "you may not see this" would put a
@@ -328,7 +339,13 @@ function toOrderLine(
     // A return order's own lines are already negative; nothing about them is
     // returnable, so the console never offers to return a return.
     quantityReturnable: row.quantity > 0 ? row.quantity - row.quantityReturned : 0,
-    unitCostMinor: access.canSeeMargin ? row.unitCostMinor : null,
+    // `inventory.manage`, not `report.financial`. This is the cost someone
+    // typed in when the delivery was booked, frozen at the moment of sale —
+    // the same operational figure as on the product and the ledger row, and
+    // `financialAccess().restricted` already declares it under that key. It
+    // reads as a margin because margin is derived from it; the derivation is
+    // what needs `report.financial`, not the input.
+    unitCostMinor: access.canSeeCost ? row.unitCostMinor : null,
   };
 }
 
@@ -382,7 +399,8 @@ function toTransferLine(
     quantityReceived: row.quantityReceived,
     // Shortfall only means anything once someone has counted what arrived.
     shortfall: state === 'received' ? row.quantity - row.quantityReceived : 0,
-    unitCostMinor: access.canSeeMargin ? row.unitCostMinor : null,
+    /** Operational, like every other unit cost: `inventory.manage`. */
+    unitCostMinor: access.canSeeCost ? row.unitCostMinor : null,
   };
 }
 
@@ -648,7 +666,12 @@ export function checkout(ctx: RequestContext, input: CheckoutInput) {
 
     const orderId = id('pos');
     const at = now();
-    const reference = `SF-${new Date(at).toISOString().slice(0, 10).replaceAll('-', '')}-${orderId.slice(-5).toUpperCase()}`;
+    // The date in a receipt number is a business date, so it is the branch's
+    // day and not the server's. A 1 a.m. sale in Bengaluru is still yesterday
+    // in UTC, and stamping it that way would file the receipt on the wrong
+    // day for the till it was taken at.
+    const zone = branchTimeZone(ctx.tenantId, input.branchId);
+    const reference = `SF-${isoDate(at, zone).replaceAll('-', '')}-${orderId.slice(-5).toUpperCase()}`;
 
     db.insert(schema.posOrders)
       .values({
@@ -820,7 +843,10 @@ function raiseAccountInvoice(ctx: RequestContext, input: AccountInvoiceInput): s
 
   const invoiceId = id('inv');
   const at = now();
-  const issuedOn = isoDate(at, 'Asia/Kolkata');
+  // The same branch day the receipt was stamped with. Hard-coding a zone here
+  // made an invoice fall a day either side of the sale that raised it for any
+  // branch that is not in Asia/Kolkata, and the due date inherited the drift.
+  const issuedOn = isoDate(at, branchTimeZone(ctx.tenantId, input.branchId));
 
   // Only the on-account share is billed. A basket half-settled in cash leaves a
   // receivable for the remainder, not for the whole sale.

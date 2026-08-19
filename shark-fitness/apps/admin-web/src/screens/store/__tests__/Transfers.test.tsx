@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const apiMock = vi.hoisted(() => vi.fn());
@@ -10,7 +10,7 @@ vi.mock('../../../lib/api', async (importOriginal) => {
 });
 
 import Transfers from '../Transfers';
-import { allowAll, product, renderPanel, transfer } from './harness';
+import { TZ, allowAll, product, renderPanel, transfer } from './harness';
 
 function callTo(path: string) {
   return apiMock.mock.calls.find(([p]) => p === path) as [string, { body?: unknown }] | undefined;
@@ -29,6 +29,8 @@ function open(overrides: Partial<Parameters<typeof Transfers>[0]> = {}) {
       branches={branches}
       loading={false}
       canManage
+      online
+      timeZone={TZ}
       onRefetch={() => undefined}
       {...overrides}
     />,
@@ -64,10 +66,12 @@ describe('Transfers — the list', () => {
 
   it('counts what is on the van, not on a shelf', () => {
     open({ transfers: [transfer({ state: 'dispatched', unitsInTransit: 6 })] });
-    const row = screen.getByRole('button', { name: /TR-ABC123/ });
+    const row = screen.getByRole('row', { name: /TR-ABC123/ });
     expect(within(row).getByText('In transit')).toBeInTheDocument();
     expect(within(row).getByText('6')).toBeInTheDocument();
     expect(screen.getByText('1 in transit')).toBeInTheDocument();
+    // The reference is the row's own control; the row keeps its `row` role.
+    expect(within(row).getByRole('button', { name: 'TR-ABC123' })).toBeInTheDocument();
   });
 });
 
@@ -230,5 +234,45 @@ describe('Transfers — the lifecycle', () => {
     await screen.findByRole('dialog');
     expect(screen.queryByRole('button', { name: /Dispatch/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Cancel draft' })).not.toBeInTheDocument();
+  });
+});
+
+describe('Transfers — states other than a list of rows', () => {
+  it('says a transfer could not be read instead of pretending to still be loading', async () => {
+    const user = userEvent.setup();
+    open();
+    apiMock.mockImplementation(() => {
+      const rejected = Promise.reject(new Error('boom'));
+      rejected.catch(() => undefined);
+      return rejected;
+    });
+
+    await user.click(screen.getByRole('button', { name: /TR-ABC123/ }));
+
+    expect(await screen.findByText('Could not load this transfer')).toBeInTheDocument();
+    expect(screen.getByText(/No stock has been dispatched, received or cancelled/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Dispatch/ })).not.toBeInTheDocument();
+  });
+
+  it('offers no stock movement at all while offline', async () => {
+    const user = userEvent.setup();
+    apiMock.mockResolvedValue(detailOf('dispatched'));
+    open({ online: false });
+
+    expect(screen.getByRole('button', { name: 'Offline' })).toBeDisabled();
+
+    await user.click(screen.getByRole('button', { name: /TR-ABC123/ }));
+    await screen.findByText(/Dispatch, receipt and cancellation all need a connection/);
+    expect(screen.queryByRole('button', { name: /^Receive/ })).not.toBeInTheDocument();
+  });
+
+  it('dates a transfer by the branch clock', () => {
+    const late = transfer({ createdAt: '2026-08-18T20:30:00.000Z' });
+    open({ transfers: [late], timeZone: 'Asia/Kolkata' });
+    expect(screen.getByText(/19 Aug/)).toBeInTheDocument();
+
+    cleanup();
+    open({ transfers: [late], timeZone: 'Europe/London' });
+    expect(screen.getByText(/18 Aug/)).toBeInTheDocument();
   });
 });

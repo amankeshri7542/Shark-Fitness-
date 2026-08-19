@@ -40,11 +40,20 @@ interface Tender {
   reference: string;
 }
 
+/**
+ * A row from `/admin/members`, in the shape that route actually serves.
+ *
+ * It sends one `name`. This asked for `firstName` and `lastName`, which it has
+ * never sent, so every result rendered as a blank line above its member number
+ * and the attached-member banner named nobody — a client-side fork of a server
+ * shape that typechecks while it disagrees, which is the exact failure
+ * `schemas/pos.ts` exists to prevent. The test fixture invented the missing
+ * fields, so the suite could not see it; a browser could, immediately.
+ */
 interface MemberHit {
   id: string;
   memberNo: string;
-  firstName: string;
-  lastName: string;
+  name: string;
   lifecycle: string;
 }
 
@@ -73,6 +82,28 @@ export default function Register({
   const [error, setError] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
 
+  /* — The checkout attempt.
+
+     One logical attempt owns one key for as long as it is the same attempt.
+     The key used to be minted inside `mutationFn`, and `idempotencyKey()`
+     ends every key with a random suffix, so pressing the button a second time
+     after a lost response asked the server a brand-new question and got a
+     second sale for the same goods and the same money. That is the exact
+     failure the header exists to prevent, and a till is where it costs most.
+
+     `attempt` therefore holds a key against a fingerprint of the request body.
+     Retrying an unchanged basket reuses the key; changing the basket, the
+     tender or the member changes the fingerprint and mints a new one, because
+     that is a different sale and must not replay the last one's receipt.
+
+     The fingerprint is the request body verbatim, not a summary of it. The
+     server hashes the validated body alongside the key and refuses a key
+     replayed against different content, so anything the body carries has to
+     be able to move the fingerprint. Counting lines and totalling money — what
+     this did before — collides on baskets that differ by which items they
+     hold. — */
+  const attempt = useRef<{ fingerprint: string; key: string } | null>(null);
+
   /* — Money. Mirrors the server's rule exactly: tax per line, then summed.
        Summing first and taxing the total drifts by a rupee or two on a
        mixed-rate basket, which is the kind of error a shop notices at close of
@@ -95,6 +126,16 @@ export default function Register({
   const remaining = totals.total - tendered;
   const settled = basket.length > 0 && remaining === 0;
 
+  /* — An account charge with no member is knowably invalid before it is sent.
+       `invoices.member_id` is NOT NULL, so the server refuses it — the server
+       stays the authority and that refusal is tested. But the till already
+       knows, and letting the button be pressed spends a round trip to be told
+       something the screen could see, at the one moment an operator is
+       standing in front of a customer. So the warning that was already here
+       now also holds the action. — */
+  const accountNeedsMember = tenders.some((t) => t.method === 'account') && member === null;
+  const sellable = settled && !accountNeedsMember;
+
   /* — Catalogue search. A scanner types fast and ends with Enter, so an exact
        barcode match adds straight to the basket and clears the box. — */
   const matches = useMemo(() => {
@@ -111,34 +152,54 @@ export default function Register({
       .slice(0, 40);
   }, [products, search]);
 
+  /* — Member lookup.
+
+     Debounced, because the box is typed into at counter speed and every
+     keystroke was a request: "Priyanka" fired eight searches to answer one
+     question, and the answers could land out of order. 250 ms is short enough
+     that the list still appears while the operator is looking at it. The
+     query key holds the *settled* term, so React Query caches by what was
+     actually asked rather than by every prefix on the way there. — */
+  const settledQuery = useDebounced(memberQuery.trim(), 250);
   const memberHits = useQuery({
-    queryKey: ['store', 'member-lookup', memberQuery],
-    queryFn: () => api<{ items: MemberHit[] }>(`/admin/members?q=${encodeURIComponent(memberQuery)}&limit=6`),
-    enabled: memberQuery.trim().length >= 2,
+    queryKey: ['store', 'member-lookup', settledQuery],
+    queryFn: () => api<{ items: MemberHit[] }>(`/admin/members?q=${encodeURIComponent(settledQuery)}&limit=6`),
+    enabled: settledQuery.length >= 2,
+    // A member's name does not change while a queue is being served.
+    staleTime: 30_000,
   });
 
+  /** Exactly what goes on the wire, and exactly what the fingerprint covers. */
+  const checkoutBody = useMemo(
+    () => ({
+      branchId,
+      memberId: member?.id ?? null,
+      lines: basket.map((l) => ({
+        productId: l.product.id,
+        quantity: l.quantity,
+        discountMinor: l.discountMinor,
+      })),
+      payments: tenders.map((t) => ({
+        method: t.method,
+        amountMinor: t.amountMinor,
+        reference: t.reference,
+      })),
+    }),
+    [branchId, member, basket, tenders],
+  );
+
   const sell = useMutation({
-    mutationFn: () =>
-      api<PosOrderDetail>('/admin/store/orders', {
+    mutationFn: () => {
+      const fingerprint = JSON.stringify(checkoutBody);
+      if (attempt.current?.fingerprint !== fingerprint) {
+        attempt.current = { fingerprint, key: idempotencyKey('pos', branchId ?? 'none') };
+      }
+      return api<PosOrderDetail>('/admin/store/orders', {
         method: 'POST',
-        // Stable across retries of *this* basket, so a flaky connection at the
-        // till cannot sell the same goods twice.
-        idempotencyKey: idempotencyKey('pos', branchId ?? 'none', basket.length, totals.total, tendered),
-        body: {
-          branchId,
-          memberId: member?.id ?? null,
-          lines: basket.map((l) => ({
-            productId: l.product.id,
-            quantity: l.quantity,
-            discountMinor: l.discountMinor,
-          })),
-          payments: tenders.map((t) => ({
-            method: t.method,
-            amountMinor: t.amountMinor,
-            reference: t.reference,
-          })),
-        },
-      }),
+        idempotencyKey: attempt.current.key,
+        body: checkoutBody,
+      });
+    },
     onSuccess: (order) => {
       // The receipt is the server's answer, not a local echo of the basket.
       // Nothing is cleared until the sale is known to have happened.
@@ -147,6 +208,11 @@ export default function Register({
       setTenders([]);
       setMember(null);
       setError(null);
+      // This attempt is spent. Retiring it matters because the next customer
+      // can buy exactly the same thing: an identical basket would otherwise
+      // fingerprint the same, reuse this key, and be answered with *this*
+      // receipt — a real second sale silently swallowed as a duplicate.
+      attempt.current = null;
       void queryClient.invalidateQueries({ queryKey: ['store'] });
     },
     onError: (e) => {
@@ -325,6 +391,7 @@ export default function Register({
                 query={memberQuery}
                 results={memberHits.data?.items ?? []}
                 searching={memberHits.isFetching}
+                settling={memberQuery.trim() !== settledQuery}
                 onQuery={setMemberQuery}
                 onPick={(hit) => {
                   setMember(hit);
@@ -455,16 +522,18 @@ export default function Register({
                     variant="cta"
                     full
                     size="md"
-                    disabled={!online || sell.isPending || !settled}
+                    disabled={!online || sell.isPending || !sellable}
                     onClick={() => sell.mutate()}
                   >
                     {sell.isPending
                       ? 'Taking payment…'
                       : !online
                         ? 'Offline — cannot take payment'
-                        : settled
-                          ? `Take ${money(totals.total)}`
-                          : `${money(Math.abs(remaining))} still to ${remaining < 0 ? 'return' : 'collect'}`}
+                        : accountNeedsMember
+                          ? 'Attach a member to charge an account'
+                          : settled
+                            ? `Take ${money(totals.total)}`
+                            : `${money(Math.abs(remaining))} still to ${remaining < 0 ? 'return' : 'collect'}`}
                   </Button>
                 </div>
               </div>
@@ -487,11 +556,22 @@ function Row({ label, value, tone }: { label: string; value: string; tone?: 'war
 
 /* — Member — */
 
+/** Holds a value still until typing stops, so a fast field is not a fast API. */
+function useDebounced<T>(value: T, delayMs: number): T {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(value), delayMs);
+    return () => clearTimeout(timer);
+  }, [value, delayMs]);
+  return settled;
+}
+
 function MemberPicker({
   member,
   query,
   results,
   searching,
+  settling,
   onQuery,
   onPick,
   onClear,
@@ -500,6 +580,8 @@ function MemberPicker({
   query: string;
   results: MemberHit[];
   searching: boolean;
+  /** The term has changed but the debounce has not released it yet. */
+  settling: boolean;
   onQuery: (value: string) => void;
   onPick: (hit: MemberHit) => void;
   onClear: () => void;
@@ -508,9 +590,7 @@ function MemberPicker({
     return (
       <div className="flex items-center gap-2 border-b border-line bg-wash-sonar-soft px-3 py-2">
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[13px]">
-            {member.firstName} {member.lastName}
-          </div>
+          <div className="truncate text-[13px]">{member.name}</div>
           <div className="font-utility text-[10px] uppercase tracking-[0.1em] text-foam-35">
             {member.memberNo} · {member.lifecycle}
           </div>
@@ -537,7 +617,7 @@ function MemberPicker({
       />
       {query.trim().length >= 2 ? (
         <ul className="mt-1.5 border border-line">
-          {searching && results.length === 0 ? (
+          {settling || (searching && results.length === 0) ? (
             <li className="px-2.5 py-2 text-[12px] text-foam-45">Looking…</li>
           ) : results.length === 0 ? (
             <li className="px-2.5 py-2 text-[12px] text-foam-45">
@@ -551,9 +631,7 @@ function MemberPicker({
                   onClick={() => onPick(hit)}
                   className="flex w-full cursor-pointer items-center justify-between gap-2 border-b border-line-10 px-2.5 py-1.5 text-left text-[12px] last:border-b-0 hover:bg-wash-sonar"
                 >
-                  <span className="truncate">
-                    {hit.firstName} {hit.lastName}
-                  </span>
+                  <span className="truncate">{hit.name}</span>
                   <span className="font-utility text-[10px] uppercase tracking-[0.1em] text-foam-35">
                     {hit.memberNo}
                   </span>

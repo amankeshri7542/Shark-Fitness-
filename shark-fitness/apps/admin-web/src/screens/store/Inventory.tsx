@@ -12,8 +12,10 @@ import {
   Button,
   Chip,
   EmptyState,
+  ErrorState,
   Label,
   Panel,
+  RowOpen,
   Segmented,
   Skeleton,
   TD,
@@ -44,12 +46,18 @@ export default function Inventory({
   loading,
   branchId,
   canManage,
+  online,
+  timeZone,
 }: {
   products: StoreProduct[];
   financial: StoreFinancialAccess | undefined;
   loading: boolean;
   branchId: string | null;
   canManage: boolean;
+  /** Nothing here saves offline, so nothing here offers to. */
+  online: boolean;
+  /** The branch's zone — a ledger row is dated by the shelf it moved on. */
+  timeZone: string;
 }) {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('all');
@@ -127,8 +135,8 @@ export default function Inventory({
         {canManage ? (
           <>
             <Button onClick={() => setManagingSuppliers(true)}>Suppliers</Button>
-            <Button variant="cta" onClick={() => setEditing('new')}>
-              New product
+            <Button variant="cta" disabled={!online} onClick={() => setEditing('new')}>
+              {online ? 'New product' : 'Offline'}
             </Button>
           </>
         ) : null}
@@ -146,7 +154,7 @@ export default function Inventory({
                 : 'No product matches these filters. Clear the search or switch back to Active.'
             }
             action={
-              canManage && products.length === 0 ? (
+              canManage && online && products.length === 0 ? (
                 <Button variant="cta" onClick={() => setEditing('new')}>
                   New product
                 </Button>
@@ -165,13 +173,14 @@ export default function Inventory({
                 <TH align="right">Price</TH>
                 <TH align="right">Cost</TH>
                 <TH align="right">Stock value</TH>
-                <TH align="right">Actions</TH>
               </THead>
               <tbody>
                 {rows.map((product) => (
                   <TR key={product.id} selected={detailId === product.id} onClick={() => setDetailId(product.id)}>
                     <TD>
-                      <div className="max-w-[26ch] truncate">{product.displayName}</div>
+                      <RowOpen onClick={() => setDetailId(product.id)} className="block max-w-[26ch] truncate">
+                        {product.displayName}
+                      </RowOpen>
                       <div className="font-utility text-[10px] uppercase tracking-[0.1em] text-foam-35">
                         {product.category}
                         {product.groupName ? ` · ${product.groupName}` : ''}
@@ -193,16 +202,6 @@ export default function Inventory({
                     <TD numeric className="text-foam-65">
                       <Money minor={product.valuationMinor} />
                     </TD>
-                    <TD align="right">
-                      <Button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDetailId(product.id);
-                        }}
-                      >
-                        Open
-                      </Button>
-                    </TD>
                   </TR>
                 ))}
               </tbody>
@@ -215,6 +214,8 @@ export default function Inventory({
         product={detail}
         branchId={branchId}
         canManage={canManage}
+        online={online}
+        timeZone={timeZone}
         financial={financial}
         onClose={() => setDetailId(null)}
         onEdit={(p) => {
@@ -240,6 +241,8 @@ function ProductDrawer({
   product,
   branchId,
   canManage,
+  online,
+  timeZone,
   financial,
   onClose,
   onEdit,
@@ -247,6 +250,8 @@ function ProductDrawer({
   product: StoreProduct | null;
   branchId: string | null;
   canManage: boolean;
+  online: boolean;
+  timeZone: string;
   financial: StoreFinancialAccess | undefined;
   onClose: () => void;
   onEdit: (product: StoreProduct) => void;
@@ -290,7 +295,7 @@ function ProductDrawer({
 
   const parsed = Number.parseInt(delta, 10);
   const canSubmit =
-    canManage && branchId !== null && !Number.isNaN(parsed) && parsed !== 0 && !adjust.isPending;
+    canManage && online && branchId !== null && !Number.isNaN(parsed) && parsed !== 0 && !adjust.isPending;
 
   return (
     <Drawer
@@ -300,8 +305,8 @@ function ProductDrawer({
       title={product.displayName}
       footer={
         canManage ? (
-          <Button full onClick={() => onEdit(product)}>
-            Edit product
+          <Button full disabled={!online} onClick={() => onEdit(product)}>
+            {online ? 'Edit product' : 'Offline — cannot edit'}
           </Button>
         ) : null
       }
@@ -379,9 +384,11 @@ function ProductDrawer({
               <Button variant="cta" disabled={!canSubmit} onClick={() => adjust.mutate()}>
                 {adjust.isPending
                   ? 'Recording…'
-                  : Number.isNaN(parsed) || parsed === 0
-                    ? 'Enter a change'
-                    : `Record ${parsed > 0 ? `+${parsed}` : parsed}`}
+                  : !online
+                    ? 'Offline — cannot adjust stock'
+                    : Number.isNaN(parsed) || parsed === 0
+                      ? 'Enter a change'
+                      : `Record ${parsed > 0 ? `+${parsed}` : parsed}`}
               </Button>
               <p className="text-[11px] leading-relaxed text-foam-45">
                 Stock is never edited in place. This writes one line to the ledger below, with your
@@ -400,7 +407,16 @@ function ProductDrawer({
             Newest first
           </span>
         </div>
-        {ledger.isLoading ? (
+        {ledger.isError ? (
+          // "Nothing has moved yet" against a product that has moved forty
+          // times is the worst thing this panel could say, so a failed read
+          // says it failed.
+          <ErrorState
+            title="Could not load the movement history"
+            body="The API did not answer. This is not an empty ledger — it could not be read."
+            onRetry={() => void ledger.refetch()}
+          />
+        ) : ledger.isPending ? (
           <Skeleton className="m-3 h-32" />
         ) : (ledger.data?.items ?? []).length === 0 ? (
           <p className="px-3 pb-3 text-[13px] text-foam-65">
@@ -434,7 +450,7 @@ function ProductDrawer({
                       ) : null}
                     </TD>
                     <TD className="text-[12px] text-foam-65">{row.actorName}</TD>
-                    <TD className="whitespace-nowrap text-[11px] text-foam-45">{dateTime(row.at)}</TD>
+                    <TD className="whitespace-nowrap text-[11px] text-foam-45">{dateTime(row.at, timeZone)}</TD>
                     {financial?.canSeeCost ? (
                       // This column only exists when cost is visible, so a null
                       // here means the movement had no cost — stock leaving a
@@ -725,7 +741,15 @@ function SupplierDrawer({
 
   return (
     <Drawer open onClose={onClose} kicker="Catalogue" title="Suppliers">
-      {(suppliers.data?.items ?? []).length === 0 ? (
+      {suppliers.isError ? (
+        <ErrorState
+          title="Could not load suppliers"
+          body="The API did not answer. There may well be suppliers on file — this list could not read them."
+          onRetry={() => void suppliers.refetch()}
+        />
+      ) : suppliers.isPending ? (
+        <Skeleton className="m-3 h-32" />
+      ) : (suppliers.data?.items ?? []).length === 0 ? (
         <EmptyState title="No suppliers yet" body="Add who you buy from, so reordering knows where to go." />
       ) : (
         <TableScroll>

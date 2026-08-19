@@ -380,6 +380,17 @@ describe('Checkout (PF-POS-002)', () => {
     expect(onHandOf(productId, 'br_kor')).toBe(10);
   });
 
+  /* — The lost response.
+
+       The cashier presses "Take payment". The sale commits. The response never
+       comes back — a dropped Wi-Fi frame, a proxy timeout, a reloaded tab. The
+       screen shows an error, the basket is still on it, and the cashier presses
+       the button again, because from where they are standing nothing sold.
+
+       Everything about whether that customer is charged twice comes down to one
+       header. These assert the server's half; `Register.test.tsx` asserts that
+       the till actually sends the same key on the retry, which is where this was
+       broken. — */
   it('replays an idempotent checkout instead of selling twice', async () => {
     const productId = freshProduct('br_kor', 10);
     const key = `checkout-${id('k')}`;
@@ -400,6 +411,95 @@ describe('Checkout (PF-POS-002)', () => {
     expect(secondOrder).toBe(firstOrder);
     // One unit sold, not two.
     expect(onHandOf(productId, 'br_kor')).toBe(9);
+  });
+
+  it('leaves exactly one order, one tender and one stock movement after a retried sale', async () => {
+    const productId = freshProduct('br_kor', 10);
+    const key = `lost-response-${id('k')}`;
+    const body = {
+      branchId: 'br_kor',
+      lines: [{ productId, quantity: 2 }],
+      payments: [{ method: 'cash', amountMinor: 236_000 }],
+    };
+
+    // Committed, response lost.
+    const committed = await post(owner, '/v1/admin/store/orders', body, key);
+    expect(committed.status).toBe(201);
+    // The cashier presses the button again.
+    const retried = await post(owner, '/v1/admin/store/orders', body, key);
+    expect(retried.status).toBe(201);
+
+    const orderId = ((await retried.json()) as { order: { id: string } }).order.id;
+
+    // The order id is not enough on its own — the replay could still have
+    // written a second set of rows behind the same answer. Count them.
+    const orders = db
+      .select()
+      .from(schema.posOrders)
+      .where(and(eq(schema.posOrders.tenantId, tenantId()), eq(schema.posOrders.id, orderId)))
+      .all();
+    const lines = db.select().from(schema.posOrderLines).where(eq(schema.posOrderLines.orderId, orderId)).all();
+    const tenders = db.select().from(schema.posPayments).where(eq(schema.posPayments.orderId, orderId)).all();
+    const movements = db
+      .select()
+      .from(schema.stockLedger)
+      .where(and(eq(schema.stockLedger.refType, 'pos_order'), eq(schema.stockLedger.refId, orderId)))
+      .all();
+
+    expect(orders).toHaveLength(1);
+    expect(lines).toHaveLength(1);
+    expect(tenders).toHaveLength(1);
+    expect(tenders[0]!.amountMinor).toBe(236_000);
+    expect(movements).toHaveLength(1);
+    expect(movements[0]!.delta).toBe(-2);
+    // Two units left the shelf, not four.
+    expect(onHandOf(productId, 'br_kor')).toBe(8);
+  });
+
+  it('refuses a key replayed against a different basket rather than answering the wrong receipt', async () => {
+    const productId = freshProduct('br_kor', 10);
+    const key = `conflicting-${id('k')}`;
+
+    const first = await post(
+      owner,
+      '/v1/admin/store/orders',
+      { branchId: 'br_kor', lines: [{ productId, quantity: 1 }], payments: [{ method: 'cash', amountMinor: 118_000 }] },
+      key,
+    );
+    expect(first.status).toBe(201);
+
+    // A different sale under a stale key. Replaying the first receipt would
+    // tell the cashier they had sold two when they had sold one; selling again
+    // would defeat the header. The only honest answer is to refuse.
+    const conflicting = await post(
+      owner,
+      '/v1/admin/store/orders',
+      { branchId: 'br_kor', lines: [{ productId, quantity: 2 }], payments: [{ method: 'cash', amountMinor: 236_000 }] },
+      key,
+    );
+    expect(conflicting.status).toBe(409);
+    expect(onHandOf(productId, 'br_kor')).toBe(9);
+  });
+
+  it('sells twice when two genuinely different sales are keyed separately', async () => {
+    // The mirror-image failure: a key that never rotates would swallow the
+    // second customer's identical basket as a duplicate of the first's.
+    const productId = freshProduct('br_kor', 10);
+    const body = {
+      branchId: 'br_kor',
+      lines: [{ productId, quantity: 1 }],
+      payments: [{ method: 'cash', amountMinor: 118_000 }],
+    };
+
+    const first = await post(owner, '/v1/admin/store/orders', body, `customer-a-${id('k')}`);
+    const second = await post(owner, '/v1/admin/store/orders', body, `customer-b-${id('k')}`);
+
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    expect(((await first.json()) as { order: { id: string } }).order.id).not.toBe(
+      ((await second.json()) as { order: { id: string } }).order.id,
+    );
+    expect(onHandOf(productId, 'br_kor')).toBe(8);
   });
 
   it('refuses to sell a retired product', async () => {
@@ -934,6 +1034,168 @@ describe('Financial visibility', () => {
     expect(asReception.lines[0]!.unitCostMinor).toBeNull();
   });
 
+  /* — The role matrix.
+
+       Four roles, three tiers of figure, and one invariant that ties them
+       together: the `financial.restricted` list a response ships is an exact
+       account of which money fields that response nulled. It was not. Order
+       lines and transfer lines gated their unit cost on `report.financial`
+       while `restricted` filed `unitCostMinor` under `inventory.manage`, so a
+       branch manager was told "Restricted" about a cost they had typed in
+       themselves, and an accountant was handed one their own `restricted` list
+       said they could not have. — */
+  const COST_FIELDS = ['costMinor', 'unitCostMinor'];
+  const MARGIN_FIELDS = ['marginMinor', 'valuationMinor', 'shrinkageCostMinor'];
+
+  interface Access {
+    canSeeCost: boolean;
+    canSeeMargin: boolean;
+    restricted: string[];
+  }
+
+  it('declares exactly what it withheld, for every role and every surface', async () => {
+    const productId = freshProduct('br_kor', 12);
+    const sale = await post(owner, '/v1/admin/store/orders', {
+      branchId: 'br_kor',
+      lines: [{ productId, quantity: 1 }],
+      payments: [{ method: 'cash', amountMinor: 118_000 }],
+    });
+    const orderId = ((await sale.json()) as { order: { id: string } }).order.id;
+
+    const transfer = await post(owner, '/v1/admin/store/transfers', {
+      fromBranchId: 'br_kor',
+      toBranchId: 'br_hsr',
+      lines: [{ productId, quantity: 2 }],
+    });
+    const transferId = ((await transfer.json()) as { transfer: { id: string } }).transfer.id;
+
+    const roles: Array<{ label: string; session: Session; cost: boolean; margin: boolean }> = [
+      { label: 'owner', session: owner, cost: true, margin: true },
+      // `inventory.manage`, no `report.financial`.
+      { label: 'branch manager', session: manager, cost: true, margin: false },
+      // `inventory.view` only.
+      { label: 'reception', session: reception, cost: false, margin: false },
+      // `report.financial`, no `inventory.manage`.
+      { label: 'accountant', session: accountant, cost: false, margin: true },
+    ];
+
+    for (const role of roles) {
+      const expected = [
+        ...(role.cost ? [] : COST_FIELDS),
+        ...(role.margin ? [] : MARGIN_FIELDS),
+      ];
+
+      const products = (await (await get(role.session, '/v1/admin/store/products?branchId=br_kor')).json()) as {
+        items: Array<{ id: string; costMinor: number | null; valuationMinor: number | null }>;
+        financial: Access;
+      };
+      const ledger = (await (await get(role.session, `/v1/admin/store/products/${productId}/ledger`)).json()) as {
+        items: Array<{ delta: number; unitCostMinor: number | null }>;
+        financial: Access;
+      };
+      const order = (await (await get(role.session, `/v1/admin/store/orders/${orderId}`)).json()) as {
+        lines: Array<{ unitCostMinor: number | null }>;
+        financial: Access;
+      };
+      const moved = (await (await get(role.session, `/v1/admin/store/transfers/${transferId}`)).json()) as {
+        lines: Array<{ unitCostMinor: number | null }>;
+        financial: Access;
+      };
+      const report = (await (await get(role.session, '/v1/admin/store/reports?branchId=br_kor')).json()) as {
+        margin: unknown;
+        valuation: unknown;
+        shrinkage: { units: number; costMinor: number | null };
+        financial: Access;
+      };
+
+      for (const [surface, access] of [
+        ['products', products.financial],
+        ['ledger', ledger.financial],
+        ['order', order.financial],
+        ['transfer', moved.financial],
+        ['report', report.financial],
+      ] as const) {
+        expect({ role: role.label, surface, ...access }).toEqual({
+          role: role.label,
+          surface,
+          canSeeCost: role.cost,
+          canSeeMargin: role.margin,
+          restricted: expected,
+        });
+      }
+
+      const item = products.items.find((p) => p.id === productId)!;
+      const inbound = ledger.items.find((row) => row.delta > 0)!;
+
+      // Cost: one figure at four moments in its life. All four follow
+      // `inventory.manage`, and all four are null together or present together.
+      expect({ surface: 'product', value: item.costMinor === null }).toEqual({
+        surface: 'product',
+        value: !role.cost,
+      });
+      expect({ surface: 'ledger', value: inbound.unitCostMinor === null }).toEqual({
+        surface: 'ledger',
+        value: !role.cost,
+      });
+      expect({ surface: 'order line', value: order.lines[0]!.unitCostMinor === null }).toEqual({
+        surface: 'order line',
+        value: !role.cost,
+      });
+      expect({ surface: 'transfer line', value: moved.lines[0]!.unitCostMinor === null }).toEqual({
+        surface: 'transfer line',
+        value: !role.cost,
+      });
+
+      // Margin: the derived commercial figures, all on `report.financial`.
+      expect(item.valuationMinor === null).toBe(!role.margin);
+      expect(report.margin === null).toBe(!role.margin);
+      expect(report.valuation === null).toBe(!role.margin);
+      expect(report.shrinkage.costMinor === null).toBe(!role.margin);
+      // Units lost stays operational whatever the role — a manager reorders
+      // against it, and withholding it would stop the shop working.
+      expect(Number.isInteger(report.shrinkage.units)).toBe(true);
+    }
+  });
+
+  it('gives a branch manager the cost they booked in, on the line that sold it', async () => {
+    // The regression in one sentence. A branch manager holds `inventory.manage`
+    // and typed this cost in when the delivery arrived; the sold line used to
+    // come back null because it was gated on margin instead.
+    const productId = freshProduct('br_kor', 6);
+    const sale = await post(manager, '/v1/admin/store/orders', {
+      branchId: 'br_kor',
+      lines: [{ productId, quantity: 1 }],
+      payments: [{ method: 'cash', amountMinor: 118_000 }],
+    });
+    const orderId = ((await sale.json()) as { order: { id: string } }).order.id;
+
+    const detail = (await (await get(manager, `/v1/admin/store/orders/${orderId}`)).json()) as {
+      lines: Array<{ unitCostMinor: number | null }>;
+      financial: { restricted: string[] };
+    };
+    expect(detail.lines[0]!.unitCostMinor).toBe(40_000);
+    expect(detail.financial.restricted).not.toContain('unitCostMinor');
+  });
+
+  it('withholds unit cost from an accountant, who may see margin but not run the stockroom', async () => {
+    const productId = freshProduct('br_kor', 6);
+    const sale = await post(owner, '/v1/admin/store/orders', {
+      branchId: 'br_kor',
+      lines: [{ productId, quantity: 1 }],
+      payments: [{ method: 'cash', amountMinor: 118_000 }],
+    });
+    const orderId = ((await sale.json()) as { order: { id: string } }).order.id;
+
+    const detail = (await (await get(accountant, `/v1/admin/store/orders/${orderId}`)).json()) as {
+      lines: Array<{ unitCostMinor: number | null }>;
+      financial: { restricted: string[] };
+    };
+    // They still get the margin they are entitled to — computed server-side
+    // from these costs — without the per-line operating figure.
+    expect(detail.lines[0]!.unitCostMinor).toBeNull();
+    expect(detail.financial.restricted).toContain('unitCostMinor');
+  });
+
   it('withholds inbound cost on the movement ledger from reception', async () => {
     const productId = freshProduct('br_kor', 6);
     const asOwner = (await (await get(owner, `/v1/admin/store/products/${productId}/ledger`)).json()) as {
@@ -1064,6 +1326,101 @@ describe('Store contracts and realtime topics', () => {
 /* ==========================================================================
    Account tender and the billing relationship
    ========================================================================= */
+
+/* ==========================================================================
+   Business dates
+   ========================================================================= */
+
+/** Runs `body` with a branch temporarily relocated, then puts it back. */
+async function inTimeZone<T>(branchId: string, timezone: string, body: () => Promise<T>): Promise<T> {
+  const original = db
+    .select({ timezone: schema.branches.timezone })
+    .from(schema.branches)
+    .where(eq(schema.branches.id, branchId))
+    .get()!.timezone;
+  db.update(schema.branches).set({ timezone }).where(eq(schema.branches.id, branchId)).run();
+  try {
+    return await body();
+  } finally {
+    db.update(schema.branches).set({ timezone: original }).where(eq(schema.branches.id, branchId)).run();
+  }
+}
+
+describe('Business dates follow the branch, not the server', () => {
+  /*
+   * Both assertions below use two zones 25 hours apart. At *every* instant
+   * those two are on different calendar dates, so the test needs no control
+   * over the clock: if a date is derived from the branch it must differ
+   * between the two runs, and if it is derived from UTC — or from a hard-coded
+   * Asia/Kolkata, which is what `raiseAccountInvoice` used to do — it cannot.
+   */
+  const AHEAD = 'Pacific/Kiritimati'; // UTC+14
+  const BEHIND = 'Pacific/Midway'; // UTC-11
+
+  const dateIn = (timeZone: string, at: number): string =>
+    new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(at);
+
+  it('stamps a receipt reference with the branch day', async () => {
+    const sell = async (): Promise<{ reference: string; createdAt: string }> => {
+      const productId = freshProduct('br_kor', 4);
+      const response = await post(owner, '/v1/admin/store/orders', {
+        branchId: 'br_kor',
+        lines: [{ productId, quantity: 1 }],
+        payments: [{ method: 'cash', amountMinor: 118_000 }],
+      });
+      expect(response.status).toBe(201);
+      return ((await response.json()) as { order: { reference: string; createdAt: string } }).order;
+    };
+
+    const ahead = await inTimeZone('br_kor', AHEAD, sell);
+    const behind = await inTimeZone('br_kor', BEHIND, sell);
+
+    const dateOf = (reference: string): string => reference.split('-')[1]!;
+    const compact = (isoDay: string): string => isoDay.replaceAll('-', '');
+
+    expect(dateOf(ahead.reference)).toBe(compact(dateIn(AHEAD, Date.parse(ahead.createdAt))));
+    expect(dateOf(behind.reference)).toBe(compact(dateIn(BEHIND, Date.parse(behind.createdAt))));
+    // The two runs are minutes apart on the wall clock and a day apart on the
+    // shop floor. A UTC-derived reference could not tell them apart.
+    expect(dateOf(ahead.reference)).not.toBe(dateOf(behind.reference));
+  });
+
+  it('issues the invoice an account tender raises on the branch day too', async () => {
+    const memberId = db
+      .select({ id: schema.members.id })
+      .from(schema.members)
+      .where(eq(schema.members.tenantId, tenantId()))
+      .limit(1)
+      .get()!.id;
+
+    const chargeToAccount = async (): Promise<{ issuedOn: string; dueOn: string; at: number }> => {
+      const productId = freshProduct('br_kor', 4);
+      const response = await post(owner, '/v1/admin/store/orders', {
+        branchId: 'br_kor',
+        memberId,
+        lines: [{ productId, quantity: 1 }],
+        payments: [{ method: 'account', amountMinor: 118_000 }],
+      });
+      expect(response.status).toBe(201);
+      const order = ((await response.json()) as { order: { invoiceId: string; createdAt: string } }).order;
+      const invoice = db
+        .select({ issuedOn: schema.invoices.issuedOn, dueOn: schema.invoices.dueOn })
+        .from(schema.invoices)
+        .where(eq(schema.invoices.id, order.invoiceId))
+        .get()!;
+      return { ...invoice, at: Date.parse(order.createdAt) };
+    };
+
+    const ahead = await inTimeZone('br_kor', AHEAD, chargeToAccount);
+    const behind = await inTimeZone('br_kor', BEHIND, chargeToAccount);
+
+    expect(ahead.issuedOn).toBe(dateIn(AHEAD, ahead.at));
+    expect(behind.issuedOn).toBe(dateIn(BEHIND, behind.at));
+    expect(ahead.issuedOn).not.toBe(behind.issuedOn);
+    // The due date is derived from the issue date, so it inherited the drift.
+    expect(ahead.dueOn).not.toBe(behind.dueOn);
+  });
+});
 
 describe('Account tender (pos_orders.invoice_id)', () => {
   function anyMemberId(): string {

@@ -6,8 +6,10 @@ import {
   Button,
   Chip,
   EmptyState,
+  ErrorState,
   Label,
   Panel,
+  RowOpen,
   Segmented,
   Skeleton,
   Stepper,
@@ -39,12 +41,15 @@ export default function Orders({
   loading,
   canManage,
   online,
+  timeZone,
   onRefetch,
 }: {
   orders: PosOrderSummary[];
   loading: boolean;
   canManage: boolean;
   online: boolean;
+  /** The branch's zone. A receipt is dated by the till, not by the laptop. */
+  timeZone: string;
   onRefetch: () => void;
 }) {
   const [search, setSearch] = useState('');
@@ -119,14 +124,16 @@ export default function Orders({
                 {rows.map((order) => (
                   <TR key={order.id} selected={openId === order.id} onClick={() => setOpenId(order.id)}>
                     <TD className="font-utility text-[11px]">
-                      {order.reference}
+                      <RowOpen onClick={() => setOpenId(order.id)}>{order.reference}</RowOpen>
                       {order.invoiceId ? (
                         <Chip tone="accent" className="ml-1.5">
                           Invoiced
                         </Chip>
                       ) : null}
                     </TD>
-                    <TD className="whitespace-nowrap text-[12px] text-foam-65">{dateTime(order.createdAt)}</TD>
+                    <TD className="whitespace-nowrap text-[12px] text-foam-65">
+                      {dateTime(order.createdAt, timeZone)}
+                    </TD>
                     <TD className="text-[12px] text-foam-65">{order.branchName}</TD>
                     <TD className="text-[12px] text-foam-65">{order.memberName ?? 'Walk-in'}</TD>
                     <TD className="text-[12px] text-foam-65">{order.staffName}</TD>
@@ -149,6 +156,7 @@ export default function Orders({
           orderId={openId}
           canManage={canManage}
           online={online}
+          timeZone={timeZone}
           onClose={() => setOpenId(null)}
           onChanged={onRefetch}
         />
@@ -163,12 +171,14 @@ function OrderDrawer({
   orderId,
   canManage,
   online,
+  timeZone,
   onClose,
   onChanged,
 }: {
   orderId: string;
   canManage: boolean;
   online: boolean;
+  timeZone: string;
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -256,10 +266,10 @@ function OrderDrawer({
         // return stepper is added, and clipping the item name is the one thing
         // a refund cannot afford to do.
         width="w-[min(720px,100vw)]"
-        kicker={order ? dateTime(order.createdAt) : 'Loading'}
+        kicker={order ? dateTime(order.createdAt, timeZone) : detail.isError ? 'Unavailable' : 'Loading'}
         title={order?.reference ?? 'Receipt'}
         footer={
-          canAct ? (
+          canAct && !detail.isError ? (
             <div className="flex items-center gap-2">
               {returning ? (
                 <>
@@ -294,14 +304,22 @@ function OrderDrawer({
           ) : null
         }
       >
-        {detail.isLoading || !order ? (
+        {detail.isError ? (
+          // A failed read used to sit on the skeleton for ever, which reads as
+          // "still loading" and never stops being wrong.
+          <ErrorState
+            title="Could not load this receipt"
+            body="The API did not answer. Nothing has been refunded or voided — close this and try again."
+            onRetry={() => void detail.refetch()}
+          />
+        ) : detail.isPending || !order ? (
           <Skeleton className="m-3 h-48" />
         ) : (
           <>
             <div className="flex flex-wrap items-center gap-2 border-b border-line px-3 py-2.5">
               <OrderStateChip state={order.state} kind={order.kind} />
               <span className="text-[12px] text-foam-65">
-                {order.branchName} · {order.staffName} · {time(order.createdAt)}
+                {order.branchName} · {order.staffName} · {time(order.createdAt, timeZone)}
               </span>
               <span className="flex-1" />
               <span className="text-[15px] tabular-nums">{money(order.totalMinor)}</span>
@@ -316,7 +334,7 @@ function OrderDrawer({
 
             {order.state === 'voided' ? (
               <p className="border-b border-line bg-wash-chum px-3 py-2 text-[12px] text-foam-80">
-                Voided{order.voidedAt ? ` on ${dateTime(order.voidedAt)}` : ''}. Reason: {order.voidReason}
+                Voided{order.voidedAt ? ` on ${dateTime(order.voidedAt, timeZone)}` : ''}. Reason: {order.voidReason}
               </p>
             ) : null}
 
@@ -407,7 +425,7 @@ function OrderDrawer({
               </ul>
             </section>
 
-            {detail.data?.financial.canSeeMargin ? (
+            {detail.data?.financial.canSeeCost ? (
               <section className="border-t border-line px-3 py-2">
                 <Label>Cost at sale</Label>
                 <ul className="mt-1.5">

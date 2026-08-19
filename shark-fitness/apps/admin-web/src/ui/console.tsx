@@ -296,14 +296,29 @@ export function PermissionState({ what }: { what: string }) {
   );
 }
 
-/** Freshness is stated, never implied (PF-DASH-003). */
-export function Freshness({ kind, asOf }: { kind: 'realtime' | 'near_realtime' | 'batch'; asOf: string }) {
+/**
+ * Freshness is stated, never implied (PF-DASH-003).
+ *
+ * The time is the *branch's*, not the browser's. "Live · 14:32" against a
+ * machine set to another zone is a figure that reads as fact and is off by
+ * hours, which is worse than not stating it at all. Callers pass
+ * `useBranchTimeZone()`.
+ */
+export function Freshness({
+  kind,
+  asOf,
+  timeZone,
+}: {
+  kind: 'realtime' | 'near_realtime' | 'batch';
+  asOf: string;
+  timeZone: string;
+}) {
   const label = { realtime: 'Live', near_realtime: 'Near real-time', batch: 'Batch' }[kind];
   const tone: Tone = kind === 'realtime' ? 'accent' : kind === 'near_realtime' ? 'neutral' : 'warn';
   return (
     <span className="inline-flex items-center gap-1.5 font-utility text-[9px] uppercase tracking-[0.12em] text-foam-35">
       <LiveDot tone={tone} />
-      {label} · {new Date(asOf).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+      {label} · {new Date(asOf).toLocaleTimeString('en-GB', { timeZone, hour: '2-digit', minute: '2-digit' })}
     </span>
   );
 }
@@ -396,6 +411,23 @@ export function TD({
   );
 }
 
+/**
+ * A table row.
+ *
+ * `onClick` is a **pointer convenience only**, and deliberately carries no
+ * role, no `tabIndex` and no key handler. This row used to declare
+ * `role="button"`, which does not add a button to a table — it removes a row
+ * from one. The row's `row` role, its position, and the column headers that
+ * name each cell all disappear from the accessibility tree, so a screen-reader
+ * user hears "button, SF-20260818-AB12C Koramangala Walk-in Deepa Kumar Sold
+ * ₹1,180.00" instead of a navigable grid, and the table above it reports the
+ * wrong number of rows. A real `grid` would need roles on every cell and
+ * two-dimensional arrow-key handling; this is a table, so it stays a table.
+ *
+ * Keyboard operation belongs to a control *inside* the row — see `RowOpen` —
+ * which is also what the Design PRD asks for: "Row click and inline controls
+ * must not conflict. Interactive cells require explicit hit areas."
+ */
 export function TR({
   children,
   onClick,
@@ -410,29 +442,52 @@ export function TR({
   return (
     <tr
       onClick={onClick}
-      // A clickable row is reachable and operable from the keyboard, and says
-      // which one is open rather than relying on a colour wash alone.
-      {...(onClick ? { tabIndex: 0, role: 'button' as const } : {})}
-      onKeyDown={
-        onClick
-          ? (e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                onClick();
-              }
-            }
-          : undefined
-      }
+      // Says which row is open rather than relying on a colour wash alone.
       aria-current={selected ? true : undefined}
       className={cx(
         'border-b border-line-10',
-        onClick && 'cursor-pointer hover:bg-wash-sonar-soft focus-visible:bg-wash-sonar-soft',
+        onClick && 'cursor-pointer hover:bg-wash-sonar-soft',
         selected && 'bg-wash-sonar',
         className,
       )}
     >
       {children}
     </tr>
+  );
+}
+
+/**
+ * The control that opens a row, living in the cell that identifies it.
+ *
+ * Keyboard and screen-reader users reach the receipt number, the reference or
+ * the product name and press it; pointer users can still hit anywhere in the
+ * row. One name, one action, and the row keeps its semantics.
+ */
+export function RowOpen({
+  children,
+  onClick,
+  className,
+}: {
+  children: ReactNode;
+  onClick: () => void;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        // The row handles the same click; letting it through would open and
+        // then immediately re-open, and on a toggle would cancel itself out.
+        e.stopPropagation();
+        onClick();
+      }}
+      className={cx(
+        'cursor-pointer text-left underline-offset-4 hover:text-sonar hover:underline focus-visible:underline',
+        className,
+      )}
+    >
+      {children}
+    </button>
   );
 }
 
