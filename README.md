@@ -49,7 +49,7 @@ a real browser at 1440×900, 1024×768, 768×1024 and 375×812.
 
 ### ✅ Completed & Working
 - **Domain Engine:** 101 unit tests across membership, access decisions, training algorithms and fair scheduling.
-- **Test suite:** **585 tests** in 41 files — 130 domain, 253 API integration, 24 member PWA, 178 admin console.
+- **Test suite:** **681 tests** in 46 files — 153 domain, 290 API integration, 24 member PWA, 214 admin console.
 - **Database & Migrations:** 93 SQLite tables across 5 schema files, deterministic seed data, and 9 append-only/guard triggers protecting `audit_log`, `xp_ledger`, `stock_ledger` and `ticket_events`.
 - **Quality gates:** `pnpm lint` (ESLint 10 flat config, `--max-warnings=0`), `pnpm typecheck` and `pnpm build` pass with 0 errors, all gated in CI.
 - **Member PWA:** all 18 screens implemented — no stubs remain.
@@ -58,8 +58,8 @@ a real browser at 1440×900, 1024×768, 768×1024 and 375×812.
 - **Production serving:** one origin serves the member PWA at `/` and the admin console at `/admin/`, with hashed assets returning their own content types rather than the SPA HTML fallback.
 
 ### ⏳ Remaining to Implement
-- **Admin Web (4 placeholder screens):** `Automations`, `Platform`, `Reports`, `Settings`.
-- **Admin API Route Adapters (2 stubs):** `reports`, `settings`.
+- **Admin Web (3 placeholder screens):** `Automations`, `Platform`, `Settings`.
+- **Admin API Route Adapters (1 stub):** `settings`.
 
 See [05_Shark_Fitness_Remaining_Implementation_Plan.md](./05_Shark_Fitness_Remaining_Implementation_Plan.md) for the sequenced plan.
 
@@ -117,7 +117,7 @@ pnpm dev
 cd shark-fitness
 pnpm lint         # ESLint across the workspace; --max-warnings=0
 pnpm typecheck    # TypeScript across all 6 packages
-pnpm test         # 585 tests (domain, API integration, member PWA, admin console)
+pnpm test         # 681 tests (domain, API integration, member PWA, admin console)
 pnpm build        # Production bundles for both front ends
 ```
 

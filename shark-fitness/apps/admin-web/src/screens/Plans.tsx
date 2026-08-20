@@ -3,7 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, api } from '../lib/api';
 import { useAdmin, usePermission } from '../lib/store';
 import { Page } from '../ui/shell';
-import { Button, Chip, Display, EmptyState, ErrorState, Field, Panel, PermissionState, Skeleton, type Tone } from '../ui/console';
+import { Button, Checkbox, Chip, Display, EmptyState, ErrorState, Field, Panel, PermissionState, SelectField, Skeleton, type Tone } from '../ui/console';
+import { ConfirmDialog, Modal } from '../ui/overlay';
 
 interface ProductRow {
   id: string;
@@ -147,53 +148,36 @@ function RetireSheet({ product, onClose, onDone }: { product: ProductRow; onClos
 
   if (retire.isSuccess) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-6" role="presentation">
-        <div className="w-[min(440px,100%)] border border-line-strong bg-overlay" role="dialog" aria-modal="true" aria-label="Product retired">
-          <header className="border-b border-line px-4 py-3">
-            <Display size="sm" as="h2">
-              {product.name} retired
-            </Display>
-          </header>
-          <div className="p-4 text-[12px] leading-relaxed text-foam-65">
-            {impact && impact > 0
-              ? `${impact} membership${impact === 1 ? '' : 's'} already on this product keep their purchased terms — retiring only stops new purchases.`
-              : 'No memberships are currently on this product.'}
-          </div>
-          <footer className="flex justify-end gap-2 border-t border-line px-4 py-3">
-            <Button variant="cta" onClick={() => { onDone(); onClose(); }}>
-              Done
-            </Button>
-          </footer>
-        </div>
-      </div>
+      <Modal
+        open
+        onClose={() => { onDone(); onClose(); }}
+        title={`${product.name} retired`}
+        width="w-[min(440px,100%)]"
+        footer={
+          <Button variant="cta" onClick={() => { onDone(); onClose(); }}>
+            Done
+          </Button>
+        }
+      >
+        <p className="p-4 text-[12px] leading-relaxed text-foam-65">
+          {impact && impact > 0
+            ? `${impact} membership${impact === 1 ? '' : 's'} already on this product keep their purchased terms — retiring only stops new purchases.`
+            : 'No memberships are currently on this product.'}
+        </p>
+      </Modal>
     );
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-6" onClick={onClose} role="presentation">
-      <div className="w-[min(440px,100%)] border border-line-strong bg-overlay" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Retire product">
-        <header className="border-b border-line px-4 py-3">
-          <Display size="sm" as="h2">
-            Retire {product.name}?
-          </Display>
-        </header>
-        <div className="p-4">
-          <Panel tone="warn">
-            <p className="px-3 py-2.5 text-[12px] leading-relaxed text-foam-80">
-              No one will be able to purchase this product afterwards. Existing members on it keep their terms exactly as purchased.
-            </p>
-          </Panel>
-        </div>
-        <footer className="flex justify-end gap-2 border-t border-line px-4 py-3">
-          <Button variant="ghost" onClick={onClose}>
-            Never mind
-          </Button>
-          <Button variant="danger" size="md" disabled={retire.isPending} onClick={() => retire.mutate()}>
-            {retire.isPending ? 'Working…' : 'Retire'}
-          </Button>
-        </footer>
-      </div>
-    </div>
+    <ConfirmDialog
+      open
+      onClose={onClose}
+      onConfirm={() => retire.mutate()}
+      title={`Retire ${product.name}?`}
+      consequence="No one will be able to purchase this product afterwards. Existing members on it keep their terms exactly as purchased."
+      confirmLabel="Retire"
+      pending={retire.isPending}
+    />
   );
 }
 
@@ -257,39 +241,38 @@ function CreateProductSheet({ onClose, onDone }: { onClose: () => void; onDone: 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-6" onClick={onClose} role="presentation">
-      <div className="max-h-[85vh] w-[min(560px,100%)] overflow-auto border border-line-strong bg-overlay" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="New product">
-        <header className="border-b border-line px-4 py-3">
-          <Display size="sm" as="h2">
-            New product
-          </Display>
-        </header>
-
-        <div className="flex flex-col gap-3.5 p-4">
+    <Modal
+      open
+      onClose={onClose}
+      title="New product"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="cta" size="md" pending={create.isPending} pendingLabel="Creating…" onClick={submit}>
+            Create as draft
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3.5 p-4">
           <Field label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Elite Annual" autoFocus />
           <Field label="Description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What a member gets" />
 
           <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1">
-              <label className="font-utility text-[10px] font-semibold uppercase tracking-[0.14em] text-foam-45">Type</label>
-              <select value={kind} onChange={(e) => setKind(e.target.value)} className="sf-field !min-h-9 !py-2 !text-[13px]">
-                {KINDS.map((k) => (
-                  <option key={k} value={k}>
-                    {k.replace(/_/g, ' ')}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="font-utility text-[10px] font-semibold uppercase tracking-[0.14em] text-foam-45">Billing cadence</label>
-              <select value={cadence} onChange={(e) => setCadence(e.target.value)} className="sf-field !min-h-9 !py-2 !text-[13px]">
-                {CADENCES.map((cd) => (
-                  <option key={cd} value={cd}>
-                    {cd.replace(/_/g, ' ')}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <SelectField
+              label="Type"
+              value={kind}
+              onChange={(e) => setKind(e.target.value)}
+              options={KINDS.map((k) => ({ value: k, label: k.replace(/_/g, ' ') }))}
+            />
+            <SelectField
+              label="Billing cadence"
+              value={cadence}
+              onChange={(e) => setCadence(e.target.value)}
+              options={CADENCES.map((cd) => ({ value: cd, label: cd.replace(/_/g, ' ') }))}
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -321,18 +304,12 @@ function CreateProductSheet({ onClose, onDone }: { onClose: () => void; onDone: 
 
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-2">
-              <label className="flex items-center gap-2.5 text-[13px]">
-                <input type="checkbox" checked={freezeAllowed} onChange={(e) => setFreezeAllowed(e.target.checked)} className="h-4 w-4 accent-[var(--sf-sonar)]" />
-                Allow freezing
-              </label>
+              <Checkbox checked={freezeAllowed} onChange={(e) => setFreezeAllowed(e.target.checked)} label="Allow freezing" />
               {freezeAllowed ? <Field label="Max freeze days / term" type="number" min={0} value={maxFreezeDays} onChange={(e) => setMaxFreezeDays(e.target.value)} /> : null}
             </div>
             <div className="flex flex-col gap-2">
               <Field label="Cancellation notice (days)" type="number" min={0} value={noticeDays} onChange={(e) => setNoticeDays(e.target.value)} />
-              <label className="flex items-center gap-2.5 text-[13px]">
-                <input type="checkbox" checked={refundable} onChange={(e) => setRefundable(e.target.checked)} className="h-4 w-4 accent-[var(--sf-sonar)]" />
-                Refundable
-              </label>
+              <Checkbox checked={refundable} onChange={(e) => setRefundable(e.target.checked)} label="Refundable" />
             </div>
           </div>
 
@@ -346,17 +323,7 @@ function CreateProductSheet({ onClose, onDone }: { onClose: () => void; onDone: 
               <p className="px-3 py-2.5 text-[12px] leading-relaxed">{apiErrorMessage}</p>
             </Panel>
           ) : null}
-        </div>
-
-        <footer className="flex justify-end gap-2 border-t border-line px-4 py-3">
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button variant="cta" size="md" disabled={create.isPending} onClick={submit}>
-            {create.isPending ? 'Creating…' : 'Create as draft'}
-          </Button>
-        </footer>
       </div>
-    </div>
+    </Modal>
   );
 }

@@ -67,20 +67,49 @@
     border-top: 1px solid var(--sf-line);
   }
 
-  /* Dense operational table. Sticky header, hairline rows, tabular figures. */
-  .console-table {
+  /* ==========================================================================
+     THE TABLE
+
+     One table system, not two. The console grew a CSS `.console-table` for its
+     first screens and a set of React `Table/TH/TD` primitives later for the
+     Store, and the two disagreed about everything that matters in a dense
+     grid: cell padding, header treatment, hover, and — the one that showed —
+     density. `[data-density="compact"]` only ever reached the CSS table, so
+     five screens tightened on the density toggle and seven ignored it, on a
+     control whose entire promise is "show me more rows".
+
+     Padding therefore lives in custom properties set by the density attribute,
+     and both the element selectors and the primitives read them. Density is
+     then correct by construction rather than by remembering to add a rule.
+     ========================================================================= */
+  :root,
+  [data-density="comfortable"] {
+    --sf-cell-x: 12px;
+    --sf-cell-y: 9px;
+  }
+  [data-density="compact"] {
+    --sf-cell-x: 10px;
+    --sf-cell-y: 5px;
+  }
+
+  .sf-table {
     width: 100%;
+    min-width: max-content;
     border-collapse: separate;
     border-spacing: 0;
+    font-size: 13px;
     font-variant-numeric: tabular-nums;
   }
-  .console-table thead th {
+
+  /* Sticky header. `--sf-hull` is opaque on purpose: a translucent header over
+     scrolling figures is unreadable, and these tables are nothing but figures. */
+  .sf-table thead th {
     position: sticky;
     top: 0;
     z-index: 2;
     background: var(--sf-hull);
     border-bottom: 1px solid var(--sf-line);
-    padding: 9px 12px;
+    padding: var(--sf-cell-y) var(--sf-cell-x);
     text-align: left;
     font-family: var(--sf-font-utility);
     font-size: 10px;
@@ -89,28 +118,41 @@
     text-transform: uppercase;
     color: var(--sf-foam-45);
     white-space: nowrap;
+    vertical-align: bottom;
   }
-  .console-table tbody td {
+
+  /* Column separation is a seam, not a gutter — the same hairline the rest of
+     the console divides with. Without it a twelve-column financial table reads
+     as one field of digits. */
+  .sf-table thead th + th,
+  .sf-table tbody td + td {
+    border-left: 1px solid var(--sf-line-10);
+  }
+
+  .sf-table tbody td {
     border-bottom: 1px solid var(--sf-line-10);
-    padding: 10px 12px;
+    padding: var(--sf-cell-y) var(--sf-cell-x);
     vertical-align: middle;
   }
-  .console-table tbody tr:hover td {
+
+  .sf-table tbody tr:hover td {
     background: var(--sf-wash-sonar-soft);
   }
-  .console-table tbody tr[data-selected="true"] td {
+  .sf-table tbody tr[data-selected="true"] td,
+  .sf-table tbody tr[aria-current="true"] td {
     background: var(--sf-wash-sonar);
   }
-  .console-table td[data-numeric] {
+
+  /* Figures line up under their own heading and hold digit width, so a column
+     does not dance as it ticks. */
+  .sf-table [data-numeric] {
     text-align: right;
     font-variant-numeric: tabular-nums;
   }
 
-  /* Compact density — the PRD allows it, but never below accessible targets. */
-  [data-density="compact"] .console-table tbody td {
-    padding: 6px 10px;
-  }
-  [data-density="compact"] .console-table thead th {
-    padding: 6px 10px;
+  /* A row total or a period subtotal reads as a rule across the grid. */
+  .sf-table tbody tr[data-total="true"] td {
+    border-top: 1px solid var(--sf-line);
+    font-weight: 600;
   }
 }

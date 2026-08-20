@@ -1,14 +1,13 @@
 import { useState } from 'react';
 import { Link, useParams } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError, OfflineError, api, idempotencyKey } from '../lib/api';
+import { ApiError, OfflineError, api } from '../lib/api';
 import { useAdmin, useBranchScope, usePermission } from '../lib/store';
 import { useOnline } from '../lib/realtime';
 import { Page } from '../ui/shell';
 import {
   Button,
   Chip,
-  Display,
   EmptyState,
   ErrorState,
   Field,
@@ -21,6 +20,8 @@ import {
   Toolbar,
   type Tone,
 } from '../ui/console';
+import { ConfirmDialog as ConsoleConfirmDialog } from '../ui/overlay';
+import { useIdempotentAttempt } from '../lib/idempotent-attempt';
 
 interface Certification {
   name: string;
@@ -179,13 +180,36 @@ function ShiftPanel({ staffId, shifts, branchNames, canManage, onChanged }: { st
   const [role, setRole] = useState('floor');
   const [error, setError] = useState<string | null>(null);
   const branches = useAdmin((state) => state.branches);
-  const create = useMutation({ mutationFn: () => api(`/admin/staff/${staffId}/shifts`, { method: 'POST', idempotencyKey: idempotencyKey('staff-shift', staffId, startsAt), body: { branchId, startsAt: new Date(startsAt).toISOString(), endsAt: new Date(endsAt).toISOString(), role, note: null } }), onSuccess: () => { setError(null); setStartsAt(''); setEndsAt(''); onChanged(); }, onError: (reason) => setError(reason instanceof ApiError ? reason.message : 'That shift could not be saved.') });
+  const attempt = useIdempotentAttempt('staff-shift', staffId);
+  const create = useMutation({
+    mutationFn: () => {
+      const payload = { branchId, startsAt: new Date(startsAt).toISOString(), endsAt: new Date(endsAt).toISOString(), role, note: null };
+      return api(`/admin/staff/${staffId}/shifts`, { method: 'POST', idempotencyKey: attempt.keyFor(payload), body: payload });
+    },
+    onSuccess: () => { attempt.retire(); setError(null); setStartsAt(''); setEndsAt(''); onChanged(); },
+    onError: (reason) => setError(reason instanceof ApiError ? reason.message : 'That shift could not be saved.'),
+  });
   return <Panel title="Shifts and availability"><div className="divide-y divide-line">{shifts.length === 0 ? <EmptyState title="No shifts in this window" body="Add a planned shift to make availability visible to the team." /> : shifts.map((shift) => <div key={shift.id} className="flex items-center gap-3 px-3.5 py-2.5"><div className="min-w-0 flex-1"><div className="text-[12px]">{new Date(shift.startsAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })} – {new Date(shift.endsAt).toLocaleTimeString('en-IN', { timeStyle: 'short' })}</div><div className="font-utility text-[10px] uppercase tracking-[0.1em] text-foam-35">{branchNames.get(shift.branchId) ?? shift.branchId} · {shift.role}</div></div><Chip tone={shift.conflict ? 'bad' : shift.state === 'completed' ? 'good' : 'neutral'}>{shift.conflict ? 'overlap' : shift.state.replace(/_/g, ' ')}</Chip></div>)}</div>{canManage ? <div className="grid grid-cols-1 gap-2 border-t border-line p-3.5 sm:grid-cols-2"><SelectField label="Branch" value={branchId} onChange={setBranchId} options={[['', 'Choose branch'], ...branches.map((branch) => [branch.id, branch.name] as [string, string])]} /><Field label="Shift role" value={role} onChange={(event) => setRole(event.target.value)} /><Field label="Starts" type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} /><Field label="Ends" type="datetime-local" value={endsAt} onChange={(event) => setEndsAt(event.target.value)} /><div className="sm:col-span-2">{error ? <p className="mb-2 text-[11px] text-chum">{error}</p> : null}<Button variant="outline" disabled={create.isPending || !branchId || !startsAt || !endsAt} onClick={() => create.mutate()}>{create.isPending ? 'Adding…' : 'Add shift'}</Button></div></div> : null}</Panel>;
 }
 
 function ConfirmDialog({ staff, isPending, onClose, onConfirm }: { staff: StaffDetailPayload['staff']; isPending: boolean; onClose: () => void; onConfirm: () => void }) {
   const disabling = staff.accountState !== 'disabled';
-  return <div className="fixed inset-0 z-50 grid place-items-center bg-scrim p-6" role="presentation"><div className="w-[min(480px,100%)] border border-line-strong bg-overlay p-4" role="dialog" aria-modal="true" aria-labelledby="staff-status-title"><Display size="sm" as="h2">{disabling ? 'Deactivate staff account?' : 'Activate staff account?'}</Display><p className="mt-2 text-[13px] leading-relaxed text-foam-65">{disabling ? `${staff.name} will no longer be able to sign in. Their employment record and training history remain available.` : `${staff.name} will be able to sign in again. Confirm their employment status separately if they are returning from leave.`}</p><div className="mt-4 flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant={disabling ? 'danger' : 'cta'} disabled={isPending} onClick={onConfirm}>{isPending ? 'Saving…' : disabling ? 'Deactivate' : 'Activate'}</Button></div></div></div>;
+  return (
+    <ConsoleConfirmDialog
+      open
+      onClose={onClose}
+      onConfirm={onConfirm}
+      title={disabling ? 'Deactivate staff account?' : 'Activate staff account?'}
+      consequence={
+        disabling
+          ? `${staff.name} will no longer be able to sign in. Their employment record and training history remain available.`
+          : `${staff.name} will be able to sign in again. Confirm their employment status separately if they are returning from leave.`
+      }
+      confirmLabel={disabling ? 'Deactivate' : 'Activate'}
+      tone={disabling ? 'danger' : 'cta'}
+      pending={isPending}
+    />
+  );
 }
 
 function SelectField({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: Array<[string, string]> }) { return <div className="flex flex-col gap-1"><Label>{label}</Label><select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} className="sf-field !min-h-9 !py-2 !text-[13px]">{options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}</select></div>; }

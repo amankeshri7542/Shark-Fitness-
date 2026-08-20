@@ -1,11 +1,13 @@
 import { useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError, OfflineError, api, idempotencyKey } from '../lib/api';
+import { ApiError, OfflineError, api } from '../lib/api';
 import { useOnline } from '../lib/realtime';
 import { usePermission } from '../lib/store';
 import { Page } from '../ui/shell';
-import { Button, Chip, Display, EmptyState, ErrorState, Field, Label, Panel, PermissionState, Seam, Skeleton, Toolbar, type Tone } from '../ui/console';
+import { Button, Chip, EmptyState, ErrorState, Field, Label, Panel, PermissionState, Seam, SelectField as ConsoleSelectField, Skeleton, Toolbar, type Tone } from '../ui/console';
+import { Modal } from '../ui/overlay';
+import { useIdempotentAttempt } from '../lib/idempotent-attempt';
 
 interface Program { id: string; name: string; version: number; goal: string; daysPerWeek: number; weeks: number; authorName: string; state: 'draft' | 'published' | 'archived'; description: string; }
 interface Day { id: string; week: number; dayIndex: number; label: string; focus: string; isRest: boolean; estimatedMin: number; items: Item[]; }
@@ -34,6 +36,9 @@ export default function TrainingBuilderScreen() {
   const exercises = useQuery({ queryKey: ['training', 'exercises', 'builder'], queryFn: () => api<ExercisePayload>('/admin/training/exercises'), enabled: canView });
 
   const refresh = (): void => { void queryClient.invalidateQueries({ queryKey: ['training', 'program', programId] }); void queryClient.invalidateQueries({ queryKey: ['training', 'programs'] }); };
+  const dayAttempt = useIdempotentAttempt('program-day', programId);
+  const itemAttempt = useIdempotentAttempt('program-item');
+
   const mutate = (fn: () => Promise<unknown>, success?: () => void): void => { setActionError(null); void fn().then(() => { refresh(); success?.(); }).catch((error: unknown) => setActionError(error instanceof ApiError ? error.message : 'That change did not go through.')); };
 
   const updateMeta = useMutation({ mutationFn: (body: Record<string, unknown>) => api(`/admin/training/programs/${programId}`, { method: 'PATCH', body }) });
@@ -73,11 +78,11 @@ export default function TrainingBuilderScreen() {
         <MetaPanel program={program} editable={canManage && online && program.state === 'draft'} isPending={updateMeta.isPending} onSave={(body) => mutate(() => updateMeta.mutateAsync(body))} />
         <Panel title="Program outline" action={canManage && online && program.state === 'draft' ? <Button variant="ghost" onClick={() => setShowDayForm(true)}>Add day</Button> : null}>
           {!canPublish && program.state === 'draft' ? <p className="border-b border-line bg-wash-flare px-3.5 py-2.5 text-[12px]">Publishing needs at least one non-rest day with an active exercise.</p> : null}
-          {days.length === 0 ? <EmptyState title="No days yet" body="Add a week and day, then place exercises inside it." action={canManage && online && program.state === 'draft' ? <Button variant="cta" onClick={() => setShowDayForm(true)}>Add first day</Button> : undefined} /> : <div className="divide-y divide-line">{days.map((day) => <DayPanel key={day.id} day={day} editable={canManage && online && program.state === 'draft'} exercises={exerciseItems} itemDayId={itemDayId} setItemDayId={setItemDayId} onDelete={() => setConfirm({ kind: 'day', id: day.id })} onDeleteItem={(id) => setConfirm({ kind: 'item', id })} onAddItem={(body) => mutate(() => api(`/admin/training/days/${day.id}/items`, { method: 'POST', idempotencyKey: idempotencyKey('program-item', day.id, String(body.exerciseId ?? 'exercise')), body }), () => setItemDayId(null))} onMoveItem={(item, delta) => mutate(() => api(`/admin/training/items/${item.id}`, { method: 'PATCH', body: { orderIndex: Math.max(0, item.orderIndex + delta) } }))} />)}</div>}
+          {days.length === 0 ? <EmptyState title="No days yet" body="Add a week and day, then place exercises inside it." action={canManage && online && program.state === 'draft' ? <Button variant="cta" onClick={() => setShowDayForm(true)}>Add first day</Button> : undefined} /> : <div className="divide-y divide-line">{days.map((day) => <DayPanel key={day.id} day={day} editable={canManage && online && program.state === 'draft'} exercises={exerciseItems} itemDayId={itemDayId} setItemDayId={setItemDayId} onDelete={() => setConfirm({ kind: 'day', id: day.id })} onDeleteItem={(id) => setConfirm({ kind: 'item', id })} onAddItem={(body) => mutate(() => api(`/admin/training/days/${day.id}/items`, { method: 'POST', idempotencyKey: itemAttempt.keyFor({ dayId: day.id, ...body }), body }), () => { itemAttempt.retire(); setItemDayId(null); })} onMoveItem={(item, delta) => mutate(() => api(`/admin/training/items/${item.id}`, { method: 'PATCH', body: { orderIndex: Math.max(0, item.orderIndex + delta) } }))} />)}</div>}
         </Panel>
       </div>
       {program.state === 'published' && canManage && online ? <Panel title="Version lifecycle" action={<Button variant="danger" onClick={() => setConfirm({ kind: 'archive', id: program.id })}>Archive version</Button>}><p className="px-3.5 py-3 text-[12px] leading-relaxed text-foam-65">Publishing freezes this version so assigned members keep the exact prescription they received. Create a new version when the plan needs edits.</p></Panel> : null}
-      {showDayForm ? <DayForm program={program} isPending={false} onClose={() => setShowDayForm(false)} onSave={(body) => mutate(() => api(`/admin/training/programs/${program.id}/days`, { method: 'POST', idempotencyKey: idempotencyKey('program-day', program.id, String(body.week), String(body.dayIndex)), body }), () => setShowDayForm(false))} /> : null}
+      {showDayForm ? <DayForm program={program} isPending={false} onClose={() => setShowDayForm(false)} onSave={(body) => mutate(() => api(`/admin/training/programs/${program.id}/days`, { method: 'POST', idempotencyKey: dayAttempt.keyFor(body), body }), () => { dayAttempt.retire(); setShowDayForm(false); })} /> : null}
       {confirm ? <ConfirmDialog kind={confirm.kind} isPending={deleteDay.isPending || deleteItem.isPending || archive.isPending} onClose={() => setConfirm(null)} onConfirm={() => { if (confirm.kind === 'day') mutate(() => deleteDay.mutateAsync(confirm.id), () => setConfirm(null)); else if (confirm.kind === 'item') mutate(() => deleteItem.mutateAsync(confirm.id), () => setConfirm(null)); else doArchive(); }} /> : null}
     </Page>
   );
@@ -99,8 +104,28 @@ function DayForm({ program, isPending, onClose, onSave }: { program: Program; is
 function ItemForm({ exercises, onSave }: { exercises: ExercisePayload['items']; onSave: (body: Record<string, unknown>) => void }) { const [exerciseId, setExerciseId] = useState(exercises[0]?.id ?? ''); const [targetLabel, setTargetLabel] = useState('3 × 8-10'); const [sets, setSets] = useState<PrescribedSet[]>([DEFAULT_SET]); const [tempo, setTempo] = useState(''); const [notes, setNotes] = useState(''); const addSet = (): void => setSets((current) => [...current, { ...DEFAULT_SET, setIndex: current.length + 1 }]); const updateSet = (index: number, patch: Partial<PrescribedSet>): void => setSets((current) => current.map((set, setIndex) => setIndex === index ? { ...set, ...patch } : set)); return <div className="border-t border-line bg-wash-sonar-soft p-3.5"><div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_170px]"><SelectField label="Exercise" value={exerciseId} onChange={setExerciseId} options={exercises.map((exercise) => [exercise.id, `${exercise.name} · ${exercise.equipment}`] as [string, string])} /><Field label="Target label" value={targetLabel} onChange={(event) => setTargetLabel(event.target.value)} /></div><div className="mt-3 divide-y divide-line border-y border-line">{sets.map((set, index) => <div key={set.setIndex} className="grid grid-cols-2 gap-2 py-2 sm:grid-cols-5"><Field label={`Set ${set.setIndex} reps low`} type="number" min={0} value={set.repLow} onChange={(event) => updateSet(index, { repLow: Number(event.target.value) })} /><Field label="Reps high" type="number" min={0} value={set.repHigh} onChange={(event) => updateSet(index, { repHigh: Number(event.target.value) })} /><Field label="Load kg" type="number" min={0} step="0.5" value={set.targetWeightKg ?? ''} onChange={(event) => updateSet(index, { targetWeightKg: event.target.value === '' ? null : Number(event.target.value) })} /><Field label="RPE" type="number" min={1} max={10} value={set.targetRpe ?? ''} onChange={(event) => updateSet(index, { targetRpe: event.target.value === '' ? null : Number(event.target.value) })} /><Field label="Rest sec" type="number" min={0} max={600} value={set.restSec} onChange={(event) => updateSet(index, { restSec: Number(event.target.value) })} /></div>)}</div><div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2"><Field label="Tempo" value={tempo} onChange={(event) => setTempo(event.target.value)} placeholder="3-1-1-0" /><Field label="Notes" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Keep two reps in reserve" /></div><Toolbar className="mt-3 -mx-3.5 -mb-3.5 border-t"><Button variant="ghost" onClick={addSet}>Add set</Button><Button variant="cta" disabled={!exerciseId || !targetLabel.trim()} onClick={() => onSave({ exerciseId, sets, targetLabel: targetLabel.trim(), supersetGroup: null, tempo: tempo || null, notes: notes || null, rationale: null, trainerLocked: false, allowedSubstitutionIds: [] })}>Add exercise</Button></Toolbar></div>; }
 
 function ConfirmDialog({ kind, isPending, onClose, onConfirm }: { kind: 'day' | 'item' | 'archive'; isPending: boolean; onClose: () => void; onConfirm: () => void }) { const archive = kind === 'archive'; return <Dialog title={archive ? 'Archive published version?' : kind === 'day' ? 'Remove program day?' : 'Remove exercise from day?'} onClose={onClose}><p className="text-[13px] leading-relaxed text-foam-65">{archive ? 'Assigned members keep their frozen version. New assignments will no longer use this published version.' : kind === 'day' ? 'The day and all exercises inside it will be removed from this draft.' : 'This removes the prescription from the draft. Workout history is not changed.'}</p><DialogActions onClose={onClose} isPending={isPending} label={archive ? 'Archive version' : 'Remove'} onConfirm={onConfirm} danger /></Dialog>; }
-function Dialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) { return <div className="fixed inset-0 z-50 grid place-items-center bg-scrim p-6" role="presentation"><div className="w-[min(560px,100%)] border border-line-strong bg-overlay p-4" role="dialog" aria-modal="true"><div className="flex items-center gap-2"><Display size="sm" as="h2">{title}</Display><span className="flex-1" /><Button variant="ghost" onClick={onClose}>Close</Button></div><div className="mt-4">{children}</div></div></div>; }
+/* The shared modal, not a local copy of one. This wrapper declared
+   `aria-modal="true"` and then let focus tab straight out behind it. */
+function Dialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  return (
+    <Modal open onClose={onClose} title={title}>
+      <div className="p-4">{children}</div>
+    </Modal>
+  );
+}
 function DialogActions({ onClose, isPending, disabled, label, onConfirm, danger = false }: { onClose: () => void; isPending: boolean; disabled?: boolean; label: string; onConfirm: () => void; danger?: boolean }) { return <div className="mt-5 flex justify-end gap-2 border-t border-line pt-3"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant={danger ? 'danger' : 'cta'} disabled={isPending || disabled} onClick={onConfirm}>{isPending ? 'Saving…' : label}</Button></div>; }
-function SelectField({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: Array<[string, string]> }) { return <div className="flex flex-col gap-1"><Label>{label}</Label><select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} className="sf-field !min-h-9 !py-2 !text-[13px]">{options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}</select></div>; }
+/* Tuple-shaped call sites, shared control underneath. Three screens each had
+   their own byte-identical copy of this select's styling, which is how the
+   label gap and control height came to differ by screen. */
+function SelectField({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: Array<[string, string]> }) {
+  return (
+    <ConsoleSelectField
+      label={label}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      options={options.map(([optionValue, optionLabel]) => ({ value: optionValue, label: optionLabel }))}
+    />
+  );
+}
 function Info({ label, value }: { label: string; value: string }) { return <div><Label>{label}</Label><p className="mt-1 text-[13px] leading-relaxed text-foam-80">{value}</p></div>; }
 function BuilderSkeleton() { return <Page title="Program builder" kicker="Loading"><div className="grid grid-cols-1 gap-px bg-line p-4 md:grid-cols-2">{Array.from({ length: 4 }, (_, index) => <Skeleton key={index} className="h-56" />)}</div></Page>; }

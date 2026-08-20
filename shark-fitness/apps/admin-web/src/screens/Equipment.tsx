@@ -1,10 +1,12 @@
 import { useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError, OfflineError, api, idempotencyKey } from '../lib/api';
+import { ApiError, OfflineError, api } from '../lib/api';
 import { useAdmin, useBranchScope, usePermission } from '../lib/store';
 import { useOnline } from '../lib/realtime';
 import { Page } from '../ui/shell';
-import { Button, Chip, Display, EmptyState, ErrorState, Field, Label, Metric, Panel, PermissionState, Seam, Skeleton, Toolbar, type Tone } from '../ui/console';
+import { Button, Chip, EmptyState, ErrorState, Field, Label, Metric, Panel, PermissionState, Seam, SelectField as ConsoleSelectField, Skeleton, Table, TableScroll, Toolbar, type Tone } from '../ui/console';
+import { Modal } from '../ui/overlay';
+import { useIdempotentAttempt } from '../lib/idempotent-attempt';
 
 interface EquipmentRow {
   id: string;
@@ -235,8 +237,7 @@ export default function EquipmentScreen() {
           {data.equipment.length === 0 ? (
             <EmptyState title="No equipment in this view" body={search || status ? 'Nothing matches these filters.' : 'Add the first asset to start the registry.'} action={canManage ? <Button variant="cta" onClick={() => setShowEquipmentForm(true)} disabled={!online}>Add equipment</Button> : undefined} />
           ) : (
-            <div className="overflow-x-auto">
-              <table className="console-table">
+            <TableScroll><Table>
                 <thead><tr><th>Asset</th><th>Location</th><th>Service</th><th>Open work</th><th>Status</th></tr></thead>
                 <tbody>
                   {data.equipment.map((item) => (
@@ -270,8 +271,7 @@ export default function EquipmentScreen() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
-            </div>
+              </Table></TableScroll>
           )}
         </Panel>
 
@@ -337,9 +337,13 @@ function CreateEquipmentDialog({ branches, activeBranchId, online, onClose }: { 
   const [warrantyUntil, setWarrantyUntil] = useState('');
   const [serviceIntervalDays, setServiceIntervalDays] = useState('90');
   const [fieldError, setFieldError] = useState<string | null>(null);
+  const attempt = useIdempotentAttempt('facility-equipment');
   const create = useMutation({
-    mutationFn: () => api('/admin/facility/equipment', { method: 'POST', idempotencyKey: idempotencyKey('facility-equipment', assetTag.trim()), body: { name: name.trim(), assetTag: assetTag.trim(), branchId, area: area.trim(), model: model.trim(), serial: serial.trim(), vendor: vendor.trim(), warrantyUntil: warrantyUntil || null, serviceIntervalDays: Number(serviceIntervalDays), linkedExerciseId: null, status: 'available' } }),
-    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ['facility'] }); onClose(); },
+    mutationFn: () => {
+      const payload = { name: name.trim(), assetTag: assetTag.trim(), branchId, area: area.trim(), model: model.trim(), serial: serial.trim(), vendor: vendor.trim(), warrantyUntil: warrantyUntil || null, serviceIntervalDays: Number(serviceIntervalDays), linkedExerciseId: null, status: 'available' };
+      return api('/admin/facility/equipment', { method: 'POST', idempotencyKey: attempt.keyFor(payload), body: payload });
+    },
+    onSuccess: () => { attempt.retire(); void queryClient.invalidateQueries({ queryKey: ['facility'] }); onClose(); },
   });
   const error = create.error instanceof ApiError ? create.error.message : create.isError ? 'That equipment could not be added.' : fieldError;
   return <Dialog title="Add equipment" onClose={onClose}><div className="flex flex-col gap-3"><div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><Field label="Name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Cable crossover" autoFocus /><Field label="Asset / QR identifier" value={assetTag} onChange={(event) => setAssetTag(event.target.value)} placeholder="KOR-021" /></div><div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><SelectField label="Branch" value={branchId} onChange={setBranchId} options={branches.map((branch) => [branch.id, branch.name] as [string, string])} /><Field label="Area" value={area} onChange={(event) => setArea(event.target.value)} placeholder="Strength floor" /></div><div className="grid grid-cols-1 gap-3 sm:grid-cols-3"><Field label="Model" value={model} onChange={(event) => setModel(event.target.value)} /><Field label="Serial" value={serial} onChange={(event) => setSerial(event.target.value)} /><Field label="Vendor" value={vendor} onChange={(event) => setVendor(event.target.value)} /></div><div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><Field label="Warranty until" type="date" value={warrantyUntil} onChange={(event) => setWarrantyUntil(event.target.value)} /><Field label="Service interval (days)" type="number" min={1} max={3650} value={serviceIntervalDays} onChange={(event) => setServiceIntervalDays(event.target.value)} /></div>{error ? <Panel tone="bad"><p className="px-3 py-2.5 text-[12px]">{error}</p></Panel> : null}</div><DialogActions onClose={onClose} isPending={create.isPending} disabled={!online || !name.trim() || !assetTag.trim() || !branchId || !area.trim()} label="Add equipment" onConfirm={() => { setFieldError(null); if (!name.trim() || !assetTag.trim() || !area.trim()) { setFieldError('Name, asset identifier and area are required.'); return; } create.mutate(); }} /></Dialog>;
@@ -357,9 +361,13 @@ function CreateIssueDialog({ equipment, branches, activeBranchId, online, onClos
   const selectedEquipment = equipment.find((item) => item.id === equipmentId);
   const selectedBranchId = selectedEquipment?.branchId ?? branchId;
   const assignees = useQuery({ queryKey: ['facility', 'assignees', selectedBranchId], queryFn: () => api<{ items: Assignee[] }>(`/admin/facility/assignees?branchId=${encodeURIComponent(selectedBranchId)}`), enabled: Boolean(selectedBranchId) });
+  const attempt = useIdempotentAttempt('facility-work-order');
   const create = useMutation({
-    mutationFn: () => api<{ workOrder: { duplicateOfId: string | null } }>('/admin/facility/work-orders', { method: 'POST', idempotencyKey: idempotencyKey('facility-work-order', title.trim()), body: { branchId: selectedBranchId, equipmentId: equipmentId || null, title: title.trim(), description: description.trim(), severity, reportedByKind: 'staff', assigneeId: assigneeId || null, costMinor: cost.trim() ? Math.round(Number(cost) * 100) : 0 } }),
-    onSuccess: (result) => { void queryClient.invalidateQueries({ queryKey: ['facility'] }); if (!result.workOrder.duplicateOfId) onClose(); },
+    mutationFn: () => {
+      const payload = { branchId: selectedBranchId, equipmentId: equipmentId || null, title: title.trim(), description: description.trim(), severity, reportedByKind: 'staff', assigneeId: assigneeId || null, costMinor: cost.trim() ? Math.round(Number(cost) * 100) : 0 };
+      return api<{ workOrder: { duplicateOfId: string | null } }>('/admin/facility/work-orders', { method: 'POST', idempotencyKey: attempt.keyFor(payload), body: payload });
+    },
+    onSuccess: (result) => { attempt.retire(); void queryClient.invalidateQueries({ queryKey: ['facility'] }); if (!result.workOrder.duplicateOfId) onClose(); },
   });
   const error = create.error instanceof ApiError ? create.error.message : create.isError ? 'That issue could not be reported.' : null;
   return <Dialog title="Report facility issue" onClose={onClose}><div className="flex flex-col gap-3"><div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><SelectField label="Equipment" value={equipmentId} onChange={(value) => { setEquipmentId(value); const item = equipment.find((entry) => entry.id === value); if (item) setBranchId(item.branchId); }} options={[['', 'Facility / no asset'], ...equipment.map((item) => [item.id, `${item.assetTag} · ${item.name}`] as [string, string])]} /><SelectField label="Branch" value={branchId} onChange={setBranchId} options={branches.map((branch) => [branch.id, branch.name] as [string, string])} /></div><div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><Field label="Issue" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Bearing noise under load" autoFocus /><SelectField label="Severity" value={severity} onChange={setSeverity} options={[['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['safety', 'Safety']]} /></div><label className="flex flex-col gap-1"><span className="font-utility text-[10px] font-semibold uppercase tracking-[0.14em] text-foam-45">Description</span><textarea className="sf-field min-h-24 !py-2 text-[13px]" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="What happened and where?" /></label><div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><SelectField label="Assign to" value={assigneeId} onChange={setAssigneeId} options={[['', 'Unassigned'], ...(assignees.data?.items ?? []).map((person) => [person.id, person.name] as [string, string])]} /><Field label="Cost (₹)" type="number" min={0} value={cost} onChange={(event) => setCost(event.target.value)} placeholder="0" /></div>{create.isSuccess && create.data.workOrder.duplicateOfId ? <Panel tone="warn"><p className="px-3 py-2.5 text-[12px]">This report matches an open issue. It remains a separate record and is marked as a possible duplicate for review.</p></Panel> : null}{error ? <Panel tone="bad"><p className="px-3 py-2.5 text-[12px]">{error}</p></Panel> : null}</div><DialogActions onClose={onClose} isPending={create.isPending} disabled={!online || !title.trim() || !selectedBranchId} label="Report issue" onConfirm={() => create.mutate()} /></Dialog>;
@@ -374,9 +382,13 @@ function CreateTaskDialog({ branches, activeBranchId, online, onClose }: { branc
   const [checklist, setChecklist] = useState('');
   const [assigneeId, setAssigneeId] = useState('');
   const assignees = useQuery({ queryKey: ['facility', 'assignees', branchId], queryFn: () => api<{ items: Assignee[] }>(`/admin/facility/assignees?branchId=${encodeURIComponent(branchId)}`), enabled: Boolean(branchId) });
+  const attempt = useIdempotentAttempt('facility-task');
   const create = useMutation({
-    mutationFn: () => api('/admin/facility/tasks', { method: 'POST', idempotencyKey: idempotencyKey('facility-task', title.trim()), body: { branchId, title: title.trim(), cadence, nextDueAt: new Date(nextDueAt).toISOString(), assigneeId: assigneeId || null, checklist: checklist.split(',').map((item) => item.trim()).filter(Boolean) } }),
-    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ['facility'] }); onClose(); },
+    mutationFn: () => {
+      const payload = { branchId, title: title.trim(), cadence, nextDueAt: new Date(nextDueAt).toISOString(), assigneeId: assigneeId || null, checklist: checklist.split(',').map((item) => item.trim()).filter(Boolean) };
+      return api('/admin/facility/tasks', { method: 'POST', idempotencyKey: attempt.keyFor(payload), body: payload });
+    },
+    onSuccess: () => { attempt.retire(); void queryClient.invalidateQueries({ queryKey: ['facility'] }); onClose(); },
   });
   const error = create.error instanceof ApiError ? create.error.message : create.isError ? 'That facility task could not be created.' : null;
   return <Dialog title="New facility task" onClose={onClose}><div className="flex flex-col gap-3"><Field label="Task" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Opening checks" autoFocus /><div className="grid grid-cols-1 gap-3 sm:grid-cols-3"><SelectField label="Branch" value={branchId} onChange={setBranchId} options={branches.map((branch) => [branch.id, branch.name] as [string, string])} /><SelectField label="Cadence" value={cadence} onChange={setCadence} options={[['once', 'Once'], ['daily', 'Daily'], ['weekly', 'Weekly'], ['monthly', 'Monthly'], ['quarterly', 'Quarterly']]} /><Field label="Next due" type="datetime-local" value={nextDueAt} onChange={(event) => setNextDueAt(event.target.value)} /></div><SelectField label="Assign to" value={assigneeId} onChange={setAssigneeId} options={[['', 'Unassigned'], ...(assignees.data?.items ?? []).map((person) => [person.id, person.name] as [string, string])]} /><Field label="Checklist" value={checklist} onChange={(event) => setChecklist(event.target.value)} hint="Comma-separated checks" placeholder="Floor walk, sanitiser stations" />{error ? <Panel tone="bad"><p className="px-3 py-2.5 text-[12px]">{error}</p></Panel> : null}</div><DialogActions onClose={onClose} isPending={create.isPending} disabled={!online || !title.trim() || !branchId || !checklist.trim()} label="Create task" onConfirm={() => create.mutate()} /></Dialog>;
@@ -408,16 +420,33 @@ function ReturnToServiceDialog({ equipment, online, onClose }: { equipment: Equi
   );
 }
 
+/* The shared modal, not a local copy of one. This wrapper used to be its own
+   scrim and panel: it declared `aria-modal="true"` and then let focus tab
+   straight out into the page behind it, with no Escape and no restore. */
 function Dialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
-  return <div className="fixed inset-0 z-50 grid place-items-center bg-scrim p-6" role="presentation"><div className="max-h-[88vh] w-[min(640px,100%)] overflow-auto border border-line-strong bg-overlay p-4" role="dialog" aria-modal="true" aria-label={title}><div className="flex items-center gap-2"><Display size="sm" as="h2">{title}</Display><span className="flex-1" /><Button variant="ghost" onClick={onClose} aria-label="Close dialog">Close</Button></div><div className="mt-4">{children}</div></div></div>;
+  return (
+    <Modal open onClose={onClose} title={title} width="w-[min(640px,100%)]">
+      <div className="p-4">{children}</div>
+    </Modal>
+  );
 }
 
 function DialogActions({ onClose, isPending, disabled, label, onConfirm }: { onClose: () => void; isPending: boolean; disabled: boolean; label: string; onConfirm: () => void }) {
   return <div className="mt-5 flex justify-end gap-2 border-t border-line pt-3"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="cta" disabled={disabled || isPending} onClick={onConfirm}>{isPending ? 'Saving…' : label}</Button></div>;
 }
 
+/* Tuple-shaped call sites, shared control underneath. Three screens each had
+   their own byte-identical copy of this select's styling, which is how the
+   label gap and control height came to differ by screen. */
 function SelectField({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: Array<[string, string]> }) {
-  return <div className="flex flex-col gap-1"><Label>{label}</Label><select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} className="sf-field !min-h-9 !py-2 !text-[13px]">{options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}</select></div>;
+  return (
+    <ConsoleSelectField
+      label={label}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      options={options.map(([optionValue, optionLabel]) => ({ value: optionValue, label: optionLabel }))}
+    />
+  );
 }
 
 function dateLabel(value: string): string {

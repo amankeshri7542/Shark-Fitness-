@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
 
 /* ============================================================================
    Bridge primitives — the dense, desktop half of the Sonar system.
@@ -165,28 +165,84 @@ export function Bar({ value, max = 100, tone = 'accent', height = 'h-1.5', class
 
 /* — Controls ——————————————————————————————————————————————— */
 
-type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
+/* — Buttons ————————————————————————————————————————————————
+
+   One hierarchy, applied consistently:
+
+   | variant   | weight    | use                                            |
+   |-----------|-----------|------------------------------------------------|
+   | `cta`     | dominant  | the ONE action a surface exists to take         |
+   | `outline` | standard  | every other real action                         |
+   | `ghost`   | quiet     | dismiss, clear, cancel, a link-like affordance  |
+   | `danger`  | dominant  | destructive, and only where it is destructive   |
+
+   `cta` is deliberately scarce. It carries the notch, the display face and the
+   filled accent, and when a toolbar wears three of them nothing is primary any
+   more — which is what a reviewer means by "assembled module by module".
+
+   `pending` exists because 33 call sites were hand-writing
+   `{m.isPending ? 'Saving…' : 'Save'}`, each choosing its own participle, and
+   each forgetting to disable the button on at least one path. The label is the
+   caller's; the busy behaviour is not. — */
+
+type ButtonProps = Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'disabled'> & {
   children: ReactNode;
   variant?: 'cta' | 'outline' | 'ghost' | 'danger';
-  size?: 'sm' | 'md';
+  size?: 'sm' | 'md' | 'icon';
   full?: boolean;
+  disabled?: boolean;
+  /**
+   * The action is in flight. Disables the control, marks it busy for assistive
+   * technology, and shows `pendingLabel` if one is given — so a double press
+   * cannot fire a second write while the first is unanswered.
+   */
+  pending?: boolean;
+  pendingLabel?: string;
 };
 
-export function Button({ children, variant = 'outline', size = 'sm', full, className, ...rest }: ButtonProps) {
-  const sizes = { sm: 'min-h-9 px-3 text-[11px]', md: 'min-h-11 px-4 text-[12px]' }[size];
+export function Button({
+  children,
+  variant = 'outline',
+  size = 'sm',
+  full,
+  disabled,
+  pending,
+  pendingLabel,
+  className,
+  ...rest
+}: ButtonProps) {
+  const sizes = {
+    sm: 'min-h-9 px-3 text-[11px]',
+    md: 'min-h-11 px-4 text-[12px]',
+    // Square, so a row of icon actions does not drift out of line with the
+    // text buttons beside it.
+    icon: 'min-h-9 w-9 px-0 text-[11px]',
+  }[size];
+
   const variants = {
-    cta: 'sf-notch border-0 bg-sonar text-on-accent font-display uppercase tracking-[0.12em] text-[13px] hover:brightness-110',
+    cta: 'sf-notch border-0 bg-sonar text-on-accent font-display uppercase tracking-[0.12em] text-[13px] hover:brightness-110 active:brightness-95',
     outline:
-      'border border-line-strong bg-transparent text-foam font-utility font-semibold uppercase tracking-[0.12em] hover:border-sonar hover:text-sonar',
-    ghost: 'border border-transparent bg-transparent text-sonar font-utility font-semibold uppercase tracking-[0.12em] hover:text-foam',
+      'border border-line-strong bg-transparent text-foam font-utility font-semibold uppercase tracking-[0.12em] hover:border-sonar hover:text-sonar active:bg-wash-sonar',
+    ghost:
+      'border border-transparent bg-transparent text-sonar font-utility font-semibold uppercase tracking-[0.12em] hover:text-foam active:bg-wash-sonar-soft',
     danger:
-      'border border-chum bg-transparent text-chum font-utility font-semibold uppercase tracking-[0.12em] hover:bg-wash-chum',
+      'border border-chum bg-transparent text-chum font-utility font-semibold uppercase tracking-[0.12em] hover:bg-wash-chum active:bg-wash-chum',
   }[variant];
+
   return (
     <button
       type="button"
+      disabled={disabled || pending}
+      aria-busy={pending || undefined}
       className={cx(
         'inline-flex cursor-pointer items-center justify-center gap-1.5 transition-[filter,border-color,color,background] duration-150 disabled:cursor-not-allowed disabled:opacity-40',
+        // `cta` clips itself to a notch, and a clip-path clips the focus
+        // outline with it — so the one button on the surface that most needs
+        // to be findable by keyboard was the one losing its ring. An inset
+        // shadow is drawn inside the clip and survives.
+        variant === 'cta'
+          ? 'focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--sf-on-accent)]'
+          : '',
         sizes,
         variants,
         full && 'w-full',
@@ -194,25 +250,222 @@ export function Button({ children, variant = 'outline', size = 'sm', full, class
       )}
       {...rest}
     >
-      {children}
+      {pending && pendingLabel ? pendingLabel : children}
     </button>
   );
 }
 
-export function Field({ label, hint, error, className, id, ...rest }: {
+/* — Form controls ——————————————————————————————————————————
+
+   Every field on this console is a label, a control, and at most one line of
+   help underneath. That shape was being retyped per screen — 42 hand-written
+   `sf-field` strings, most of them carrying `!min-h-9 !text-[13px]` overrides
+   to undo the 44px touch default the class sets for the member app's phone
+   surfaces — plus 23 raw `<select>` elements each with their own copy of the
+   same six Tailwind classes.
+
+   The result was a console where the gap under a label, the height of a
+   control and the colour of an error message depended on which week the screen
+   was written. These primitives are that shape once. `FieldShell` owns the
+   label/hint/error furniture; each control owns only what makes it that
+   control. — */
+
+/** Label, control, and one line of hint or error. Never both. */
+function FieldShell({
+  id,
+  label,
+  hint,
+  error,
+  className,
+  children,
+}: {
+  id: string;
+  label: string;
+  hint?: string;
+  error?: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className={cx('flex min-w-0 flex-col gap-1.5', className)}>
+      <label
+        htmlFor={id}
+        className="font-utility text-[10px] font-semibold uppercase tracking-[0.14em] text-foam-45"
+      >
+        {label}
+      </label>
+      {children}
+      {/* An error replaces the hint rather than stacking under it — two lines
+          of help under one control is how a dense form starts to scroll. */}
+      {error ? (
+        <p id={`${id}-msg`} className="text-[11px] leading-relaxed text-chum">
+          {error}
+        </p>
+      ) : hint ? (
+        <p id={`${id}-msg`} className="text-[11px] leading-relaxed text-foam-45">
+          {hint}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** The one control height on this console. Compact by default; it is a desk. */
+const CONTROL = 'sf-field !min-h-9 !py-1.5 !text-[13px]';
+
+const slug = (label: string, id?: string): string =>
+  id ?? `f_${label.replace(/\W+/g, '_').toLowerCase()}`;
+
+export function Field({
+  label,
+  hint,
+  error,
+  className,
+  id,
+  ...rest
+}: {
   label: string;
   hint?: string;
   error?: string;
 } & React.InputHTMLAttributes<HTMLInputElement>) {
-  const inputId = id ?? `f_${label.replace(/\W+/g, '_').toLowerCase()}`;
+  const inputId = slug(label, id);
   return (
-    <div className={cx('flex flex-col gap-1', className)}>
-      <label htmlFor={inputId} className="font-utility text-[10px] font-semibold uppercase tracking-[0.14em] text-foam-45">
+    <FieldShell id={inputId} label={label} hint={hint} error={error} className={className}>
+      <input
+        id={inputId}
+        className={CONTROL}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error || hint ? `${inputId}-msg` : undefined}
+        {...rest}
+      />
+    </FieldShell>
+  );
+}
+
+export function SelectField({
+  label,
+  hint,
+  error,
+  className,
+  id,
+  options,
+  children,
+  ...rest
+}: {
+  label: string;
+  hint?: string;
+  error?: string;
+  /** Convenience for the common case; pass `children` for grouped options. */
+  options?: Array<{ value: string; label: string; disabled?: boolean }>;
+} & React.SelectHTMLAttributes<HTMLSelectElement>) {
+  const inputId = slug(label, id);
+  return (
+    <FieldShell id={inputId} label={label} hint={hint} error={error} className={className}>
+      <select
+        id={inputId}
+        className={cx(CONTROL, 'cursor-pointer appearance-none pr-7')}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error || hint ? `${inputId}-msg` : undefined}
+        {...rest}
+      >
+        {options
+          ? options.map((option) => (
+              <option key={option.value} value={option.value} disabled={option.disabled}>
+                {option.label}
+              </option>
+            ))
+          : children}
+      </select>
+    </FieldShell>
+  );
+}
+
+export function TextAreaField({
+  label,
+  hint,
+  error,
+  className,
+  id,
+  rows = 3,
+  ...rest
+}: {
+  label: string;
+  hint?: string;
+  error?: string;
+} & React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  const inputId = slug(label, id);
+  return (
+    <FieldShell id={inputId} label={label} hint={hint} error={error} className={className}>
+      <textarea
+        id={inputId}
+        rows={rows}
+        className={cx(CONTROL, '!min-h-[72px] resize-y leading-relaxed')}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error || hint ? `${inputId}-msg` : undefined}
+        {...rest}
+      />
+    </FieldShell>
+  );
+}
+
+/**
+ * A checkbox with its explanation attached.
+ *
+ * The label is the hit target and the description sits inside it, because the
+ * consequential checkboxes on this console — record this anonymously, waive the
+ * fee, override capacity — are exactly the ones whose meaning lives in the
+ * small print under them.
+ */
+export function Checkbox({
+  label,
+  hint,
+  className,
+  id,
+  ...rest
+}: {
+  label: ReactNode;
+  hint?: ReactNode;
+} & React.InputHTMLAttributes<HTMLInputElement>) {
+  // `useId` rather than a random string: a value invented during render is
+  // a new id on every re-render, which breaks the label's `htmlFor` link the
+  // moment anything above this re-renders.
+  const generated = useId();
+  const inputId = id ?? generated;
+  return (
+    <label className={cx('flex cursor-pointer items-start gap-2.5', className)} htmlFor={inputId}>
+      <input
+        id={inputId}
+        type="checkbox"
+        className="mt-0.5 size-[15px] flex-none cursor-pointer accent-[var(--sf-sonar)]"
+        {...rest}
+      />
+      <span className="min-w-0 text-[13px] leading-relaxed">
         {label}
-      </label>
-      <input id={inputId} className="sf-field !min-h-9 !py-2 !text-[13px]" aria-invalid={error ? true : undefined} {...rest} />
-      {error ? <p className="text-[11px] text-chum">{error}</p> : hint ? <p className="text-[11px] text-foam-45">{hint}</p> : null}
-    </div>
+        {hint ? <span className="mt-0.5 block text-[11px] leading-relaxed text-foam-45">{hint}</span> : null}
+      </span>
+    </label>
+  );
+}
+
+/**
+ * The search box that sits in a toolbar rather than in a form.
+ *
+ * No visible label — a toolbar has no room for one and the placeholder plus
+ * `aria-label` carry it — which is exactly why it is a separate primitive
+ * instead of `Field` with the label hidden by every caller in its own way.
+ */
+export function SearchField({
+  label,
+  className,
+  ...rest
+}: { label: string } & React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <input
+      type="search"
+      aria-label={label}
+      className={cx(CONTROL, '!w-auto min-w-[180px] flex-1', className)}
+      {...rest}
+    />
   );
 }
 
@@ -339,17 +592,22 @@ export function TableScroll({ children, className }: { children: ReactNode; clas
 }
 
 export function Table({ children, className }: { children: ReactNode; className?: string }) {
-  return <table className={cx('w-full min-w-max border-collapse text-[13px]', className)}>{children}</table>;
+  return <table className={cx('sf-table', className)}>{children}</table>;
 }
 
 /**
- * A sticky header row. `bg-hull` is opaque on purpose — a translucent header
- * over scrolling numbers is unreadable, and this table is nothing but numbers.
+ * A sticky header row.
+ *
+ * The padding, the seam between columns and the sticky behaviour all come from
+ * `.sf-table` in `styles.css`, which is also what the density attribute drives.
+ * Putting them in Tailwind utilities here is what let the two table systems
+ * drift apart in the first place: the CSS one tightened on compact density and
+ * the primitives did not.
  */
 export function THead({ children }: { children: ReactNode }) {
   return (
-    <thead className="sticky top-0 z-10 bg-hull">
-      <tr className="border-b border-line">{children}</tr>
+    <thead>
+      <tr>{children}</tr>
     </thead>
   );
 }
@@ -357,31 +615,49 @@ export function THead({ children }: { children: ReactNode }) {
 export function TH({
   children,
   align = 'left',
+  numeric,
   className,
   sort,
   onSort,
 }: {
   children: ReactNode;
   align?: 'left' | 'right' | 'center';
+  /** Aligns the heading over the figures it names. */
+  numeric?: boolean;
   className?: string;
   sort?: 'asc' | 'desc' | null;
   onSort?: () => void;
 }) {
-  const alignment = { left: 'text-left', right: 'text-right', center: 'text-center' }[align];
+  const alignment = { left: 'text-left', right: 'text-right', center: 'text-center' }[
+    numeric ? 'right' : align
+  ];
   const label = (
-    <span className="font-utility text-[10px] font-semibold uppercase tracking-[0.14em] text-foam-45">
+    <span className="inline-flex items-center gap-1">
       {children}
-      {sort ? <span aria-hidden="true"> {sort === 'asc' ? '↑' : '↓'}</span> : null}
+      {/* The arrow is not the only signal — `aria-sort` carries it too — but a
+          sighted user scanning twelve columns needs to see which one ordered
+          the grid without reading them. */}
+      {sort ? <span aria-hidden="true">{sort === 'asc' ? '↑' : '↓'}</span> : null}
     </span>
   );
   return (
     <th
       scope="col"
       aria-sort={sort ? (sort === 'asc' ? 'ascending' : 'descending') : onSort ? 'none' : undefined}
-      className={cx('whitespace-nowrap px-3 py-2', alignment, className)}
+      data-numeric={numeric ? '' : undefined}
+      className={cx(alignment, className)}
     >
       {onSort ? (
-        <button type="button" onClick={onSort} className="cursor-pointer hover:text-sonar">
+        <button
+          type="button"
+          onClick={onSort}
+          className={cx(
+            'inline-flex cursor-pointer items-center gap-1 uppercase tracking-[0.14em] hover:text-sonar',
+            // A sortable heading has to be reachable and hittable, not a 10px
+            // word with no target around it.
+            'min-h-6 font-utility text-[10px] font-semibold',
+          )}
+        >
           {label}
         </button>
       ) : (
@@ -407,7 +683,9 @@ export function TD({
     numeric ? 'right' : align
   ];
   return (
-    <td className={cx('px-3 py-2 align-middle', alignment, numeric && 'tabular-nums', className)}>{children}</td>
+    <td data-numeric={numeric ? '' : undefined} className={cx(alignment, className)}>
+      {children}
+    </td>
   );
 }
 
@@ -444,12 +722,8 @@ export function TR({
       onClick={onClick}
       // Says which row is open rather than relying on a colour wash alone.
       aria-current={selected ? true : undefined}
-      className={cx(
-        'border-b border-line-10',
-        onClick && 'cursor-pointer hover:bg-wash-sonar-soft',
-        selected && 'bg-wash-sonar',
-        className,
-      )}
+      data-selected={selected ? 'true' : undefined}
+      className={cx(onClick && 'cursor-pointer', className)}
     >
       {children}
     </tr>
@@ -519,6 +793,23 @@ export function Tabs({
   onChange: (key: string) => void;
   label: string;
 }) {
+  /* Roving tabIndex.
+
+     Every tab used to be a plain button, so all of them were in the tab order:
+     reaching the content past a five-tab strip took five presses, and on
+     Support with a ticket drawer open that is five presses to get anywhere.
+     A tablist is one stop — arrows move within it. Home and End matter more
+     here than they look, because these strips are horizontally scrollable and
+     the last tab is often off screen. */
+  const move = (index: number): void => {
+    const target = items[(index + items.length) % items.length];
+    if (!target) return;
+    onChange(target.key);
+    document.getElementById(`tab-${target.key}`)?.focus();
+  };
+
+  const at = items.findIndex((i) => i.key === active);
+
   return (
     <div role="tablist" aria-label={label} className="flex min-w-0 overflow-x-auto border-b border-line bg-hull">
       {items.map((item) => {
@@ -531,20 +822,16 @@ export function Tabs({
             id={`tab-${item.key}`}
             aria-selected={isActive}
             aria-controls={`panel-${item.key}`}
+            tabIndex={isActive ? 0 : -1}
             onClick={() => onChange(item.key)}
             onKeyDown={(e) => {
-              if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
-              e.preventDefault();
-              const at = items.findIndex((i) => i.key === active);
-              const next = e.key === 'ArrowRight' ? at + 1 : at - 1;
-              const target = items[(next + items.length) % items.length];
-              if (target) {
-                onChange(target.key);
-                document.getElementById(`tab-${target.key}`)?.focus();
-              }
+              if (e.key === 'ArrowRight') { e.preventDefault(); move(at + 1); }
+              else if (e.key === 'ArrowLeft') { e.preventDefault(); move(at - 1); }
+              else if (e.key === 'Home') { e.preventDefault(); move(0); }
+              else if (e.key === 'End') { e.preventDefault(); move(items.length - 1); }
             }}
             className={cx(
-              'relative min-h-10 whitespace-nowrap border-r border-line px-4 font-utility text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors',
+              'relative min-h-10 shrink-0 cursor-pointer whitespace-nowrap border-r border-line px-4 font-utility text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors',
               isActive ? 'bg-wash-sonar text-sonar' : 'text-foam-50 hover:bg-wash-sonar-soft hover:text-foam',
             )}
           >
@@ -558,7 +845,14 @@ export function Tabs({
   );
 }
 
-/** A small exclusive choice: a tender method, a state filter. */
+/**
+ * A small exclusive choice: a tender method, a state filter, a period.
+ *
+ * Same keyboard contract as `Tabs` — one stop in the tab order, arrows and
+ * Home/End inside — because to anyone driving this console by keyboard the two
+ * are the same control wearing different clothes, and having one of them eat
+ * six tab stops while the other ate one was simply a thing nobody had tried.
+ */
 export function Segmented<T extends string>({
   options,
   value,
@@ -572,7 +866,18 @@ export function Segmented<T extends string>({
   label: string;
   size?: 'sm' | 'md';
 }) {
-  const height = size === 'md' ? 'min-h-10 text-[12px]' : 'min-h-8 text-[10px]';
+  // Matches the control height so a segmented sitting beside a select or a
+  // button in a toolbar lines up with it rather than floating a pixel high.
+  const height = size === 'md' ? 'min-h-9 text-[11px]' : 'min-h-8 text-[10px]';
+  const at = options.findIndex((o) => o.value === value);
+
+  const move = (index: number): void => {
+    const target = options[(index + options.length) % options.length];
+    if (!target) return;
+    onChange(target.value);
+    document.getElementById(`seg-${label}-${target.value}`)?.focus();
+  };
+
   return (
     <div role="group" aria-label={label} className="flex min-w-0 border border-line-strong">
       {options.map((option, index) => {
@@ -581,8 +886,21 @@ export function Segmented<T extends string>({
           <button
             key={option.value}
             type="button"
+            id={`seg-${label}-${option.value}`}
             aria-pressed={isActive}
+            // Roving: the group is one tab stop and arrows move inside it.
+            // `radiogroup` would be the tidier semantic for an exclusive
+            // choice, but these are filters that sit in toolbars beside real
+            // buttons, and re-announcing them as radios is a bigger change to
+            // how the console reads than this pass is for.
+            tabIndex={isActive ? 0 : -1}
             onClick={() => onChange(option.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); move(at + 1); }
+              else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); move(at - 1); }
+              else if (e.key === 'Home') { e.preventDefault(); move(0); }
+              else if (e.key === 'End') { e.preventDefault(); move(options.length - 1); }
+            }}
             className={cx(
               'flex-1 cursor-pointer whitespace-nowrap px-2.5 font-utility font-semibold uppercase tracking-[0.12em] transition-colors',
               height,

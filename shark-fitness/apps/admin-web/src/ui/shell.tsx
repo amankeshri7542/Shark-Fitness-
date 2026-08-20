@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
 import { navFor } from '@shark/domain';
 import { Button, Chip, LiveDot, cx } from './console';
-import { useAdmin, useBranchScope, useViewer } from '../lib/store';
+import { useAdmin, useViewer } from '../lib/store';
 import { useConnection, useOnline } from '../lib/realtime';
 
 /* Each module gets a mark rather than an icon font — a clip-path shape in the
@@ -87,7 +87,6 @@ export function Rail() {
  */
 export function StatusStrip({ alertCount = 0 }: { alertCount?: number }) {
   const viewer = useViewer();
-  const { branchName } = useBranchScope();
   const branches = useAdmin((s) => s.branches);
   const activeBranchId = useAdmin((s) => s.activeBranchId);
   const setActiveBranch = useAdmin((s) => s.setActiveBranch);
@@ -118,8 +117,8 @@ export function StatusStrip({ alertCount = 0 }: { alertCount?: number }) {
         </select>
       </label>
 
-      <span className="font-utility text-[10px] uppercase tracking-[0.12em] text-foam-45">{branchName}</span>
-
+      {/* The select already shows the scope. Printing `branchName` beside it
+          repeated "All branches (3)" twice in a row across every screen. */}
       <span className="flex-1" />
 
       <Button variant="outline" onClick={() => togglePalette(true)} aria-keyshortcuts="Meta+K">

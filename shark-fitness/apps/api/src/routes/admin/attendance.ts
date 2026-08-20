@@ -16,6 +16,7 @@ import {
   overrideCheckIn,
 } from '../../services/attendance.js';
 import { loadMemberInScope, memberScopeCondition } from '../../services/members.js';
+import { branchTimeZone } from '../../lib/branch-time.js';
 
 /**
  * Attendance and Live Occupancy — the front desk (UX-A08, PF-ATT).
@@ -124,12 +125,7 @@ attendanceRoutes.get('/occupancy', (c) => {
   const scope = scopeOf(ctx);
   const branches = occupancyByBranch(ctx.tenantId, scope, atMs);
 
-  const tz =
-    db
-      .select({ timezone: schema.branches.timezone })
-      .from(schema.branches)
-      .where(and(eq(schema.branches.tenantId, ctx.tenantId), inArray(schema.branches.id, scope.length ? scope : ['—'])))
-      .get()?.timezone ?? 'Asia/Kolkata';
+  const tz = branchTimeZone(ctx.tenantId, scope[0] ?? null);
 
   const totals = branches.reduce(
     (acc, b) => ({ inside: acc.inside + b.inside, capacity: acc.capacity + b.capacity }),

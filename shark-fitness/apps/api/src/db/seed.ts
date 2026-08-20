@@ -24,6 +24,7 @@ import { hashPassword } from '../lib/crypto.js';
 import { id, initialsOf, normalizeEmail, normalizePhone, referralCode, token } from '../lib/ids.js';
 import { DAY, HOUR, MINUTE, addDays, daysBetween, isoDate, startOfWeek } from '../lib/time.js';
 import { RESPONSE_MINUTES as SUPPORT_RESPONSE_MINUTES } from '../services/support.js';
+import { backfillRollups } from '../services/reports.js';
 import { EXERCISES } from './seed/exercises.js';
 import { makeRandom } from './seed/random.js';
 import {
@@ -3761,6 +3762,16 @@ const benchBest = Math.max(
   0,
 );
 
+/* Report rollups (PF-RPT-006).
+
+   `metric_rollups` shipped empty, so every chart in Reports opened blank on a
+   database full of history — which reads as "this gym did nothing for four
+   months" rather than "this table was never populated". Reports also
+   materialise any day they need on demand, so this is not what makes them
+   correct; it is what makes the demo honest on first load, and it exercises
+   the same code path the nightly job uses. */
+const rollupRows = backfillRollups(tenantId, 180);
+
 console.log('');
 console.log('seed complete');
 console.log(`  tenant       Shark Fitness (${BRANCHES.length} branches)`);
@@ -3772,6 +3783,7 @@ console.log(`  grace demo   ${graceMember.name} · rohit@sharkfitness.in (failed
 console.log(`  staff logins owner@ / manager@ / reception@ / rehan@ / nikhil@ / priya@ / accounts@ sharkfitness.in`);
 console.log(`  password     shark1234 (staff + demo members); everyone else is OTP-only`);
 console.log(`  rdl exercise ${rdlId}`);
+console.log(`  rollups      ${rollupRows} daily metric rows over 180 days`);
 console.log('');
 
 sqlite.close();
