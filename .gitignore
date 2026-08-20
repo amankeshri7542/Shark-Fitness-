@@ -26,6 +26,14 @@ data/*.db-wal
 .env.local
 .env.*.local
 
+# Screenshots captured while driving the console during development. These are
+# working artifacts, not deliverables, and `git add -A` will otherwise sweep
+# them into a commit.
+*.png
+!**/public/**/*.png
+!**/assets/**/*.png
+!**/icons/**/*.png
+
 # OS files
 .DS_Store
 Thumbs.db
