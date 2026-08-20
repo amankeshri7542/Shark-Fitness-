@@ -3,6 +3,7 @@ import { channels } from '@shark/contracts';
 import { deriveState } from '@shark/domain';
 import { db, schema, transact } from '../db/client.js';
 import { emit } from '../lib/events.js';
+import { rollUpCompletedDays } from '../services/reports.js';
 import { HOUR, MINUTE, isoDate, now } from '../lib/time.js';
 
 /**
@@ -180,8 +181,24 @@ function releaseExpiredHolds(): void {
   }
 }
 
+/**
+ * Keep the report rollups warm (PF-RPT-006).
+ *
+ * Reports materialise any day they need on demand, so this is not what makes
+ * them correct — it is what stops the first person to open Reports on a Monday
+ * paying for a whole quarter's scan. The last few days are recomputed rather
+ * than only the newest, because a day can still gain a late refund or a
+ * corrected booking after it has ended.
+ */
+function rollUpMetrics(): void {
+  for (const tenant of db.select({ id: schema.tenants.id }).from(schema.tenants).all()) {
+    rollUpCompletedDays(tenant.id, 3);
+  }
+}
+
 const JOBS: Job[] = [
   { name: 'expire-memberships', everyMs: 6 * HOUR, run: expireMemberships },
+  { name: 'roll-up-metrics', everyMs: 6 * HOUR, run: rollUpMetrics },
   { name: 'close-stale-check-ins', everyMs: 30 * MINUTE, run: closeStaleCheckIns },
   { name: 'expire-waitlist-offers', everyMs: MINUTE, run: expireWaitlistOffers },
   { name: 'release-expired-holds', everyMs: MINUTE, run: releaseExpiredHolds },

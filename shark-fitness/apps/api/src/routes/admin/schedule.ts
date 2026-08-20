@@ -22,6 +22,7 @@ import {
   updateSession,
   waitlistCount,
 } from '../../services/schedule.js';
+import { branchTimeZone } from '../../lib/branch-time.js';
 
 /**
  * Calendar and class operations — UX-A09, PF-SCH.
@@ -37,15 +38,10 @@ function scopeOf(ctx: { activeBranchId: string | null; branchIds: string[] }): s
   return ctx.activeBranchId ? [ctx.activeBranchId] : ctx.branchIds;
 }
 
+/** Delegates to the one helper that answers "which zone", tenant fallback and
+ *  all. This used to be a fifth private copy of that query. */
 function timezoneFor(tenantId: string, branchIds: string[]): string {
-  if (branchIds.length === 0) return 'Asia/Kolkata';
-  return (
-    db
-      .select({ timezone: schema.branches.timezone })
-      .from(schema.branches)
-      .where(and(eq(schema.branches.tenantId, tenantId), inArray(schema.branches.id, branchIds)))
-      .get()?.timezone ?? 'Asia/Kolkata'
-  );
+  return branchTimeZone(tenantId, branchIds[0] ?? null);
 }
 
 /* ============================================================================

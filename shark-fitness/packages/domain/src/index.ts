@@ -8,3 +8,4 @@ export * from './permissions.js';
 export * from './safety.js';
 export * from './retention.js';
 export * from './support.js';
+export * from './reports.js';
