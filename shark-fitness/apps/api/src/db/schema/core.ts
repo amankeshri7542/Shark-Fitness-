@@ -296,6 +296,47 @@ export const automations = sqliteTable('automations', {
   updatedAt: integer('updated_at').notNull(),
 });
 
+/**
+ * Every time an automation considered somebody (PF-COMM-004, PF-COMM-005).
+ *
+ * One row per automation per subject per logical event, whatever the outcome —
+ * sent, suppressed, failed, or a dry run. The suppressions are the point: "why
+ * did my member not get the renewal reminder" is the question this module gets
+ * asked, and an execution log that only records successes cannot answer it.
+ *
+ * `eventKey` is the logical event, not the attempt. A partial unique index on
+ * `(automation_id, event_key) WHERE outcome = 'sent'` is what actually
+ * prevents a duplicate send — the database refuses it rather than the service
+ * remembering to check. A failed run leaves the key free to retry; a dry run
+ * never consumes it.
+ */
+export const automationRuns = sqliteTable(
+  'automation_runs',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    automationId: text('automation_id').notNull(),
+    branchId: text('branch_id'),
+    memberId: text('member_id'),
+    userId: text('user_id'),
+    trigger: text('trigger').notNull(),
+    /** The logical event this run answers. The dedupe key. */
+    eventKey: text('event_key').notNull(),
+    /** sent | suppressed | failed | dry_run */
+    outcome: text('outcome').notNull(),
+    /** Why it was suppressed or how it failed. Empty for a plain send. */
+    reason: text('reason').notNull().default(''),
+    channel: text('channel').notNull(),
+    templateCode: text('template_code'),
+    notificationId: text('notification_id'),
+    at: integer('at').notNull(),
+  },
+  (t) => ({
+    byAutomation: index('automation_runs_idx').on(t.tenantId, t.automationId, t.at),
+    bySubject: index('automation_runs_member_idx').on(t.tenantId, t.memberId, t.at),
+  }),
+);
+
 /** Precomputed report aggregates, so a dashboard never scans the whole
  *  transaction history (PF-RPT-006). */
 export const metricRollups = sqliteTable(

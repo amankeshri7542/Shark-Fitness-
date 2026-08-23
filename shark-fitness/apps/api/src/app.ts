@@ -32,6 +32,7 @@ import { storeRoutes } from './routes/admin/store.js';
 import { facilityRoutes } from './routes/admin/facility.js';
 import { reportsRoutes } from './routes/admin/reports.js';
 import { settingsRoutes } from './routes/admin/settings.js';
+import { automationRoutes } from './routes/admin/automations.js';
 import { platformRoutes } from './routes/platform.js';
 import { supportRoutes } from './routes/admin/support.js';
 
@@ -105,6 +106,7 @@ app.route('/v1/admin/facility', facilityRoutes);
 app.route('/v1/admin/reports', reportsRoutes);
 app.route('/v1/admin/settings', settingsRoutes);
 app.route('/v1/admin/support', supportRoutes);
+app.route('/v1/admin/automations', automationRoutes);
 
 /* Platform administration (PF-PLAT). `staffOnly` is not enough here and is not
    used: each route carries `platformOnly`, which refuses an impersonated

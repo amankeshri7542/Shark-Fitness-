@@ -3,6 +3,7 @@ import { channels } from '@shark/contracts';
 import { deriveState } from '@shark/domain';
 import { db, schema, transact } from '../db/client.js';
 import { emit } from '../lib/events.js';
+import { runDueAutomations } from '../services/automations.js';
 import { rollUpCompletedDays } from '../services/reports.js';
 import { HOUR, MINUTE, isoDate, now } from '../lib/time.js';
 
@@ -196,7 +197,25 @@ function rollUpMetrics(): void {
   }
 }
 
+/**
+ * Fire the automations that are due (PF-COMM-004).
+ *
+ * On the existing scheduler rather than a timer of its own. A second scheduler
+ * is a second thing to reason about when a member is messaged twice, and the
+ * answer to "which one fired?" should never be "both".
+ *
+ * Hourly, not by the minute: every trigger this product has is a daily or
+ * per-occurrence event, and the suppression that matters — quiet hours — is
+ * measured in hours. A minute-by-minute sweep would scan every member sixty
+ * times an hour to change nothing.
+ */
+function runAutomations(): void {
+  const { ran, sent } = runDueAutomations();
+  if (ran > 0) console.log(`[jobs] automations ran ${ran}, sent ${sent}`);
+}
+
 const JOBS: Job[] = [
+  { name: 'run-automations', everyMs: HOUR, run: runAutomations },
   { name: 'expire-memberships', everyMs: 6 * HOUR, run: expireMemberships },
   { name: 'roll-up-metrics', everyMs: 6 * HOUR, run: rollUpMetrics },
   { name: 'close-stale-check-ins', everyMs: 30 * MINUTE, run: closeStaleCheckIns },

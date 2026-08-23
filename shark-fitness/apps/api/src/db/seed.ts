@@ -3640,94 +3640,14 @@ db.insert(schema.notifications)
   ])
   .run();
 
-db.insert(schema.automations)
-  .values([
-    {
-      id: id('aut'),
-      tenantId,
-      name: 'Welcome sequence',
-      trigger: 'member.joined',
-      description: 'Three messages over the first two weeks, then stop.',
-      conditions: [{ field: 'lifecycle', op: 'eq', value: 'active' }],
-      actions: [
-        { kind: 'message', templateCode: 'welcome_day0', delayMin: 0 },
-        { kind: 'message', templateCode: 'welcome_day3', delayMin: 4320 },
-        { kind: 'task', templateCode: null, delayMin: 20160 },
-      ],
-      quietHours: { from: '21:00', to: '08:00' },
-      state: 'active',
-      dryRun: false,
-      runsLast30: 12,
-      lastRunAt: NOW - 2 * DAY,
-      createdAt: NOW - 200 * DAY,
-      updatedAt: NOW - 30 * DAY,
-    },
-    {
-      id: id('aut'),
-      tenantId,
-      name: 'Quiet member check-in',
-      trigger: 'member.absent_14d',
-      description: 'One message from their own coach. Never automated twice.',
-      conditions: [
-        { field: 'riskBand', op: 'in', value: 'watch,high' },
-        { field: 'hasOpenComplaint', op: 'eq', value: 'false' },
-      ],
-      actions: [{ kind: 'task', templateCode: null, delayMin: 0 }],
-      quietHours: { from: '21:00', to: '08:00' },
-      state: 'active',
-      dryRun: false,
-      runsLast30: 7,
-      lastRunAt: NOW - 20 * HOUR,
-      createdAt: NOW - 120 * DAY,
-      updatedAt: NOW - 12 * DAY,
-    },
-    {
-      id: id('aut'),
-      tenantId,
-      name: 'Renewal reminder',
-      trigger: 'membership.expiring_14d',
-      description: 'Draft — not sending yet.',
-      conditions: [{ field: 'autoRenew', op: 'eq', value: 'false' }],
-      actions: [{ kind: 'message', templateCode: 'renewal_14d', delayMin: 0 }],
-      quietHours: { from: '21:00', to: '08:00' },
-      state: 'draft',
-      dryRun: true,
-      runsLast30: 0,
-      lastRunAt: null,
-      createdAt: NOW - 10 * DAY,
-      updatedAt: NOW - 10 * DAY,
-    },
-  ])
-  .run();
+/* The automations and templates that used to sit here were placeholders for a
+   screen that did not exist: triggers like `member.absent_14d`, action kinds
+   like `task`, a condition operator `in`, and fields such as `riskBand` — none
+   of which the engine built in Phase 12 has. They were rules that could never
+   run, which is precisely the failure `validateConditions` exists to catch, so
+   leaving them in the demo would have taught the wrong thing about the module.
+   The real ones are seeded further down, next to the consent they depend on. */
 
-db.insert(schema.messageTemplates)
-  .values([
-    {
-      id: id('tpl'), tenantId, code: 'welcome_day0', channel: 'email', version: 1, locale: 'en',
-      subject: 'Welcome to Shark Fitness, {{firstName}}',
-      body: 'Your membership is live. Your entry code lives in the app — open it at the door and you are in.',
-      variables: ['firstName'], updatedAt: NOW - 200 * DAY,
-    },
-    {
-      id: id('tpl'), tenantId, code: 'welcome_day3', channel: 'in_app', version: 1, locale: 'en',
-      subject: null,
-      body: 'Three days in. Want a coach to put a plan together? Reply here and we will sort it.',
-      variables: [], updatedAt: NOW - 200 * DAY,
-    },
-    {
-      id: id('tpl'), tenantId, code: 'payment_failed', channel: 'email', version: 2, locale: 'en',
-      subject: 'A payment did not go through',
-      body: 'Your payment of {{amount}} on {{date}} did not go through. You can settle it in the app or at reception. Your bookings are kept until {{graceEnds}}.',
-      variables: ['amount', 'date', 'graceEnds'], updatedAt: NOW - 60 * DAY,
-    },
-    {
-      id: id('tpl'), tenantId, code: 'renewal_14d', channel: 'email', version: 1, locale: 'en',
-      subject: 'Your membership ends on {{endsOn}}',
-      body: 'Nothing to do if you want to carry on — auto-renew is off, so it will simply end. Renew in the app whenever suits.',
-      variables: ['endsOn'], updatedAt: NOW - 10 * DAY,
-    },
-  ])
-  .run();
 
 /* ============================================================================
    Derived risk scores
@@ -3804,6 +3724,155 @@ const benchBest = Math.max(
    correct; it is what makes the demo honest on first load, and it exercises
    the same code path the nightly job uses. */
 const rollupRows = backfillRollups(tenantId, 180);
+
+/* ============================================================================
+   Automations, templates and consent (PF-COMM)
+
+   Three automations in three different states, because the interesting thing
+   about this module is not that it sends — it is everything that stops it.
+   One live, one rehearsing, one paused.
+
+   Consent is recorded for most members and withheld by a few, so the run log
+   shows real suppressions rather than a clean sheet. A gym collects consent at
+   the desk when somebody joins; a demo where everybody agreed to everything
+   teaches the wrong thing about the feature.
+   ========================================================================= */
+
+const TEMPLATES = [
+  {
+    code: 'membership.expiring',
+    channel: 'sms',
+    subject: null,
+    body: 'Hi {{firstName}}, your {{productName}} at {{branchName}} ends on {{endsOn}} — {{daysLeft}} days away. Renew at the desk or in the app.',
+  },
+  {
+    code: 'payment.failed',
+    channel: 'sms',
+    subject: null,
+    body: 'Hi {{firstName}}, we could not take {{amountDue}} for invoice {{invoiceNumber}}. Update your card before {{graceEndsOn}} to keep training at {{branchName}}.',
+  },
+  {
+    code: 'member.welcome',
+    channel: 'in_app',
+    subject: 'Welcome to {{gymName}}',
+    body: 'Welcome {{firstName}}. You joined {{branchName}} on {{joinedOn}} — your first session is on us, just ask at the desk.',
+  },
+  {
+    code: 'member.winback',
+    channel: 'email',
+    subject: 'We have missed you at {{branchName}}',
+    body: 'Hi {{firstName}}, it has been {{daysSinceVisit}} days since your last session at {{branchName}}. Reply to this and we will find you a slot that works.',
+  },
+  {
+    code: 'class.reminder',
+    channel: 'in_app',
+    subject: 'Tomorrow: {{className}}',
+    body: '{{firstName}}, you are booked into {{className}} at {{branchName}}. See you there.',
+  },
+];
+
+for (const template of TEMPLATES) {
+  db.insert(schema.messageTemplates)
+    .values({
+      id: id('tpl'),
+      tenantId,
+      code: template.code,
+      channel: template.channel,
+      version: 1,
+      locale: 'en',
+      subject: template.subject,
+      body: template.body,
+      variables: [...template.body.matchAll(/\{\{\s*([a-zA-Z][a-zA-Z0-9_.]*)\s*\}\}/g)].map((m) => m[1]!),
+      updatedAt: NOW,
+    })
+    .run();
+}
+
+const AUTOMATIONS = [
+  {
+    name: 'Renewal nudge',
+    trigger: 'membership.expiring',
+    description: 'Texts members a week before their plan ends.',
+    conditions: [{ field: 'daysLeft', op: 'lte', value: '7' }],
+    actions: [{ kind: 'sms', templateCode: 'membership.expiring', delayMin: 0 }],
+    state: 'active',
+    dryRun: false,
+  },
+  {
+    name: 'Failed payment recovery',
+    trigger: 'membership.payment_failed',
+    description: 'Texts a member whose card was refused, while the grace period runs.',
+    conditions: [],
+    actions: [{ kind: 'sms', templateCode: 'payment.failed', delayMin: 0 }],
+    state: 'active',
+    dryRun: true,
+  },
+  {
+    name: 'Win back the lapsed',
+    trigger: 'member.inactive',
+    description: 'Emails members who have not trained for three weeks. Paused while the copy is rewritten.',
+    conditions: [{ field: 'daysSinceVisit', op: 'gte', value: '21' }],
+    actions: [{ kind: 'email', templateCode: 'member.winback', delayMin: 0 }],
+    state: 'paused',
+    dryRun: true,
+  },
+];
+
+for (const automation of AUTOMATIONS) {
+  db.insert(schema.automations)
+    .values({
+      id: id('atm'),
+      tenantId,
+      name: automation.name,
+      trigger: automation.trigger,
+      description: automation.description,
+      conditions: automation.conditions,
+      actions: automation.actions,
+      quietHours: null,
+      state: automation.state,
+      dryRun: automation.dryRun,
+      runsLast30: 0,
+      lastRunAt: null,
+      createdAt: NOW - 60 * DAY,
+      updatedAt: NOW,
+    })
+    .run();
+}
+
+/* Consent, as a desk would have collected it. Roughly four in five agreed to
+   marketing; the rest are why the run log has suppressions in it.
+
+   Derived from the member's position rather than drawn from `rng`. The
+   generator is one shared deterministic stream, and taking extra draws here
+   shifts every later one — which silently re-rolls unrelated seeded data and
+   broke an attendance test that had nothing to do with consent. A block added
+   to the end of the seed should not be able to change the beginning of it. */
+const CONSENT_PATTERN: Record<string, (index: number) => boolean> = {
+  marketing_sms: (index) => index % 5 !== 0,
+  marketing_email: (index) => index % 7 !== 0,
+  marketing_whatsapp: (index) => index % 2 === 0,
+};
+
+membersSeeded.forEach((seeded, index) => {
+  if (!seeded.userId) return;
+  for (const [purpose, granted] of Object.entries(CONSENT_PATTERN)) {
+    db.insert(schema.consents)
+      .values({
+        id: id('cns'),
+        tenantId,
+        userId: seeded.userId,
+        purpose,
+        granted: granted(index),
+        version: '2026-01',
+        updatedAt: NOW - ((index * 13) % 300) * DAY,
+        ip: null,
+      })
+      .onConflictDoNothing()
+      .run();
+  }
+});
+
+console.log('  automations, templates and consent');
 
 /* ============================================================================
    The platform operator, and a second gym
