@@ -6,13 +6,14 @@ import { channels } from '@shark/contracts';
 import { applyFreeze, canTransition, formatMoney, levelFor } from '@shark/domain';
 import { db, schema, transact } from '../../db/client.js';
 import { ctxOf } from '../../middleware/index.js';
-import { requireAssignedMember, requirePermission } from '../../lib/context.js';
+import { branchScope, requireAssignedMember, requirePermission } from '../../lib/context.js';
 import { audit } from '../../lib/audit.js';
 import { emit } from '../../lib/events.js';
 import { conflict, notFound, precondition } from '../../lib/errors.js';
 import { id } from '../../lib/ids.js';
 import { DAY, addDays, isoDate, now, relativeTime } from '../../lib/time.js';
 import { memberTrainingSummary } from '../../services/training-admin.js';
+import { loadMemberInScope } from '../../services/members.js';
 
 export const membersRoutes = new Hono();
 
@@ -32,7 +33,7 @@ membersRoutes.get('/', validate('query', ListQuery), (c) => {
   requirePermission(ctx, 'member.view');
   const q = c.req.valid('query');
 
-  const scope = ctx.activeBranchId ? [ctx.activeBranchId] : ctx.branchIds;
+  const scope = branchScope(ctx);
   const filters = [
     eq(schema.members.tenantId, ctx.tenantId),
     inArray(schema.members.homeBranchId, scope),
@@ -146,8 +147,8 @@ membersRoutes.get('/', validate('query', ListQuery), (c) => {
     scopeNote:
       ctx.role === 'trainer'
         ? 'Showing the members assigned to you.'
-        : ctx.activeBranchId
-          ? `Showing ${branchNames.get(ctx.activeBranchId) ?? 'this branch'}.`
+        : scope.length === 1
+          ? `Showing ${branchNames.get(scope[0]!) ?? 'this branch'}.`
           : `Showing all ${scope.length} branches you can see.`,
     columns: {
       balanceVisible: canSeeBalances,
@@ -184,18 +185,23 @@ membersRoutes.get('/', validate('query', ListQuery), (c) => {
   });
 });
 
-/** Member 360 (UX-A05). */
+/**
+ * Member 360 (UX-A05).
+ *
+ * `loadMemberInScope`, not a tenant-wide lookup by id. The directory above is
+ * branch-scoped and this was not, so a manager at one branch who knew a member
+ * id at another could read the whole record — file, balance, notes — straight
+ * past the scoping that hid them from the list. The helper answers 404 for a
+ * member outside scope, because a 403 confirms the record exists somewhere the
+ * caller may not look, and it honours `member_branches`, so a member of one
+ * branch who trains at another stays reachable from both.
+ */
 membersRoutes.get('/:memberId', (c) => {
   const ctx = ctxOf(c);
   requirePermission(ctx, 'member.view');
   const memberId = c.req.param('memberId');
 
-  const member = db
-    .select()
-    .from(schema.members)
-    .where(and(eq(schema.members.id, memberId), eq(schema.members.tenantId, ctx.tenantId)))
-    .get();
-  if (!member) throw notFound('That member');
+  const member = loadMemberInScope(ctx, memberId);
 
   requireAssignedMember(ctx, member.trainerId);
 
@@ -425,10 +431,20 @@ membersRoutes.post('/:memberId/freeze', validate('json', FreezeBody), (c) => {
   const memberId = c.req.param('memberId');
   const { days, reason } = c.req.valid('json');
 
+  // The member first, and in scope. The membership lookup below matches on
+  // member id alone — without this it did not check the tenant either.
+  requireAssignedMember(ctx, loadMemberInScope(ctx, memberId).trainerId);
+
   const membership = db
     .select()
     .from(schema.memberships)
-    .where(and(eq(schema.memberships.memberId, memberId), eq(schema.memberships.state, 'active')))
+    .where(
+      and(
+        eq(schema.memberships.tenantId, ctx.tenantId),
+        eq(schema.memberships.memberId, memberId),
+        eq(schema.memberships.state, 'active'),
+      ),
+    )
     .get();
   if (!membership) throw notFound('An active membership');
 
@@ -512,10 +528,18 @@ membersRoutes.post('/:memberId/unfreeze', validate('json', z.object({ reason: z.
   const memberId = c.req.param('memberId');
   const { reason } = c.req.valid('json');
 
+  requireAssignedMember(ctx, loadMemberInScope(ctx, memberId).trainerId);
+
   const membership = db
     .select()
     .from(schema.memberships)
-    .where(and(eq(schema.memberships.memberId, memberId), eq(schema.memberships.state, 'frozen')))
+    .where(
+      and(
+        eq(schema.memberships.tenantId, ctx.tenantId),
+        eq(schema.memberships.memberId, memberId),
+        eq(schema.memberships.state, 'frozen'),
+      ),
+    )
     .get();
   if (!membership) throw notFound('A frozen membership');
 
@@ -564,10 +588,18 @@ membersRoutes.post('/:memberId/cancel', validate('json', CancelBody), (c) => {
   const memberId = c.req.param('memberId');
   const { reason, immediate } = c.req.valid('json');
 
+  requireAssignedMember(ctx, loadMemberInScope(ctx, memberId).trainerId);
+
   const membership = db
     .select()
     .from(schema.memberships)
-    .where(and(eq(schema.memberships.memberId, memberId), sql`${schema.memberships.state} not in ('cancelled','expired')`))
+    .where(
+      and(
+        eq(schema.memberships.tenantId, ctx.tenantId),
+        eq(schema.memberships.memberId, memberId),
+        sql`${schema.memberships.state} not in ('cancelled','expired')`,
+      ),
+    )
     .get();
   if (!membership) throw notFound('An active membership');
 
@@ -651,8 +683,8 @@ membersRoutes.patch('/:memberId/notes', validate('json', NoteBody), (c) => {
   const memberId = c.req.param('memberId');
   const body = c.req.valid('json');
 
-  const member = db.select().from(schema.members).where(eq(schema.members.id, memberId)).get();
-  if (!member) throw notFound('That member');
+  const member = loadMemberInScope(ctx, memberId);
+  requireAssignedMember(ctx, member.trainerId);
 
   // Optimistic concurrency: someone else's edit must not vanish silently.
   if (member.version !== body.version) {
