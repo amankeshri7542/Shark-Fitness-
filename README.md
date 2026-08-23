@@ -14,6 +14,9 @@ Shark Fitness provides an end-to-end multi-tenant platform comprising:
 - **Store / point of sale (`screens/store`, `routes/admin/store.ts`):** Till with mixed tender and a stable idempotency key per checkout attempt, stock derived from an append-only ledger, returns as compensating entries, inter-branch transfers with visible shrinkage, and cost/margin gated separately by permission.
 - **Support / retention (`screens/support`, `routes/admin/support.ts`):** Ticket queue with an SLA computed in the branch's *open* hours, staff replies flowing into the member's existing conversation rather than a parallel thread, an append-only ticket timeline for disputes, NPS/CSAT and cancellation reporting with honest reporting floors, and explainable retention risk with intervention effectiveness tracking.
 - **Reports and analytics (`screens/reports`, `routes/admin/reports.ts`):** Revenue, membership, attendance, coach utilisation and retention cohorts over any range, computed in the branch's timezone; `report.financial` withholds money as *absent* rather than as zero; totals are never summed across currencies; every figure states how fresh it is; and every CSV export is audited with the filters that produced it.
+- **Settings (`screens/settings`, `routes/admin/settings.ts`):** tenant profile, tax and data-processing policy, branch CRUD with per-day hours and holidays, rooms, a five-state branch lifecycle, and tenant defaults a branch may override — where the *absence* of a key is what "inherited" means, and the overrides genuinely change what the door, the front desk and the till decide.
+- **Automations (`screens/automations`, `routes/admin/automations.ts`):** trigger → conditions → message, with an audience preview that gives equal room to who is being held back and why, a dry run that is structurally incapable of sending, quiet hours read in the branch's own timezone, and a duplicate send refused by a database index rather than by remembering to check.
+- **Platform (`screens/platform`, `routes/platform.ts`):** cross-tenant customer list, health, plans and quotas, and time-boxed support access that borrows a gym owner's authority without acquiring any of the operator's — announced by a banner that cannot be scrolled away and audited into the gym's own log.
 
 ---
 
@@ -42,26 +45,37 @@ Shark Fitness provides an end-to-end multi-tenant platform comprising:
 
 ## 🚦 Current Implementation Status
 
-Verified on `feat/phase-10-reports-ui-polish` (Node 22.23.2) on 23 August 2026:
+Verified on `chore/final-production-hardening` (Node 22.23.2) on 23 August 2026:
 `pnpm lint`, `pnpm typecheck`, `pnpm test` and `pnpm build` all clean, and a
-browser pass across all 15 console routes at 1440×900, 1024×768, 768×1024 and
+browser pass across every console route at 1440×900, 1024×768, 768×1024 and
 375×812 in both themes and both densities — no horizontal overflow, no content
 clipped outside a scroller, no console errors.
 
+**Every planned module is implemented.** What remains is operational, and it is
+written down honestly in
+[shark-fitness/docs/PRODUCTION-READINESS.md](./shark-fitness/docs/PRODUCTION-READINESS.md) —
+this is **beta ready, not production ready**, and that document says exactly why.
+
 ### ✅ Completed & Working
-- **Domain Engine:** 153 unit tests across membership, access decisions, training algorithms, fair scheduling and report maths.
-- **Test suite:** **717 tests** in 49 files — 153 domain, 315 API integration, 24 member PWA, 225 admin console.
-- **Database & Migrations:** 93 SQLite tables across 5 schema files, deterministic seed data, and 9 append-only/guard triggers protecting `audit_log`, `xp_ledger`, `stock_ledger` and `ticket_events`.
+- **Domain Engine:** 248 unit tests across membership, access decisions, training algorithms, fair scheduling, report maths, tenant settings, platform rules and automation suppression.
+- **Test suite:** **992 tests** in 60 files — 248 domain, 468 API integration, 24 member PWA, 252 admin console. Includes an end-to-end journey suite that walks lead → member → plan → invoice → payment → door → class → training → shop → support → report → refund as one continuous story, across seven roles and two tenants.
+- **Database & Migrations:** 94 SQLite tables across 5 schema files, six forward-only additive migrations, deterministic seed data with two customer tenants and a platform operator, 9 append-only/guard triggers, and 2 partial unique indexes enforcing "once" where a seat or a message is at stake.
 - **Quality gates:** `pnpm lint` (ESLint 10 flat config, `--max-warnings=0`), `pnpm typecheck` and `pnpm build` pass with 0 errors, all gated in CI.
 - **Member PWA:** all 18 screens implemented — no stubs remain.
-- **Admin Web:** 18 of 21 screens implemented. Reports is five surfaces — Revenue, Membership, Attendance, Coaches, Retention — under `screens/reports/`; Store is five — Register, Inventory, Orders, Transfers, Insights — under `screens/store/`; Support is four — Queue, Feedback, Retention, TicketDrawer — under `screens/support/`.
-- **API Routes:** auth, profile, the member surface, and the admin `attendance`, `billing`, `facility`, `leads`, `reports`, `schedule`, `staff`, `store`, `support` and `training` modules — 27 of 28 route modules.
+- **Admin Web:** all 21 screens implemented — no placeholders remain. Six are shells over their own sub-surfaces: Reports, Store, Support, Settings, Automations and Platform.
+- **API Routes:** all 30 route modules implemented — no stubs remain. `routes/platform.ts` is the only cross-tenant surface in the product.
 - **Branch isolation:** one rule for every read. `branchScope(ctx, branchId?)` decides which branches a request covers; no selection means every branch the caller may see, an `x-branch-id` outside their entitlement is refused, and a record outside scope is 404 rather than 403 — on lists and on detail endpoints alike.
 - **Production serving:** one origin serves the member PWA at `/` and the admin console at `/admin/`, with hashed assets returning their own content types rather than the SPA HTML fallback.
 
-### ⏳ Remaining to Implement
-- **Admin Web (3 placeholder screens):** `Automations`, `Platform`, `Settings`.
-- **Admin API Route Adapters (1 stub):** `settings`.
+### ⏳ Remaining before a real gym can use it
+
+Not features — infrastructure. Four blockers, detailed with effort estimates in
+[PRODUCTION-READINESS.md](./shark-fitness/docs/PRODUCTION-READINESS.md):
+
+- **Backups.** There are none. One disk failure loses everything.
+- **A payment provider.** Payments are *recorded*, not taken.
+- **Environment validation at boot**, so a misconfigured deploy fails fast.
+- **Error reporting**, so a 500 reaches somebody other than stdout.
 
 See [05_Shark_Fitness_Remaining_Implementation_Plan.md](./05_Shark_Fitness_Remaining_Implementation_Plan.md) for the sequenced plan.
 
@@ -119,7 +133,7 @@ pnpm dev
 cd shark-fitness
 pnpm lint         # ESLint across the workspace; --max-warnings=0
 pnpm typecheck    # TypeScript across all 6 packages
-pnpm test         # 717 tests (domain, API integration, member PWA, admin console)
+pnpm test         # 992 tests (domain, API integration, member PWA, admin console)
 pnpm build        # Production bundles for both front ends
 ```
 
