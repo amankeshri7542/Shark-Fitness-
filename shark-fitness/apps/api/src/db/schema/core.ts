@@ -17,6 +17,16 @@ export const tenants = sqliteTable('tenants', {
   legalName: text('legal_name').notNull(),
   displayName: text('display_name').notNull(),
   plan: text('plan').notNull().default('growth'),
+  /**
+   * `customer` or `platform`.
+   *
+   * Platform staff are not a customer's users — they are above every tenant —
+   * but `users.tenant_id` is not nullable and should not become so. They live
+   * in their own tenant instead, which this column marks so the platform's
+   * customer list does not show the operator its own record as if it were a
+   * gym. Nothing else in the product reads it.
+   */
+  kind: text('kind').notNull().default('customer'),
   locale: text('locale').notNull().default('en-IN'),
   currency: text('currency').notNull().default('INR'),
   timezone: text('timezone').notNull().default('Asia/Kolkata'),

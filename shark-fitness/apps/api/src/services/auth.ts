@@ -1,6 +1,6 @@
-import { and, eq, gt, isNull, or, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { Role, Viewer } from '@shark/contracts';
-import { permissionsFor } from '@shark/domain';
+import { TENANT_STATUSES, containImpersonatedPermissions, permissionsFor, type TenantStatus } from '@shark/domain';
 import { db, schema } from '../db/client.js';
 import { hashPassword, hashToken, verifyPassword } from '../lib/crypto.js';
 import { id, initialsOf, normalizeEmail, normalizePhone, otpCode, token } from '../lib/ids.js';
@@ -21,21 +21,52 @@ function maskIdentifier(value: string): string {
   return `${'•'.repeat(Math.max(0, value.length - 4))}${value.slice(-4)}`;
 }
 
+/**
+ * The gym somebody is signing in to.
+ *
+ * Two corrections to what this used to do, both found by seeding a second
+ * tenant — with one tenant in the database neither could be observed.
+ *
+ * **A trial is a working product.** This matched only `status = 'active'`, so
+ * every customer on trial was locked out of the product they were evaluating.
+ * The status rules in `@shark/domain` already say which states are
+ * operational; this reads them rather than keeping a second opinion.
+ *
+ * **A suspended gym is told it is suspended.** "That gym could not be found"
+ * sends a member who typed their own gym's name correctly off to check their
+ * spelling. They are a legitimate user of a real gym that has been switched
+ * off, and the useful answer says so. The slug is already public — it is what
+ * they typed — so naming the state leaks nothing they could not infer.
+ */
 function tenantFor(slug?: string) {
   if (slug) {
-    const tenant = db
-      .select()
-      .from(schema.tenants)
-      .where(and(eq(schema.tenants.slug, slug), eq(schema.tenants.status, 'active')))
-      .get();
+    const tenant = db.select().from(schema.tenants).where(eq(schema.tenants.slug, slug)).get();
     if (!tenant) throw invalid('That gym could not be found.');
+    if (!TENANT_STATUSES[tenant.status as TenantStatus]?.operational) {
+      throw invalid(
+        tenant.status === 'suspended'
+          ? 'This gym is suspended. Its administrator can tell you more.'
+          : 'This gym is no longer active.',
+      );
+    }
     return tenant;
   }
 
-  const tenants = db.select().from(schema.tenants).where(eq(schema.tenants.status, 'active')).limit(2).all();
+  // Only customers, and only operational ones: the platform's own tenant is
+  // not a gym anybody signs in to by omission.
+  const tenants = db
+    .select()
+    .from(schema.tenants)
+    .where(and(eq(schema.tenants.kind, 'customer'), inArray(schema.tenants.status, OPERATIONAL_STATUSES)))
+    .limit(2)
+    .all();
   if (tenants.length !== 1) throw invalid('Choose your gym before signing in.');
   return tenants[0]!;
 }
+
+const OPERATIONAL_STATUSES = (Object.keys(TENANT_STATUSES) as TenantStatus[]).filter(
+  (status) => TENANT_STATUSES[status].operational,
+);
 
 export function startOtp(args: { identifier: string; tenantSlug?: string; ip: string }) {
   const identifier = args.identifier.trim();
@@ -283,7 +314,14 @@ export function resolveSession(rawToken: string): RequestContext | null {
     // caller's first permitted branch is what made the console's "All
     // branches" cover exactly one of them; see `RequestContext.activeBranchId`.
     activeBranchId: null,
-    permissions: permissionsFor(user.role as Role),
+    // Support access is borrowed authority (PF-PLAT-004). An impersonated
+    // session carries the target's permissions and never the operator's, so
+    // platform capability is stripped from the session itself — not only
+    // refused at the door. The transport guard in `platformOnly` says no
+    // first; this makes a route that forgets the guard unreachable anyway.
+    permissions: session.impersonatorId
+      ? containImpersonatedPermissions(permissionsFor(user.role as Role))
+      : permissionsFor(user.role as Role),
     ip: session.ip,
     userAgent: session.userAgent,
     impersonatorId: session.impersonatorId,

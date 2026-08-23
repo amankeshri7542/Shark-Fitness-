@@ -164,14 +164,22 @@ describe('PF-TEN-001 — the business profile', () => {
   });
 
   it('audits the change with a field-level diff, not two blobs', async () => {
-    await patch(owner, '/v1/admin/settings/business', { displayName: 'Shark Fitness Bengaluru' });
-    const row = db
-      .select()
-      .from(schema.auditLog)
-      .where(and(eq(schema.auditLog.tenantId, tenantId()), eq(schema.auditLog.action, 'tenant.updated')))
-      .orderBy(sql`${schema.auditLog.at} desc`)
-      .get()!;
-    expect(row.changes.some((c) => c.field === 'displayName' && c.to === 'Shark Fitness Bengaluru')).toBe(true);
+    const before = db.select({ displayName: schema.tenants.displayName }).from(schema.tenants).where(eq(schema.tenants.id, tenantId())).get()!;
+    try {
+      await patch(owner, '/v1/admin/settings/business', { displayName: 'Shark Fitness Bengaluru' });
+      const row = db
+        .select()
+        .from(schema.auditLog)
+        .where(and(eq(schema.auditLog.tenantId, tenantId()), eq(schema.auditLog.action, 'tenant.updated')))
+        .orderBy(sql`${schema.auditLog.at} desc`)
+        .get()!;
+      expect(row.changes.some((c) => c.field === 'displayName' && c.to === 'Shark Fitness Bengaluru')).toBe(true);
+    } finally {
+      // Put the seed back. Other suites read this name, and a test that
+      // renames the gym and walks away is how the platform banner assertion
+      // started failing in a full run and passing on its own.
+      await patch(owner, '/v1/admin/settings/business', { displayName: before.displayName });
+    }
   });
 });
 
