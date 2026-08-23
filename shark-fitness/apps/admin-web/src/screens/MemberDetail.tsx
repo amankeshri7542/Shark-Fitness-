@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, api } from '../lib/api';
 import { usePermission } from '../lib/store';
 import { Page } from '../ui/shell';
-import { Bar, Button, Checkbox, Chip, ErrorState, Field, Label, Metric, Panel, Seam, Skeleton, Table, TableScroll, cx, type Tone } from '../ui/console';
+import { Bar, Button, Checkbox, Chip, ErrorState, Field, Label, Metric, Panel, Seam, SelectField as ConsoleSelectField, Skeleton, Table, TableScroll, cx, type Tone } from '../ui/console';
 import { Modal } from '../ui/overlay';
 import { useIdempotentAttempt } from '../lib/idempotent-attempt';
 
@@ -790,13 +790,16 @@ function DetailSkeleton() {
   );
 }
 
+/* Tuple-shaped call sites, the shared control underneath. This screen carried
+   its own label-and-select pair, which is how the gap under a label and the
+   height of a control came to differ from the rest of the console. */
 function SelectField({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: Array<[string, string]> }) {
   return (
-    <label className="flex flex-col gap-1">
-      <Label>{label}</Label>
-      <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} className="sf-field !min-h-9 !py-2 !text-[13px]">
-        {options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}
-      </select>
-    </label>
+    <ConsoleSelectField
+      label={label}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      options={options.map(([optionValue, optionLabel]) => ({ value: optionValue, label: optionLabel }))}
+    />
   );
 }

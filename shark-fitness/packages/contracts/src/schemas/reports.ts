@@ -122,7 +122,27 @@ export interface RevenueReport {
   seriesCurrency: string | null;
   series: RevenueSeriesPoint[];
   byBranch: Array<{ branchId: string; branchName: string; netMinor: number; invoices: number }>;
-  byProduct: Array<{ productId: string | null; productName: string; netMinor: number; count: number }>;
+  /**
+   * What sold, grouped by catalogue product where the invoice line names one.
+   *
+   * `invoice_lines.product_id` is set for a membership sale and left null for
+   * anything posted as free text — a shop basket lands as one line reading
+   * "Shop purchase <ref>", a manual charge as whatever was typed. Those rows
+   * carry `identified: false` and are grouped by their description, which is
+   * all the identity that exists for them. Grouping *everything* by
+   * description, as this once did, silently merged two products that happened
+   * to share a name and reported a catalogue figure the catalogue never
+   * produced.
+   */
+  byProduct: Array<{
+    productId: string | null;
+    productName: string;
+    /** True when this row is a catalogue product, false when it is a line. */
+    identified: boolean;
+    netMinor: number;
+    /** Units, from the lines' quantities — not the number of lines. */
+    units: number;
+  }>;
   byMethod: Array<{ method: string; amountMinor: number; payments: number }>;
 }
 

@@ -26,6 +26,7 @@ import {
   Toolbar,
 } from '../ui/console';
 import { Modal } from '../ui/overlay';
+import { ReportBoundary, reportShapeError } from './reports/shared';
 import Revenue from './reports/Revenue';
 import Membership from './reports/Membership';
 import Attendance from './reports/Attendance';
@@ -118,6 +119,9 @@ export default function ReportsScreen() {
     // numbers from the same screen.
     staleTime: 60_000,
   });
+
+  // Checked once, before anything dereferences it.
+  const shapeError = report.data === undefined ? null : reportShapeError(tab, report.data);
 
   const runExport = useMutation({
     mutationFn: () =>
@@ -230,16 +234,41 @@ export default function ReportsScreen() {
           onRetry={() => void report.refetch()}
           requestId={report.error instanceof ApiError ? report.error.requestId : undefined}
         />
-      ) : tab === 'revenue' ? (
-        <Revenue data={report.data as RevenueReport} timeZone={timeZone} />
-      ) : tab === 'membership' ? (
-        <Membership data={report.data as MembershipReport} timeZone={timeZone} />
-      ) : tab === 'attendance' ? (
-        <Attendance data={report.data as AttendanceReport} timeZone={timeZone} />
-      ) : tab === 'trainer' ? (
-        <Trainer data={report.data as TrainerReport} timeZone={timeZone} />
+      ) : shapeError ? (
+        // The server answered, and what it sent is not this report. Say so
+        // here rather than letting the body throw on a field it assumed: a
+        // throw goes to the route boundary and takes the tabs, the period and
+        // the branch with it, stranding the reader on a blank pane.
+        <ErrorState
+          title="That report did not arrive in a shape this console can read"
+          body={`The server answered for ${TABS.find((t) => t.key === tab)?.label ?? tab}, but ${shapeError}. This usually means the console and the API are on different versions — reload to pick up the current one.`}
+          onRetry={() => void report.refetch()}
+        />
       ) : (
-        <Retention data={report.data as RetentionReport} timeZone={timeZone} />
+        <ReportBoundary
+          // Keyed on what is being read, so changing tab or range clears a
+          // failure instead of pinning the reader to it.
+          key={`${tab}:${from}:${to}:${branchId}`}
+          fallback={(message) => (
+            <ErrorState
+              title="That report could not be drawn"
+              body={`The figures arrived but the console could not render them: ${message}. The other reports are unaffected.`}
+              onRetry={() => void report.refetch()}
+            />
+          )}
+        >
+          {tab === 'revenue' ? (
+            <Revenue data={report.data as RevenueReport} timeZone={timeZone} />
+          ) : tab === 'membership' ? (
+            <Membership data={report.data as MembershipReport} timeZone={timeZone} />
+          ) : tab === 'attendance' ? (
+            <Attendance data={report.data as AttendanceReport} timeZone={timeZone} />
+          ) : tab === 'trainer' ? (
+            <Trainer data={report.data as TrainerReport} timeZone={timeZone} />
+          ) : (
+            <Retention data={report.data as RetentionReport} timeZone={timeZone} />
+          )}
+        </ReportBoundary>
       )}
 
       {runExport.error ? (

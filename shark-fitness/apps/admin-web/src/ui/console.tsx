@@ -69,6 +69,16 @@ export function Metric({ value, unit, size = 'md', tone = 'default', className }
  * A panel in the console grid. Deliberately has NO outer margin — it butts
  * against its neighbours and the seam does the separating.
  */
+/**
+ * A titled section of a screen.
+ *
+ * The title is a real heading, and the section is named by it. It used to be a
+ * styled `<span>` inside an unnamed `<section>`, which reads to a screen
+ * reader as a region called nothing — and on Revenue, where four panels sit on
+ * one page, that is four identical anonymous regions and four identical
+ * anonymous tables. The look is unchanged; the classes moved from the span to
+ * the heading.
+ */
 export function Panel({ title, action, children, className, tone = 'plain', span }: {
   title?: ReactNode;
   action?: ReactNode;
@@ -84,13 +94,20 @@ export function Panel({ title, action, children, className, tone = 'plain', span
     bad: 'bg-wash-chum',
     good: 'bg-wash-kelp',
   }[tone];
+  const headingId = useId();
   return (
-    <section className={cx('flex min-w-0 flex-col', tones, span, className)}>
+    <section
+      className={cx('flex min-w-0 flex-col', tones, span, className)}
+      {...(title ? { 'aria-labelledby': headingId } : {})}
+    >
       {title ? (
         <header className="flex flex-none items-center gap-2 border-b border-line px-3.5 py-2.5">
-          <span className="font-utility text-[10px] font-semibold uppercase tracking-[0.18em] text-foam-45">
+          <h3
+            id={headingId}
+            className="font-utility text-[10px] font-semibold uppercase tracking-[0.18em] text-foam-45"
+          >
             {title}
-          </span>
+          </h3>
           <span className="flex-1" />
           {action}
         </header>
@@ -591,8 +608,14 @@ export function TableScroll({ children, className }: { children: ReactNode; clas
   return <div className={cx('min-w-0 overflow-x-auto overflow-y-auto', className)}>{children}</div>;
 }
 
-export function Table({ children, className }: { children: ReactNode; className?: string }) {
-  return <table className={cx('sf-table', className)}>{children}</table>;
+/** `label` names the table for assistive technology. Pass it wherever a screen
+ *  carries more than one, or they all announce as "table". */
+export function Table({ label, children, className }: { label?: string; children: ReactNode; className?: string }) {
+  return (
+    <table className={cx('sf-table', className)} aria-label={label}>
+      {children}
+    </table>
+  );
 }
 
 /**

@@ -52,6 +52,16 @@ const post = (session: Session, path: string, body: unknown) =>
 const tenantId = (): string =>
   db.select({ id: schema.tenants.id }).from(schema.tenants).where(eq(schema.tenants.slug, 'shark')).get()!.id;
 
+/** Any live member at a branch — invoices need one and this suite never
+ *  cares which. */
+const memberAt = (branchId: string): string =>
+  db
+    .select({ id: schema.members.id })
+    .from(schema.members)
+    .where(and(eq(schema.members.tenantId, tenantId()), eq(schema.members.homeBranchId, branchId)))
+    .limit(1)
+    .get()!.id;
+
 const branches = (): Array<{ id: string; name: string; timezone: string }> =>
   db
     .select({ id: schema.branches.id, name: schema.branches.name, timezone: schema.branches.timezone })
@@ -343,6 +353,111 @@ describe('PF-RPT edge case — a currency change inside the range', () => {
     expect(body.mixedCurrency).toBe(false);
     expect(body.totals).not.toBeNull();
     expect(body.byCurrency).toHaveLength(1);
+  });
+});
+
+/* ——— What sold ————————————————————————————————————————————— */
+
+describe('PF-RPT-001 — the product breakdown carries the identity it has', () => {
+  it('groups a membership sale by its catalogue product, not by its description', async () => {
+    const res = await get(owner, `/v1/admin/reports/revenue?${range('2026-06-01', '2026-08-18')}`);
+    const body = (await res.json()) as {
+      byProduct: Array<{ productId: string | null; productName: string; identified: boolean; units: number }>;
+    };
+    const identified = body.byProduct.filter((row) => row.identified);
+    expect(identified.length).toBeGreaterThan(0);
+    for (const row of identified) {
+      // `productId: null` on every row was the old shape, and it made the
+      // console's "By product" a grouping by free text wearing a product's name.
+      expect(row.productId).not.toBeNull();
+      const product = db
+        .select({ name: schema.products.name })
+        .from(schema.products)
+        .where(eq(schema.products.id, row.productId!))
+        .get();
+      expect(product).toBeDefined();
+      // The catalogue's current name, so a rename shows as one product.
+      expect(row.productName).toBe(product!.name);
+    }
+  });
+
+  it('keeps two products of the same name apart', async () => {
+    // The failure the old grouping could not even represent: rename a product,
+    // sell under both names, and description-grouping reports one row of two
+    // things — or two rows of one, depending which way the rename went.
+    const branch = branches()[0]!;
+    const twin = db.select().from(schema.products).where(eq(schema.products.tenantId, tenantId())).limit(1).get()!;
+    const clone = id('prd');
+    db.insert(schema.products).values({ ...twin, id: clone, createdAt: now(), updatedAt: now() }).run();
+
+    const invoiceId = id('inv');
+    const day = isoDate(now(), branch.timezone);
+    db.insert(schema.invoices)
+      .values({
+        id: invoiceId, tenantId: tenantId(), branchId: branch.id, memberId: memberAt(branch.id),
+        number: `TWIN-${clone.slice(-6)}`, state: 'paid', issuedOn: day, dueOn: day,
+        subtotalMinor: 100_000, discountMinor: 0, taxMinor: 0, totalMinor: 100_000,
+        paidMinor: 100_000, refundedMinor: 0, currency: 'INR', voided: false, voidReason: null,
+        createdAt: now(), updatedAt: now(),
+      })
+      .run();
+    for (const productId of [twin.id, clone]) {
+      db.insert(schema.invoiceLines)
+        .values({
+          id: id('ivl'), tenantId: tenantId(), invoiceId, description: twin.name, quantity: 1,
+          unitMinor: 50_000, discountMinor: 0, taxRateBp: 0, taxMinor: 0, totalMinor: 50_000, productId,
+        })
+        .run();
+    }
+
+    try {
+      const res = await get(owner, `/v1/admin/reports/revenue?${range(day, day)}&branchId=${branch.id}`);
+      const body = (await res.json()) as { byProduct: Array<{ productId: string | null }> };
+      const ids = body.byProduct.map((row) => row.productId);
+      expect(ids).toContain(twin.id);
+      expect(ids).toContain(clone);
+    } finally {
+      db.delete(schema.invoiceLines).where(eq(schema.invoiceLines.invoiceId, invoiceId)).run();
+      db.delete(schema.invoices).where(eq(schema.invoices.id, invoiceId)).run();
+      db.delete(schema.products).where(eq(schema.products.id, clone)).run();
+    }
+  });
+
+  it('marks a line with no catalogue product rather than inventing one', async () => {
+    const branch = branches()[0]!;
+    const invoiceId = id('inv');
+    const day = isoDate(now(), branch.timezone);
+    db.insert(schema.invoices)
+      .values({
+        id: invoiceId, tenantId: tenantId(), branchId: branch.id, memberId: memberAt(branch.id),
+        number: `SHOP-${invoiceId.slice(-6)}`, state: 'paid', issuedOn: day, dueOn: day,
+        subtotalMinor: 30_000, discountMinor: 0, taxMinor: 0, totalMinor: 30_000,
+        paidMinor: 30_000, refundedMinor: 0, currency: 'INR', voided: false, voidReason: null,
+        createdAt: now(), updatedAt: now(),
+      })
+      .run();
+    db.insert(schema.invoiceLines)
+      .values({
+        id: id('ivl'), tenantId: tenantId(), invoiceId, description: 'Shop purchase POS-TEST', quantity: 3,
+        unitMinor: 10_000, discountMinor: 0, taxRateBp: 0, taxMinor: 0, totalMinor: 30_000, productId: null,
+      })
+      .run();
+
+    try {
+      const res = await get(owner, `/v1/admin/reports/revenue?${range(day, day)}&branchId=${branch.id}`);
+      const body = (await res.json()) as {
+        byProduct: Array<{ productId: string | null; productName: string; identified: boolean; units: number }>;
+      };
+      const row = body.byProduct.find((r) => r.productName === 'Shop purchase POS-TEST')!;
+      expect(row).toBeDefined();
+      expect(row.identified).toBe(false);
+      expect(row.productId).toBeNull();
+      // Units, not lines: one line of three is three sold.
+      expect(row.units).toBe(3);
+    } finally {
+      db.delete(schema.invoiceLines).where(eq(schema.invoiceLines.invoiceId, invoiceId)).run();
+      db.delete(schema.invoices).where(eq(schema.invoices.id, invoiceId)).run();
+    }
   });
 });
 

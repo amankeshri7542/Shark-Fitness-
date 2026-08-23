@@ -152,3 +152,48 @@ describe('Revenue — the tables are the evidence', () => {
     expect(screen.getByText('nobody paid in range')).toBeInTheDocument();
   });
 });
+
+/* ——— What sold, and what the console may call a product ————— */
+
+describe('Revenue — the product breakdown says what it actually knows', () => {
+  it('names a catalogue product plainly', () => {
+    renderPanel(<Revenue data={revenue()} timeZone={TZ} />);
+    const panel = screen.getByRole('table', { name: /What sold/i });
+    expect(within(panel).getByText('Elite Annual')).toBeInTheDocument();
+    expect(within(panel).queryByText('Not itemised')).not.toBeInTheDocument();
+  });
+
+  it('marks a line that names no catalogue product, rather than passing it off as one', () => {
+    // A shop basket posts as a single invoice line with no product id. It is
+    // real revenue and belongs in the table; calling it a product is the lie.
+    renderPanel(
+      <Revenue
+        data={revenue({
+          byProduct: [
+            { productId: 'prd_elite', productName: 'Elite Annual', identified: true, netMinor: 400_000, units: 10 },
+            { productId: null, productName: 'Shop purchase POS-4417', identified: false, netMinor: 80_000, units: 1 },
+          ],
+        })}
+        timeZone={TZ}
+      />,
+    );
+    const panel = screen.getByRole('table', { name: /What sold/i });
+    const row = within(panel).getByText('Shop purchase POS-4417').closest('tr')!;
+    expect(within(row).getByText('Not itemised')).toBeInTheDocument();
+    // And the reader is told what that means, once, under the table.
+    expect(screen.getByText(/names no catalogue product/)).toBeInTheDocument();
+  });
+
+  it('counts units rather than invoice lines', () => {
+    renderPanel(
+      <Revenue
+        data={revenue({
+          byProduct: [{ productId: 'prd_pt', productName: 'PT 10-pack', identified: true, netMinor: 300_000, units: 30 }],
+        })}
+        timeZone={TZ}
+      />,
+    );
+    const row = screen.getByText('PT 10-pack').closest('tr')!;
+    expect(within(row).getByText('30')).toBeInTheDocument();
+  });
+});

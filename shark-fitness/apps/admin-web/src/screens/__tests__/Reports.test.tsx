@@ -234,3 +234,59 @@ describe('Reports — a failed read is never a quiet zero', () => {
     await waitFor(() => expect(screen.queryByText('That report could not be read')).not.toBeInTheDocument());
   });
 });
+
+/* ——— When the payload is not the report ————————————————————— */
+
+describe('Reports — a payload that does not match the contract', () => {
+  it('says so in the panel and keeps the tabs, the period and the branch on screen', async () => {
+    // A field renamed on one side of a deploy, a proxy answering with an error
+    // page under a 200, a stale service worker holding last week's shape. The
+    // body would throw on `data.series` and take the whole route with it.
+    apiMock.mockImplementation((path: string) =>
+      path.startsWith('/admin/reports/revenue')
+        ? Promise.resolve({ meta: meta(), byCurrency: [], byBranch: [], byProduct: [], byMethod: [] })
+        : answer(path),
+    );
+    open();
+
+    expect(await screen.findByText(/did not arrive in a shape this console can read/)).toBeInTheDocument();
+    expect(screen.getByText(/missing series/)).toBeInTheDocument();
+    // The rest of the screen survives: this is the whole point of not letting
+    // it reach the route boundary.
+    expect(screen.getByRole('tab', { name: 'Attendance' })).toBeInTheDocument();
+    expect(screen.getByLabelText('From')).toBeInTheDocument();
+    expect(screen.getByLabelText('Branch')).toBeInTheDocument();
+    // And never a zero standing in for a figure nobody could read.
+    expect(screen.queryByText('₹0.00')).not.toBeInTheDocument();
+  });
+
+  it('recovers by moving to a report that does match', async () => {
+    const user = userEvent.setup();
+    apiMock.mockImplementation((path: string) =>
+      path.startsWith('/admin/reports/revenue')
+        ? Promise.resolve({ nothing: 'useful' })
+        : answer(path),
+    );
+    open();
+
+    expect(await screen.findByText(/did not arrive in a shape this console can read/)).toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: 'Coaches' }));
+    await waitFor(() =>
+      expect(screen.queryByText(/did not arrive in a shape this console can read/)).not.toBeInTheDocument(),
+    );
+  });
+
+  it('catches a body that throws on something deeper than the top-level shape', async () => {
+    // `series` is present and is not an array, so the guard passes and `.map`
+    // throws inside `Trend`. The boundary is the backstop for exactly this.
+    apiMock.mockImplementation((path: string) =>
+      path.startsWith('/admin/reports/revenue')
+        ? Promise.resolve({ ...revenue(), series: 'not-an-array' })
+        : answer(path),
+    );
+    open();
+
+    expect(await screen.findByText('That report could not be drawn')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Membership' })).toBeInTheDocument();
+  });
+});

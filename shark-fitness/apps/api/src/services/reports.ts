@@ -558,6 +558,25 @@ function revenueByCurrency(
     }));
 }
 
+/**
+ * What sold, grouped by the strongest identity each line actually has.
+ *
+ * `invoice_lines.product_id` is set on a membership sale and null on anything
+ * posted as free text: a shop basket arrives as one line reading "Shop
+ * purchase <ref>", a manual charge as whatever somebody typed. So the grouping
+ * key is the product id where there is one and the description where there is
+ * not, and the row says which it was.
+ *
+ * This used to group everything by description and return `productId: null`
+ * for every row. Two products sharing a name merged into one, a renamed
+ * product split into two, and the console called the result "By product" —
+ * a catalogue figure the catalogue had not produced. The identity is in the
+ * table; it was simply not being read.
+ *
+ * A product's current name comes from the catalogue rather than the line,
+ * because a line holds the name as it was on the day it was raised and a
+ * rename would otherwise show as two products.
+ */
 function revenueByProduct(
   tenantId: string,
   branchIds: string[],
@@ -567,11 +586,12 @@ function revenueByProduct(
 ): RevenueReport['byProduct'] {
   if (branchIds.length === 0) return [];
   const { from, to } = localDayRange(fromDay, toDay, tz);
-  return db
+  const rows = db
     .select({
-      productName: schema.invoiceLines.description,
+      productId: schema.invoiceLines.productId,
+      description: schema.invoiceLines.description,
       netMinor: sql<number>`sum(${schema.invoiceLines.totalMinor})`,
-      count: sql<number>`count(*)`,
+      units: sql<number>`sum(${schema.invoiceLines.quantity})`,
     })
     .from(schema.invoiceLines)
     .innerJoin(schema.invoices, eq(schema.invoices.id, schema.invoiceLines.invoiceId))
@@ -584,9 +604,26 @@ function revenueByProduct(
         lt(schema.invoices.createdAt, to),
       ),
     )
-    .groupBy(schema.invoiceLines.description)
-    .all()
-    .map((row) => ({ productId: null, productName: row.productName, netMinor: row.netMinor ?? 0, count: row.count ?? 0 }))
+    .groupBy(sql`coalesce(${schema.invoiceLines.productId}, 'line:' || ${schema.invoiceLines.description})`)
+    .all();
+
+  const catalogue = new Map(
+    db
+      .select({ id: schema.products.id, name: schema.products.name })
+      .from(schema.products)
+      .where(eq(schema.products.tenantId, tenantId))
+      .all()
+      .map((p) => [p.id, p.name] as const),
+  );
+
+  return rows
+    .map((row) => ({
+      productId: row.productId,
+      productName: row.productId ? (catalogue.get(row.productId) ?? row.description) : row.description,
+      identified: row.productId !== null,
+      netMinor: row.netMinor ?? 0,
+      units: row.units ?? 0,
+    }))
     .sort((a, b) => b.netMinor - a.netMinor)
     .slice(0, 20);
 }

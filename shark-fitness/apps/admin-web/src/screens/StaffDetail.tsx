@@ -16,6 +16,7 @@ import {
   Panel,
   PermissionState,
   Seam,
+  SelectField as ConsoleSelectField,
   Skeleton,
   Toolbar,
   type Tone,
@@ -212,6 +213,18 @@ function ConfirmDialog({ staff, isPending, onClose, onConfirm }: { staff: StaffD
   );
 }
 
-function SelectField({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: Array<[string, string]> }) { return <div className="flex flex-col gap-1"><Label>{label}</Label><select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} className="sf-field !min-h-9 !py-2 !text-[13px]">{options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}</select></div>; }
+/* Tuple-shaped call sites, the shared control underneath. This screen carried
+   its own label-and-select pair, which is how the gap under a label and the
+   height of a control came to differ from the rest of the console. */
+function SelectField({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: Array<[string, string]> }) {
+  return (
+    <ConsoleSelectField
+      label={label}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      options={options.map(([optionValue, optionLabel]) => ({ value: optionValue, label: optionLabel }))}
+    />
+  );
+}
 function Info({ label, value }: { label: string; value: string }) { return <div><Label>{label}</Label><p className="mt-1 text-[13px] leading-relaxed text-foam-80">{value}</p></div>; }
 function StaffDetailSkeleton() { return <Page title="Staff" kicker="Loading"><div className="grid grid-cols-1 gap-px bg-line p-4 md:grid-cols-2">{Array.from({ length: 4 }, (_, index) => <Skeleton key={index} className="h-48" />)}</div></Page>; }

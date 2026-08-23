@@ -51,7 +51,7 @@ export function revenue(overrides: Partial<RevenueReport> = {}): RevenueReport {
       { date: '2026-08-02', netMinor: 240_000, grossMinor: 250_000, refundedMinor: 10_000, invoices: 6 },
     ],
     byBranch: [{ branchId: 'br_kor', branchName: 'Koramangala Depot', netMinor: 480_000, invoices: 12 }],
-    byProduct: [{ productId: null, productName: 'Elite Annual', netMinor: 480_000, count: 12 }],
+    byProduct: [{ productId: 'prd_elite', productName: 'Elite Annual', identified: true, netMinor: 480_000, units: 12 }],
     byMethod: [{ method: 'cash', amountMinor: 480_000, payments: 12 }],
     ...overrides,
   };

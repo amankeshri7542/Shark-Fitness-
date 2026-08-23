@@ -1,5 +1,5 @@
 import type { RevenueReport } from '@shark/contracts';
-import { EmptyState, Panel, PermissionState, Table, TableScroll, TD, TH, THead, TR } from '../../ui/console';
+import { Chip, EmptyState, Panel, PermissionState, Table, TableScroll, TD, TH, THead, TR } from '../../ui/console';
 import { Cell, Delta, ReportContext, Strip, Trend, count, money } from './shared';
 
 /**
@@ -75,7 +75,7 @@ export default function Revenue({ data, timeZone }: { data: RevenueReport; timeZ
             <EmptyState title="Nothing in range" body="No invoices were raised in this period." />
           ) : (
             <TableScroll>
-              <Table>
+              <Table label="Revenue by branch">
                 <THead>
                   <TH>Branch</TH>
                   <TH numeric>Invoices</TH>
@@ -100,7 +100,7 @@ export default function Revenue({ data, timeZone }: { data: RevenueReport; timeZ
             <EmptyState title="No payments" body="Nothing was taken in this period." />
           ) : (
             <TableScroll>
-              <Table>
+              <Table label="Revenue by payment method">
                 <THead>
                   <TH>Method</TH>
                   <TH numeric>Payments</TH>
@@ -121,35 +121,54 @@ export default function Revenue({ data, timeZone }: { data: RevenueReport; timeZ
         </Panel>
       </div>
 
-      <Panel title="By product">
+      {/* "What sold", not "By product": only some of these rows are catalogue
+          products. A membership sale carries a product id and is a real
+          product; a shop basket posts as one free-text line and has no
+          identity beyond its own description. Labelling both as products
+          would put a figure under a heading the catalogue cannot reconcile. */}
+      <Panel title="What sold">
         {data.byProduct.length === 0 ? (
           <EmptyState title="Nothing sold" body="No invoice lines fall in this period." />
         ) : (
-          <TableScroll>
-            <Table>
-              <THead>
-                <TH>Line</TH>
-                <TH numeric>Count</TH>
-                <TH numeric>Net</TH>
-              </THead>
-              <tbody>
-                {data.byProduct.map((row) => (
-                  <TR key={row.productName}>
-                    <TD>{row.productName}</TD>
-                    <TD numeric>{count(row.count)}</TD>
-                    <TD numeric>{money(row.netMinor, currency)}</TD>
-                  </TR>
-                ))}
-              </tbody>
-            </Table>
-          </TableScroll>
+          <>
+            <TableScroll>
+              <Table label="What sold">
+                <THead>
+                  <TH>Item</TH>
+                  <TH numeric>Units</TH>
+                  <TH numeric>Net</TH>
+                </THead>
+                <tbody>
+                  {data.byProduct.map((row) => (
+                    <TR key={row.productId ?? `line:${row.productName}`}>
+                      <TD>
+                        <span className="flex flex-wrap items-center gap-2">
+                          {row.productName}
+                          {row.identified ? null : <Chip tone="neutral">Not itemised</Chip>}
+                        </span>
+                      </TD>
+                      <TD numeric>{count(row.units)}</TD>
+                      <TD numeric>{money(row.netMinor, currency)}</TD>
+                    </TR>
+                  ))}
+                </tbody>
+              </Table>
+            </TableScroll>
+            {data.byProduct.some((row) => !row.identified) ? (
+              <p className="border-t border-line px-3.5 py-2.5 text-[11px] leading-relaxed text-foam-45">
+                A row marked <em className="not-italic text-foam-65">Not itemised</em> is grouped by what the invoice
+                line says, because it names no catalogue product. Shop baskets post as a single line; the Store report
+                breaks those down by item.
+              </p>
+            ) : null}
+          </>
         )}
       </Panel>
 
       {data.byCurrency.length > 0 ? (
         <Panel title="By currency">
           <TableScroll>
-            <Table>
+            <Table label="Revenue by currency">
               <THead>
                 <TH>Currency</TH>
                 <TH numeric>Invoices</TH>

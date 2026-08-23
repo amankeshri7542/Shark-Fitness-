@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react';
-import type { Compared, ReportMeta } from '@shark/contracts';
+import { Component, type ReactNode } from 'react';
+import type { Compared, ReportKind, ReportMeta } from '@shark/contracts';
 import { Chip, Freshness, Label, cx } from '../../ui/console';
 
 /* ============================================================================
@@ -181,4 +181,74 @@ export function Trend({
       ) : null}
     </figure>
   );
+}
+
+/* ============================================================================
+   When the payload is not the report.
+
+   A report body reads `data.meta.period.from` and maps `data.series` without
+   asking first, because the contract says they are there. When the server and
+   the console disagree — a field renamed on one side of a deploy, a proxy
+   returning an error page with a 200, a stale service worker holding last
+   week's shape — that read throws, and a throw inside a route component takes
+   the whole route to the error boundary. The tabs go, the period goes, the
+   branch goes, and the operator is left on a blank pane with no way back to
+   the report that did work.
+
+   The report body is the only part that depends on the shape. So the failure
+   belongs there too: the strip, the tabs and the toolbar stay, and the panel
+   underneath says what it could not read.
+   ========================================================================= */
+
+/** The fields a report body dereferences without checking. */
+const REQUIRED: Record<ReportKind, string[]> = {
+  revenue: ['meta', 'byCurrency', 'series', 'byBranch', 'byProduct', 'byMethod'],
+  membership: ['meta', 'joins', 'cancellations', 'freezes', 'renewals', 'series', 'byProduct'],
+  attendance: ['meta', 'visits', 'uniqueMembers', 'noShows', 'series', 'byHour', 'byBranch'],
+  trainer: ['meta', 'rows'],
+  retention: ['meta', 'bands', 'cohorts'],
+};
+
+/**
+ * What is missing from a payload, or null when it is the report it claims.
+ *
+ * Deliberately shallow. This is a drift detector, not a validator: it names
+ * the first field a body would have thrown on, so the message can say which,
+ * and leaves everything below it to the boundary underneath.
+ */
+export function reportShapeError(kind: ReportKind, data: unknown): string | null {
+  if (data === null || typeof data !== 'object') return 'the response was not a report';
+  const payload = data as Record<string, unknown>;
+  const missing = REQUIRED[kind].filter((field) => payload[field] === undefined || payload[field] === null);
+  if (missing.length > 0) return `it is missing ${missing.join(', ')}`;
+  const meta = payload.meta as { period?: { from?: unknown } } | undefined;
+  if (!meta?.period || typeof meta.period.from !== 'string') return 'it carries no reporting period';
+  return null;
+}
+
+/**
+ * Keeps a render failure inside the report panel.
+ *
+ * `key` it on the report kind and range so switching tabs clears a failure
+ * rather than pinning the operator to it.
+ */
+export class ReportBoundary extends Component<
+  { fallback: (message: string) => ReactNode; children: ReactNode },
+  { message: string | null }
+> {
+  override state: { message: string | null } = { message: null };
+
+  static getDerivedStateFromError(error: unknown): { message: string } {
+    return { message: error instanceof Error ? error.message : 'the console could not read it' };
+  }
+
+  override componentDidCatch(error: unknown): void {
+    // Still worth a console entry: this is a contract drift, and somebody
+    // reading a browser console during a deploy should see it named.
+    console.error('[reports] payload did not match the contract', error);
+  }
+
+  override render(): ReactNode {
+    return this.state.message === null ? this.props.children : this.props.fallback(this.state.message);
+  }
 }
