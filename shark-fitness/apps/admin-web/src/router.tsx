@@ -138,7 +138,17 @@ const storeRoute = createRoute({
   }),
 });
 const equipmentRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/equipment', component: EquipmentScreen });
-const automationsRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/automations', component: AutomationsScreen });
+const AUTOMATIONS_TABS = ['rules', 'templates', 'runs'] as const;
+type AutomationsSearch = { tab: (typeof AUTOMATIONS_TABS)[number] };
+
+const automationsRoute = createRoute({
+  getParentRoute: () => consoleRoute,
+  path: '/automations',
+  component: AutomationsScreen,
+  validateSearch: (search: Record<string, unknown>): AutomationsSearch => ({
+    tab: AUTOMATIONS_TABS.includes(search.tab as never) ? (search.tab as AutomationsSearch['tab']) : 'rules',
+  }),
+});
 const REPORT_TABS = ['revenue', 'membership', 'attendance', 'trainer', 'retention'] as const;
 
 export interface ReportsSearch {

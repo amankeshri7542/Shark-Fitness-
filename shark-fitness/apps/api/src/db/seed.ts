@@ -3640,94 +3640,14 @@ db.insert(schema.notifications)
   ])
   .run();
 
-db.insert(schema.automations)
-  .values([
-    {
-      id: id('aut'),
-      tenantId,
-      name: 'Welcome sequence',
-      trigger: 'member.joined',
-      description: 'Three messages over the first two weeks, then stop.',
-      conditions: [{ field: 'lifecycle', op: 'eq', value: 'active' }],
-      actions: [
-        { kind: 'message', templateCode: 'welcome_day0', delayMin: 0 },
-        { kind: 'message', templateCode: 'welcome_day3', delayMin: 4320 },
-        { kind: 'task', templateCode: null, delayMin: 20160 },
-      ],
-      quietHours: { from: '21:00', to: '08:00' },
-      state: 'active',
-      dryRun: false,
-      runsLast30: 12,
-      lastRunAt: NOW - 2 * DAY,
-      createdAt: NOW - 200 * DAY,
-      updatedAt: NOW - 30 * DAY,
-    },
-    {
-      id: id('aut'),
-      tenantId,
-      name: 'Quiet member check-in',
-      trigger: 'member.absent_14d',
-      description: 'One message from their own coach. Never automated twice.',
-      conditions: [
-        { field: 'riskBand', op: 'in', value: 'watch,high' },
-        { field: 'hasOpenComplaint', op: 'eq', value: 'false' },
-      ],
-      actions: [{ kind: 'task', templateCode: null, delayMin: 0 }],
-      quietHours: { from: '21:00', to: '08:00' },
-      state: 'active',
-      dryRun: false,
-      runsLast30: 7,
-      lastRunAt: NOW - 20 * HOUR,
-      createdAt: NOW - 120 * DAY,
-      updatedAt: NOW - 12 * DAY,
-    },
-    {
-      id: id('aut'),
-      tenantId,
-      name: 'Renewal reminder',
-      trigger: 'membership.expiring_14d',
-      description: 'Draft — not sending yet.',
-      conditions: [{ field: 'autoRenew', op: 'eq', value: 'false' }],
-      actions: [{ kind: 'message', templateCode: 'renewal_14d', delayMin: 0 }],
-      quietHours: { from: '21:00', to: '08:00' },
-      state: 'draft',
-      dryRun: true,
-      runsLast30: 0,
-      lastRunAt: null,
-      createdAt: NOW - 10 * DAY,
-      updatedAt: NOW - 10 * DAY,
-    },
-  ])
-  .run();
+/* The automations and templates that used to sit here were placeholders for a
+   screen that did not exist: triggers like `member.absent_14d`, action kinds
+   like `task`, a condition operator `in`, and fields such as `riskBand` — none
+   of which the engine built in Phase 12 has. They were rules that could never
+   run, which is precisely the failure `validateConditions` exists to catch, so
+   leaving them in the demo would have taught the wrong thing about the module.
+   The real ones are seeded further down, next to the consent they depend on. */
 
-db.insert(schema.messageTemplates)
-  .values([
-    {
-      id: id('tpl'), tenantId, code: 'welcome_day0', channel: 'email', version: 1, locale: 'en',
-      subject: 'Welcome to Shark Fitness, {{firstName}}',
-      body: 'Your membership is live. Your entry code lives in the app — open it at the door and you are in.',
-      variables: ['firstName'], updatedAt: NOW - 200 * DAY,
-    },
-    {
-      id: id('tpl'), tenantId, code: 'welcome_day3', channel: 'in_app', version: 1, locale: 'en',
-      subject: null,
-      body: 'Three days in. Want a coach to put a plan together? Reply here and we will sort it.',
-      variables: [], updatedAt: NOW - 200 * DAY,
-    },
-    {
-      id: id('tpl'), tenantId, code: 'payment_failed', channel: 'email', version: 2, locale: 'en',
-      subject: 'A payment did not go through',
-      body: 'Your payment of {{amount}} on {{date}} did not go through. You can settle it in the app or at reception. Your bookings are kept until {{graceEnds}}.',
-      variables: ['amount', 'date', 'graceEnds'], updatedAt: NOW - 60 * DAY,
-    },
-    {
-      id: id('tpl'), tenantId, code: 'renewal_14d', channel: 'email', version: 1, locale: 'en',
-      subject: 'Your membership ends on {{endsOn}}',
-      body: 'Nothing to do if you want to carry on — auto-renew is off, so it will simply end. Renew in the app whenever suits.',
-      variables: ['endsOn'], updatedAt: NOW - 10 * DAY,
-    },
-  ])
-  .run();
 
 /* ============================================================================
    Derived risk scores
