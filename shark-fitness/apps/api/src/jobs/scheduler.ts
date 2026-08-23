@@ -224,4 +224,9 @@ export function startScheduler(): void {
   console.log(`[jobs] ${JOBS.length} scheduled`);
 }
 
+/** What is scheduled, for the platform health surface (PF-PLAT-003). A job
+ *  list nobody can see is a job list nobody notices has stopped. */
+export const scheduledJobs = (): Array<{ name: string; everyMinutes: number }> =>
+  JOBS.map((job) => ({ name: job.name, everyMinutes: Math.round(job.everyMs / MINUTE) }));
+
 export const jobsForTest = { expireMemberships, closeStaleCheckIns, expireWaitlistOffers, releaseExpiredHolds };

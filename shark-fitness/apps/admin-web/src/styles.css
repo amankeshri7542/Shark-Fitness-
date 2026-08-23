@@ -37,7 +37,12 @@
     display: grid;
     grid-template-columns: 208px minmax(0, 1fr);
     grid-template-rows: auto 1fr;
-    height: 100dvh;
+    /* `100%` of a `h-dvh` flex parent, not `100dvh` directly: the support
+       banner sits above this and takes its own height off the top. With
+       `100dvh` here the grid would stay a full viewport tall and push the
+       bottom of the console off the screen whenever the banner is shown. */
+    height: 100%;
+    min-height: 0;
     overflow: hidden;
   }
 

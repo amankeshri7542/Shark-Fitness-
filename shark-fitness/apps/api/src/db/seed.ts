@@ -3805,6 +3805,211 @@ const benchBest = Math.max(
    the same code path the nightly job uses. */
 const rollupRows = backfillRollups(tenantId, 180);
 
+/* ============================================================================
+   The platform operator, and a second gym
+
+   Two things the product could not be tested against before Phase 13.
+
+   **Platform staff are not a customer's users.** They are above every tenant,
+   but `users.tenant_id` is not nullable and should not become so — so they get
+   their own tenant, marked `kind: 'platform'`, which the customer list
+   excludes. Their tenant holds no gyms, so a platform account that wanders
+   into an ordinary admin screen correctly sees nothing.
+
+   **A second customer proves isolation is real.** Every tenant-scoped query in
+   this product filters on `tenantId`, and with one tenant in the database that
+   filter is untestable — every row belongs to the only tenant there is. Reef
+   Athletic exists so a cross-tenant read has something to fail to reach.
+   ========================================================================= */
+
+const PLATFORM_TENANT = 'ten_platform';
+
+db.insert(schema.tenants)
+  .values({
+    id: PLATFORM_TENANT,
+    slug: 'platform',
+    kind: 'platform',
+    legalName: 'Shark Platform Operations',
+    displayName: 'Shark Platform',
+    plan: 'enterprise',
+    locale: 'en-IN',
+    currency: 'INR',
+    timezone: TZ,
+    unitSystem: 'metric',
+    status: 'active',
+    featureFlags: {},
+    quotas: {},
+    branding: {},
+    policy: {},
+    taxProfile: null,
+    dataProcessing: null,
+    createdAt: NOW - 1200 * DAY,
+    updatedAt: NOW,
+  })
+  .run();
+
+for (const operator of [
+  { name: 'Ira Sundaram', role: 'platform_admin', email: 'platform@sharkfitness.io' },
+  { name: 'Noel D’Souza', role: 'platform_support', email: 'support@sharkfitness.io' },
+]) {
+  db.insert(schema.users)
+    .values({
+      id: id('usr'),
+      tenantId: PLATFORM_TENANT,
+      email: operator.email,
+      phone: null,
+      name: operator.name,
+      initials: initialsOf(operator.name),
+      role: operator.role,
+      accountState: 'active',
+      passwordHash: hashPassword('shark1234'),
+      preferences: { register: 'plain', theme: 'dark', unitSystem: 'metric', haptics: false },
+      lastSeenAt: NOW - 20 * MINUTE,
+      createdAt: NOW - 1200 * DAY,
+      updatedAt: NOW,
+    })
+    .run();
+}
+
+const REEF_TENANT = 'ten_reef';
+const REEF_BRANCH = 'brn_reef_main';
+
+db.insert(schema.tenants)
+  .values({
+    id: REEF_TENANT,
+    slug: 'reef',
+    kind: 'customer',
+    legalName: 'Reef Athletic LLP',
+    displayName: 'Reef Athletic',
+    plan: 'starter',
+    locale: 'en-IN',
+    currency: 'INR',
+    timezone: 'Asia/Kolkata',
+    unitSystem: 'metric',
+    // On trial, so the platform console has something other than one row in
+    // one state to render.
+    status: 'trial',
+    featureFlags: { classes: true, pos: false, community: false },
+    quotas: { smsPerMonth: 500, videoMinutesPerMonth: 0, aiCallsPerMonth: 100, storageMb: 1000 },
+    branding: { accent: '#7fd1a8', wordmark: 'REEF' },
+    policy: { graceDays: 5 },
+    taxProfile: null,
+    dataProcessing: null,
+    createdAt: NOW - 40 * DAY,
+    updatedAt: NOW,
+  })
+  .run();
+
+db.insert(schema.branches)
+  .values({
+    id: REEF_BRANCH,
+    tenantId: REEF_TENANT,
+    name: 'Reef Athletic Jayanagar',
+    slug: 'jayanagar',
+    addressLine: '4th Block, Jayanagar',
+    city: 'Bengaluru',
+    timezone: 'Asia/Kolkata',
+    capacity: 40,
+    opensMinutes: 6 * 60,
+    closesMinutes: 22 * 60,
+    state: 'active',
+    amenities: ['Showers'],
+    holidays: [],
+    phone: '+91 80 4000 9000',
+    email: 'hello@reefathletic.in',
+    hours: null,
+    policy: {},
+    stateChangedAt: NOW - 40 * DAY,
+    stateNote: 'Opened',
+    createdAt: NOW - 40 * DAY,
+    updatedAt: NOW,
+  })
+  .run();
+
+const reefOwnerId = id('usr');
+db.insert(schema.users)
+  .values({
+    id: reefOwnerId,
+    tenantId: REEF_TENANT,
+    email: 'owner@reefathletic.in',
+    phone: null,
+    name: 'Farah Qureshi',
+    initials: initialsOf('Farah Qureshi'),
+    role: 'owner',
+    accountState: 'active',
+    passwordHash: hashPassword('shark1234'),
+    preferences: { register: 'plain', theme: 'dark', unitSystem: 'metric', haptics: false },
+    lastSeenAt: NOW - 3 * HOUR,
+    createdAt: NOW - 40 * DAY,
+    updatedAt: NOW,
+  })
+  .run();
+
+db.insert(schema.staff)
+  .values({
+    id: id('stf'),
+    tenantId: REEF_TENANT,
+    userId: reefOwnerId,
+    employmentStatus: 'active',
+    branchIds: [REEF_BRANCH],
+    specialties: [],
+    certifications: [],
+    commissionRules: [],
+    hourlyRateMinor: null,
+    joinedOn: addDays(TODAY, -40),
+    createdAt: NOW - 40 * DAY,
+    updatedAt: NOW,
+  })
+  .run();
+
+for (const [index, person] of [['Anaya', 'Pillai'], ['Rohan', 'Desai']].entries()) {
+  db.insert(schema.members)
+    .values({
+      id: id('mbr'),
+      tenantId: REEF_TENANT,
+      userId: null,
+      homeBranchId: REEF_BRANCH,
+      memberNo: `RF-100${index + 1}`,
+      firstName: person[0]!,
+      lastName: person[1]!,
+      initials: initialsOf(`${person[0]} ${person[1]}`),
+      email: `${person[0]!.toLowerCase()}@reefathletic.in`,
+      phone: `+91 90000000${index + 1}`,
+      phoneNormalized: `90000000${index + 1}`,
+      emailNormalized: `${person[0]!.toLowerCase()}@reefathletic.in`,
+      dob: null,
+      gender: null,
+      addressLine: null,
+      emergencyContact: null,
+      lifecycle: 'active',
+      tags: [],
+      trainerId: null,
+      guardianId: null,
+      corporateSponsorId: null,
+      memberNotes: null,
+      staffNotes: null,
+      riskScore: null,
+      riskReasons: [],
+      joinedOn: addDays(TODAY, -30 + index),
+      lastVisitAt: NOW - (index + 1) * DAY,
+      version: 1,
+      deletedAt: null,
+      mergedIntoId: null,
+      createdAt: NOW - 30 * DAY,
+      updatedAt: NOW,
+    })
+    .run();
+}
+
+db.insert(schema.usageMeters)
+  .values([
+    { id: id('usg'), tenantId: REEF_TENANT, meter: 'sms', period: TODAY.slice(0, 7), used: 486, limitValue: 500, updatedAt: NOW },
+    { id: id('usg'), tenantId: REEF_TENANT, meter: 'ai_calls', period: TODAY.slice(0, 7), used: 140, limitValue: 100, updatedAt: NOW },
+  ])
+  .run();
+
+console.log('  platform operator + second gym (Reef Athletic)');
+
 console.log('');
 console.log('seed complete');
 console.log(`  tenant       Shark Fitness (${BRANCHES.length} branches)`);
@@ -3817,6 +4022,8 @@ console.log(`  staff logins owner@ / manager@ / reception@ / rehan@ / nikhil@ / 
 console.log(`  password     shark1234 (staff + demo members); everyone else is OTP-only`);
 console.log(`  rdl exercise ${rdlId}`);
 console.log(`  rollups      ${rollupRows} daily metric rows over 180 days`);
+console.log(`  platform     platform@sharkfitness.io (admin) / support@sharkfitness.io (support)`);
+console.log(`  second gym   owner@reefathletic.in — Reef Athletic, trial, for isolation tests`);
 console.log('');
 
 sqlite.close();

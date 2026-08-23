@@ -10,3 +10,4 @@ export * from './retention.js';
 export * from './support.js';
 export * from './reports.js';
 export * from './settings.js';
+export * from './platform.js';

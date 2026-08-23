@@ -1,11 +1,21 @@
 import { useMemo } from 'react';
 import { create } from 'zustand';
-import type { Branch, Viewer } from '@shark/contracts';
+import type { Branch, ImpersonationBanner, Viewer } from '@shark/contracts';
 import { can, type Permission } from '@shark/domain';
 import { api, auth } from './api';
 
 interface AdminState {
   viewer: Viewer | null;
+  /**
+   * Set while this session is a platform operator working inside a customer's
+   * account (PF-PLAT-004).
+   *
+   * It rides on `/me` rather than a call of its own, so there is no window
+   * between the console booting and the banner appearing. A support session
+   * that looks like an ordinary one, even for a moment, is the whole failure
+   * the banner exists to prevent.
+   */
+  impersonation: ImpersonationBanner | null;
   branches: Branch[];
   activeBranchId: string | null;
   /** Comfortable by default; compact never shrinks a target below 44px. */
@@ -24,6 +34,7 @@ interface AdminState {
 
 export const useAdmin = create<AdminState>((set, get) => ({
   viewer: null,
+  impersonation: null,
   branches: [],
   activeBranchId: null,
   density: (localStorage.getItem('shark.density') as 'compact') ?? 'comfortable',
@@ -58,17 +69,18 @@ export const useAdmin = create<AdminState>((set, get) => ({
       return;
     }
     try {
-      const { viewer } = await api<{ viewer: Viewer }>('/me');
+      const { viewer, impersonation } = await api<{ viewer: Viewer; impersonation?: ImpersonationBanner }>('/me');
       if (viewer.role === 'member') {
         // A member token is not a dashboard token. Say so rather than showing
         // an empty console.
         auth.clear();
-        set({ viewer: null, status: 'signed-out' });
+        set({ viewer: null, impersonation: null, status: 'signed-out' });
         return;
       }
       const branches = await api<{ items: Branch[]; activeBranchId: string | null }>('/me/branches');
       set({
         viewer,
+        impersonation: impersonation ?? null,
         status: 'signed-in',
         branches: branches.items,
         // Null means "all branches I can see" — a regional view, not a default
@@ -77,7 +89,7 @@ export const useAdmin = create<AdminState>((set, get) => ({
       });
     } catch {
       auth.clear();
-      set({ viewer: null, status: 'signed-out' });
+      set({ viewer: null, impersonation: null, status: 'signed-out' });
     }
   },
 
@@ -88,7 +100,7 @@ export const useAdmin = create<AdminState>((set, get) => ({
       /* local sign-out matters more than the round trip */
     }
     auth.clear();
-    set({ viewer: null, branches: [], activeBranchId: null, status: 'signed-out' });
+    set({ viewer: null, impersonation: null, branches: [], activeBranchId: null, status: 'signed-out' });
   },
 }));
 
