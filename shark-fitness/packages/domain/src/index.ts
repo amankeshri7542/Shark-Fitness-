@@ -11,3 +11,4 @@ export * from './support.js';
 export * from './reports.js';
 export * from './settings.js';
 export * from './platform.js';
+export * from './automation.js';

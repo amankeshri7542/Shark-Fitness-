@@ -3,7 +3,7 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 import { app } from '../app.js';
 import { db, schema } from '../db/client.js';
 import { id } from '../lib/ids.js';
-import { now } from '../lib/time.js';
+import { localMinutes, now } from '../lib/time.js';
 
 interface Session {
   cookie: string;
@@ -62,10 +62,27 @@ function tenantId(): string {
     .get()!.id;
 }
 
+/**
+ * A member who could walk in right now.
+ *
+ * "Entitled" has to include *entitled at this hour*. The seed sells an
+ * Off-Peak plan whose `access.windowStartMin`/`windowEndMin` shut the member
+ * out in the evening, and this helper used to hand one back — so a suite run
+ * after 21:00 checked in somebody whose plan does not cover 21:00, got a
+ * perfectly correct `denied_outside_hours`, and reported it as a broken door.
+ *
+ * The window is read from the membership's own frozen product snapshot, which
+ * is what the access decision reads too.
+ */
 function idleEntitledMember(branchId: string): { id: string; memberNo: string } {
   const antiPassbackCutoff = now() - 2 * 60_000;
-  const row = db
-    .select({ id: schema.members.id, memberNo: schema.members.memberNo })
+  const nowMinutes = localMinutes(now(), 'Asia/Kolkata');
+  const rows = db
+    .select({
+      id: schema.members.id,
+      memberNo: schema.members.memberNo,
+      snapshot: schema.memberships.productSnapshot,
+    })
     .from(schema.members)
     .innerJoin(schema.memberships, eq(schema.memberships.memberId, schema.members.id))
     .where(
@@ -93,10 +110,16 @@ function idleEntitledMember(branchId: string): { id: string; memberNo: string } 
         )`,
       ),
     )
-    .get();
+    .all();
 
-  if (!row) throw new Error(`seed has no idle entitled member at ${branchId}`);
-  return row;
+  const row = rows.find((candidate) => {
+    const access = (candidate.snapshot as { access?: { windowStartMin: number | null; windowEndMin: number | null } }).access;
+    if (!access || access.windowStartMin === null || access.windowEndMin === null) return true;
+    return nowMinutes >= access.windowStartMin && nowMinutes < access.windowEndMin;
+  });
+
+  if (!row) throw new Error(`seed has no idle member at ${branchId} whose plan covers this hour`);
+  return { id: row.id, memberNo: row.memberNo };
 }
 
 function blockedMember(branchId: string): { id: string; memberNo: string } {
