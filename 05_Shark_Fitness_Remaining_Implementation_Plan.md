@@ -16,17 +16,51 @@ repository-specific detail to that contract; it does not replace it.
 
 ### Status of this document
 
-Verified on `feat/phase-9-support` on **19 August 2026** (Node 22.23.2, as
-`.node-version` pins and CI reads). Phase 7 is **merged** — PR #8 squashed to
-`main` as `c782ea1`. Evidence for the current branch: `pnpm lint` and `pnpm
-typecheck` clean across 6 packages, `pnpm test` **572 passing** (130 domain,
-253 API integration, 24 member PWA, 165 admin console), `pnpm build` clean, the
-CI browser-smoke harness run locally against the production single-origin
-server, and a working session at a support desk at 1440×900, 1024×768, 768×1024
-and 375×812 with no console errors and no horizontal overflow.
+Verified on `feat/phase-10-reports-ui-polish` on **23 August 2026** (Node
+22.23.2, as `.node-version` pins and CI reads). Phase 9 is **merged** — PR #9
+squashed to `main` as `07fb53f`. Phase 10 is **built** on this branch and is
+PR #10, open.
 
-The Phase 7 numbers below are kept as the record of what that branch was
-verified at.
+Evidence for the current branch: `pnpm lint` and `pnpm typecheck` clean across
+6 packages, `pnpm test` **717 passing** (153 domain, 315 API integration, 24
+member PWA, 225 admin console), `pnpm build` clean, and a browser pass at
+1440×900, 1024×768, 768×1024 and 375×812 in both themes and both densities
+across all 15 console routes — no horizontal overflow, no clipped content
+outside a scroller, no console errors.
+
+**Do not read the counts in the older phase sections as current.** Each is
+kept as the record of what *that* branch was verified at, and the numbers only
+go up.
+
+### What this session changed, and why the record needed correcting
+
+Two correctness defects were found on this branch and fixed before anything
+else. Both are worth reading before touching branch scope or a detail endpoint,
+because both were invisible from the tests and from the code as written.
+
+**"All branches" covered one branch.** The console's switcher expresses "no
+branch selected" by sending no `x-branch-id` header. `resolveSession` seeded
+`activeBranchId` to `member?.homeBranchId ?? branchIds[0]`, and eight modules
+each carried their own copy of `activeBranchId ? [activeBranchId] :
+branchIds` — so an owner of three gyms read a screen labelled "All branches
+(3)" over one gym's figures. Nothing errored. `activeBranchId` now means only
+"the branch this request selected"; `branchScope(ctx, requested?)` in
+`lib/context.ts` is the single place that turns that into a list; and a header
+naming a branch outside the caller's entitlement is refused with 403 rather
+than silently ignored. A single-branch tenant cannot see this bug, which is
+why it survived nine phases — on one branch both readings agree.
+
+**The member record ignored the scoping its own directory applied.**
+`GET /admin/members/:memberId` matched on member id and tenant id alone, so any
+non-trainer role holding `member.view` could read another branch's member by id.
+Freeze, unfreeze and cancel looked their membership up by member id with **no
+tenant condition at all**, and a notice-period cancellation from an
+out-of-scope manager returned 200. All five paths now go through
+`loadMemberInScope`, which already existed for attendance. A sweep of every
+other detail endpoint found no second occurrence.
+
+Both have regression tests that fail without the fix
+(`branch-scope.integration.test.ts`, `member-scope.integration.test.ts`).
 
 ### Phase 7 as verified before merge
 
@@ -146,11 +180,12 @@ Do not re-implement any of this. Read it before planning a change.
 | Database schema | **93 tables** across 5 schema files (counted as `sqliteTable()` definitions, and matching `CREATE TABLE` in the generated migrations), with 110 indexes and 7 append-only guard triggers. Complete for every module in this plan. |
 | Migrations | Generated and checked in at `infrastructure/migrations/`. |
 | `@shark/contracts` | Zod schemas, enums, error envelope, realtime events (29 topics, including 6 for POS). `schemas/pos.ts` is the Store's canonical wire shape — the console reads it rather than keeping its own copy. |
-| `@shark/domain` | Membership state machine, booking eligibility, access decisions, strength maths, adaptive engine, gamification, money, permissions, safety scanning, retention risk. 101 tests. |
+| `@shark/domain` | Membership state machine, booking eligibility, access decisions, strength maths, adaptive engine, gamification, money, permissions, safety scanning, retention risk, reporting periods and comparisons. 153 tests. |
 | `@shark/design-tokens` | The Sonar system and the bounded copy register (`tone.ts`). |
 | Member PWA | **All 18 screens implemented.** No stubs remain. |
-| Admin console | **17 of 21 screens implemented** (counted as files over 60 lines). The 4 placeholders are Automations, Platform, Reports and Settings. Store is five surfaces under `screens/store/`; Support is three under `screens/support/`. |
-| API | **26 of 28 route modules implemented.** The 2 stubs are `admin/reports` and `admin/settings`, each still 7 lines. All 28 are mounted in `app.ts`. |
+| Admin console | **18 of 21 screens implemented** (counted as files over 60 lines). The 3 placeholders are Automations, Platform and Settings — 11 lines each. Reports is now built: `Reports.tsx` plus five surfaces under `screens/reports/`. Store is five surfaces under `screens/store/`; Support is four under `screens/support/`. |
+| API | **27 of 28 route modules implemented.** The 1 stub is `admin/settings`, still 7 lines. `admin/reports` is now a 73-line adapter over `services/reports.ts` (1,338 lines). All 28 are mounted in `app.ts`. |
+| Branch scope | One rule, one helper. `branchScope(ctx, requested?)` in `apps/api/src/lib/context.ts` decides which branches any read covers; no module keeps its own copy. See §3.3. |
 
 **Migrations: check, do not assume.** An earlier revision asserted that no
 module in this plan needs one. Phase 7 disproved that — four of its six SHALL
@@ -231,6 +266,37 @@ SQLite has no row-level security. Every query filters on `tenantId`, and every
 branch-scoped query checks `ctx.branchIds`. There is no code path that reads a
 business table without a tenant. A new query that omits either is a defect even
 if no test catches it.
+
+**Which branches a read covers has exactly one answer:**
+
+```ts
+import { branchScope } from '../../lib/context.js';
+const scope = branchScope(ctx, query.branchId ?? null);
+```
+
+Four cases, and they are distinct on purpose:
+
+| Case | Meaning | Result |
+|---|---|---|
+| A branch named in the query | The caller asked for one | `[branchId]`, after `requireBranch` |
+| `x-branch-id` sent by the console | The switcher has a selection | `[activeBranchId]`, validated in middleware |
+| Neither | **All branches the caller may see** | `ctx.branchIds` |
+| A branch outside the entitlement | Refused, not narrowed | 403 in `authenticate` |
+
+`ctx.activeBranchId` is `null` until a client selects a branch. Do **not**
+default it to `branchIds[0]`, and do not write a module-local `scopeOf`. Both
+were done, in eight modules, and the result was a console that said "All
+branches (3)" over one branch's figures for nine phases. A single-branch tenant
+cannot see that bug, so it will not show up in casual testing.
+
+**A detail endpoint is scoped exactly as hard as its list endpoint.** A list
+that filters on branch and a `GET /:id` that filters only on tenant is not a
+narrower version of the same rule — it is a way round it for anyone who knows
+an id. Load through the module's `load*InScope` helper
+(`loadMemberInScope`, `loadInvoiceInScope`, `loadLeadInScope`,
+`loadStaffInScope`, `loadEquipmentInScope`, `ticketInScope`, …), which answers
+**404** rather than 403: a 403 confirms the record exists somewhere the caller
+may not look.
 
 ### 3.4 Money, ledgers, and time
 
@@ -592,41 +658,89 @@ Both fixed, both now have regression tests.
 
 ---
 
-## Phase 10 — Reports and analytics
+## Phase 10 — Reports and analytics — **BUILT** (PR #10 open)
 
-**Requirements:** PF-RPT-001 … PF-RPT-006.
+**Requirements:** PF-RPT-001 … PF-RPT-006 — all six implemented and tested.
 **Permissions:** `report.view`, `report.financial`, `report.export`.
-**Files:** `apps/api/src/routes/admin/reports.ts` (stub),
-`apps/admin-web/src/screens/Reports.tsx`.
+**Files:** `apps/api/src/services/reports.ts` (every rule, 1,369 lines),
+`apps/api/src/routes/admin/reports.ts` (73-line adapter),
+`packages/domain/src/reports.ts` (the pure maths — periods, comparisons, basis
+points, currency grouping; 23 tests),
+`packages/contracts/src/schemas/reports.ts` (the wire shapes),
+`apps/admin-web/src/screens/Reports.tsx` plus `screens/reports/*` (five report
+surfaces and a shared strip),
+`apps/api/src/__tests__/phase10-reports.integration.test.ts` (40 tests),
+`apps/admin-web/src/screens/__tests__/Reports.test.tsx` (15) and
+`screens/reports/__tests__/Revenue.test.tsx` (12).
 
-**Depends on Phases 7 and 8** for complete revenue and facility figures.
+**Migration:** none. `metric_rollups` already existed. The table count stays
+at **93**.
 
-**Tables:** `metric_rollups` exists but is **not seeded** — seed it, or every
-chart opens empty.
+**Seed:** `backfillRollups(tenantId, 180)` fills 180 days of daily metrics.
+The table shipped empty, so every chart opened blank on a database full of
+history — which reads as "this gym did nothing for four months" rather than
+"this table was never populated". It is not what makes the figures correct
+(reports materialise any day they need on demand), it is what makes the demo
+honest on first load, and it exercises the same path the nightly job uses.
 
-**Endpoints**
+**Endpoints** — all implemented.
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/v1/admin/reports/revenue` | By period, branch, product, payment method. |
+| GET | `/v1/admin/reports/revenue` | Period, branch, what sold, payment method, currency. |
 | GET | `/v1/admin/reports/membership` | Joins, churn, freezes, renewals, LTV. |
 | GET | `/v1/admin/reports/attendance` | Occupancy, peak hours, no-shows. |
 | GET | `/v1/admin/reports/trainer` | Utilisation, retention by coach. |
 | GET | `/v1/admin/reports/retention` | Cohorts and risk bands. |
-| POST | `/v1/admin/reports/export` | CSV. `report.export` only. Audit every export. |
+| POST | `/v1/admin/reports/export` | CSV. `report.export` only. Every export audited with its filters. |
 
-**Rules**
+### Five decisions worth not re-litigating
 
-- `report.financial` gates revenue figures **separately** from `report.view`.
-  The reception role holds balances but not revenue — a reception user must be
-  able to open Reports and see attendance while revenue panels render
-  `PermissionState`, not an error.
-- Every figure declares freshness (real-time / near-real-time / batch), per
-  PF-DASH-003. Reuse the freshness component already used on the Command Center.
-- Exports are audited with the filter set that produced them.
+**Withheld is `null`, never `0`.** `report.financial` gates money separately
+from `report.view`, so a branch manager opens Reports, works the attendance,
+membership and coach figures, and sees revenue as *absent* — named in
+`meta.restricted`, rendered as a `PermissionState`. A zero renders as a real
+number, and "revenue this month: ₹0" is something a person escalates.
 
-**Edge cases:** a range with no prior comparison period; a user scoped to 2 of 3
-branches; an export larger than one page of results; a currency change mid-range.
+**No `branchId` means every branch the caller may see.** Reports was written
+against the correct rule from the start; §3.3 is now the rule everywhere.
+
+**Every boundary is computed in the branch's timezone.** A range is stated in
+dates and the tables store epoch milliseconds, so somebody has to decide when a
+day begins. Doing it in the server's zone files a 23:30 sale in Bengaluru
+against the previous day whenever the process runs in UTC.
+
+**Money is never summed across currencies.** A range spanning a currency change
+has no single total: `totals` is `null` and `byCurrency` carries each one.
+
+**The daily series is cached in `metric_rollups` (PF-RPT-006).** Completed days
+are computed once and stored; the current day is recomputed every time because
+it is still moving. A figure served from the store says so, with the instant it
+was computed. `rollUpMetrics` in `jobs/scheduler.ts` keeps the last three days
+warm — three rather than one, because a day can still gain a late refund or a
+corrected booking after it has ended.
+
+### What the UI pass corrected
+
+**`byProduct` was a grouping by free text wearing a product's name.**
+`invoice_lines.product_id` is populated for a membership sale and was simply
+not being read, so every row came back `productId: null` grouped by
+description — two products sharing a name merged, a renamed product split in
+two, and the console called it "By product". Rows now group by product id where
+one exists and by description where none does, carry `identified` to say which,
+and count units rather than lines. The panel is **"What sold"**, and an
+unidentified row is marked "Not itemised": a shop basket posts as one free-text
+line, and the Store report is where those break down by item.
+
+**A payload that does not match the contract stays inside the report panel.**
+The bodies dereference `meta.period` and map `series` on the strength of a
+cast, so a shape mismatch threw and took the whole route to the error boundary
+— tabs, period and branch gone. There is now a shallow shape check before
+render and an error boundary behind it.
+
+**Edge cases covered by tests:** a range with no prior comparison period; a
+caller scoped to a subset of branches; an export larger than one page; a
+currency change mid-range; a withheld figure; a day boundary in a non-UTC zone.
 
 ---
 
@@ -726,10 +840,16 @@ fnm use 22
 pnpm install
 pnpm db:reset
 
+pnpm lint             # eslint --max-warnings=0
 pnpm typecheck        # 6 packages, 0 errors
-pnpm test             # domain + API integration
+pnpm test             # 717 across 4 packages
 pnpm build            # both apps
+git diff --check      # no whitespace damage
 ```
+
+**Never pipe `pnpm test` through `tail`.** The four packages interleave and the
+tail shows one of them; a package can fail while the visible summary is green.
+Redirect to a file and read all four "Test Files" lines.
 
 Before opening a PR, also run the production single-origin mode, because three
 past defects were invisible in `pnpm dev` and reproduced only here:
@@ -752,6 +872,16 @@ CI (`.github/workflows/ci.yml`) runs all of the above plus a headless-Chrome
 smoke test, and Render deploys only on `checksPass` — so a red build does not
 merely fail the PR, it silently stops the demo from updating.
 
+**A green suite is not a browser pass, and a browser pass at one width is not a
+browser pass.** Every defect in §"What this session changed" that the suite
+could not see was found by opening the console: at 375×812 the status strip sat
+in an implicit grid column outside the viewport with no scrollbar, so sign-out
+and the theme toggle were unreachable; the phone rail had never lain down
+because a `@layer components` rule cannot beat a Tailwind utility on the same
+element; and Escape returned focus to `<body>` in every dialog with an
+autofocused field. Work the four viewports in both themes and both densities,
+open a dialog, and press Escape.
+
 ---
 
 # 6. Sequencing summary
@@ -760,15 +890,21 @@ merely fail the PR, it silently stops the demo from updating.
 |---|---|---|---|
 | — | ~~Rebase Phase 6 onto main~~ — **merged** (PR #5) | — | PF-STAFF, PF-WORK |
 | 7 | Store — **merged** (PR #8, `c782ea1`) | — | PF-POS-001…006 |
-| 8 | Equipment — **built** (PR #6) | — | PF-FAC-001…006 |
-| 9 | Support — **built** (PR open) | — | PF-SUP-001…006 |
-| 10 | Reports | 7, 8 | PF-RPT-001…006 |
+| 8 | Equipment — **merged** (PR #6) | — | PF-FAC-001…006 |
+| 9 | Support — **merged** (PR #9, `07fb53f`) | — | PF-SUP-001…006 |
+| 10 | Reports — **built** (PR #10, open) | 7, 8 | PF-RPT-001…006 |
 | 11 | Settings | — | PF-TEN-001…006 |
 | 12 | Automations | 11 | PF-COMM-001…006 |
 | 13 | Platform | 11 | PF-PLAT-001…006 |
 
-Phases 7 and 8 are on `main`; Phase 9 is built and awaiting review. **Phase 10
-(Reports) is the next one to start** — it depends on 7 and 8, both of which are
-merged, and Phase 9's feedback and retention surfaces give it two more real
-sources. Note `metric_rollups` is still **not seeded**, so plan for that before
-the first chart.
+Phases 7, 8 and 9 are on `main`. Phase 10 is built on
+`feat/phase-10-reports-ui-polish` and awaiting review as PR #10;
+`metric_rollups` is seeded with 180 days and kept warm by the nightly job, so
+that caveat is closed.
+
+**Phase 11 (Settings) is the next one to start.** It is the last API stub
+(`admin/settings.ts`, 7 lines) and one of the three remaining console
+placeholders, and both Phase 12 and Phase 13 depend on it. Before writing it,
+read §3.3: Settings is where a branch is created, renamed and archived, and an
+archived branch that stays in `ctx.branchIds` is the same class of defect this
+session spent its first half removing.

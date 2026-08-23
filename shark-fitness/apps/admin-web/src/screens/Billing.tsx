@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError, api, idempotencyKey } from '../lib/api';
+import { ApiError, api } from '../lib/api';
 import { usePermission } from '../lib/store';
 import { Page } from '../ui/shell';
-import { Button, Chip, Display, EmptyState, ErrorState, Field, Label, Metric, Panel, PermissionState, Seam, Skeleton, type Tone } from '../ui/console';
+import { Button, Checkbox, Chip, EmptyState, ErrorState, Field, Label, Metric, Panel, PermissionState, Seam, SelectField, Skeleton, Table, TableScroll, type Tone } from '../ui/console';
+import { ConfirmDialog, Drawer, Modal } from '../ui/overlay';
+import { useIdempotentAttempt } from '../lib/idempotent-attempt';
 
 interface Summary {
   revenueThisMonthLabel: string;
@@ -200,7 +202,7 @@ export default function BillingScreen() {
       {invoices.data.items.length === 0 ? (
         <EmptyState title="No invoices" body="Nothing matches that filter yet." />
       ) : (
-        <table className="console-table">
+        <TableScroll><Table>
           <thead>
             <tr>
               <th>Invoice</th>
@@ -231,7 +233,7 @@ export default function BillingScreen() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table></TableScroll>
       )}
 
       {selectedInvoiceId ? (
@@ -267,8 +269,8 @@ function InvoiceDetailPanel({
   const { data, isLoading, error, refetch } = useQuery({ queryKey: ['invoice', invoiceId], queryFn: () => api<InvoiceDetail>(`/admin/billing/invoices/${invoiceId}`) });
 
   return (
-    <div className="fixed inset-0 z-40 flex items-stretch justify-end bg-scrim" onClick={onClose} role="presentation">
-      <div className="h-full w-[min(560px,100%)] overflow-auto border-l border-line-strong bg-overlay" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Invoice detail">
+    <Drawer open onClose={onClose} kicker="Invoice" title={data?.invoice.number ?? 'Invoice'}>
+      <>
         {isLoading ? (
           <Skeleton className="m-4 h-64" />
         ) : error || !data ? (
@@ -277,15 +279,8 @@ function InvoiceDetailPanel({
           </div>
         ) : (
           <>
-            <header className="flex items-center gap-2 border-b border-line px-4 py-3">
-              <Display size="sm" as="h2">
-                {data.invoice.number}
-              </Display>
-              <span className="flex-1" />
+            <header className="flex items-center gap-2 border-b border-line px-4 py-2.5">
               <Chip tone={STATE_TONE[data.invoice.state] ?? 'neutral'}>{data.invoice.state.replace(/_/g, ' ')}</Chip>
-              <Button variant="ghost" onClick={onClose}>
-                Close
-              </Button>
             </header>
 
             <div className="flex flex-col gap-3.5 p-4">
@@ -404,7 +399,7 @@ function InvoiceDetailPanel({
             </div>
           </>
         )}
-      </div>
+      </>
 
       {sheet === 'payment' && data ? (
         <RecordPaymentSheet invoiceId={invoiceId} dueLabel={data.invoice.dueLabel} onClose={() => setSheet(null)} onDone={() => { setSheet(null); onChanged(); void refetch(); }} />
@@ -413,7 +408,7 @@ function InvoiceDetailPanel({
       {sheet && typeof sheet === 'object' ? (
         <RefundSheet paymentId={sheet.refundPaymentId} onClose={() => setSheet(null)} onDone={() => { setSheet(null); onChanged(); void refetch(); }} />
       ) : null}
-    </div>
+    </Drawer>
   );
 }
 
@@ -423,53 +418,67 @@ function RecordPaymentSheet({ invoiceId, dueLabel, onClose, onDone }: { invoiceI
   const [reference, setReference] = useState('');
   const [error, setError] = useState<string | null>(null);
 
+  /* Money in. This endpoint takes its key in the body, so the fingerprint is
+     the payment's identity and the key it mints is placed inside the body that
+     gets sent. A retry after a lost response must not take the money twice. */
+  const attempt = useIdempotentAttempt('billing-payment', invoiceId);
   const record = useMutation({
-    mutationFn: () =>
-      api(`/admin/billing/invoices/${invoiceId}/payments`, {
+    mutationFn: () => {
+      const payload = { amountMinor: Math.round(Number(amount) * 100), method, reference: reference || undefined };
+      return api(`/admin/billing/invoices/${invoiceId}/payments`, {
         method: 'POST',
-        body: { amountMinor: Math.round(Number(amount) * 100), method, reference: reference || undefined, idempotencyKey: idempotencyKey('billing-payment', invoiceId) },
-      }),
-    onSuccess: onDone,
+        // The key is scoped to the invoice and fingerprinted on the payment,
+        // so correcting the amount before retrying is a different payment.
+        body: { ...payload, idempotencyKey: attempt.keyFor(payload) },
+      });
+    },
+    onSuccess: () => { attempt.retire(); onDone(); },
     onError: (e) => setError(e instanceof ApiError ? e.message : 'That did not work.'),
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-6" onClick={onClose} role="presentation">
-      <div className="w-[min(420px,100%)] border border-line-strong bg-overlay" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Record payment">
-        <header className="border-b border-line px-4 py-3">
-          <Display size="sm" as="h2">
-            Record payment
-          </Display>
-        </header>
-        <div className="flex flex-col gap-3.5 p-4">
-          <Field label="Amount (₹)" type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} hint={`Outstanding: ${dueLabel}`} />
-          <div className="flex flex-col gap-1">
-            <label className="font-utility text-[10px] font-semibold uppercase tracking-[0.14em] text-foam-45">Method</label>
-            <select value={method} onChange={(e) => setMethod(e.target.value)} className="sf-field !min-h-9 !py-2 !text-[13px]">
-              {['cash', 'card', 'bank_transfer', 'upi', 'wallet', 'voucher'].map((m) => (
-                <option key={m} value={m}>
-                  {m.replace(/_/g, ' ')}
-                </option>
-              ))}
-            </select>
-          </div>
-          <Field label="Reference" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Optional — receipt or transaction id" />
-          {error ? (
-            <Panel tone="bad">
-              <p className="px-3 py-2.5 text-[12px] leading-relaxed">{error}</p>
-            </Panel>
-          ) : null}
-        </div>
-        <footer className="flex justify-end gap-2 border-t border-line px-4 py-3">
+    <Modal
+      open
+      onClose={onClose}
+      title="Record payment"
+      width="w-[min(420px,100%)]"
+      footer={
+        <>
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="cta" size="md" disabled={!amount || Number(amount) <= 0 || record.isPending} onClick={() => record.mutate()}>
-            {record.isPending ? 'Recording…' : 'Record payment'}
+          <Button
+            variant="cta"
+            size="md"
+            disabled={!amount || Number(amount) <= 0}
+            pending={record.isPending}
+            pendingLabel="Recording…"
+            onClick={() => record.mutate()}
+          >
+            Record payment
           </Button>
-        </footer>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3.5 p-4">
+        <Field label="Amount (₹)" type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} hint={`Outstanding: ${dueLabel}`} />
+        <SelectField
+          label="Method"
+          value={method}
+          onChange={(e) => setMethod(e.target.value)}
+          options={['cash', 'card', 'bank_transfer', 'upi', 'wallet', 'voucher'].map((m) => ({
+            value: m,
+            label: m.replace(/_/g, ' '),
+          }))}
+        />
+        <Field label="Reference" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Optional — receipt or transaction id" />
+        {error ? (
+          <Panel tone="bad">
+            <p className="px-3 py-2.5 text-[12px] leading-relaxed">{error}</p>
+          </Panel>
+        ) : null}
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -483,34 +492,19 @@ function VoidSheet({ invoiceId, onClose, onDone }: { invoiceId: string; onClose:
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-6" onClick={onClose} role="presentation">
-      <div className="w-[min(420px,100%)] border border-line-strong bg-overlay" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Void invoice">
-        <header className="border-b border-line px-4 py-3">
-          <Display size="sm" as="h2">
-            Void this invoice
-          </Display>
-        </header>
-        <div className="flex flex-col gap-3.5 p-4">
-          <Panel tone="warn">
-            <p className="px-3 py-2.5 text-[12px] leading-relaxed text-foam-80">This cannot be undone. Void an invoice only when it was raised in error.</p>
-          </Panel>
-          <Field label="Reason" value={reason} onChange={(e) => setReason(e.target.value)} hint="Required. Recorded in the audit log." />
-          {error ? (
-            <Panel tone="bad">
-              <p className="px-3 py-2.5 text-[12px] leading-relaxed">{error}</p>
-            </Panel>
-          ) : null}
-        </div>
-        <footer className="flex justify-end gap-2 border-t border-line px-4 py-3">
-          <Button variant="ghost" onClick={onClose}>
-            Never mind
-          </Button>
-          <Button variant="danger" size="md" disabled={reason.trim().length < 4 || run.isPending} onClick={() => run.mutate()}>
-            {run.isPending ? 'Working…' : 'Void invoice'}
-          </Button>
-        </footer>
-      </div>
-    </div>
+    <ConfirmDialog
+      open
+      onClose={onClose}
+      onConfirm={() => run.mutate()}
+      title="Void this invoice"
+      consequence="This cannot be undone. Void an invoice only when it was raised in error."
+      confirmLabel="Void invoice"
+      reasonLabel="Reason"
+      reason={reason}
+      onReasonChange={setReason}
+      pending={run.isPending}
+      error={error}
+    />
   );
 }
 
@@ -527,36 +521,44 @@ function RefundSheet({ paymentId, onClose, onDone }: { paymentId: string; onClos
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-6" onClick={onClose} role="presentation">
-      <div className="w-[min(420px,100%)] border border-line-strong bg-overlay" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Refund payment">
-        <header className="border-b border-line px-4 py-3">
-          <Display size="sm" as="h2">
-            Refund
-          </Display>
-        </header>
-        <div className="flex flex-col gap-3.5 p-4">
-          <Field label="Amount (₹)" type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} />
-          <Field label="Reason" value={reason} onChange={(e) => setReason(e.target.value)} hint="Required. Recorded in the audit log." />
-          <label className="flex items-center gap-2.5 text-[13px]">
-            <input type="checkbox" checked={entitlementReversed} onChange={(e) => setEntitlementReversed(e.target.checked)} className="h-4 w-4 accent-[var(--sf-sonar)]" />
-            Also reverse this member's access/credits
-          </label>
-          <p className="text-[11px] leading-relaxed text-foam-45">Refunding money and reversing entitlements are separate decisions — check this only if the member should lose access too.</p>
-          {error ? (
-            <Panel tone="bad">
-              <p className="px-3 py-2.5 text-[12px] leading-relaxed">{error}</p>
-            </Panel>
-          ) : null}
-        </div>
-        <footer className="flex justify-end gap-2 border-t border-line px-4 py-3">
+    <Modal
+      open
+      onClose={onClose}
+      title="Refund"
+      width="w-[min(420px,100%)]"
+      footer={
+        <>
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="danger" size="md" disabled={!amount || Number(amount) <= 0 || reason.trim().length < 4 || run.isPending} onClick={() => run.mutate()}>
-            {run.isPending ? 'Working…' : 'Issue refund'}
+          <Button
+            variant="danger"
+            size="md"
+            disabled={!amount || Number(amount) <= 0 || reason.trim().length < 4}
+            pending={run.isPending}
+            pendingLabel="Working…"
+            onClick={() => run.mutate()}
+          >
+            Issue refund
           </Button>
-        </footer>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3.5 p-4">
+        <Field label="Amount (₹)" type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} />
+        <Field label="Reason" value={reason} onChange={(e) => setReason(e.target.value)} hint="Required. Recorded in the audit log." />
+        <Checkbox
+          checked={entitlementReversed}
+          onChange={(e) => setEntitlementReversed(e.target.checked)}
+          label="Also reverse this member's access and credits"
+          hint="Refunding money and reversing entitlements are separate decisions. Leave this off to return the money and let the member keep what they already have."
+        />
+        {error ? (
+          <Panel tone="bad">
+            <p className="px-3 py-2.5 text-[12px] leading-relaxed">{error}</p>
+          </Panel>
+        ) : null}
       </div>
-    </div>
+    </Modal>
   );
 }

@@ -10,7 +10,7 @@ apps/
   admin-web/      React + Vite operations console, desktop-first.
 packages/
   contracts/      Zod schemas, enums, error + event envelopes. One source of truth.
-  domain/         Pure business rules. 101 tests. No I/O, no framework.
+  domain/         Pure business rules. 153 tests. No I/O, no framework.
   design-tokens/  The Sonar design system + the copy register.
 infrastructure/
   migrations/     Generated SQL, checked in.
@@ -57,14 +57,23 @@ reception and then as owner to see it.
 ```bash
 pnpm lint                   # ESLint across the workspace, --max-warnings=0
 pnpm typecheck              # all six packages, zero errors
-pnpm test                   # 572 tests: 130 domain, 253 API, 24 member, 165 console
+pnpm test                   # 717 tests: 153 domain, 315 API, 24 member, 225 console
 pnpm build                  # both apps
 ```
+
+Do not pipe `pnpm test` through `tail`. The four packages interleave and the
+tail shows one of them; a package can fail while the visible summary is green.
 
 A green suite is not a smoke test. On anything that touches money, also run the
 production single-origin server and work the screen by hand — the last two
 rounds of Store defects were both invisible to the suite and obvious in a
 browser within a minute. `docs/BUILD-PLAN.md` has the commands.
+
+And one width is not a browser pass. Work 1440×900, 1024×768, 768×1024 and
+375×812 in both themes, open a dialog, and press Escape. The phone layout put
+sign-out outside a clipping grid column with no scrollbar, and every dialog
+with an autofocused field returned focus to `<body>` instead of to the control
+that opened it — neither is visible from a desktop window.
 
 ## The parts worth knowing about
 
@@ -81,6 +90,16 @@ being written inside a handler, it is in the wrong place.
 and D1 have no row-level security, so every query filters on `tenantId` and every
 branch-scoped query checks `ctx.branchIds`. There is no code path that reads a business
 table without a tenant.
+
+**Branch scope has one answer, and it lives in `branchScope(ctx, branchId?)`.**
+No branch named and none selected means *every branch the caller may see* —
+that is what the console's switcher means by "All branches", and a server-side
+default to the caller's first branch makes the label a lie. An `x-branch-id`
+outside the caller's entitlement is refused, never quietly narrowed to what
+they do hold. And a detail endpoint is scoped exactly as hard as its list
+endpoint: load through the module's `load*InScope` helper, which answers 404
+rather than 403, because a 403 confirms the record exists somewhere the caller
+may not look.
 
 **Append-only ledgers are enforced by triggers.** `audit_log`, `xp_ledger`,
 `stock_ledger` and `ticket_events` have `BEFORE UPDATE`/`BEFORE DELETE` triggers that

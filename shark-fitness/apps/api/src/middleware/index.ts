@@ -103,8 +103,26 @@ export const authenticate: MiddlewareHandler = async (c, next) => {
   if (!ctx) throw new AppError('UNAUTHENTICATED', 'Your session has ended. Sign in again.');
   ctx.authMethod = bearer ? 'bearer' : 'cookie';
 
-  const requested = c.req.header('x-branch-id');
-  if (requested && ctx.branchIds.includes(requested)) ctx.activeBranchId = requested;
+  // The branch switcher, and the only thing that narrows a request.
+  //
+  // Absent or empty means *no selection* — the request covers every branch the
+  // caller may see. It must not fall back to a default branch: the console
+  // says "All branches" precisely by sending nothing, and a server-side
+  // default turns that label into a lie.
+  //
+  // Present but outside the caller's entitlement is refused here rather than
+  // ignored. Ignoring it was the tempting reading and it is worse than an
+  // error: the client asked about one branch and would be handed another
+  // branch's figures under the first one's heading. A branch id the caller
+  // does not hold is refused identically whether or not it exists, so this
+  // leaks nothing about the tenant's shape.
+  const requested = c.req.header('x-branch-id')?.trim();
+  if (requested) {
+    if (!ctx.branchIds.includes(requested)) {
+      throw new AppError('FORBIDDEN', 'You do not have access to this branch.');
+    }
+    ctx.activeBranchId = requested;
+  }
 
   ctx.requestId = c.get('requestId') ?? ctx.requestId;
   c.set('ctx', ctx);

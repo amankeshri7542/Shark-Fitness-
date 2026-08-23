@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { FeedbackSummary } from '@shark/contracts';
-import { ApiError, api } from '../../lib/api';
+import { ApiError, OfflineError, api } from '../../lib/api';
 import { useIdempotentAttempt } from '../../lib/idempotent-attempt';
 import {
   Button,
@@ -310,7 +310,14 @@ function RecordFeedback({
       onSaved();
       onClose();
     },
-    onError: (e) => setError(e instanceof ApiError ? e.message : 'That did not save.'),
+    onError: (e) =>
+      setError(
+        e instanceof OfflineError
+          ? 'No connection. If it was recorded, pressing save again will not record it twice.'
+          : e instanceof ApiError
+            ? e.message
+            : 'That did not save.',
+      ),
   });
 
   const max = kind === 'nps' ? 10 : 5;

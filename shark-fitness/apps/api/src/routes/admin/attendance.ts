@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { validate } from '../../middleware/validate.js';
 import { db, schema } from '../../db/client.js';
 import { ctxOf } from '../../middleware/index.js';
-import { requirePermission } from '../../lib/context.js';
+import { branchScope, requirePermission } from '../../lib/context.js';
 import { DAY, isoDate, now } from '../../lib/time.js';
 import {
   closeAllVisits,
@@ -16,6 +16,7 @@ import {
   overrideCheckIn,
 } from '../../services/attendance.js';
 import { loadMemberInScope, memberScopeCondition } from '../../services/members.js';
+import { branchTimeZone } from '../../lib/branch-time.js';
 
 /**
  * Attendance and Live Occupancy — the front desk (UX-A08, PF-ATT).
@@ -39,10 +40,6 @@ function displayMethod(method: string): string {
   return method === 'signed_qr' ? 'qr' : method;
 }
 
-function scopeOf(ctx: { activeBranchId: string | null; branchIds: string[] }): string[] {
-  return ctx.activeBranchId ? [ctx.activeBranchId] : ctx.branchIds;
-}
-
 /* ============================================================================
    GET /current — who is inside right now, plus the occupancy header.
    ========================================================================= */
@@ -52,7 +49,7 @@ attendanceRoutes.get('/current', (c) => {
   requirePermission(ctx, 'attendance.view');
 
   const atMs = now();
-  const scope = scopeOf(ctx);
+  const scope = branchScope(ctx);
   const occupancy = occupancyByBranch(ctx.tenantId, scope, atMs);
 
   const inside = scope.length
@@ -121,15 +118,10 @@ attendanceRoutes.get('/occupancy', (c) => {
   requirePermission(ctx, 'attendance.view');
 
   const atMs = now();
-  const scope = scopeOf(ctx);
+  const scope = branchScope(ctx);
   const branches = occupancyByBranch(ctx.tenantId, scope, atMs);
 
-  const tz =
-    db
-      .select({ timezone: schema.branches.timezone })
-      .from(schema.branches)
-      .where(and(eq(schema.branches.tenantId, ctx.tenantId), inArray(schema.branches.id, scope.length ? scope : ['—'])))
-      .get()?.timezone ?? 'Asia/Kolkata';
+  const tz = branchTimeZone(ctx.tenantId, scope[0] ?? null);
 
   const totals = branches.reduce(
     (acc, b) => ({ inside: acc.inside + b.inside, capacity: acc.capacity + b.capacity }),
@@ -169,7 +161,7 @@ attendanceRoutes.get('/', validate('query', FeedQuery), (c) => {
 
   const query = c.req.valid('query');
   const atMs = now();
-  const scope = scopeOf(ctx);
+  const scope = branchScope(ctx);
 
   if (scope.length === 0) {
     return c.json({ date: null, filter: query.filter, total: 0, hasMore: false, breakdown: {}, items: [] });
@@ -280,7 +272,7 @@ attendanceRoutes.get('/search', validate('query', SearchQuery), (c) => {
   requirePermission(ctx, 'attendance.view');
 
   const { q } = c.req.valid('query');
-  const scope = scopeOf(ctx);
+  const scope = branchScope(ctx);
   if (scope.length === 0) return c.json({ items: [] });
 
   const atMs = now();

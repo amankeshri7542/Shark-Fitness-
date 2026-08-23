@@ -204,7 +204,10 @@ export default function Register({
       void queryClient.invalidateQueries({ queryKey: ['store'] });
     },
     onError: (e) => {
-      if (e instanceof OfflineError) setError('No connection. Nothing was sold and nothing was charged.');
+      // Not "nothing was charged" — from here that is unknowable, and the
+      // till is the worst place to state it wrongly.
+      if (e instanceof OfflineError)
+        setError('No connection. If the sale went through, taking it again will not charge twice.');
       else setError(e instanceof ApiError ? e.message : 'The sale did not go through. Nothing was charged.');
     },
   });

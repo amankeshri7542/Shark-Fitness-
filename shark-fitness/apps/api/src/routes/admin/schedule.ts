@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { validate } from '../../middleware/validate.js';
 import { db, schema } from '../../db/client.js';
 import { ctxOf } from '../../middleware/index.js';
-import { requirePermission } from '../../lib/context.js';
+import { branchScope, requirePermission } from '../../lib/context.js';
 import { notFound } from '../../lib/errors.js';
 import { DAY, MINUTE, isoDate, localTime, now } from '../../lib/time.js';
 import {
@@ -22,6 +22,7 @@ import {
   updateSession,
   waitlistCount,
 } from '../../services/schedule.js';
+import { branchTimeZone } from '../../lib/branch-time.js';
 
 /**
  * Calendar and class operations — UX-A09, PF-SCH.
@@ -33,19 +34,10 @@ import {
  */
 export const scheduleRoutes = new Hono();
 
-function scopeOf(ctx: { activeBranchId: string | null; branchIds: string[] }): string[] {
-  return ctx.activeBranchId ? [ctx.activeBranchId] : ctx.branchIds;
-}
-
+/** Delegates to the one helper that answers "which zone", tenant fallback and
+ *  all. This used to be a fifth private copy of that query. */
 function timezoneFor(tenantId: string, branchIds: string[]): string {
-  if (branchIds.length === 0) return 'Asia/Kolkata';
-  return (
-    db
-      .select({ timezone: schema.branches.timezone })
-      .from(schema.branches)
-      .where(and(eq(schema.branches.tenantId, tenantId), inArray(schema.branches.id, branchIds)))
-      .get()?.timezone ?? 'Asia/Kolkata'
-  );
+  return branchTimeZone(tenantId, branchIds[0] ?? null);
 }
 
 /* ============================================================================
@@ -65,7 +57,7 @@ scheduleRoutes.get('/', validate('query', DayQuery), (c) => {
 
   const query = c.req.valid('query');
   const atMs = now();
-  const scope = scopeOf(ctx);
+  const scope = branchScope(ctx);
 
   if (scope.length === 0) {
     return c.json({ date: null, days: [], items: [], totals: { sessions: 0, seats: 0, booked: 0, waitlisted: 0 } });
@@ -199,7 +191,7 @@ scheduleRoutes.get('/', validate('query', DayQuery), (c) => {
 scheduleRoutes.get('/resources', (c) => {
   const ctx = ctxOf(c);
   requirePermission(ctx, 'schedule.view');
-  const scope = scopeOf(ctx);
+  const scope = branchScope(ctx);
 
   return c.json({
     classTypes: db

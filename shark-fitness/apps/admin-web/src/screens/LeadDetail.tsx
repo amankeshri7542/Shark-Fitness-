@@ -4,7 +4,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, api } from '../lib/api';
 import { usePermission } from '../lib/store';
 import { Page } from '../ui/shell';
-import { Button, Chip, Display, ErrorState, Field, Label, Panel, PermissionState, Seam, Skeleton, type Tone } from '../ui/console';
+import { Button, Chip, ErrorState, Field, Label, Panel, PermissionState, Seam, Skeleton, type Tone } from '../ui/console';
+import { ConfirmDialog } from '../ui/overlay';
 
 interface Activity {
   id: string;
@@ -297,47 +298,21 @@ function LossSheet({
   const title = kind === 'lost' ? 'Mark this lead lost' : 'Disqualify this lead';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-6" onClick={onClose} role="presentation">
-      <div
-        className="w-[min(480px,100%)] border border-line-strong bg-overlay"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-      >
-        <header className="border-b border-line px-4 py-3">
-          <Display size="sm" as="h2">
-            {title}
-          </Display>
-        </header>
-
-        <div className="flex flex-col gap-3.5 p-4">
-          <Panel tone="warn">
-            <p className="px-3 py-2.5 text-[12px] leading-relaxed text-foam-80">
-              {kind === 'lost'
-                ? `${leadName} moves out of the active pipeline. This can be reversed later by reopening the lead.`
-                : `${leadName} is marked as not a fit for membership. This can be reversed later by reopening the lead.`}
-            </p>
-          </Panel>
-          <Field
-            label="Reason"
-            placeholder="Recorded in the lead's timeline and the audit log"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            hint="Required."
-            autoFocus
-          />
-        </div>
-
-        <footer className="flex justify-end gap-2 border-t border-line px-4 py-3">
-          <Button variant="ghost" onClick={onClose}>
-            Never mind
-          </Button>
-          <Button variant="danger" size="md" disabled={reason.trim().length < 4 || isPending} onClick={() => onConfirm(reason.trim())}>
-            {isPending ? 'Working…' : kind === 'lost' ? 'Mark lost' : 'Disqualify'}
-          </Button>
-        </footer>
-      </div>
-    </div>
+    <ConfirmDialog
+      open
+      onClose={onClose}
+      onConfirm={() => onConfirm(reason.trim())}
+      title={title}
+      consequence={
+        kind === 'lost'
+          ? `${leadName} moves out of the active pipeline. This can be reversed later by reopening the lead.`
+          : `${leadName} is marked as not a fit for membership. This can be reversed later by reopening the lead.`
+      }
+      confirmLabel={kind === 'lost' ? 'Mark lost' : 'Disqualify'}
+      reasonLabel="Reason"
+      reason={reason}
+      onReasonChange={setReason}
+      pending={isPending}
+    />
   );
 }

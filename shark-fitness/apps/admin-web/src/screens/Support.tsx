@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { FeedbackSummary, RetentionView, TicketCategory, TicketQueue } from '@shark/contracts';
-import { ApiError, api } from '../lib/api';
+import { ApiError, OfflineError, api } from '../lib/api';
 import { useIdempotentAttempt } from '../lib/idempotent-attempt';
 import { useBranchScope, useBranchTimeZone, usePermission } from '../lib/store';
 import { useOnline } from '../lib/realtime';
@@ -313,7 +313,14 @@ function NewTicket({
       void queryClient.invalidateQueries({ queryKey: ['support'] });
       onCreated(result.ticket.id);
     },
-    onError: (e) => setError(e instanceof ApiError ? e.message : 'The ticket did not save.'),
+    onError: (e) =>
+      setError(
+        e instanceof OfflineError
+          ? 'No connection. If the ticket was raised, pressing again will not raise a second one.'
+          : e instanceof ApiError
+            ? e.message
+            : 'The ticket did not save.',
+      ),
   });
 
   const promise = categories.find((c) => c.value === category);
