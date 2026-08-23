@@ -3,7 +3,7 @@ import { and, desc, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { occupancyLabel } from '@shark/domain';
 import { db, schema } from '../../db/client.js';
 import { ctxOf } from '../../middleware/index.js';
-import { requirePermission } from '../../lib/context.js';
+import { branchScope, isAllBranches, requirePermission } from '../../lib/context.js';
 import { DAY, HOUR, isoDate, now, relativeTime } from '../../lib/time.js';
 
 export const dashboardRoutes = new Hono();
@@ -21,7 +21,7 @@ dashboardRoutes.get('/', (c) => {
 
   // Null active branch means "every branch this actor may see" — a regional
   // view, not a silent default to one location.
-  const scope = ctx.activeBranchId ? [ctx.activeBranchId] : ctx.branchIds;
+  const scope = branchScope(ctx);
   const tz = 'Asia/Kolkata';
   const today = isoDate(now(), tz);
   const monthStart = `${today.slice(0, 7)}-01`;
@@ -516,7 +516,7 @@ dashboardRoutes.get('/', (c) => {
     scope: {
       branchIds: scope,
       branchNames: branches.map((b) => b.name),
-      allBranches: !ctx.activeBranchId,
+      allBranches: isAllBranches(ctx),
     },
     asOf: new Date(now()).toISOString(),
     alerts,

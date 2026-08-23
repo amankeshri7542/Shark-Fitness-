@@ -26,7 +26,7 @@ import { db, schema } from '../db/client.js';
 import { audit } from '../lib/audit.js';
 import { branchTimeZone } from '../lib/branch-time.js';
 import type { RequestContext } from '../lib/context.js';
-import { requireBranch, requirePermission } from '../lib/context.js';
+import { branchScope, requirePermission } from '../lib/context.js';
 import { invalid } from '../lib/errors.js';
 import { id } from '../lib/ids.js';
 import { isoDate, localDayRange, localHour, now, startOfLocalDay } from '../lib/time.js';
@@ -77,13 +77,7 @@ import { isoDate, localDayRange, localHour, now, startOfLocalDay } from '../lib/
  * An explicit one is checked against the caller's own list, so a report cannot
  * be widened by asking for a branch the role does not hold.
  */
-function scopeFor(ctx: RequestContext, branchId?: string | null): string[] {
-  if (branchId) {
-    requireBranch(ctx, branchId);
-    return [branchId];
-  }
-  return ctx.branchIds;
-}
+const scopeFor = (ctx: RequestContext, branchId?: string | null): string[] => branchScope(ctx, branchId);
 
 export interface ReportRange {
   from: string;

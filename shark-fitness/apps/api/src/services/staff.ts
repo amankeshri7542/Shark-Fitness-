@@ -2,7 +2,7 @@ import { and, eq, gt, inArray, isNull, lt, ne, sql } from 'drizzle-orm';
 import type { Role } from '@shark/contracts';
 import { db, schema, transact } from '../db/client.js';
 import type { RequestContext } from '../lib/context.js';
-import { requireBranch } from '../lib/context.js';
+import { branchScope, requireBranch } from '../lib/context.js';
 import { audit } from '../lib/audit.js';
 import { conflict, invalid, notFound } from '../lib/errors.js';
 import { id, initialsOf, normalizeEmail, normalizePhone } from '../lib/ids.js';
@@ -90,10 +90,6 @@ export function loadStaffInScope(
   return row;
 }
 
-function scopeOf(ctx: { activeBranchId: string | null; branchIds: string[] }): string[] {
-  return ctx.activeBranchId ? [ctx.activeBranchId] : ctx.branchIds;
-}
-
 function assignedMemberCounts(tenantId: string, staffIds: string[]): Map<string, number> {
   const counts = new Map<string, number>();
   if (staffIds.length === 0) return counts;
@@ -119,7 +115,7 @@ export interface StaffListQuery {
 
 export function listStaff(ctx: RequestContext, query: StaffListQuery) {
   if (query.branchId) requireBranch(ctx, query.branchId);
-  const scope = query.branchId ? [query.branchId] : scopeOf(ctx);
+  const scope = query.branchId ? [query.branchId] : branchScope(ctx);
   if (scope.length === 0) return {
     total: 0,
     page: Math.max(1, query.page ?? 1),
@@ -434,7 +430,7 @@ export function listShifts(
 ) {
   if (query.branchId) requireBranch(ctx, query.branchId);
   if (query.staffId) loadStaffInScope(ctx, query.staffId);
-  const scope = query.branchId ? [query.branchId] : scopeOf(ctx);
+  const scope = query.branchId ? [query.branchId] : branchScope(ctx);
   if (scope.length === 0) return [];
 
   const filters = [

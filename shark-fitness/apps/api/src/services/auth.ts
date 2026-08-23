@@ -279,7 +279,10 @@ export function resolveSession(rawToken: string): RequestContext | null {
     role: user.role as Role,
     name: user.name,
     branchIds: [...new Set(branchIds)],
-    activeBranchId: member?.homeBranchId ?? branchIds[0] ?? null,
+    // No branch is selected until a client selects one. Seeding this with the
+    // caller's first permitted branch is what made the console's "All
+    // branches" cover exactly one of them; see `RequestContext.activeBranchId`.
+    activeBranchId: null,
     permissions: permissionsFor(user.role as Role),
     ip: session.ip,
     userAgent: session.userAgent,

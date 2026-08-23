@@ -5,7 +5,7 @@ import { validate } from '../../middleware/validate.js';
 import { channels, LeadStage } from '@shark/contracts';
 import { db, schema, transact } from '../../db/client.js';
 import { ctxOf } from '../../middleware/index.js';
-import { requireBranch, requirePermission } from '../../lib/context.js';
+import { branchScope, requireBranch, requirePermission } from '../../lib/context.js';
 import { audit } from '../../lib/audit.js';
 import { emit } from '../../lib/events.js';
 import { AppError, conflict } from '../../lib/errors.js';
@@ -45,7 +45,7 @@ leadsRoutes.get('/', validate('query', ListQuery), (c) => {
   requirePermission(ctx, 'lead.view');
   const q = c.req.valid('query');
 
-  const scope = ctx.activeBranchId ? [ctx.activeBranchId] : ctx.branchIds;
+  const scope = branchScope(ctx);
   const filters = [eq(schema.leads.tenantId, ctx.tenantId), inArray(schema.leads.branchId, scope)];
   if (q.stage) filters.push(eq(schema.leads.stage, q.stage));
   if (q.ownerId) filters.push(eq(schema.leads.ownerId, q.ownerId));
