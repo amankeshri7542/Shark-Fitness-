@@ -254,7 +254,15 @@ export function Page({ title, kicker, actions, children }: {
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex min-h-0 flex-col overflow-hidden">
+    // `h-full` is load-bearing, not decoration. This div is a *block* child of
+    // the console's main pane, and a block box sizes to its content, not to its
+    // parent — so without a height it grew to 4,576px on Billing inside an
+    // 847px pane that clips. Its own `overflow-hidden` never fired (the box was
+    // as tall as its content), the `overflow-auto` pane below never became a
+    // scroller, and nothing on the screen scrolled at all: 96 of 107 invoices
+    // were rendered, below the fold, with no way to reach them. Every one of
+    // the twenty screens behind `Page` had this.
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <div className="flex flex-none items-end gap-3 border-b border-line px-4 py-3">
         <div>
           {kicker ? (
