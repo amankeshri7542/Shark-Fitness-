@@ -626,8 +626,25 @@ export interface CheckoutInput {
  * Stock is re-read *inside* the transaction. The screen may have been showing
  * one unit left for ten minutes; what matters is what is there at commit.
  */
+/**
+ * Ring up a sale.
+ *
+ * Gated on being able to see the catalogue and take money, not on
+ * `inventory.manage`. Selling one shaker is the most common thing that happens
+ * at a gym till and the Design PRD names Reception a primary operator of this
+ * screen (UX-A14) — but `inventory.manage` is the permission for adjusting
+ * stock, editing products and dispatching transfers, which reception does not
+ * hold. Requiring it here meant either receptionists could not sell, or every
+ * receptionist had to be given stock-management rights to do their job. Taking
+ * payment is what a sale *is*, and `billing.record_payment` is the permission
+ * for that.
+ *
+ * Everything that *changes* stock outside a sale still requires
+ * `inventory.manage`; a sale's own movement is a consequence of the sale.
+ */
 export function checkout(ctx: RequestContext, input: CheckoutInput) {
-  requirePermission(ctx, 'inventory.manage');
+  requirePermission(ctx, 'inventory.view');
+  requirePermission(ctx, 'billing.record_payment');
   requireBranch(ctx, input.branchId);
   if (input.lines.length === 0) throw invalid('A sale needs at least one line.');
   if (input.payments.length === 0) throw invalid('A sale needs at least one payment.');

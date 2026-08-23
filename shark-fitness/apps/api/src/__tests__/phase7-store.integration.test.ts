@@ -524,14 +524,44 @@ describe('Checkout (PF-POS-002)', () => {
     expect(onHandOf(productId, 'br_hsr')).toBe(10);
   });
 
-  it('refuses a sale from a role without inventory.manage', async () => {
+  it('lets reception ring up a sale, because that is what a till is for', async () => {
+    // Gated on seeing the catalogue and taking money, not on
+    // `inventory.manage` — that is the permission for adjusting stock and
+    // editing products, which reception does not hold. Requiring it here meant
+    // either receptionists could not sell, or every receptionist had to be
+    // given stock-management rights to do their job. The Design PRD names
+    // Reception a primary operator of this screen (UX-A14).
     const productId = freshProduct('br_kor', 10);
     const response = await post(reception, '/v1/admin/store/orders', {
       branchId: 'br_kor',
       lines: [{ productId, quantity: 1 }],
       payments: [{ method: 'cash', amountMinor: 118_000 }],
     });
+    expect(response.status).toBe(201);
+    expect(onHandOf(productId, 'br_kor')).toBe(9);
+  });
+
+  it('refuses a sale from a role that neither sees stock nor takes money', async () => {
+    const trainer = await signIn('rehan@sharkfitness.in');
+    const productId = freshProduct('br_kor', 10);
+    const response = await post(trainer, '/v1/admin/store/orders', {
+      branchId: 'br_kor',
+      lines: [{ productId, quantity: 1 }],
+      payments: [{ method: 'cash', amountMinor: 118_000 }],
+    });
     expect(response.status).toBe(403);
+    expect(onHandOf(productId, 'br_kor')).toBe(10);
+  });
+
+  it('still refuses reception a stock adjustment, a void and a return', async () => {
+    // The boundary that actually matters: selling is not the same authority as
+    // changing what the stockroom says, or taking money back out.
+    const productId = freshProduct('br_kor', 10);
+    expect(
+      (await post(reception, `/v1/admin/store/products/${productId}/stock`, {
+        branchId: 'br_kor', delta: 25, reason: 'adjustment', note: 'should be refused',
+      })).status,
+    ).toBe(403);
     expect(onHandOf(productId, 'br_kor')).toBe(10);
   });
 
