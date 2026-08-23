@@ -183,7 +183,17 @@ const supportRoute = createRoute({
     ...(typeof search.ticket === 'string' && search.ticket.length > 0 ? { ticket: search.ticket } : {}),
   }),
 });
-const settingsRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/settings', component: SettingsScreen });
+const SETTINGS_TABS = ['business', 'branches', 'privacy', 'setup'] as const;
+type SettingsSearch = { tab: (typeof SETTINGS_TABS)[number] };
+
+const settingsRoute = createRoute({
+  getParentRoute: () => consoleRoute,
+  path: '/settings',
+  component: SettingsScreen,
+  validateSearch: (search: Record<string, unknown>): SettingsSearch => ({
+    tab: SETTINGS_TABS.includes(search.tab as never) ? (search.tab as SettingsSearch['tab']) : 'business',
+  }),
+});
 const platformRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/platform', component: PlatformScreen });
 
 const routeTree = rootRoute.addChildren([
