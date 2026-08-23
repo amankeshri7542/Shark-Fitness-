@@ -42,11 +42,20 @@ function headers(session: BrowserSession, unsafe = false): Record<string, string
   };
 }
 
+/**
+ * The two branches these tests mean: reception's own, and one they cannot see.
+ *
+ * `other` is named rather than picked by elimination. Taking "the first branch
+ * that is not br_kor" silently selected whichever row happened to come back
+ * first, so a branch created by another suite could become `other` — and the
+ * owner is not assigned to a branch created after the seed, which turned a
+ * branch-isolation assertion into an unrelated 403.
+ */
 function tenantAndBranches(): { tenantId: string; kor: string; other: string } {
   const tenant = db.select().from(schema.tenants).where(eq(schema.tenants.slug, 'shark')).get()!;
   const branches = db.select().from(schema.branches).where(eq(schema.branches.tenantId, tenant.id)).all();
   const kor = branches.find((b) => b.id === 'br_kor')!.id;
-  const other = branches.find((b) => b.id !== 'br_kor')!.id;
+  const other = branches.find((b) => b.id === 'br_ind')!.id;
   return { tenantId: tenant.id, kor, other };
 }
 

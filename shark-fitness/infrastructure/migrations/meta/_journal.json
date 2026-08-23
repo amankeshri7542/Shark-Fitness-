@@ -22,6 +22,13 @@
       "when": 1787119734228,
       "tag": "0002_phase9_support",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1787480474347,
+      "tag": "0003_phase11_settings",
+      "breakpoints": true
     }
   ]
 }

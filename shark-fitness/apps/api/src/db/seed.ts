@@ -126,6 +126,19 @@ db.insert(schema.tenants)
        *  consented to selling stock it does not have. */
       allowNegativeStock: false,
     },
+    /* PF-TEN-001. A gym raising invoices has a registration number on them. */
+    taxProfile: {
+      registrationNumber: '29AABCS1429B1ZQ',
+      label: 'GST',
+      defaultRateBp: 1800,
+      pricesIncludeTax: true,
+    },
+    dataProcessing: {
+      privacyContact: 'privacy@sharkfitness.in',
+      retentionDays: 1095,
+      consentVersion: '2026-01',
+      jurisdiction: 'India — DPDP Act 2023',
+    },
     createdAt: NOW - 900 * DAY,
     updatedAt: NOW,
   })
@@ -154,6 +167,26 @@ for (const b of BRANCHES) {
       amenities: ['Showers', 'Lockers', 'Parking', 'Cafe', b.id === 'br_ind' ? 'Pool' : 'Sauna'],
       holidays: ['2026-08-15', '2026-10-02'],
       phone: '+91 80 4000 1000',
+      email: `${b.slug}@sharkfitness.in`,
+      /* Real gyms do not keep one set of hours all week. Weekends open later
+         and shut earlier, and the door reads these rather than the typical-day
+         pair above (PF-TEN-002). Kept wider than any seeded class or check-in
+         so the demo shows per-day hours without denying anybody at the door. */
+      hours: {
+        mon: { open: 5 * 60, close: 23 * 60, closed: false },
+        tue: { open: 5 * 60, close: 23 * 60, closed: false },
+        wed: { open: 5 * 60, close: 23 * 60, closed: false },
+        thu: { open: 5 * 60, close: 23 * 60, closed: false },
+        fri: { open: 5 * 60, close: 23 * 60, closed: false },
+        sat: { open: 6 * 60, close: 22 * 60, closed: false },
+        sun: { open: 6 * 60, close: 22 * 60, closed: false },
+      },
+      /* One override, so the console's inheritance indicator has something
+         true to show: HSR is a small floor with a single turnstile, and a
+         90-second anti-passback window queues people out of the door. */
+      policy: b.id === 'br_hsr' ? { antiPassbackSeconds: 30 } : {},
+      stateChangedAt: NOW - 900 * DAY,
+      stateNote: 'Opened',
       createdAt: NOW - 900 * DAY,
       updatedAt: NOW,
     })
