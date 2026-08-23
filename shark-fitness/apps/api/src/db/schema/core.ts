@@ -27,6 +27,21 @@ export const tenants = sqliteTable('tenants', {
   branding: text('branding', { mode: 'json' }).$type<Record<string, string>>().notNull(),
   /** Tenant-level policy switches the domain rules read. */
   policy: text('policy', { mode: 'json' }).$type<Record<string, unknown>>().notNull(),
+  /**
+   * Invoicing identity (PF-TEN-001). Separate from `policy` because it is
+   * financial and appears on documents people keep: a registration number, the
+   * label tax is printed under, and whether prices are quoted inclusive of it.
+   * Changing it must never re-interpret an invoice already raised, which is
+   * why every invoice carries its own currency and per-line tax.
+   */
+  taxProfile: text('tax_profile', { mode: 'json' }).$type<Record<string, unknown>>(),
+  /**
+   * Data-processing configuration (PF-TEN-001): retention windows, the contact
+   * a subject reaches, and the consent-document version in force. Consent rows
+   * store the version they were granted under, so raising this here does not
+   * silently re-consent anybody.
+   */
+  dataProcessing: text('data_processing', { mode: 'json' }).$type<Record<string, unknown>>(),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
@@ -48,6 +63,27 @@ export const branches = sqliteTable(
     amenities: text('amenities', { mode: 'json' }).$type<string[]>().notNull(),
     holidays: text('holidays', { mode: 'json' }).$type<string[]>().notNull(),
     phone: text('phone'),
+    email: text('email'),
+    /**
+     * Per-day opening hours (PF-TEN-002), keyed `mon`…`sun`.
+     *
+     * `opensMinutes`/`closesMinutes` above stay as the branch's typical day and
+     * remain the fallback: the door and the occupancy chart have read them
+     * since Phase 1 and a null here must not change what they decide. A day
+     * present in this map wins for that day.
+     */
+    hours: text('hours', { mode: 'json' }).$type<Record<string, { open: number; close: number; closed: boolean }>>(),
+    /**
+     * Branch overrides of tenant policy (PF-TEN-003) — **overrides only**.
+     *
+     * A key absent here is inherited, and that absence is the inheritance
+     * indicator: there is no separate "inherited?" flag that could disagree
+     * with the value beside it. `resolveBranchPolicy` is the only reader.
+     */
+    policy: text('policy', { mode: 'json' }).$type<Record<string, unknown>>().notNull().default({}),
+    /** When the branch last changed lifecycle state, and why (PF-TEN-004). */
+    stateChangedAt: integer('state_changed_at'),
+    stateNote: text('state_note'),
     createdAt: integer('created_at').notNull(),
     updatedAt: integer('updated_at').notNull(),
   },

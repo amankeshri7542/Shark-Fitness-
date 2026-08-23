@@ -26,6 +26,7 @@ import type {
   Supplier,
 } from '@shark/contracts';
 import { db, schema, transact } from '../db/client.js';
+import { policyValue } from '../lib/policy.js';
 import { audit } from '../lib/audit.js';
 import type { RequestContext } from '../lib/context.js';
 import { requireBranch, requirePermission } from '../lib/context.js';
@@ -117,13 +118,16 @@ export function averageCost(tenantId: string, productId: string, fallbackMinor: 
 /* ——— Tenant policy ——————————————————————————————————————————— */
 
 /**
- * Negative stock is refused unless the tenant has explicitly turned it on
+ * Negative stock is refused unless it has explicitly been turned on
  * (PF-POS-004). Absent policy means "no" — a shop that never made the decision
  * has not consented to selling what it does not have.
+ *
+ * Resolved per branch (PF-TEN-003): a flagship with a stockroom and a daily
+ * count is not the same operation as a studio with a shelf, and the settings
+ * screen lets them differ.
  */
-export function allowsNegativeStock(tenantId: string): boolean {
-  const tenant = db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId)).get();
-  return tenant?.policy?.['allowNegativeStock'] === true;
+export function allowsNegativeStock(tenantId: string, branchId: string | null = null): boolean {
+  return policyValue<unknown>(tenantId, branchId, 'allowNegativeStock', false) === true;
 }
 
 /* ——— Scope helpers ——————————————————————————————————————————— */
@@ -514,9 +518,11 @@ function writeMovement(ctx: RequestContext, input: MovementInput): void {
   if (input.delta < 0) {
     const current = onHand(ctx.tenantId, input.branchId, input.productId);
     if (current + input.delta < 0) {
-      if (!allowsNegativeStock(ctx.tenantId)) {
+      // The branch the movement is happening at, not the tenant: a studio with
+      // a shelf and a flagship with a stockroom can hold different answers.
+      if (!allowsNegativeStock(ctx.tenantId, input.branchId)) {
         throw precondition(
-          `Only ${current} in stock at this branch. Negative stock is not enabled for this tenant.`,
+          `Only ${current} in stock at this branch. Selling below zero is not enabled here.`,
         );
       }
       if (!input.overrideReason || input.overrideReason.trim().length < 4) {
