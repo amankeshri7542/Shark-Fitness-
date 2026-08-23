@@ -21,13 +21,62 @@ const FOCUSABLE = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(',');
 
+/* ——— Who to give focus back to ————————————————————————————— */
+
+/**
+ * The last thing focused outside an overlay.
+ *
+ * Tracked continuously rather than read when a panel opens, because by then
+ * the answer is already wrong. Most of these dialogs carry an `autoFocus`
+ * field, and React applies `autoFocus` during the commit — before any effect
+ * runs. An effect reading `document.activeElement` therefore saw a field
+ * *inside* the dialog, and closing restored focus to a node that had just been
+ * removed from the document, which the browser answers by focusing `<body>`.
+ *
+ * The symptom: press Escape on any dialog and a keyboard user was returned to
+ * the top of the page rather than to the control they opened it from — the
+ * exact failure the trap exists to prevent, in the one direction nobody had
+ * watched, because focus does move correctly on the way *in*.
+ *
+ * A capture-phase `focusin` listener sees every focus change in order, so
+ * skipping the ones landing inside a panel leaves the opener standing.
+ */
+let lastFocusOutsideOverlay: HTMLElement | null = null;
+
+if (typeof document !== 'undefined') {
+  document.addEventListener(
+    'focusin',
+    (event) => {
+      const target = event.target as HTMLElement | null;
+      if (!target || typeof target.closest !== 'function') return;
+      if (target.closest('[data-overlay-panel]')) return;
+      lastFocusOutsideOverlay = target;
+    },
+    true,
+  );
+}
+
+const openerBeforeOverlay = (): HTMLElement | null =>
+  lastFocusOutsideOverlay && lastFocusOutsideOverlay !== document.body ? lastFocusOutsideOverlay : null;
+
 /**
  * Focus containment for a modal surface.
  *
- * Returns a ref for the panel. On mount it remembers what had focus, moves
- * focus inside, and on unmount puts it back — including when the element that
- * opened the panel has since been re-rendered, which is why the restore target
- * is captured rather than looked up again.
+ * Returns a ref for the panel. On open it remembers what had focus, moves
+ * focus inside, and on close puts it back.
+ *
+ * The remembering happens **during render**, not in an effect, and that is the
+ * whole subtlety. Most of these dialogs carry an `autoFocus` field, and React
+ * applies `autoFocus` in the commit phase — before any effect runs. An effect
+ * reading `document.activeElement` therefore did not see the button that
+ * opened the dialog; it saw a field *inside* the dialog. Closing then restored
+ * focus to a node that had just been removed from the document, which the
+ * browser answers by focusing `<body>`.
+ *
+ * The visible symptom: press Escape on any dialog and the keyboard user is
+ * returned to the top of the page rather than to the control they opened it
+ * from — the exact failure the trap exists to prevent, in the one path nobody
+ * had watched because focus *did* move correctly on the way in.
  */
 function useFocusTrap(open: boolean, onClose: () => void) {
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -44,7 +93,7 @@ function useFocusTrap(open: boolean, onClose: () => void) {
 
   useEffect(() => {
     if (!open) return;
-    restoreTo.current = document.activeElement as HTMLElement | null;
+    restoreTo.current = openerBeforeOverlay();
 
     // The panel itself, not its first control. A screen reader then announces
     // the dialog and its name before anything inside it, and Tab walks the
@@ -53,7 +102,12 @@ function useFocusTrap(open: boolean, onClose: () => void) {
     panelRef.current?.focus();
 
     return () => {
-      restoreTo.current?.focus?.();
+      const target = restoreTo.current;
+      restoreTo.current = null;
+      // `isConnected` because the opener can genuinely have gone: a row action
+      // whose row the dialog just deleted. Focusing a detached node silently
+      // drops the caret on `<body>`, so check rather than hope.
+      if (target?.isConnected) target.focus();
     };
   }, [open]);
 
@@ -132,6 +186,7 @@ export function Drawer({
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
+        data-overlay-panel=""
         aria-label={title}
         onClick={(e) => e.stopPropagation()}
         className={cx('flex h-full flex-col border-l border-line-strong bg-overlay outline-none', width)}
@@ -205,6 +260,7 @@ export function Modal({
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
+        data-overlay-panel=""
         aria-label={title}
         onClick={(e) => e.stopPropagation()}
         // `max-h` with a scrolling body rather than a growing panel: a long
@@ -296,6 +352,7 @@ export function ConfirmDialog({
         tabIndex={-1}
         role="alertdialog"
         aria-modal="true"
+        data-overlay-panel=""
         aria-label={title}
         onClick={(e) => e.stopPropagation()}
         className="flex max-h-[85dvh] w-[min(460px,92vw)] flex-col border border-line-strong bg-overlay outline-none"

@@ -56,7 +56,7 @@ function ConsoleLayout() {
     <div className="bridge">
       <Rail />
       <StatusStrip />
-      <div className="col-start-2 min-h-0 overflow-hidden">
+      <div className="bridge-main col-start-2 min-h-0 overflow-hidden">
         <Outlet />
       </div>
       <CommandPalette />

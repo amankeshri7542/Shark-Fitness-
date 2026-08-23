@@ -117,13 +117,20 @@ export function Panel({ title, action, children, className, tone = 'plain', span
   );
 }
 
-/** A row of cells sharing edges. The system's structural unit. */
+/**
+ * A row of cells sharing edges. The system's structural unit.
+ *
+ * The horizontal seam wraps. Its cells carry a `min-w` so a figure and its
+ * label never sit on top of each other, and three of those do not fit across a
+ * 375px phone — with no wrap they ran off the right of a pane that clips, so
+ * the third figure was not merely awkward, it was gone.
+ */
 export function Seam({ children, className, direction = 'x' }: {
   children: ReactNode;
   className?: string;
   direction?: 'x' | 'y';
 }) {
-  return <div className={cx('flex', direction === 'x' ? 'flex-row seam-x' : 'flex-col seam-y', className)}>{children}</div>;
+  return <div className={cx('flex', direction === 'x' ? 'flex-row flex-wrap seam-x' : 'flex-col seam-y', className)}>{children}</div>;
 }
 
 export type Tone = 'neutral' | 'accent' | 'good' | 'warn' | 'bad';
@@ -902,7 +909,10 @@ export function Segmented<T extends string>({
   };
 
   return (
-    <div role="group" aria-label={label} className="flex min-w-0 border border-line-strong">
+    // `overflow-x-auto`: seven state filters do not fit across a phone, and
+    // `whitespace-nowrap` on each option means they cannot be squashed into
+    // one. Scrolling keeps the ones past the edge reachable; clipping did not.
+    <div role="group" aria-label={label} className="flex min-w-0 overflow-x-auto border border-line-strong">
       {options.map((option, index) => {
         const isActive = option.value === value;
         return (
@@ -925,7 +935,7 @@ export function Segmented<T extends string>({
               else if (e.key === 'End') { e.preventDefault(); move(options.length - 1); }
             }}
             className={cx(
-              'flex-1 cursor-pointer whitespace-nowrap px-2.5 font-utility font-semibold uppercase tracking-[0.12em] transition-colors',
+              'flex-1 shrink-0 cursor-pointer whitespace-nowrap px-2.5 font-utility font-semibold uppercase tracking-[0.12em] transition-colors',
               height,
               index > 0 && 'border-l border-line',
               isActive ? 'bg-sonar text-on-accent' : 'text-foam-50 hover:text-sonar',

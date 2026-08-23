@@ -28,38 +28,29 @@
 }
 
 @layer components {
-  /* The console grid: rail | content, with the status strip spanning the top. */
+  /* The console grid: rail | content, with the status strip spanning the top.
+     `minmax(0, 1fr)` rather than `1fr`: a bare `1fr` will not shrink below its
+     content's min-content width, so one wide table pushed the whole column
+     past the viewport — and because this grid clips, everything past the edge
+     became unreachable rather than scrollable. */
   .bridge {
     display: grid;
-    grid-template-columns: 208px 1fr;
+    grid-template-columns: 208px minmax(0, 1fr);
     grid-template-rows: auto 1fr;
     height: 100dvh;
     overflow: hidden;
   }
 
-  @media (max-width: 1100px) {
-    .bridge {
-      grid-template-columns: 60px 1fr;
-    }
-    .bridge-rail-label {
-      display: none;
-    }
-  }
-
-  @media (max-width: 720px) {
-    .bridge {
-      grid-template-columns: 1fr;
-      grid-template-rows: auto auto 1fr;
-    }
-    .bridge-rail {
-      flex-direction: row;
-      overflow-x: auto;
-      border-right: 0;
-      border-bottom: 1px solid var(--sf-line);
-    }
-  }
-
   /* A seamed region: children share edges, divided by one hairline. */
+  /* A wrapped seam still needs its horizontal hairline. Every cell draws a top
+     border and the row is pulled up one pixel, so the first row's lands on the
+     rule above it and only the wrapped rows show a new one. */
+  .seam-x {
+    margin-top: -1px;
+  }
+  .seam-x > * {
+    border-top: 1px solid var(--sf-line);
+  }
   .seam-x > * + * {
     border-left: 1px solid var(--sf-line);
   }
@@ -154,5 +145,84 @@
   .sf-table tbody tr[data-total="true"] td {
     border-top: 1px solid var(--sf-line);
     font-weight: 600;
+  }
+}
+
+/* ============================================================================
+   RESPONSIVE LAYOUT — deliberately unlayered.
+
+   These rules override Tailwind utilities that sit on the same elements
+   (`flex-col`, `row-span-2`, `col-start-2`). Cascade layers beat specificity,
+   so anything written inside `@layer components` loses to a utility no matter
+   how it is selected — which is why the phone rail here had never actually
+   lain down: `.bridge-rail { flex-direction: row }` was being overruled by the
+   `flex-col` on the element every time, and nobody could see it because the
+   console is not usually opened at 375px.
+
+   Unlayered styles beat every layered one, so this block is where layout that
+   has to win goes. It is small on purpose.
+   ========================================================================= */
+
+@media (max-width: 1100px) {
+  .bridge {
+    grid-template-columns: 60px minmax(0, 1fr);
+  }
+  .bridge-rail-label {
+    display: none;
+  }
+  /* With its label gone the brand block is one 16px mark; centre it in the
+     60px rail rather than leaving it hard against the left padding. */
+  .bridge-rail-brand {
+    justify-content: center;
+    padding-inline: 0;
+  }
+}
+
+/* Phone. The rail lies down across the top and everything stacks under it.
+   The strip and the main pane carry `col-start-2` for the desktop grid; left
+   unreset here they landed in an *implicit* second column sized to their own
+   min-content — 647px wide inside a 375px viewport that clips. Sign out, the
+   theme and density toggles and the profile were all past the right edge,
+   with no scrollbar to reach them. */
+@media (max-width: 720px) {
+  .bridge {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
+  }
+  .bridge-rail {
+    grid-column: 1;
+    grid-row: 1;
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: 0;
+    border-bottom: 1px solid var(--sf-line);
+  }
+  /* The module list stays a column unless it is told otherwise, and turning
+     only its container sideways left a full-height stack of icons filling
+     the phone screen above the content. */
+  .bridge-rail-modules {
+    flex-direction: row;
+  }
+  .bridge-rail-item {
+    border-bottom: 0;
+    border-right: 1px solid var(--sf-line-10);
+  }
+  /* The active indicator runs along the edge the rail sits on. */
+  .bridge-rail-mark {
+    inset: auto 0 0 0;
+    width: auto;
+    height: 2px;
+  }
+  .bridge-rail-brand {
+    display: none;
+  }
+  .bridge-strip {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .bridge-main {
+    grid-column: 1;
+    grid-row: 3;
   }
 }

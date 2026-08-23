@@ -15,6 +15,7 @@ import {
   Metric,
   Panel,
   Seam,
+  Segmented,
   Skeleton,
   Toolbar,
   cx,
@@ -155,46 +156,35 @@ export default function MembersScreen() {
           className="min-w-[260px]"
         />
 
-        <div className="flex flex-col gap-1">
+        {/* `Segmented`, not a hand-rolled row of bordered buttons. This screen
+            carried the console's only remaining copy of that shape, and it ate
+            seven tab stops where the shared control takes one and moves
+            between options with the arrow keys — plus it clipped its last two
+            filters off the side of a phone instead of scrolling. */}
+        <div className="flex min-w-0 flex-col gap-1">
           <Label>Lifecycle</Label>
-          <div className="flex">
-            {LIFECYCLES.map((l, i) => (
-              <button
-                key={l}
-                type="button"
-                onClick={() => setLifecycle(l)}
-                aria-pressed={lifecycle === l}
-                className={cx(
-                  'min-h-9 border border-line px-2.5 font-utility text-[10px] font-semibold uppercase tracking-[0.1em] transition-colors',
-                  i > 0 && '-ml-px',
-                  lifecycle === l ? 'z-10 border-sonar text-sonar' : 'text-foam-45 hover:text-foam',
-                )}
-              >
-                {l}
-              </button>
-            ))}
-          </div>
+          <Segmented
+            label="Lifecycle"
+            size="md"
+            value={lifecycle}
+            onChange={setLifecycle}
+            options={LIFECYCLES.map((l) => ({ value: l, label: l }))}
+          />
         </div>
 
-        <div className="flex flex-col gap-1">
+        <div className="flex min-w-0 flex-col gap-1">
           <Label>Risk</Label>
-          <div className="flex">
-            {(['any', 'watch', 'high'] as const).map((r, i) => (
-              <button
-                key={r}
-                type="button"
-                onClick={() => setRisk(r)}
-                aria-pressed={risk === r}
-                className={cx(
-                  'min-h-9 border border-line px-2.5 font-utility text-[10px] font-semibold uppercase tracking-[0.1em] transition-colors',
-                  i > 0 && '-ml-px',
-                  risk === r ? 'z-10 border-sonar text-sonar' : 'text-foam-45 hover:text-foam',
-                )}
-              >
-                {r}
-              </button>
-            ))}
-          </div>
+          <Segmented
+            label="Risk"
+            size="md"
+            value={risk}
+            onChange={setRisk}
+            options={[
+              { value: 'any', label: 'any' },
+              { value: 'watch', label: 'watch' },
+              { value: 'high', label: 'high' },
+            ]}
+          />
         </div>
       </Toolbar>
 

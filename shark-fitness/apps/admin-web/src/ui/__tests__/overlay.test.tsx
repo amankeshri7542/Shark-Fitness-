@@ -260,6 +260,85 @@ describe('Modal', () => {
     expect(opener).toHaveFocus();
   });
 
+  it('gives focus back even when the dialog autofocuses a field', async () => {
+    // The case the plain restore test above cannot see, and the shape almost
+    // every real dialog has. React applies `autoFocus` during the commit,
+    // before any effect runs, so an effect asking "what had focus?" was told
+    // "this field, inside the dialog" — and restoring to it after the dialog
+    // was gone dropped the keyboard user on `<body>` at the top of the page.
+    const user = userEvent.setup();
+
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Add equipment
+          </button>
+          {open ? (
+            <Modal
+              open
+              onClose={() => setOpen(false)}
+              title="Add equipment"
+              footer={<button type="button">Save</button>}
+            >
+              {/* Every one of Equipment's, Training's and Leads' dialogs. */}
+              <input aria-label="Name" autoFocus />
+            </Modal>
+          ) : null}
+        </>
+      );
+    }
+
+    render(<Harness />);
+    const opener = screen.getByRole('button', { name: 'Add equipment' });
+    await user.click(opener);
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
+  });
+
+  it('does not strand focus when the control that opened it has gone', async () => {
+    // A row action whose row this dialog just removed. There is nothing to go
+    // back to, and focusing a detached node is worse than not trying.
+    const user = userEvent.setup();
+
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      const [rowThere, setRowThere] = useState(true);
+      return (
+        <>
+          {rowThere ? (
+            <button type="button" onClick={() => setOpen(true)}>
+              Delete row
+            </button>
+          ) : null}
+          {open ? (
+            <Modal
+              open
+              onClose={() => {
+                setRowThere(false);
+                setOpen(false);
+              }}
+              title="Delete row"
+            >
+              <p>Body</p>
+            </Modal>
+          ) : null}
+        </>
+      );
+    }
+
+    render(<Harness />);
+    await user.click(screen.getByRole('button', { name: 'Delete row' }));
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete row' })).not.toBeInTheDocument();
+  });
+
   it('renders nothing at all when closed', () => {
     render(
       <Modal open={false} onClose={() => undefined} title="New lead">
