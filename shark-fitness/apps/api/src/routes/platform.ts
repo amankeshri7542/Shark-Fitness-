@@ -27,9 +27,13 @@ export const platformRoutes = new Hono();
 
 /* — Customers (PF-PLAT-001, PF-PLAT-002) —————————————————— */
 
-platformRoutes.get('/tenants', platformOnly('platform.admin'), (c) => c.json(listTenants(ctxOf(c))));
+/* Reading the estate is gated on `platform.impersonate`, not `platform.admin`:
+   support has to find the account before they can enter it, and a console that
+   shows them nothing is one they would work around. Administering — status,
+   entitlements, health — stays with `platform.admin` below. */
+platformRoutes.get('/tenants', platformOnly('platform.impersonate'), (c) => c.json(listTenants(ctxOf(c))));
 
-platformRoutes.get('/tenants/:tenantId', platformOnly('platform.admin'), (c) =>
+platformRoutes.get('/tenants/:tenantId', platformOnly('platform.impersonate'), (c) =>
   c.json({ tenant: tenantDetail(ctxOf(c), c.req.param('tenantId')) }),
 );
 

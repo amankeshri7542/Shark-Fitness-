@@ -7,6 +7,7 @@ import {
   redirect,
 } from '@tanstack/react-router';
 import { CommandPalette, Rail, StatusStrip } from './ui/shell';
+import { SupportBanner } from './ui/SupportBanner';
 import { useAdmin } from './lib/store';
 
 // Sign-in ships in the entry chunk so the console's first paint needs no
@@ -53,13 +54,18 @@ function RoutePending() {
 
 function ConsoleLayout() {
   return (
-    <div className="bridge">
-      <Rail />
-      <StatusStrip />
-      <div className="bridge-main col-start-2 min-h-0 overflow-hidden">
-        <Outlet />
+    // The support banner sits above the console grid rather than inside it, so
+    // it cannot be scrolled away and does not compete with the rail for space.
+    <div className="flex h-dvh flex-col overflow-hidden">
+      <SupportBanner />
+      <div className="bridge min-h-0 flex-1">
+        <Rail />
+        <StatusStrip />
+        <div className="bridge-main col-start-2 min-h-0 overflow-hidden">
+          <Outlet />
+        </div>
+        <CommandPalette />
       </div>
-      <CommandPalette />
     </div>
   );
 }
@@ -194,7 +200,17 @@ const settingsRoute = createRoute({
     tab: SETTINGS_TABS.includes(search.tab as never) ? (search.tab as SettingsSearch['tab']) : 'business',
   }),
 });
-const platformRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/platform', component: PlatformScreen });
+const PLATFORM_TABS = ['tenants', 'health'] as const;
+type PlatformSearch = { tab: (typeof PLATFORM_TABS)[number] };
+
+const platformRoute = createRoute({
+  getParentRoute: () => consoleRoute,
+  path: '/platform',
+  component: PlatformScreen,
+  validateSearch: (search: Record<string, unknown>): PlatformSearch => ({
+    tab: PLATFORM_TABS.includes(search.tab as never) ? (search.tab as PlatformSearch['tab']) : 'tenants',
+  }),
+});
 
 const routeTree = rootRoute.addChildren([
   signInRoute,

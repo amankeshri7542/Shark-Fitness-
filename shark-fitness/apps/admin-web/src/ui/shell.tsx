@@ -113,7 +113,9 @@ export function StatusStrip({ alertCount = 0 }: { alertCount?: number }) {
           single-site operator, and a control that cannot change anything reads
           as one that is broken. They get the name; the switcher is for people
           who have somewhere to switch to. */}
-      {branches.length === 1 ? (
+      {/* A platform operator has no gym, so "All branches (0)" is a control
+          that cannot do anything and reads as broken. Say nothing instead. */}
+      {branches.length === 0 ? null : branches.length === 1 ? (
         <span className="flex items-center gap-2">
           <span className="font-utility text-[9px] uppercase tracking-[0.16em] text-foam-35">Branch</span>
           <span className="font-utility text-[11px] font-semibold uppercase tracking-[0.1em] text-foam">

@@ -448,7 +448,15 @@ describe('PF-PLAT-003 — platform health', () => {
 
   it('is refused to platform support, who may enter accounts and not administer', async () => {
     expect((await get(support, '/v1/platform/health')).status).toBe(403);
-    expect((await get(support, '/v1/platform/tenants')).status).toBe(403);
+    expect((await post(support, `/v1/platform/tenants/${REEF}/status`, { status: 'suspended', reason: 'Support overreaching' })).status).toBe(403);
+    expect((await patch(support, `/v1/platform/tenants/${REEF}/entitlements`, { plan: 'scale', reason: 'Support overreaching' })).status).toBe(403);
+  });
+
+  it('lets support read the estate, because they have to find the account to enter', async () => {
+    // A console that shows support nothing is one they would work around.
+    // Reading is `platform.impersonate`; changing a gym's standing is not.
+    expect((await get(support, '/v1/platform/tenants')).status).toBe(200);
+    expect((await get(support, `/v1/platform/tenants/${REEF}`)).status).toBe(200);
   });
 });
 
