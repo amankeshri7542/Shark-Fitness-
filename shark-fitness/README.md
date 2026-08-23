@@ -5,12 +5,12 @@ built to the four PRDs in the parent directory.
 
 ```
 apps/
-  api/            Hono + SQLite (D1-compatible) + Drizzle. 93 tables, migrations, seed.
+  api/            Hono + SQLite (D1-compatible) + Drizzle. 94 tables, migrations, seed.
   member-pwa/     React + Vite PWA, mobile-first, offline-capable.
   admin-web/      React + Vite operations console, desktop-first.
 packages/
   contracts/      Zod schemas, enums, error + event envelopes. One source of truth.
-  domain/         Pure business rules. 153 tests. No I/O, no framework.
+  domain/         Pure business rules. 248 tests. No I/O, no framework.
   design-tokens/  The Sonar design system + the copy register.
 infrastructure/
   migrations/     Generated SQL, checked in.
@@ -57,7 +57,7 @@ reception and then as owner to see it.
 ```bash
 pnpm lint                   # ESLint across the workspace, --max-warnings=0
 pnpm typecheck              # all six packages, zero errors
-pnpm test                   # 717 tests: 153 domain, 315 API, 24 member, 225 console
+pnpm test                   # 992 tests: 248 domain, 468 API, 24 member, 252 console
 pnpm build                  # both apps
 ```
 
@@ -90,6 +90,12 @@ being written inside a handler, it is in the wrong place.
 and D1 have no row-level security, so every query filters on `tenantId` and every
 branch-scoped query checks `ctx.branchIds`. There is no code path that reads a business
 table without a tenant.
+
+**This is beta software.** The business logic and the authorisation model are
+production-grade and tested from the outside. The infrastructure around them is
+a demo — one SQLite file with no backup, one instance, `console.log`, and no way
+to take money. `docs/PRODUCTION-READINESS.md` says exactly what is missing and
+what each gap costs to close; read it before deploying this anywhere real.
 
 **Branch scope has one answer, and it lives in `branchScope(ctx, branchId?)`.**
 No branch named and none selected means *every branch the caller may see* —
