@@ -147,6 +147,40 @@ function tenantRow(tenantId: string) {
   return row;
 }
 
+function archiveFacts(tenantId: string, atMs = now()): {
+  legalHolds: number;
+  liveClassesNow: number;
+  unpaidMinor: number;
+} {
+  return {
+    legalHolds: one(
+      db.select({ n: sql<number>`count(*)` }).from(schema.users)
+        .where(and(eq(schema.users.tenantId, tenantId), eq(schema.users.accountState, 'legal_hold'))).get()?.n,
+    ),
+    liveClassesNow: one(
+      db.select({ n: sql<number>`count(*)` }).from(schema.classSessions)
+        .where(and(
+          eq(schema.classSessions.tenantId, tenantId),
+          eq(schema.classSessions.state, 'scheduled'),
+          sql`${schema.classSessions.startsAt} <= ${atMs}`,
+          sql`${schema.classSessions.endsAt} >= ${atMs}`,
+        )).get()?.n,
+    ),
+    // Receivables are immutable accounting history, not a reason to leave a
+    // customer tenant operational forever. Return the actual balance in the
+    // refusal details so offboarding can resolve it deliberately.
+    unpaidMinor: one(
+      db.select({ n: sql<number>`coalesce(sum(${schema.invoices.totalMinor} - ${schema.invoices.paidMinor} - ${schema.invoices.refundedMinor}), 0)` })
+        .from(schema.invoices)
+        .where(and(
+          eq(schema.invoices.tenantId, tenantId),
+          eq(schema.invoices.voided, false),
+          inArray(schema.invoices.state, ['open', 'partially_paid', 'overdue']),
+        )).get()?.n,
+    ),
+  };
+}
+
 export function tenantDetail(_ctx: RequestContext, tenantId: string): TenantDetail {
   const row = tenantRow(tenantId);
   const status = row.status as TenantStatus;
@@ -246,15 +280,12 @@ export function setTenantStatus(ctx: RequestContext, tenantId: string, input: Te
   if (!transition.ok) throw precondition(transition.message);
 
   if (input.status === 'archived') {
-    const legalHolds = one(
-      db.select({ n: sql<number>`count(*)` }).from(schema.users)
-        .where(and(eq(schema.users.tenantId, tenantId), eq(schema.users.accountState, 'legal_hold'))).get()?.n,
-    );
-    const blockers = archiveBlockers({ legalHolds, liveClassesNow: 0, unpaidMinor: 0 });
+    const facts = archiveFacts(tenantId);
+    const blockers = archiveBlockers(facts);
     // A hold is placed by somebody outside this product. Support clearing it by
     // offboarding the tenant is the exact failure PF-PLAT-005 names, so this
     // refusal has no acknowledgement path at all.
-    if (!blockers.ok) throw conflict(blockers.message, { legalHolds });
+    if (!blockers.ok) throw conflict(blockers.message, facts);
   }
 
   transact(() => {

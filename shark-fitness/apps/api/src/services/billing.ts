@@ -8,7 +8,7 @@ import { conflict, invalid, notFound } from '../lib/errors.js';
 import { emit } from '../lib/events.js';
 import { id } from '../lib/ids.js';
 import { addDays, isoDate, now } from '../lib/time.js';
-import type { RequestContext } from '../lib/context.js';
+import { branchScope, type RequestContext } from '../lib/context.js';
 
 /** Must be called inside the transaction that inserts the invoice it numbers
  *  — this process is single-connection/synchronous (db/client.ts), so nothing
@@ -302,6 +302,7 @@ export function applyRefund(input: ApplyRefundInput): { refundId: string; invoic
     .where(and(eq(schema.payments.id, paymentId), eq(schema.payments.tenantId, ctx.tenantId)))
     .get();
   if (!payment) throw notFound('That payment');
+  const invoice = loadInvoiceInScope(ctx, payment.invoiceId ?? '');
   if (payment.state !== 'succeeded') throw conflict('Only a succeeded payment can be refunded.');
 
   const priorRefunds = db
@@ -311,9 +312,6 @@ export function applyRefund(input: ApplyRefundInput): { refundId: string; invoic
     .get();
   const refundableMinor = payment.amountMinor - (priorRefunds?.total ?? 0);
   if (amountMinor > refundableMinor) throw invalid(`That is more than the refundable balance (${refundableMinor}).`);
-
-  const invoice = db.select().from(schema.invoices).where(eq(schema.invoices.id, payment.invoiceId ?? '')).get();
-  if (!invoice) throw notFound('The invoice for that payment');
 
   const refundId = id('ref');
   db.insert(schema.refunds)
@@ -371,6 +369,6 @@ export function loadInvoiceInScope(ctx: { tenantId: string; branchIds: string[] 
     .from(schema.invoices)
     .where(and(eq(schema.invoices.id, invoiceId), eq(schema.invoices.tenantId, ctx.tenantId)))
     .get();
-  if (!invoice || !ctx.branchIds.includes(invoice.branchId)) throw notFound('That invoice');
+  if (!invoice || !branchScope(ctx).includes(invoice.branchId)) throw notFound('That invoice');
   return invoice;
 }

@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 /* ============================================================================
@@ -145,7 +146,11 @@ export const sessions = sqliteTable(
     impersonatorId: text('impersonator_id'),
     impersonationExpiresAt: integer('impersonation_expires_at'),
   },
-  (t) => ({ byUser: index('sessions_user_idx').on(t.userId) }),
+  (t) => ({
+    byUser: index('sessions_user_idx').on(t.userId),
+    byExpiry: index('sessions_expiry_idx').on(t.expiresAt),
+    byRevocation: index('sessions_revoked_idx').on(t.revokedAt).where(sql`revoked_at is not null`),
+  }),
 );
 
 export const otpChallenges = sqliteTable(
@@ -160,7 +165,11 @@ export const otpChallenges = sqliteTable(
     expiresAt: integer('expires_at').notNull(),
     consumedAt: integer('consumed_at'),
   },
-  (t) => ({ byIdentifier: index('otp_identifier_idx').on(t.identifier) }),
+  (t) => ({
+    byIdentifier: index('otp_identifier_idx').on(t.identifier),
+    byExpiry: index('otp_expiry_idx').on(t.expiresAt),
+    byConsumption: index('otp_consumed_idx').on(t.consumedAt).where(sql`consumed_at is not null`),
+  }),
 );
 
 export const consents = sqliteTable(
@@ -223,6 +232,10 @@ export const outboxEvents = sqliteTable(
   },
   (t) => ({
     byChannel: index('outbox_channel_seq_idx').on(t.channel, t.seq),
+    seqUnique: uniqueIndex('outbox_seq_uq').on(t.seq),
+    retention: index('outbox_retention_idx')
+      .on(t.at, t.deliveredAt, t.seq)
+      .where(sql`delivered_at is not null`),
   }),
 );
 
@@ -239,6 +252,7 @@ export const idempotencyKeys = sqliteTable(
     statusCode: integer('status_code').notNull().default(200),
     createdAt: integer('created_at').notNull(),
   },
+  (t) => ({ byCreatedAt: index('idempotency_created_idx').on(t.createdAt) }),
 );
 
 export const notifications = sqliteTable(
@@ -262,18 +276,22 @@ export const notifications = sqliteTable(
   (t) => ({ byUser: index('notifications_user_idx').on(t.userId, t.createdAt) }),
 );
 
-export const messageTemplates = sqliteTable('message_templates', {
-  id: text('id').primaryKey(),
-  tenantId: text('tenant_id').notNull(),
-  code: text('code').notNull(),
-  channel: text('channel').notNull(),
-  version: integer('version').notNull().default(1),
-  locale: text('locale').notNull().default('en'),
-  subject: text('subject'),
-  body: text('body').notNull(),
-  variables: text('variables', { mode: 'json' }).$type<string[]>().notNull(),
-  updatedAt: integer('updated_at').notNull(),
-});
+export const messageTemplates = sqliteTable(
+  'message_templates',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    code: text('code').notNull(),
+    channel: text('channel').notNull(),
+    version: integer('version').notNull().default(1),
+    locale: text('locale').notNull().default('en'),
+    subject: text('subject'),
+    body: text('body').notNull(),
+    variables: text('variables', { mode: 'json' }).$type<string[]>().notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (t) => ({ versionUnique: uniqueIndex('message_templates_version_uq').on(t.tenantId, t.code, t.version) }),
+);
 
 export const automations = sqliteTable('automations', {
   id: text('id').primaryKey(),
@@ -285,8 +303,17 @@ export const automations = sqliteTable('automations', {
     .$type<Array<{ field: string; op: string; value: string }>>()
     .notNull(),
   actions: text('actions', { mode: 'json' })
-    .$type<Array<{ kind: string; templateCode: string | null; delayMin: number }>>()
+    .$type<Array<{
+      kind: string;
+      templateCode: string | null;
+      templateId?: string | null;
+      templateVersion?: number | null;
+      delayMin: number;
+    }>>()
     .notNull(),
+  /** Null means every tenant branch. A scoped operator stores an explicit
+   * subset so a later scheduler run cannot silently widen their authority. */
+  branchIds: text('branch_ids', { mode: 'json' }).$type<string[] | null>(),
   quietHours: text('quiet_hours', { mode: 'json' }).$type<{ from: string; to: string } | null>(),
   state: text('state').notNull().default('draft'),
   dryRun: integer('dry_run', { mode: 'boolean' }).notNull().default(true),
@@ -328,12 +355,79 @@ export const automationRuns = sqliteTable(
     reason: text('reason').notNull().default(''),
     channel: text('channel').notNull(),
     templateCode: text('template_code'),
+    deliveryId: text('delivery_id'),
     notificationId: text('notification_id'),
     at: integer('at').notNull(),
   },
   (t) => ({
     byAutomation: index('automation_runs_idx').on(t.tenantId, t.automationId, t.at),
     bySubject: index('automation_runs_member_idx').on(t.tenantId, t.memberId, t.at),
+    byRetention: index('automation_runs_retention_idx').on(t.at, t.outcome),
+    deliveryUnique: uniqueIndex('automation_runs_delivery_uq')
+      .on(t.deliveryId)
+      .where(sql`delivery_id is not null`),
+  }),
+);
+
+/** Durable outbound work owned by the existing scheduler.
+ *
+ * The unique logical event is reserved while queued, not only after sending,
+ * so a restart or overlapping tick cannot enqueue the same member twice.
+ * Rendered copy and the immutable template version are snapshotted here; the
+ * worker still re-checks consent and operating state at delivery time.
+ */
+export const automationDeliveries = sqliteTable(
+  'automation_deliveries',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    automationId: text('automation_id').notNull(),
+    branchId: text('branch_id').notNull(),
+    memberId: text('member_id').notNull(),
+    userId: text('user_id').notNull(),
+    eventKey: text('event_key').notNull(),
+    channel: text('channel').notNull(),
+    templateCode: text('template_code'),
+    templateVersion: integer('template_version'),
+    title: text('title').notNull(),
+    body: text('body').notNull(),
+    dueAt: integer('due_at').notNull(),
+    /** queued | processing | sent | suppressed | failed */
+    state: text('state').notNull().default('queued'),
+    attempts: integer('attempts').notNull().default(0),
+    lastAttemptAt: integer('last_attempt_at'),
+    lockedAt: integer('locked_at'),
+    lastError: text('last_error'),
+    notificationId: text('notification_id'),
+    source: text('source').notNull(),
+    actorUserId: text('actor_user_id'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (t) => ({
+    eventUnique: uniqueIndex('automation_deliveries_event_uq').on(t.automationId, t.eventKey),
+    due: index('automation_deliveries_due_idx').on(t.state, t.dueAt),
+    byTenant: index('automation_deliveries_tenant_idx').on(t.tenantId, t.createdAt),
+    byRetention: index('automation_deliveries_retention_idx').on(t.updatedAt, t.state),
+  }),
+);
+
+/** Durable execution evidence for every in-process scheduled job. */
+export const jobRuns = sqliteTable(
+  'job_runs',
+  {
+    id: text('id').primaryKey(),
+    job: text('job').notNull(),
+    startedAt: integer('started_at').notNull(),
+    finishedAt: integer('finished_at'),
+    /** running | succeeded | failed */
+    status: text('status').notNull().default('running'),
+    durationMs: integer('duration_ms'),
+    error: text('error'),
+  },
+  (t) => ({
+    byJob: index('job_runs_job_idx').on(t.job, t.startedAt),
+    byRetention: index('job_runs_retention_idx').on(t.finishedAt, t.status),
   }),
 );
 

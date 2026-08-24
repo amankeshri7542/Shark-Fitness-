@@ -1,7 +1,8 @@
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { mkdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname } from 'node:path';
+import { runtimeConfig } from '../lib/config.js';
 import * as schema from './schema/index.js';
 
 /**
@@ -10,7 +11,7 @@ import * as schema from './schema/index.js';
  * docs/ADR-001-runtime.md for why this deviates from the PRD's D1 binding.
  */
 
-const DB_PATH = process.env.SHARK_DB ?? resolve(process.cwd(), 'data/shark.db');
+const DB_PATH = runtimeConfig.databasePath;
 
 mkdirSync(dirname(DB_PATH), { recursive: true });
 

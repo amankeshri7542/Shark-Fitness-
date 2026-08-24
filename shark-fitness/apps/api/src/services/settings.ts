@@ -30,7 +30,7 @@ import { db, schema, transact } from '../db/client.js';
 import { audit } from '../lib/audit.js';
 import { conflict, invalid, notFound, precondition } from '../lib/errors.js';
 import { id } from '../lib/ids.js';
-import { now } from '../lib/time.js';
+import { isValidTimeZone, now } from '../lib/time.js';
 import type { RequestContext } from '../lib/context.js';
 import { requirePermission } from '../lib/context.js';
 
@@ -391,6 +391,8 @@ export function updateBusinessProfile(ctx: RequestContext, patch: BusinessProfil
   requirePermission(ctx, 'settings.manage');
   const tenant = tenantRow(ctx.tenantId);
 
+  if (patch.timezone) assertTimezone(patch.timezone);
+
   const consequences: Consequence[] = [];
   if (patch.currency && patch.currency !== tenant.currency) {
     const invoices =
@@ -687,9 +689,7 @@ export function deleteRoom(ctx: RequestContext, roomId: string) {
  * server cannot resolve makes every date on that branch throw at read time.
  */
 function assertTimezone(zone: string): void {
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: zone });
-  } catch {
+  if (!isValidTimeZone(zone)) {
     throw invalid(`${zone} is not a timezone this system knows. Use an IANA name such as Asia/Kolkata.`);
   }
 }

@@ -1,11 +1,9 @@
-import { useState } from 'react';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
-import { useAdmin } from '../lib/store';
+import { useAdmin, usePermission } from '../lib/store';
 import { Page } from '../ui/shell';
 import {
-  BulkBar,
   Button,
   Chip,
   EmptyState,
@@ -14,6 +12,7 @@ import {
   Label,
   Metric,
   Panel,
+  PermissionState,
   Seam,
   Segmented,
   Skeleton,
@@ -58,7 +57,7 @@ interface MembersPayload {
   items: MemberRow[];
 }
 
-const LIFECYCLES = ['all', 'active', 'trial', 'frozen', 'grace', 'expired', 'former'] as const;
+const LIFECYCLES = ['all', 'engaged', 'active', 'trial', 'frozen', 'grace', 'expired', 'former'] as const;
 
 const STATE_TONE: Record<string, Tone> = {
   active: 'good',
@@ -71,31 +70,42 @@ const STATE_TONE: Record<string, Tone> = {
 };
 
 export default function MembersScreen() {
+  const canView = usePermission('member.view');
   const branchId = useAdmin((s) => s.activeBranchId);
-  const [search, setSearch] = useState('');
-  const [lifecycle, setLifecycle] = useState<string>('all');
-  const [risk, setRisk] = useState<'any' | 'high' | 'watch'>('any');
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const filters = useSearch({ from: '/console/members' });
+  const navigate = useNavigate({ from: '/members' });
+  const search = filters.q ?? '';
+  const lifecycle = filters.lifecycle ?? 'all';
+  const risk = filters.risk ?? 'any';
+
+  const setFilters = (next: Partial<typeof filters>): void => {
+    void navigate({
+      search: (current) => ({ ...current, ...next }),
+      replace: true,
+    });
+  };
 
   const params = new URLSearchParams();
   if (search.trim()) params.set('q', search.trim());
   if (lifecycle !== 'all') params.set('lifecycle', lifecycle);
   if (risk !== 'any') params.set('risk', risk);
+  if (filters.joined) params.set('joined', filters.joined);
+  if (filters.expiring) params.set('expiring', String(filters.expiring));
 
   const { data, isLoading, error, refetch, isFetching } = useQuery({
-    queryKey: ['members', branchId, search, lifecycle, risk],
+    queryKey: ['members', branchId, search, lifecycle, risk, filters.joined, filters.expiring],
     queryFn: () => api<MembersPayload>(`/admin/members?${params}`, { branchId }),
     placeholderData: keepPreviousData,
+    enabled: canView,
   });
 
-  const toggle = (id: string): void => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
+  if (!canView) {
+    return (
+      <Page title="Members">
+        <PermissionState what="Member records" />
+      </Page>
+    );
+  }
 
   if (isLoading) return <MembersSkeleton />;
 
@@ -152,7 +162,7 @@ export default function MembersScreen() {
           label="Search"
           placeholder="Name, member number, email or phone"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => setFilters({ q: e.target.value || undefined })}
           className="min-w-[260px]"
         />
 
@@ -167,8 +177,11 @@ export default function MembersScreen() {
             label="Lifecycle"
             size="md"
             value={lifecycle}
-            onChange={setLifecycle}
-            options={LIFECYCLES.map((l) => ({ value: l, label: l }))}
+            onChange={(value) => setFilters({ lifecycle: value })}
+            options={LIFECYCLES.map((value) => ({
+              value,
+              label: value === 'engaged' ? 'active + trial' : value,
+            }))}
           />
         </div>
 
@@ -178,7 +191,7 @@ export default function MembersScreen() {
             label="Risk"
             size="md"
             value={risk}
-            onChange={setRisk}
+            onChange={(value) => setFilters({ risk: value })}
             options={[
               { value: 'any', label: 'any' },
               { value: 'watch', label: 'watch' },
@@ -186,32 +199,30 @@ export default function MembersScreen() {
             ]}
           />
         </div>
-      </Toolbar>
 
-      {/* Bulk actions appear only after a selection (Design PRD §5.5). */}
-      <BulkBar count={selected.size} onClear={() => setSelected(new Set())}>
-        <Button variant="outline">Add tag</Button>
-        <Button variant="outline">Assign trainer</Button>
-        <Button variant="outline">Message</Button>
-        <Button variant="outline">Export</Button>
-      </BulkBar>
+        {filters.joined ? <Chip tone="accent">Joined this month</Chip> : null}
+        {filters.expiring ? <Chip tone="warn">Expiring in {filters.expiring} days</Chip> : null}
+        {filters.joined || filters.expiring ? (
+          <Button variant="outline" onClick={() => setFilters({ joined: undefined, expiring: undefined })}>
+            Clear drill-down
+          </Button>
+        ) : null}
+      </Toolbar>
 
       {data.items.length === 0 ? (
         <EmptyState
           title="No members match"
           body={
-            search || lifecycle !== 'all' || risk !== 'any'
+            search || lifecycle !== 'all' || risk !== 'any' || filters.joined || filters.expiring
               ? 'Nothing fits those filters. Widen them, or clear the search.'
               : 'This branch has no members yet. Convert a lead to get started.'
           }
           action={
-            search || lifecycle !== 'all' || risk !== 'any' ? (
+            search || lifecycle !== 'all' || risk !== 'any' || filters.joined || filters.expiring ? (
               <Button
                 variant="outline"
                 onClick={() => {
-                  setSearch('');
-                  setLifecycle('all');
-                  setRisk('any');
+                  void navigate({ search: () => ({ lifecycle: 'all', risk: 'any' }), replace: true });
                 }}
               >
                 Clear filters
@@ -227,9 +238,6 @@ export default function MembersScreen() {
         <TableScroll><Table>
           <thead>
             <tr>
-              <th className="w-8">
-                <span className="sr-only">Select</span>
-              </th>
               <th>Member</th>
               <th>Plan</th>
               <th>Last seen</th>
@@ -240,16 +248,7 @@ export default function MembersScreen() {
           </thead>
           <tbody>
             {data.items.map((m) => (
-              <tr key={m.id} data-selected={selected.has(m.id)}>
-                <td>
-                  <input
-                    type="checkbox"
-                    checked={selected.has(m.id)}
-                    onChange={() => toggle(m.id)}
-                    aria-label={`Select ${m.name}`}
-                    className="h-4 w-4 accent-[var(--sf-sonar)]"
-                  />
-                </td>
+              <tr key={m.id}>
                 <td>
                   <Link to="/members/$memberId" params={{ memberId: m.id }} className="flex items-center gap-2.5 hover:text-sonar">
                     <span className="grid h-7 w-7 flex-none place-items-center border border-line-strong font-utility text-[10px] font-semibold">

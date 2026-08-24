@@ -43,6 +43,13 @@
       "when": 1787498559653,
       "tag": "0005_phase12_automations",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1787505234180,
+      "tag": "0006_final_hardening",
+      "breakpoints": true
     }
   ]
 }

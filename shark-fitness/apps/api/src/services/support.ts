@@ -42,6 +42,7 @@ import { conflict, invalid, notFound, precondition } from '../lib/errors.js';
 import { emit } from '../lib/events.js';
 import { id } from '../lib/ids.js';
 import { isoDate, localMinutes, now } from '../lib/time.js';
+import { loadMemberInScope, memberBranchIds } from './members.js';
 
 /**
  * Support, feedback and retention (PF-SUP-001…006).
@@ -116,7 +117,7 @@ function ticketInScope(ctx: RequestContext, ticketId: string): TicketRow {
     .where(and(eq(schema.tickets.id, ticketId), eq(schema.tickets.tenantId, ctx.tenantId)))
     .get();
   if (!ticket) throw notFound('That ticket');
-  if (ticket.branchId !== null && !ctx.branchIds.includes(ticket.branchId)) throw notFound('That ticket');
+  if (ticket.branchId !== null && !branchScope(ctx).includes(ticket.branchId)) throw notFound('That ticket');
   return ticket;
 }
 
@@ -685,15 +686,18 @@ export function createTicket(ctx: RequestContext, input: TicketCreateInput) {
 
   let member: typeof schema.members.$inferSelect | undefined;
   if (input.memberId) {
-    member = db
+    const deletedMember = db
       .select()
       .from(schema.members)
       .where(and(eq(schema.members.id, input.memberId), eq(schema.members.tenantId, ctx.tenantId)))
       .get();
-    if (!member) throw notFound('That member');
-    if (member.deletedAt !== null) {
+    if (deletedMember && deletedMember.deletedAt !== null) {
+      if (!memberBranchIds(deletedMember).some((candidate) => branchScope(ctx).includes(candidate))) {
+        throw notFound('That member');
+      }
       throw precondition('That member record has been deleted. Raise the ticket without a member instead.');
     }
+    member = loadMemberInScope(ctx, input.memberId);
     // A ticket belongs where the member trains unless the desk said otherwise.
     branchId = branchId ?? member.homeBranchId;
   }
@@ -1324,12 +1328,7 @@ export function recordFeedback(ctx: RequestContext, input: FeedbackCreateInput) 
 
   let memberId: string | null = null;
   if (input.memberId && !anonymous) {
-    const member = db
-      .select({ id: schema.members.id, homeBranchId: schema.members.homeBranchId })
-      .from(schema.members)
-      .where(and(eq(schema.members.id, input.memberId), eq(schema.members.tenantId, ctx.tenantId)))
-      .get();
-    if (!member) throw notFound('That member');
+    const member = loadMemberInScope(ctx, input.memberId);
     memberId = member.id;
     branchId = branchId ?? member.homeBranchId;
   }
@@ -1819,7 +1818,7 @@ export function closeIntervention(ctx: RequestContext, interventionId: string, i
     .where(and(eq(schema.interventions.id, interventionId), eq(schema.interventions.tenantId, ctx.tenantId)))
     .get();
   if (!row) throw notFound('That intervention');
-  if (!ctx.branchIds.includes(row.branchId)) throw notFound('That intervention');
+  if (!branchScope(ctx).includes(row.branchId)) throw notFound('That intervention');
   if (row.state !== 'open') throw conflict('That intervention is already closed.');
 
   const at = now();

@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError, api } from '../lib/api';
+import { ApiError, api, idempotencyKey } from '../lib/api';
 import { ScreenBody, Stack } from '../ui/shell';
 import { Button, Chip, Display, EmptyState, ErrorState, Label, Metric, Panel, Seam, SeamCell, SectionRule, Skeleton, type Tone } from '../ui/primitives';
 
@@ -173,9 +173,14 @@ type Stage = 'confirming' | 'succeeded' | 'failed';
 function CheckoutSheet({ invoiceId, onClose, onDone }: { invoiceId: string; onClose: () => void; onDone: () => void }) {
   const [stage, setStage] = useState<Stage>('confirming');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [attemptKey, setAttemptKey] = useState(() => idempotencyKey('member-checkout', invoiceId));
 
   const intent = useMutation({
-    mutationFn: () => api<{ intentId: string; amountMinor: number; clientToken: string }>('/member/billing/checkout-intent', { method: 'POST', body: { invoiceId } }),
+    mutationFn: () => api<{ intentId: string; amountMinor: number; clientToken: string }>('/member/billing/checkout-intent', {
+      method: 'POST',
+      body: { invoiceId },
+      idempotencyKey: attemptKey,
+    }),
     onError: (e) => {
       setStage('failed');
       setErrorMessage(e instanceof ApiError ? e.message : 'Could not start checkout.');
@@ -191,10 +196,12 @@ function CheckoutSheet({ invoiceId, onClose, onDone }: { invoiceId: string; onCl
       setErrorMessage(e instanceof ApiError ? e.message : 'The payment could not be confirmed.');
     },
   });
+  const intentIsIdle = intent.isIdle;
+  const startIntent = intent.mutate;
 
-  if (stage === 'confirming' && !intent.isPending && !intent.isSuccess && !intent.isError) {
-    intent.mutate();
-  }
+  useEffect(() => {
+    if (stage === 'confirming' && intentIsIdle) startIntent();
+  }, [attemptKey, intentIsIdle, stage, startIntent]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-scrim sm:items-center" onClick={stage !== 'confirming' ? onClose : undefined} role="presentation">
@@ -215,6 +222,8 @@ function CheckoutSheet({ invoiceId, onClose, onDone }: { invoiceId: string; onCl
               variant="cta"
               onClick={() => {
                 setStage('confirming');
+                setErrorMessage(null);
+                setAttemptKey(idempotencyKey('member-checkout', invoiceId));
                 intent.reset();
                 confirm.reset();
               }}

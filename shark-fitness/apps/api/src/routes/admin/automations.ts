@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { ctxOf } from '../../middleware/index.js';
+import { ctxOf, rateLimit } from '../../middleware/index.js';
 import { validate } from '../../middleware/validate.js';
 import { runIdempotently } from '../../lib/idempotency.js';
 import {
@@ -40,6 +40,8 @@ const AutomationBody = z.object({
   conditions: z.array(ConditionInput).max(10).default([]),
   channel: z.enum(['in_app', 'push', 'email', 'sms', 'whatsapp']),
   templateCode: z.string().trim().max(60).nullable(),
+  delayMin: z.number().int().min(0).max(7 * 24 * 60).optional(),
+  branchIds: z.array(z.string().trim().min(1)).min(1).max(100).nullable().optional(),
   quietHours: z.object({ from: z.string().regex(/^\d{2}:\d{2}$/), to: z.string().regex(/^\d{2}:\d{2}$/) }).nullable().optional(),
 });
 
@@ -49,7 +51,7 @@ automationRoutes.post('/', validate('json', AutomationBody), (c) => {
   const ctx = ctxOf(c);
   const body = c.req.valid('json');
   const response = runIdempotently(ctx, '/admin/automations', c.req.header('idempotency-key'), body, () =>
-    createAutomation(ctx, body),
+    createAutomation(ctx, { ...body, delayMin: body.delayMin ?? 0 }),
   );
   return c.json(response, 201);
 });
@@ -71,13 +73,17 @@ automationRoutes.get('/:automationId/preview', (c) => c.json(previewRun(ctxOf(c)
  * decided in the service, so this endpoint cannot be the way somebody
  * accidentally goes live.
  */
-automationRoutes.post('/:automationId/run', (c) => c.json(runAutomation(ctxOf(c), c.req.param('automationId'))));
+automationRoutes.post(
+  '/:automationId/run',
+  rateLimit(10, 60_000, { identity: 'actor', bucket: 'automation-manual-run' }),
+  (c) => c.json(runAutomation(ctxOf(c), c.req.param('automationId'))),
+);
 
 automationRoutes.get(
   '/runs',
   validate('query', z.object({
     automationId: z.string().optional(),
-    outcome: z.enum(['sent', 'suppressed', 'failed', 'dry_run']).optional(),
+    outcome: z.enum(['sent', 'queued', 'suppressed', 'failed', 'dry_run']).optional(),
     limit: z.coerce.number().int().min(1).max(200).optional(),
   })),
   (c) => c.json(runHistory(ctxOf(c), c.req.valid('query'))),
@@ -95,5 +101,12 @@ automationRoutes.post(
     subject: z.string().trim().max(160).nullable(),
     body: z.string().trim().min(1).max(2000),
   })),
-  (c) => c.json(saveTemplate(ctxOf(c), c.req.valid('json')), 201),
+  (c) => {
+    const ctx = ctxOf(c);
+    const body = c.req.valid('json');
+    return c.json(
+      runIdempotently(ctx, '/admin/automations/templates', c.req.header('idempotency-key'), body, () => saveTemplate(ctx, body)),
+      201,
+    );
+  },
 );

@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, desc, eq, gt, isNull, sql } from 'drizzle-orm';
-import { channels } from '@shark/contracts';
-import { decideAccess, occupancyLabel } from '@shark/domain';
+import { channels, type BranchState } from '@shark/contracts';
+import { branchTrades, decideAccess, occupancyLabel } from '@shark/domain';
 import { db, schema } from '../../db/client.js';
 import { ctxOf } from '../../middleware/index.js';
 import { emit } from '../../lib/events.js';
@@ -141,6 +141,7 @@ passRoutes.get('/', (c) => {
         membershipState: membership.state as 'active',
         permittedBranchIds: ctx.branchIds,
         branchId,
+        branchTrading: branchTrades(branch.state as BranchState),
         nowMinutes: localMinutes(now(), tz),
         opensMinutes: branch.opensMinutes,
         closesMinutes: branch.closesMinutes,

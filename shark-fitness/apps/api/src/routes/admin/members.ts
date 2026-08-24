@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { and, desc, eq, inArray, isNull, like, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, like, lt, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { validate } from '../../middleware/validate.js';
 import { channels } from '@shark/contracts';
@@ -14,14 +14,16 @@ import { id } from '../../lib/ids.js';
 import { DAY, addDays, isoDate, now, relativeTime } from '../../lib/time.js';
 import { memberTrainingSummary } from '../../services/training-admin.js';
 import { loadMemberInScope } from '../../services/members.js';
+import { branchTimeZone } from '../../lib/branch-time.js';
 
 export const membersRoutes = new Hono();
 
 const ListQuery = z.object({
   q: z.string().optional(),
-  lifecycle: z.string().optional(),
+  lifecycle: z.enum(['all', 'engaged', 'active', 'trial', 'frozen', 'grace', 'expired', 'former']).optional(),
   risk: z.enum(['high', 'watch', 'any']).optional(),
-  expiring: z.coerce.number().int().optional(),
+  joined: z.enum(['this_month']).optional(),
+  expiring: z.coerce.number().int().min(1).max(365).optional(),
   trainerId: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0),
@@ -46,9 +48,31 @@ membersRoutes.get('/', validate('query', ListQuery), (c) => {
     filters.push(eq(schema.members.trainerId, ctx.staffId));
   }
   if (q.trainerId) filters.push(eq(schema.members.trainerId, q.trainerId));
-  if (q.lifecycle && q.lifecycle !== 'all') filters.push(eq(schema.members.lifecycle, q.lifecycle));
+  if (q.lifecycle === 'engaged') filters.push(inArray(schema.members.lifecycle, ['active', 'trial', 'corporate']));
+  else if (q.lifecycle && q.lifecycle !== 'all') filters.push(eq(schema.members.lifecycle, q.lifecycle));
   if (q.risk === 'high') filters.push(sql`${schema.members.riskScore} >= 55`);
   if (q.risk === 'watch') filters.push(sql`${schema.members.riskScore} >= 28`);
+
+  const timeZone = branchTimeZone(ctx.tenantId, ctx.activeBranchId);
+  const today = isoDate(now(), timeZone);
+  if (q.joined === 'this_month') {
+    const monthStart = `${today.slice(0, 7)}-01`;
+    const nextMonth = new Date(`${monthStart}T00:00:00Z`);
+    nextMonth.setUTCMonth(nextMonth.getUTCMonth() + 1);
+    filters.push(gte(schema.members.joinedOn, monthStart), lt(schema.members.joinedOn, nextMonth.toISOString().slice(0, 10)));
+  }
+  if (q.expiring) {
+    const through = addDays(today, q.expiring);
+    filters.push(sql`exists (
+      select 1 from ${schema.memberships} drill_membership
+      where drill_membership.member_id = ${schema.members.id}
+        and drill_membership.tenant_id = ${ctx.tenantId}
+        and drill_membership.state = 'active'
+        and drill_membership.auto_renew = 0
+        and drill_membership.ends_on >= ${today}
+        and drill_membership.ends_on <= ${through}
+    )`);
+  }
 
   if (q.q) {
     const term = `%${q.q.toLowerCase()}%`;

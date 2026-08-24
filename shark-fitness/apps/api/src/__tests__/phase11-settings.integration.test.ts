@@ -152,6 +152,34 @@ describe('PF-TEN-001 — the business profile', () => {
     expect(body.timezone).toBe('Asia/Kolkata');
   });
 
+  it('refuses an unresolvable tenant timezone without changing the stored value', async () => {
+    const before = db
+      .select({ timezone: schema.tenants.timezone })
+      .from(schema.tenants)
+      .where(eq(schema.tenants.id, tenantId()))
+      .get()!.timezone;
+
+    const response = await patch(owner, '/v1/admin/settings/business', { timezone: 'Mars/Olympus' });
+
+    expect(response.status).toBe(422);
+    expect(
+      db.select({ timezone: schema.tenants.timezone }).from(schema.tenants).where(eq(schema.tenants.id, tenantId())).get()!
+        .timezone,
+    ).toBe(before);
+  });
+
+  it.each(['Asia/Kolkata', 'Asia/Calcutta'])('accepts and preserves the valid IANA alias %s', async (timezone) => {
+    try {
+      const response = await patch(owner, '/v1/admin/settings/business', { timezone });
+      expect(response.status).toBe(200);
+      expect(((await response.json()) as { timezone: string }).timezone).toBe(timezone);
+    } finally {
+      if (timezone !== 'Asia/Kolkata') {
+        expect((await patch(owner, '/v1/admin/settings/business', { timezone: 'Asia/Kolkata' })).status).toBe(200);
+      }
+    }
+  });
+
   it('stores a tax profile and a data-processing policy', async () => {
     const res = await patch(owner, '/v1/admin/settings/business', {
       taxProfile: { registrationNumber: '29ABCDE1234F1Z5', label: 'GST', defaultRateBp: 1800, pricesIncludeTax: false },

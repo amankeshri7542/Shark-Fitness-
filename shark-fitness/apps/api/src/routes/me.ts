@@ -190,7 +190,11 @@ meRoutes.get('/notifications', (c) => {
   const items = db
     .select()
     .from(schema.notifications)
-    .where(and(eq(schema.notifications.tenantId, ctx.tenantId), eq(schema.notifications.userId, ctx.userId)))
+    .where(and(
+      eq(schema.notifications.tenantId, ctx.tenantId),
+      eq(schema.notifications.userId, ctx.userId),
+      eq(schema.notifications.state, 'sent'),
+    ))
     .orderBy(desc(schema.notifications.createdAt))
     .limit(50)
     .all()
@@ -221,6 +225,7 @@ meRoutes.post('/notifications/read', validate('json', z.object({ ids: z.array(z.
           and(
             eq(schema.notifications.tenantId, ctx.tenantId),
             eq(schema.notifications.userId, ctx.userId),
+            eq(schema.notifications.state, 'sent'),
             isNull(schema.notifications.readAt),
           ),
         )
@@ -244,6 +249,12 @@ meRoutes.post('/notifications/read', validate('json', z.object({ ids: z.array(z.
 
 meRoutes.post('/data-export', (c) => {
   const ctx = ctxOf(c);
+  const tenant = db
+    .select({ dataProcessing: schema.tenants.dataProcessing })
+    .from(schema.tenants)
+    .where(eq(schema.tenants.id, ctx.tenantId))
+    .get();
+  const privacyContact = String(tenant?.dataProcessing?.privacyContact ?? 'your gym privacy contact');
   audit(ctx, {
     action: 'data.export_requested',
     entityType: 'user',
@@ -252,7 +263,10 @@ meRoutes.post('/data-export', (c) => {
   });
   return c.json({
     ok: true,
-    message: 'Your export is being prepared. You will get a link within 24 hours; it stays valid for 7 days.',
+    status: 'recorded_manual',
+    message:
+      `Your request is recorded in the audit trail. This release does not generate or send the file automatically; ` +
+      `${privacyContact} must prepare it and contact you.`,
   });
 });
 
@@ -263,6 +277,17 @@ meRoutes.post('/deletion-request', validate('json', z.object({ reason: z.string(
     .set({ accountState: 'deletion_requested', updatedAt: now() })
     .where(and(eq(schema.users.id, ctx.userId), eq(schema.users.tenantId, ctx.tenantId)))
     .run();
+  db.update(schema.sessions)
+    .set({ revokedAt: now() })
+    .where(and(eq(schema.sessions.userId, ctx.userId), eq(schema.sessions.tenantId, ctx.tenantId), isNull(schema.sessions.revokedAt)))
+    .run();
+
+  const tenant = db
+    .select({ dataProcessing: schema.tenants.dataProcessing })
+    .from(schema.tenants)
+    .where(eq(schema.tenants.id, ctx.tenantId))
+    .get();
+  const privacyContact = String(tenant?.dataProcessing?.privacyContact ?? 'your gym privacy contact');
 
   audit(ctx, {
     action: 'account.deletion_requested',
@@ -274,8 +299,10 @@ meRoutes.post('/deletion-request', validate('json', z.object({ reason: z.string(
 
   return c.json({
     ok: true,
+    status: 'recorded_manual',
     message:
-      'Your request is recorded. Financial and safety records that the law requires us to keep are retained; everything else is removed within 30 days. You can cancel this before then.',
+      `Your request is recorded and this account has been signed out. This release does not erase data automatically; ` +
+      `${privacyContact} must review the request, apply the gym’s retention policy, and contact you about the outcome.`,
   });
 });
 

@@ -51,7 +51,9 @@ const post = (session: Session, path: string, body: unknown) =>
 
 beforeAll(() => {
   // Successful check-in tests must not depend on the CI runner's local hour.
-  db.update(schema.branches).set({ opensMinutes: 0, closesMinutes: 24 * 60 }).run();
+  db.update(schema.branches)
+    .set({ state: 'active', opensMinutes: 0, closesMinutes: 24 * 60, hours: null, holidays: [] })
+    .run();
 });
 
 function tenantId(): string {
@@ -328,6 +330,9 @@ describe('Phase 4 — front desk attendance', () => {
 
     const original = db.select().from(schema.checkIns).where(eq(schema.checkIns.id, checkInId)).get();
     expect(original?.decision.startsWith('denied_')).toBe(true);
+
+    // Keep the shared blocked-member fixture reusable by later override cases.
+    expect((await post(manager, '/v1/admin/attendance/check-out', { checkInId: body.checkInId })).status).toBe(200);
   });
 
   it('rejects an override with no meaningful reason', async () => {

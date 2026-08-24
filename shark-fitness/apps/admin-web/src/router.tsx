@@ -87,10 +87,43 @@ const consoleRoute = createRoute({
 const homeRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/', component: CommandCenterScreen });
 const leadsRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/leads', component: LeadsScreen });
 const leadDetailRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/leads/$leadId', component: LeadDetailScreen });
-const membersRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/members', component: MembersScreen });
+const MEMBER_LIFECYCLES = ['all', 'engaged', 'active', 'trial', 'frozen', 'grace', 'expired', 'former'] as const;
+const MEMBER_RISKS = ['any', 'high', 'watch'] as const;
+type MembersSearch = {
+  q?: string;
+  lifecycle?: (typeof MEMBER_LIFECYCLES)[number];
+  risk?: (typeof MEMBER_RISKS)[number];
+  joined?: 'this_month';
+  expiring?: number;
+};
+const membersRoute = createRoute({
+  getParentRoute: () => consoleRoute,
+  path: '/members',
+  component: MembersScreen,
+  validateSearch: (search: Record<string, unknown>): MembersSearch => ({
+    ...(typeof search.q === 'string' && search.q.trim() ? { q: search.q } : {}),
+    lifecycle: MEMBER_LIFECYCLES.includes(search.lifecycle as never)
+      ? (search.lifecycle as MembersSearch['lifecycle'])
+      : undefined,
+    risk: MEMBER_RISKS.includes(search.risk as never) ? (search.risk as MembersSearch['risk']) : undefined,
+    ...(search.joined === 'this_month' ? { joined: 'this_month' as const } : {}),
+    ...(Number.isInteger(Number(search.expiring)) && Number(search.expiring) >= 1 && Number(search.expiring) <= 365
+      ? { expiring: Number(search.expiring) }
+      : {}),
+  }),
+});
 const memberDetailRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/members/$memberId', component: MemberDetailScreen });
 const plansRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/plans', component: PlansScreen });
-const billingRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/billing', component: BillingScreen });
+const INVOICE_STATES = ['', 'outstanding', 'open', 'partially_paid', 'overdue', 'paid', 'void', 'partially_refunded', 'refunded'] as const;
+type BillingSearch = { state?: (typeof INVOICE_STATES)[number] };
+const billingRoute = createRoute({
+  getParentRoute: () => consoleRoute,
+  path: '/billing',
+  component: BillingScreen,
+  validateSearch: (search: Record<string, unknown>): BillingSearch => ({
+    state: INVOICE_STATES.includes(search.state as never) ? (search.state as BillingSearch['state']) : undefined,
+  }),
+});
 const floorRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/floor', component: FloorScreen });
 const scheduleRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/schedule', component: ScheduleScreen });
 const trainingRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/training', component: TrainingScreen });

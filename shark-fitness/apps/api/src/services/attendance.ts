@@ -1,10 +1,10 @@
 import { and, desc, eq, gt, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { channels } from '@shark/contracts';
-import type { AccessDecision } from '@shark/contracts';
-import { DENIAL_COPY, decideAccess, occupancyLabel } from '@shark/domain';
+import type { AccessDecision, BranchState } from '@shark/contracts';
+import { DENIAL_COPY, branchTrades, decideAccess, occupancyLabel } from '@shark/domain';
 import { db, schema, transact } from '../db/client.js';
 import { openWindow, policyValue } from '../lib/policy.js';
-import type { RequestContext } from '../lib/context.js';
+import { branchScope, type RequestContext } from '../lib/context.js';
 import { audit } from '../lib/audit.js';
 import { emit } from '../lib/events.js';
 import { conflict, invalid, notFound, precondition } from '../lib/errors.js';
@@ -54,7 +54,7 @@ const CHECK_IN_REPLAY_WINDOW = 2 * 60_000;
  * the one refusal staff must never wave through — the fix is to open the app,
  * not to trust a screenshot (see `packages/domain/src/access.ts`).
  */
-const NON_OVERRIDABLE: readonly AccessDecision[] = ['denied_token_replayed'];
+const NON_OVERRIDABLE: readonly AccessDecision[] = ['denied_token_replayed', 'denied_branch_closed'];
 
 export function isOverridable(decision: string): boolean {
   return decision !== 'granted' && !NON_OVERRIDABLE.includes(decision as AccessDecision);
@@ -75,7 +75,7 @@ export function loadBranchInScope(
     .from(schema.branches)
     .where(and(eq(schema.branches.id, branchId), eq(schema.branches.tenantId, ctx.tenantId)))
     .get();
-  if (!branch || !ctx.branchIds.includes(branch.id)) throw notFound('That branch');
+  if (!branch || !branchScope(ctx).includes(branch.id)) throw notFound('That branch');
   return branch;
 }
 
@@ -88,7 +88,7 @@ export function loadCheckInInScope(
     .from(schema.checkIns)
     .where(and(eq(schema.checkIns.id, checkInId), eq(schema.checkIns.tenantId, ctx.tenantId)))
     .get();
-  if (!row || !ctx.branchIds.includes(row.branchId)) throw notFound('That check-in');
+  if (!row || !branchScope(ctx).includes(row.branchId)) throw notFound('That check-in');
   return row;
 }
 
@@ -281,6 +281,7 @@ function decideForDesk(
     membershipState: (membership?.state ?? 'expired') as 'active',
     permittedBranchIds: memberBranchIds(member),
     branchId: branch.id,
+    branchTrading: branchTrades(branch.state as BranchState),
     nowMinutes: localMinutes(atMs, branch.timezone),
     // The day's own hours where the branch sets them, the branch's typical
     // day otherwise, and a holiday closes the door outright (PF-TEN-002).

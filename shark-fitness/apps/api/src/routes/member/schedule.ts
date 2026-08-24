@@ -16,6 +16,7 @@ import { AppError, conflict, entitlementMissing, notFound, precondition } from '
 import {
   LIVE_BOOKING_STATES,
   LIVE_WAITLIST_STATES,
+  assertBranchAcceptsBookings,
   claimSeat,
   classCreditsHeld,
   deadHoldCount,
@@ -724,6 +725,8 @@ scheduleRoutes.post('/waitlist', validate('json', WaitlistBody), (c) => {
   const entry = transact(() => {
     const existing = myWaitlistFor(memberId, session.id);
     if (existing) return existing;
+
+    assertBranchAcceptsBookings(ctx.tenantId, session.branchId);
 
     if (session.state === 'cancelled') throw precondition('This class was cancelled.');
     if (session.startsAt <= atMs) throw new AppError('BOOKING_WINDOW_CLOSED', 'This class has already started.');

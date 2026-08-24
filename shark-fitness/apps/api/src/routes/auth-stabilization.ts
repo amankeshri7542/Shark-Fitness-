@@ -1,12 +1,11 @@
 import { Hono } from 'hono';
 import { getCookie, setCookie } from 'hono/cookie';
-import { eq } from 'drizzle-orm';
 import { VerifyOtpInput } from '@shark/contracts';
 import { validate } from '../middleware/validate.js';
-import { rateLimit } from '../middleware/index.js';
+import { clientIp, rateLimit } from '../middleware/index.js';
 import { verifyOtp, viewerFor } from '../services/auth.js';
-import { db, schema } from '../db/client.js';
-import { DAY, now } from '../lib/time.js';
+import { runtimeConfig } from '../lib/config.js';
+import { DAY } from '../lib/time.js';
 import {
   CSRF_COOKIE,
   SESSION_COOKIE,
@@ -15,9 +14,6 @@ import {
 } from '../lib/security.js';
 
 export const authStabilizationRoutes = new Hono();
-
-const clientIp = (c: { req: { header: (key: string) => string | undefined } }) =>
-  c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ?? '127.0.0.1';
 
 authStabilizationRoutes.post(
   '/otp/verify',
@@ -32,19 +28,12 @@ authStabilizationRoutes.post(
       userAgent: c.req.header('user-agent') ?? '',
     });
 
-    if (result.viewer.accountState === 'invited') {
-      db.update(schema.users)
-        .set({ accountState: 'active', updatedAt: now() })
-        .where(eq(schema.users.id, result.viewer.userId))
-        .run();
-    }
-
     setCookie(c, SESSION_COOKIE, result.token, {
       httpOnly: true,
       sameSite: 'Lax',
       path: '/',
       maxAge: (30 * DAY) / 1000,
-      secure: process.env.NODE_ENV === 'production',
+      secure: runtimeConfig.isProduction,
     });
     if (getCookie(c, CSRF_COOKIE)) clearCsrfCookie(c);
     const csrfToken = issueCsrfCookie(c);

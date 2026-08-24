@@ -19,7 +19,7 @@ vi.mock('../../lib/api', async (importOriginal) => {
   return { ...actual, api: apiMock };
 });
 
-import ReportsScreen from '../Reports';
+import ReportsScreen, { reportRangeEndingAt } from '../Reports';
 import { useAdmin } from '../../lib/store';
 import { meta, revenue } from '../reports/__tests__/harness';
 
@@ -152,6 +152,18 @@ describe('Reports — permission', () => {
 });
 
 describe('Reports — the URL carries the report', () => {
+  it('uses the selected branch calendar across midnight and year boundaries', () => {
+    const instant = Date.parse('2026-01-01T00:30:00Z');
+    expect(reportRangeEndingAt(instant, 'America/New_York', 30)).toEqual({
+      from: '2025-12-02',
+      to: '2025-12-31',
+    });
+    expect(reportRangeEndingAt(instant, 'Asia/Dubai', 30)).toEqual({
+      from: '2025-12-03',
+      to: '2026-01-01',
+    });
+  });
+
   it('opens revenue by default', async () => {
     open();
     expect(await screen.findByRole('tab', { name: 'Revenue' })).toHaveAttribute('aria-selected', 'true');

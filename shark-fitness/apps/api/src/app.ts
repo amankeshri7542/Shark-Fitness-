@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { authenticate, errorHandler, logger, memberOnly, requestId, staffOnly } from './middleware/index.js';
+import { authenticate, errorHandler, logger, memberOnly, rateLimit, requestId, staffOnly } from './middleware/index.js';
 import { allowedOrigins, csrfProtection, securityHeaders } from './lib/security.js';
 
 import { authRoutes } from './routes/auth.js';
@@ -37,6 +37,19 @@ import { platformRoutes } from './routes/platform.js';
 import { supportRoutes } from './routes/admin/support.js';
 
 export const app = new Hono();
+export const PROTECTED_API_IP_MAX = 2_000;
+const protectedApiIpLimit = rateLimit(PROTECTED_API_IP_MAX, 60_000, {
+  identity: 'ip',
+  bucket: 'protected-api-edge',
+});
+const authenticatedTenantLimit = rateLimit(5_000, 60_000, {
+  identity: 'tenant',
+  bucket: 'authenticated-tenant-api',
+});
+const authenticatedApiLimit = rateLimit(600, 60_000, {
+  identity: 'actor',
+  bucket: 'authenticated-api',
+});
 
 app.use('*', requestId);
 app.use('*', logger);
@@ -76,10 +89,10 @@ app.route('/v1/auth', authStabilizationRoutes);
 app.route('/v1/auth', authRoutes);
 app.route('/v1/door', doorRoutes);
 
-app.use('/v1/me/*', authenticate);
+app.use('/v1/me/*', protectedApiIpLimit, authenticate, authenticatedTenantLimit, authenticatedApiLimit);
 app.route('/v1/me', meRoutes);
 
-app.use('/v1/member/*', authenticate, memberOnly);
+app.use('/v1/member/*', protectedApiIpLimit, authenticate, authenticatedTenantLimit, authenticatedApiLimit, memberOnly);
 app.route('/v1/member/home', homeRoutes);
 app.route('/v1/member/pass', passRoutes);
 app.route('/v1/member/schedule', memberScheduleRoutes);
@@ -91,7 +104,7 @@ app.route('/v1/member/messages', messagesRoutes);
 app.route('/v1/member/billing', memberBillingRoutes);
 app.route('/v1/member/media', mediaRoutes);
 
-app.use('/v1/admin/*', authenticate, staffOnly);
+app.use('/v1/admin/*', protectedApiIpLimit, authenticate, authenticatedTenantLimit, authenticatedApiLimit, staffOnly);
 app.route('/v1/admin/dashboard', dashboardRoutes);
 app.route('/v1/admin/members', membersRoutes);
 app.route('/v1/admin/leads', leadsRoutes);
@@ -112,5 +125,5 @@ app.route('/v1/admin/automations', automationRoutes);
    used: each route carries `platformOnly`, which refuses an impersonated
    session before it refuses a wrong role. This is the only mount in the app
    whose handlers read across tenants. */
-app.use('/v1/platform/*', authenticate);
+app.use('/v1/platform/*', protectedApiIpLimit, authenticate, authenticatedTenantLimit, authenticatedApiLimit);
 app.route('/v1/platform', platformRoutes);

@@ -124,8 +124,16 @@ export const PlatformHealth = z.object({
   tenants: z.object({ total: z.number().int(), active: z.number().int(), trial: z.number().int(), suspended: z.number().int(), archived: z.number().int() }),
   members: z.number().int(),
   checkIns24h: z.number().int(),
-  /** Jobs the scheduler has registered, so a silent scheduler is visible. */
-  jobs: z.array(z.object({ name: z.string(), everyMinutes: z.number().int() })),
+  /** Registered jobs plus their last durable execution, so a silent or failing
+   * scheduler is visible rather than inferred from a timer definition. */
+  jobs: z.array(z.object({
+    name: z.string(),
+    everyMinutes: z.number().int(),
+    lastRunAt: IsoDateTime.nullable(),
+    status: z.enum(['running', 'succeeded', 'failed', 'overdue', 'disabled']).nullable(),
+    durationMs: z.number().int().nullable(),
+    error: z.string().nullable(),
+  })),
   /** Outbox rows not yet delivered — the queue depth this product actually has. */
   outboxPending: z.number().int(),
   /** Support sessions open right now, across every tenant. */

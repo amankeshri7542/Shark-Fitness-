@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { validate } from '../../middleware/validate.js';
 import { db, schema } from '../../db/client.js';
 import { ctxOf } from '../../middleware/index.js';
-import { branchScope, requirePermission } from '../../lib/context.js';
+import { branchScope, requireAssignedMember, requirePermission } from '../../lib/context.js';
 import { DAY, isoDate, now } from '../../lib/time.js';
 import {
   closeAllVisits,
@@ -77,6 +77,7 @@ attendanceRoutes.get('/current', (c) => {
             eq(schema.checkIns.decision, 'granted'),
             isNull(schema.checkIns.exitedAt),
             gte(schema.checkIns.enteredAt, atMs - 6 * 3_600_000),
+            ctx.role === 'trainer' ? eq(schema.members.trainerId, ctx.staffId ?? '') : undefined,
           ),
         )
         .orderBy(desc(schema.checkIns.enteredAt))
@@ -186,6 +187,7 @@ attendanceRoutes.get('/', validate('query', FeedQuery), (c) => {
     lt(schema.checkIns.enteredAt, anchor + 2 * DAY),
   ];
   if (query.memberId) filters.push(eq(schema.checkIns.memberId, query.memberId));
+  if (ctx.role === 'trainer') filters.push(eq(schema.members.trainerId, ctx.staffId ?? ''));
 
   const rows = db
     .select({
@@ -295,6 +297,7 @@ attendanceRoutes.get('/search', validate('query', SearchQuery), (c) => {
         isNull(schema.members.deletedAt),
         isNull(schema.members.mergedIntoId),
         memberScopeCondition({ tenantId: ctx.tenantId, branchIds: scope }),
+        ctx.role === 'trainer' ? eq(schema.members.trainerId, ctx.staffId ?? '') : undefined,
         sql`(lower(${schema.members.firstName} || ' ' || ${schema.members.lastName}) like ${like}
              or lower(${schema.members.memberNo}) like ${like}
              or coalesce(${schema.members.phoneNormalized}, '') like ${like})`,
@@ -397,6 +400,7 @@ attendanceRoutes.get('/member/:memberId', (c) => {
 
   const memberId = c.req.param('memberId');
   const member = loadMemberInScope(ctx, memberId);
+  requireAssignedMember(ctx, member.trainerId);
 
   const rows = db
     .select()

@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import { channels, PrescribedSet } from '@shark/contracts';
 import { db, schema, transact } from '../db/client.js';
-import type { RequestContext } from '../lib/context.js';
+import { requireAssignedMember, type RequestContext } from '../lib/context.js';
 import { audit } from '../lib/audit.js';
 import { emit } from '../lib/events.js';
 import { conflict, invalid, notFound, precondition } from '../lib/errors.js';
@@ -829,6 +829,8 @@ export function deleteProgramItem(ctx: RequestContext, itemId: string) {
  *  trainer-role session cannot see the member at all. `null` unassigns. */
 export function assignTrainer(ctx: RequestContext, memberId: string, trainerId: string | null) {
   const member = loadMemberInScope(ctx, memberId);
+  requireAssignedMember(ctx, member.trainerId);
+  requireAssignedMember(ctx, trainerId);
 
   if (trainerId) {
     const staff = loadStaffInScope(ctx, trainerId);
@@ -900,12 +902,14 @@ function activeTrainerForMember(ctx: RequestContext, member: typeof schema.membe
 export function assignProgram(ctx: RequestContext, input: AssignProgramInput) {
   const atMs = now();
   const member = loadMemberInScope(ctx, input.memberId);
+  requireAssignedMember(ctx, member.trainerId);
   const program = loadProgramInScope(ctx, input.programId);
   if (program.state !== 'published') throw precondition('Only a published program can be assigned.');
   assertIsoDate(input.startsOn);
 
   const trainerId = input.trainerId !== undefined ? input.trainerId : member.trainerId;
   if (!trainerId) throw invalid('A published program assignment needs an active trainer.');
+  requireAssignedMember(ctx, trainerId);
   activeTrainerForMember(ctx, member, trainerId);
 
   return transact(() => {
@@ -1009,10 +1013,11 @@ export function assignProgram(ctx: RequestContext, input: AssignProgramInput) {
   });
 }
 
-function loadAssignmentInScope(ctx: { tenantId: string; branchIds: string[] }, assignmentId: string) {
+function loadAssignmentInScope(ctx: RequestContext, assignmentId: string) {
   const row = db.select().from(schema.assignments).where(and(eq(schema.assignments.id, assignmentId), eq(schema.assignments.tenantId, ctx.tenantId))).get();
   if (!row) throw notFound('That assignment');
-  loadMemberInScope(ctx, row.memberId);
+  const member = loadMemberInScope(ctx, row.memberId);
+  requireAssignedMember(ctx, member.trainerId);
   return row;
 }
 
@@ -1047,8 +1052,9 @@ export function endAssignment(ctx: RequestContext, assignmentId: string, toState
   return db.select().from(schema.assignments).where(and(eq(schema.assignments.id, assignmentId), eq(schema.assignments.tenantId, ctx.tenantId))).get()!;
 }
 
-export function assignmentHistory(ctx: { tenantId: string; branchIds: string[] }, memberId: string) {
-  loadMemberInScope(ctx, memberId);
+export function assignmentHistory(ctx: RequestContext, memberId: string) {
+  const member = loadMemberInScope(ctx, memberId);
+  requireAssignedMember(ctx, member.trainerId);
   const rows = db
     .select({
       id: schema.assignments.id,

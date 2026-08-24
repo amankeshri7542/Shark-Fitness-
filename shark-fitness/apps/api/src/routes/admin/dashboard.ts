@@ -1,10 +1,11 @@
 import { Hono } from 'hono';
 import { and, desc, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
-import { occupancyLabel } from '@shark/domain';
+import { formatMoney, occupancyLabel } from '@shark/domain';
 import { db, schema } from '../../db/client.js';
 import { ctxOf } from '../../middleware/index.js';
 import { branchScope, isAllBranches, requirePermission } from '../../lib/context.js';
-import { DAY, HOUR, isoDate, now, relativeTime } from '../../lib/time.js';
+import { addDays, DAY, HOUR, isoDate, localDayRange, now, relativeTime, startOfLocalDay } from '../../lib/time.js';
+import { branchTimeZone } from '../../lib/branch-time.js';
 
 export const dashboardRoutes = new Hono();
 
@@ -22,11 +23,19 @@ dashboardRoutes.get('/', (c) => {
   // Null active branch means "every branch this actor may see" — a regional
   // view, not a silent default to one location.
   const scope = branchScope(ctx);
-  const tz = 'Asia/Kolkata';
+  const tz = branchTimeZone(ctx.tenantId, ctx.activeBranchId);
   const today = isoDate(now(), tz);
   const monthStart = `${today.slice(0, 7)}-01`;
-  const monthStartMs = Date.parse(`${monthStart}T00:00:00+05:30`);
-  const prevMonthStartMs = monthStartMs - 30 * DAY;
+  const previousMonth = new Date(`${monthStart}T00:00:00Z`);
+  previousMonth.setUTCMonth(previousMonth.getUTCMonth() - 1);
+  const monthStartMs = startOfLocalDay(monthStart, tz);
+  const prevMonthStartMs = startOfLocalDay(previousMonth.toISOString().slice(0, 10), tz);
+  const todayRange = localDayRange(today, today, tz);
+  const tenant = db
+    .select({ currency: schema.tenants.currency })
+    .from(schema.tenants)
+    .where(eq(schema.tenants.id, ctx.tenantId))
+    .get();
 
   // Two different money permissions, on purpose. Reception needs to see what a
   // member owes so they can take payment at the desk; they have no business
@@ -55,7 +64,6 @@ dashboardRoutes.get('/', (c) => {
   const capacity = branches.reduce((total, b) => total + b.capacity, 0);
   const inside = insideRows.reduce((total, r) => total + r.n, 0);
 
-  const todayStart = Date.parse(`${today}T00:00:00+05:30`);
   const todayCheckIns = db
     .select({ enteredAt: schema.checkIns.enteredAt })
     .from(schema.checkIns)
@@ -63,8 +71,8 @@ dashboardRoutes.get('/', (c) => {
       and(
         inArray(schema.checkIns.branchId, scope),
         eq(schema.checkIns.decision, 'granted'),
-        gte(schema.checkIns.enteredAt, todayStart),
-        lt(schema.checkIns.enteredAt, todayStart + DAY),
+        gte(schema.checkIns.enteredAt, todayRange.from),
+        lt(schema.checkIns.enteredAt, todayRange.to),
       ),
     )
     .all();
@@ -88,6 +96,7 @@ dashboardRoutes.get('/', (c) => {
         inArray(schema.members.homeBranchId, scope),
         sql`${schema.members.lifecycle} in ('active','trial','corporate')`,
         isNull(schema.members.deletedAt),
+        isNull(schema.members.mergedIntoId),
       ),
     )
     .get();
@@ -100,6 +109,8 @@ dashboardRoutes.get('/', (c) => {
         eq(schema.members.tenantId, ctx.tenantId),
         inArray(schema.members.homeBranchId, scope),
         gte(schema.members.joinedOn, monthStart),
+        isNull(schema.members.deletedAt),
+        isNull(schema.members.mergedIntoId),
       ),
     )
     .get();
@@ -110,6 +121,7 @@ dashboardRoutes.get('/', (c) => {
     .where(
       and(
         eq(schema.payments.tenantId, ctx.tenantId),
+        inArray(schema.payments.branchId, scope),
         eq(schema.payments.state, 'succeeded'),
         gte(schema.payments.createdAt, monthStartMs),
       ),
@@ -122,6 +134,7 @@ dashboardRoutes.get('/', (c) => {
     .where(
       and(
         eq(schema.payments.tenantId, ctx.tenantId),
+        inArray(schema.payments.branchId, scope),
         eq(schema.payments.state, 'succeeded'),
         gte(schema.payments.createdAt, prevMonthStartMs),
         lt(schema.payments.createdAt, monthStartMs),
@@ -138,6 +151,7 @@ dashboardRoutes.get('/', (c) => {
     .where(
       and(
         eq(schema.invoices.tenantId, ctx.tenantId),
+        inArray(schema.invoices.branchId, scope),
         sql`${schema.invoices.state} in ('open','partially_paid','overdue')`,
       ),
     )
@@ -146,12 +160,17 @@ dashboardRoutes.get('/', (c) => {
   const expiring = db
     .select({ n: sql<number>`count(*)` })
     .from(schema.memberships)
+    .innerJoin(schema.members, eq(schema.members.id, schema.memberships.memberId))
     .where(
       and(
         eq(schema.memberships.tenantId, ctx.tenantId),
+        inArray(schema.members.homeBranchId, scope),
         eq(schema.memberships.state, 'active'),
         eq(schema.memberships.autoRenew, false),
-        sql`${schema.memberships.endsOn} <= ${isoDate(now() + 30 * DAY, tz)}`,
+        gte(schema.memberships.endsOn, today),
+        sql`${schema.memberships.endsOn} <= ${addDays(today, 30)}`,
+        isNull(schema.members.deletedAt),
+        isNull(schema.members.mergedIntoId),
       ),
     )
     .get();
@@ -178,8 +197,8 @@ dashboardRoutes.get('/', (c) => {
     .where(
       and(
         inArray(schema.classSessions.branchId, scope),
-        gte(schema.classSessions.startsAt, todayStart),
-        lt(schema.classSessions.startsAt, todayStart + DAY),
+        gte(schema.classSessions.startsAt, todayRange.from),
+        lt(schema.classSessions.startsAt, todayRange.to),
         sql`${schema.classSessions.state} != 'cancelled'`,
       ),
     )
@@ -193,8 +212,7 @@ dashboardRoutes.get('/', (c) => {
   const change = (current: number, previous: number): number | null =>
     previous > 0 ? Math.round(((current - previous) / previous) * 1000) / 10 : null;
 
-  const rupees = (minor: number): string =>
-    `₹${(minor / 100).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+  const money = (minor: number): string => formatMoney(minor, tenant?.currency ?? 'INR');
 
   const kpis = [
     {
@@ -209,7 +227,7 @@ dashboardRoutes.get('/', (c) => {
       goodDirection: 'up' as const,
       freshness: 'near_realtime' as const,
       asOf: new Date(now()).toISOString(),
-      drillTo: '/members?lifecycle=active',
+      drillTo: '/members?lifecycle=engaged',
       unavailableReason: null,
       definition: 'Members whose lifecycle is active, trial or corporate, at the branches in scope.',
     },
@@ -249,7 +267,7 @@ dashboardRoutes.get('/', (c) => {
       key: 'revenue_month',
       label: 'Collected this month',
       value: canSeeRevenue ? (revenueThisMonth?.total ?? 0) : 0,
-      display: canSeeRevenue ? rupees(revenueThisMonth?.total ?? 0) : '—',
+      display: canSeeRevenue ? money(revenueThisMonth?.total ?? 0) : '—',
       unit: null,
       previous: canSeeRevenue ? (revenuePrevMonth?.total ?? 0) : null,
       changePct: canSeeRevenue ? change(revenueThisMonth?.total ?? 0, revenuePrevMonth?.total ?? 0) : null,
@@ -260,13 +278,13 @@ dashboardRoutes.get('/', (c) => {
       drillTo: '/billing?state=paid',
       // A restricted metric says it is restricted rather than showing a zero.
       unavailableReason: canSeeRevenue ? null : 'Revenue totals are limited to owners, regional managers and accounts.',
-      definition: 'Succeeded payments recorded in the current calendar month, tenant-wide.',
+      definition: 'Succeeded payments recorded in the current calendar month, at the branches in scope.',
     },
     {
       key: 'outstanding',
       label: 'Outstanding',
       value: canSeeBalances ? (outstanding?.total ?? 0) : 0,
-      display: canSeeBalances ? rupees(outstanding?.total ?? 0) : '—',
+      display: canSeeBalances ? money(outstanding?.total ?? 0) : '—',
       unit: null,
       previous: null,
       changePct: null,
@@ -274,7 +292,7 @@ dashboardRoutes.get('/', (c) => {
       goodDirection: 'down' as const,
       freshness: 'near_realtime' as const,
       asOf: new Date(now()).toISOString(),
-      drillTo: '/billing?state=overdue',
+      drillTo: '/billing?state=outstanding',
       unavailableReason: canSeeBalances ? null : 'Your role does not include member balances.',
       definition: 'Invoice totals minus amounts paid, for invoices that are open, part-paid or overdue.',
     },
@@ -338,6 +356,7 @@ dashboardRoutes.get('/', (c) => {
     .where(
       and(
         eq(schema.payments.tenantId, ctx.tenantId),
+        inArray(schema.payments.branchId, scope),
         eq(schema.payments.state, 'failed'),
         gte(schema.payments.createdAt, now() - 14 * DAY),
       ),
@@ -353,7 +372,7 @@ dashboardRoutes.get('/', (c) => {
       detail: 'Members in grace lose access when it runs out. Clearing these first is worth more than any renewal call.',
       count: failedPayments?.n ?? 0,
       actionLabel: 'Open billing',
-      actionTo: '/billing?state=failed',
+      actionTo: '/billing',
     });
   }
 
@@ -477,7 +496,12 @@ dashboardRoutes.get('/', (c) => {
     })
     .from(schema.checkIns)
     .leftJoin(schema.members, eq(schema.members.id, schema.checkIns.memberId))
-    .where(inArray(schema.checkIns.branchId, scope))
+    .where(
+      and(
+        inArray(schema.checkIns.branchId, scope),
+        ctx.role === 'trainer' ? eq(schema.members.trainerId, ctx.staffId ?? '') : undefined,
+      ),
+    )
     .orderBy(desc(schema.checkIns.enteredAt))
     .limit(12)
     .all();
@@ -505,7 +529,7 @@ dashboardRoutes.get('/', (c) => {
       and(
         inArray(schema.classSessions.branchId, scope),
         gte(schema.classSessions.startsAt, now() - HOUR),
-        lt(schema.classSessions.startsAt, todayStart + DAY),
+        lt(schema.classSessions.startsAt, todayRange.to),
       ),
     )
     .orderBy(schema.classSessions.startsAt)
@@ -552,7 +576,7 @@ dashboardRoutes.get('/', (c) => {
       id: s.id,
       name: s.name,
       localTime: new Intl.DateTimeFormat('en-GB', {
-        timeZone: tz,
+        timeZone: branches.find((branch) => branch.id === s.branchId)?.timezone ?? tz,
         hour: '2-digit',
         minute: '2-digit',
         hour12: false,

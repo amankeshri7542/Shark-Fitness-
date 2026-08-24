@@ -23,3 +23,6 @@ services:
         value: "false"
       - key: SHARK_ALLOW_BEARER_AUTH
         value: "false"
+      # Render is the single reverse-proxy hop in front of this service.
+      - key: SHARK_TRUST_PROXY_HOPS
+        value: "1"

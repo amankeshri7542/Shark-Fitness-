@@ -66,8 +66,10 @@ describe('impersonation is borrowed authority, never held (PF-PLAT-004)', () => 
     }
   });
 
-  it('refuses an archived gym', () => {
-    expect(canImpersonate(request({ targetTenantStatus: 'archived' })).ok).toBe(false);
+  it('refuses every gym that is not operational', () => {
+    for (const targetTenantStatus of ['suspended', 'archived'] as const) {
+      expect(canImpersonate(request({ targetTenantStatus })).ok).toBe(false);
+    }
   });
 
   it('refuses a reason nobody could act on', () => {
@@ -134,9 +136,17 @@ describe('a legal hold outranks offboarding (PF-PLAT-005)', () => {
     expect(outcome.message).toMatch(/lifted by whoever placed it/);
   });
 
-  it('allows it when no hold stands, whatever is owed', () => {
-    // Money is a commercial argument. A hold is not.
-    expect(archiveBlockers({ legalHolds: 0, liveClassesNow: 3, unpaidMinor: 900_00 }).ok).toBe(true);
+  it('does not offboard a gym while a class is still running', () => {
+    const outcome = archiveBlockers({ legalHolds: 0, liveClassesNow: 3, unpaidMinor: 0 });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.message).toMatch(/3 classes are still running/);
+  });
+
+  it('allows it when no hold or live class stands, whatever members owe', () => {
+    // Member receivables remain in immutable financial history after
+    // offboarding. They are useful context, but are not a platform bill or a
+    // reason to keep a customer tenant operational.
+    expect(archiveBlockers({ legalHolds: 0, liveClassesNow: 0, unpaidMinor: 900_00 }).ok).toBe(true);
   });
 });
 

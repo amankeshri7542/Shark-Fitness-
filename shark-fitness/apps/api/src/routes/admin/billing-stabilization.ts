@@ -5,7 +5,7 @@ import { RecordPaymentInput } from '@shark/contracts';
 import { validate } from '../../middleware/validate.js';
 import { db, schema, transact } from '../../db/client.js';
 import { ctxOf } from '../../middleware/index.js';
-import { requireBranch, requirePermission } from '../../lib/context.js';
+import { requirePermission } from '../../lib/context.js';
 import { conflict, notFound } from '../../lib/errors.js';
 import {
   applyPaymentSafely,
@@ -13,6 +13,8 @@ import {
   voidInvoiceSafely,
 } from '../../services/billing-stabilization.js';
 import { createMembershipPurchase } from '../../services/billing-membership.js';
+import { loadInvoiceInScope } from '../../services/billing.js';
+import { loadMemberInScope } from '../../services/members.js';
 
 export const billingStabilizationRoutes = new Hono();
 
@@ -25,12 +27,7 @@ billingStabilizationRoutes.post(
     const invoiceId = c.req.param('invoiceId');
     const body = c.req.valid('json');
 
-    const invoice = db
-      .select()
-      .from(schema.invoices)
-      .where(and(eq(schema.invoices.id, invoiceId), eq(schema.invoices.tenantId, ctx.tenantId)))
-      .get();
-    if (!invoice || !ctx.branchIds.includes(invoice.branchId)) throw notFound('That invoice');
+    loadInvoiceInScope(ctx, invoiceId);
 
     const result = transact(() =>
       applyPaymentSafely({
@@ -95,13 +92,7 @@ const PlanBody = z.object({
 });
 
 function loadMemberAndProduct(ctx: ReturnType<typeof ctxOf>, memberId: string, productId: string) {
-  const member = db
-    .select()
-    .from(schema.members)
-    .where(and(eq(schema.members.id, memberId), eq(schema.members.tenantId, ctx.tenantId)))
-    .get();
-  if (!member) throw notFound('That member');
-  requireBranch(ctx, member.homeBranchId);
+  const member = loadMemberInScope(ctx, memberId);
 
   const product = db
     .select()
@@ -143,13 +134,7 @@ billingStabilizationRoutes.post(
     requirePermission(ctx, 'membership.manage');
     const memberId = c.req.param('memberId');
 
-    const member = db
-      .select()
-      .from(schema.members)
-      .where(and(eq(schema.members.id, memberId), eq(schema.members.tenantId, ctx.tenantId)))
-      .get();
-    if (!member) throw notFound('That member');
-    requireBranch(ctx, member.homeBranchId);
+    const member = loadMemberInScope(ctx, memberId);
 
     const previous = db
       .select()

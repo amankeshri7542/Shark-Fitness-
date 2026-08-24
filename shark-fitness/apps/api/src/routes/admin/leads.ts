@@ -125,6 +125,7 @@ leadsRoutes.get('/owners', (c) => {
   const ctx = ctxOf(c);
   requirePermission(ctx, 'lead.view');
   const branchId = c.req.query('branchId');
+  const scope = branchScope(ctx, branchId);
 
   const rows = db
     .select({ id: schema.staff.id, name: schema.users.name, branchIds: schema.staff.branchIds })
@@ -139,7 +140,9 @@ leadsRoutes.get('/owners', (c) => {
     )
     .all();
 
-  const items = (branchId ? rows.filter((r) => r.branchIds.includes(branchId)) : rows).map((r) => ({ id: r.id, name: r.name }));
+  const items = rows
+    .filter((row) => row.branchIds.some((candidate) => scope.includes(candidate)))
+    .map((row) => ({ id: row.id, name: row.name }));
   return c.json({ items });
 });
 

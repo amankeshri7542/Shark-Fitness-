@@ -1,17 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import type { Viewer } from '@shark/contracts';
+import type { StartOtpResult, Viewer } from '@shark/contracts';
 import { ApiError, OfflineError, api } from '../lib/api';
 import { useSession } from '../lib/store';
 import { setMemberSessionHint } from '../lib/session-hint';
 import { Button, Display, Eyebrow, Field, Panel, Scanlines, SonarSweep } from '../ui/primitives';
-
-interface OtpStart {
-  challengeId: string;
-  sentTo: string;
-  expiresInSec: number;
-  devCode?: string;
-}
 
 interface SignInResult {
   viewer: Viewer;
@@ -29,7 +22,7 @@ export default function SignInScreen() {
   const [identifier, setIdentifier] = useState('aman@sharkfitness.in');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
-  const [challenge, setChallenge] = useState<OtpStart | null>(null);
+  const [challenge, setChallenge] = useState<StartOtpResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -53,12 +46,12 @@ export default function SignInScreen() {
 
   const startOtp = () =>
     run(async () => {
-      const result = await api<OtpStart>('/auth/otp/start', {
+      const result = await api<StartOtpResult>('/auth/otp/start', {
         method: 'POST',
         body: { identifier, tenantSlug: TENANT_SLUG },
       });
       setChallenge(result);
-      setCode(result.devCode ?? '');
+      setCode(result.delivery === 'development_echo' ? result.devCode : '');
       setStep('verify');
     });
 
@@ -133,7 +126,7 @@ export default function SignInScreen() {
               autoComplete="username"
               value={identifier}
               onChange={(event) => setIdentifier(event.target.value)}
-              hint={mode === 'otp' ? 'We will send you a six-digit code.' : undefined}
+              hint={mode === 'otp' ? 'Request a six-digit sign-in code.' : undefined}
             />
 
             {mode === 'password' ? (
@@ -159,7 +152,7 @@ export default function SignInScreen() {
               disabled={busy || identifier.length < 3}
               onClick={() => void (mode === 'otp' ? startOtp() : signInWithPassword())}
             >
-              {busy ? 'Working…' : mode === 'otp' ? 'Send my code' : 'Sign in'}
+              {busy ? 'Working…' : mode === 'otp' ? 'Request a code' : 'Sign in'}
             </Button>
 
             <Button
@@ -169,15 +162,17 @@ export default function SignInScreen() {
                 setError(null);
               }}
             >
-              {mode === 'otp' ? 'Use a password instead' : 'Email me a code instead'}
+              {mode === 'otp' ? 'Use a password instead' : 'Use a one-time code instead'}
             </Button>
           </>
         ) : (
           <>
             <div>
-              <Eyebrow>Check your messages</Eyebrow>
+              <Eyebrow>Enter your code</Eyebrow>
               <p className="mt-2 text-[13px] leading-relaxed text-foam-65">
-                We sent a six-digit code to {challenge?.sentTo}. It is good for ten minutes.
+                {challenge?.delivery === 'development_echo'
+                  ? `Local development mode exposed a code for ${challenge.destination}; no message was sent.`
+                  : `A sign-in code was submitted to ${challenge?.destination}. It is good for ten minutes.`}
               </p>
             </div>
 
@@ -191,10 +186,10 @@ export default function SignInScreen() {
               className="[&_input]:text-center [&_input]:font-display [&_input]:text-[30px] [&_input]:tracking-[0.4em]"
             />
 
-            {challenge?.devCode ? (
+            {challenge?.delivery === 'development_echo' ? (
               <Panel className="p-3">
                 <p className="text-[12px] leading-relaxed text-foam-50">
-                  Local demo mode is explicitly echoing the code. Production never returns it.
+                  The development code is shown in the field above. Production never returns it.
                 </p>
               </Panel>
             ) : null}

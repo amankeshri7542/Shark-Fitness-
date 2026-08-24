@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { ReportKind } from '@shark/contracts';
-import { ctxOf } from '../../middleware/index.js';
+import { ctxOf, rateLimit } from '../../middleware/index.js';
 import { validate } from '../../middleware/validate.js';
 import {
   attendanceReport,
@@ -68,6 +68,6 @@ reportsRoutes.get('/retention', validate('query', RangeQuery), (c) =>
  * saving, and surface a permission refusal in the interface instead of a
  * browser error page.
  */
-reportsRoutes.post('/export', validate('json', ExportBody), (c) =>
+reportsRoutes.post('/export', rateLimit(20, 60_000, { identity: 'actor', bucket: 'report-export' }), validate('json', ExportBody), (c) =>
   c.json(exportReport(ctxOf(c), c.req.valid('json'))),
 );

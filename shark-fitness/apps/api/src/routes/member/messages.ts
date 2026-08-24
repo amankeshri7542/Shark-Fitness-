@@ -112,17 +112,13 @@ function hoursFor(kind: ConversationKind, branch: Branchish, at: number): HoursV
  * of silently dropping them (UX-M12 "failed attachment").
  */
 function attachmentPolicy(): { enabled: boolean; maxSizeMb: number; accept: string[]; reason: string | null } {
-  const bucket = process.env.SHARK_MEDIA_BUCKET ?? '';
-  if (!bucket) {
-    return {
-      enabled: false,
-      maxSizeMb: 0,
-      accept: [],
-      reason:
-        'Photos and files cannot be sent from the app yet. Show it at reception, or describe it here and someone will come and look.',
-    };
-  }
-  return { enabled: true, maxSizeMb: 10, accept: ['image/jpeg', 'image/png', 'application/pdf'], reason: null };
+  return {
+    enabled: false,
+    maxSizeMb: 0,
+    accept: [],
+    reason:
+      'Photos and files cannot be sent from the app yet. Show it at reception, or describe it here and someone will come and look.',
+  };
 }
 
 /* ============================================================================

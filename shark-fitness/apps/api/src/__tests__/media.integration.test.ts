@@ -158,19 +158,45 @@ describe('Member library', () => {
   it('hides an unpublished or expired asset', async () => {
     const session = await signIn(MEMBER);
     const asset = db.select().from(schema.mediaAssets).get()!;
+    try {
+      db.update(schema.mediaAssets)
+        .set({ expiresAt: Date.now() - 1_000 })
+        .where(eq(schema.mediaAssets.id, asset.id))
+        .run();
 
-    db.update(schema.mediaAssets)
-      .set({ expiresAt: Date.now() - 1_000 })
-      .where(eq(schema.mediaAssets.id, asset.id))
-      .run();
+      const response = await app.request('/v1/member/media', { headers: headers(session) });
+      const body = (await response.json()) as { items: Asset[] };
+      expect(body.items.some((a) => a.id === asset.id)).toBe(false);
+      expect((await app.request(`/v1/member/media/${asset.id}`, { headers: headers(session) })).status).toBe(404);
+      expect(
+        (
+          await app.request(`/v1/member/media/${asset.id}/progress`, {
+            method: 'POST',
+            headers: headers(session, true),
+            body: JSON.stringify({ favourite: true }),
+          })
+        ).status,
+      ).toBe(404);
 
-    const response = await app.request('/v1/member/media', { headers: headers(session) });
-    const body = (await response.json()) as { items: Asset[] };
-    expect(body.items.some((a) => a.id === asset.id)).toBe(false);
-
-    db.update(schema.mediaAssets)
-      .set({ expiresAt: null })
-      .where(eq(schema.mediaAssets.id, asset.id))
-      .run();
+      db.update(schema.mediaAssets)
+        .set({ expiresAt: null, publishedAt: Date.now() + 60_000 })
+        .where(eq(schema.mediaAssets.id, asset.id))
+        .run();
+      expect((await app.request(`/v1/member/media/${asset.id}`, { headers: headers(session) })).status).toBe(404);
+      expect(
+        (
+          await app.request(`/v1/member/media/${asset.id}/progress`, {
+            method: 'POST',
+            headers: headers(session, true),
+            body: JSON.stringify({ favourite: true }),
+          })
+        ).status,
+      ).toBe(404);
+    } finally {
+      db.update(schema.mediaAssets)
+        .set({ expiresAt: asset.expiresAt, publishedAt: asset.publishedAt })
+        .where(eq(schema.mediaAssets.id, asset.id))
+        .run();
+    }
   });
 });

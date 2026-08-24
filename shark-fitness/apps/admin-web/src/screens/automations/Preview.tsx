@@ -14,6 +14,7 @@ import { Button, Chip, Label, Skeleton, cx } from '../../ui/console';
 interface PreviewPayload {
   summary: {
     considered: number;
+    wouldSend: number;
     suppressed: number;
     bySuppression: Array<{ code: string; reason: string; count: number }>;
   };
@@ -33,23 +34,37 @@ export default function Preview({ automationId }: { automationId: string }) {
   });
 
   const run = useMutation({
-    mutationFn: () => api<{ dryRun: boolean; sent: number; suppressed: number }>(`/admin/automations/${automationId}/run`, { method: 'POST' }),
+    mutationFn: () => api<{
+      dryRun: boolean;
+      considered: number;
+      sent: number;
+      queued: number;
+      suppressed: number;
+      failed: number;
+    }>(`/admin/automations/${automationId}/run`, { method: 'POST' }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['automations'] });
+      void queryClient.invalidateQueries({ queryKey: ['automations', 'preview', automationId] });
+      void queryClient.invalidateQueries({ queryKey: ['automations', 'runs'] });
     },
   });
 
   if (preview.isLoading) return <Skeleton className="h-48" />;
   if (preview.error || !preview.data) {
     return (
-      <p className="border-b border-line bg-wash-chum px-4 py-3 text-[12px] leading-relaxed text-foam-80">
-        {preview.error instanceof ApiError ? preview.error.message : 'The audience could not be read.'}
-      </p>
+      <div role="alert" className="flex flex-wrap items-center gap-3 border-b border-line bg-wash-chum px-4 py-3">
+        <p className="min-w-[24ch] flex-1 text-[12px] leading-relaxed text-foam-80">
+          {preview.error instanceof ApiError ? preview.error.message : 'The audience could not be read.'}
+        </p>
+        <Button variant="outline" onClick={() => void preview.refetch()}>
+          Try again
+        </Button>
+      </div>
     );
   }
 
   const { summary, recipients, suppressed, metered, estimatedCostMinor } = preview.data;
-  const wouldSend = recipients.length;
+  const wouldSend = summary.wouldSend;
 
   return (
     <section aria-label="Who this reaches" className="border-b border-line">
@@ -78,8 +93,8 @@ export default function Preview({ automationId }: { automationId: string }) {
       {run.data ? (
         <p className="border-b border-line bg-wash-sonar-soft px-4 py-2.5 text-[12px] leading-relaxed text-foam-80">
           {run.data.dryRun
-            ? `Rehearsed against ${run.data.suppressed + run.data.sent} members. Nobody was messaged.`
-            : `Sent to ${run.data.sent}. ${run.data.suppressed} held.`}
+            ? `Rehearsed against ${run.data.considered} members. Nobody was messaged.`
+            : `Sent ${run.data.sent}. Queued ${run.data.queued}. Held ${run.data.suppressed}. Failed ${run.data.failed}.`}
         </p>
       ) : null}
 
@@ -113,6 +128,11 @@ export default function Preview({ automationId }: { automationId: string }) {
               ))}
             </ul>
           )}
+          {wouldSend > recipients.length ? (
+            <p className="border-t border-line px-4 py-2 text-[11px] text-foam-45">
+              Showing the first {recipients.length} of {wouldSend} recipients.
+            </p>
+          ) : null}
         </div>
 
         <div className="bg-panel">

@@ -9,6 +9,7 @@ import {
   ErrorState,
   Field,
   Label,
+  RowOpen,
   SelectField,
   Skeleton,
   Table,
@@ -93,7 +94,9 @@ export default function Tenants({ canAdminister }: { canAdminister: boolean }) {
               {items.map((tenant) => (
                 <TR key={tenant.id} onClick={() => setOpenId(tenant.id)}>
                   <TD>
-                    <span className="block truncate text-foam">{tenant.displayName}</span>
+                    <RowOpen onClick={() => setOpenId(tenant.id)} className="block truncate text-foam">
+                      {tenant.displayName}
+                    </RowOpen>
                     <span className="font-utility text-[10px] uppercase tracking-[0.1em] text-foam-35">{tenant.slug}</span>
                   </TD>
                   <TD>

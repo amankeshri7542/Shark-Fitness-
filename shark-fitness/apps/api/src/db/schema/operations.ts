@@ -162,7 +162,10 @@ export const usedAccessWindows = sqliteTable(
     window: integer('window').notNull(),
     usedAt: integer('used_at').notNull(),
   },
-  (t) => ({ uq: uniqueIndex('used_windows_uq').on(t.memberId, t.window) }),
+  (t) => ({
+    uq: uniqueIndex('used_windows_uq').on(t.memberId, t.window),
+    byUsedAt: index('used_windows_used_at_idx').on(t.usedAt),
+  }),
 );
 
 export const checkIns = sqliteTable(

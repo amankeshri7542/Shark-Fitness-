@@ -2,7 +2,7 @@ import { and, asc, eq, gt, inArray, lt, ne, sql } from 'drizzle-orm';
 import { channels } from '@shark/contracts';
 import { classifyCancellation, planPromotion, type WaitlistCandidate } from '@shark/domain';
 import { db, schema, transact } from '../db/client.js';
-import type { RequestContext } from '../lib/context.js';
+import { branchScope, type RequestContext } from '../lib/context.js';
 import { audit } from '../lib/audit.js';
 import { emit } from '../lib/events.js';
 import { conflict, invalid, notFound, precondition, staleVersion } from '../lib/errors.js';
@@ -62,7 +62,7 @@ export function loadSessionInScope(
     .from(schema.classSessions)
     .where(and(eq(schema.classSessions.id, sessionId), eq(schema.classSessions.tenantId, ctx.tenantId)))
     .get();
-  if (!session || !ctx.branchIds.includes(session.branchId)) throw notFound('That class');
+  if (!session || !branchScope(ctx).includes(session.branchId)) throw notFound('That class');
   return session;
 }
 
@@ -625,7 +625,7 @@ export function cancelSessions(
             ),
           )
           .all()
-          .filter((row) => ctx.branchIds.includes(row.branchId))
+          .filter((row) => branchScope(ctx).includes(row.branchId))
       : [anchor];
 
   const result: CancelResult = { cancelled: [], bookingsReleased: 0, creditsReturned: 0, notified: 0 };
@@ -742,7 +742,7 @@ export function bookMemberOntoSession(
   const atMs = now();
   const member = loadMemberInScope(ctx, input.memberId);
   const session = sessionById(ctx.tenantId, input.sessionId);
-  if (!session || !ctx.branchIds.includes(session.branchId)) throw notFound('That class');
+  if (!session || !branchScope(ctx).includes(session.branchId)) throw notFound('That class');
 
   const tz = branchTimeZone(ctx.tenantId, session.branchId);
   const today = isoDate(atMs, tz);
@@ -774,7 +774,7 @@ export function bookMemberOntoSessionOverride(
   const atMs = now();
   const member = loadMemberInScope(ctx, input.memberId);
   const session = sessionById(ctx.tenantId, input.sessionId);
-  if (!session || !ctx.branchIds.includes(session.branchId)) throw notFound('That class');
+  if (!session || !branchScope(ctx).includes(session.branchId)) throw notFound('That class');
 
   return runClaim(() =>
     claimSeatOverride(ctx, {

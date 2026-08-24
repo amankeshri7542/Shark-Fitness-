@@ -6,6 +6,7 @@ import { BillingCadence, ProductKind, RecordPaymentInput, type Product } from '@
 import { dunningPlan, formatMoney } from '@shark/domain';
 import { db, schema, transact } from '../../db/client.js';
 import { ctxOf } from '../../middleware/index.js';
+import type { RequestContext } from '../../lib/context.js';
 import { branchScope, requireBranch, requirePermission } from '../../lib/context.js';
 import { audit } from '../../lib/audit.js';
 import { conflict, invalid, notFound, precondition } from '../../lib/errors.js';
@@ -19,7 +20,7 @@ export const billingRoutes = new Hono();
 
 const AccessRulesBody = z.object({
   allBranches: z.boolean(),
-  branchIds: z.array(z.string()),
+  branchIds: z.array(z.string().min(1)),
   windowStartMin: z.number().int().nullable(),
   windowEndMin: z.number().int().nullable(),
   visitsPerWeek: z.number().int().nullable(),
@@ -61,8 +62,63 @@ const ProductBody = z.object({
   eligibility: z
     .object({ minAge: z.number().int().nullable(), maxAge: z.number().int().nullable(), corporateOnly: z.boolean(), requiresApproval: z.boolean() })
     .default({ minAge: null, maxAge: null, corporateOnly: false, requiresApproval: false }),
-  branchIds: z.array(z.string()).default([]),
+  branchIds: z.array(z.string().min(1)).optional(),
 });
+
+type CatalogueAccess = z.infer<typeof AccessRulesBody>;
+
+function sameBranchIds(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((branchId) => right.includes(branchId));
+}
+
+/** Validate both copies of catalogue branch access and return one canonical
+ * representation. `products.branchIds` is retained for the frozen Product
+ * contract, but access rules are the source of truth used by eligibility. */
+function catalogueBranchAccess(
+  ctx: RequestContext,
+  access: CatalogueAccess,
+  suppliedBranchIds?: string[],
+): { access: CatalogueAccess; branchIds: string[] } {
+  const accessBranchIds = [...new Set(access.branchIds)];
+  if (accessBranchIds.length !== access.branchIds.length) {
+    throw invalid('Choose each catalogue branch once.');
+  }
+  if (access.allBranches && accessBranchIds.length > 0) {
+    throw invalid('An all-branches product must not also list individual branches.');
+  }
+
+  const canonicalBranchIds = access.allBranches ? [] : accessBranchIds;
+  if (suppliedBranchIds !== undefined) {
+    const uniqueSupplied = [...new Set(suppliedBranchIds)];
+    if (uniqueSupplied.length !== suppliedBranchIds.length || !sameBranchIds(uniqueSupplied, canonicalBranchIds)) {
+      throw invalid('Product branchIds must match its access rules.');
+    }
+  }
+
+  const tenantBranches = db
+    .select({ id: schema.branches.id, state: schema.branches.state })
+    .from(schema.branches)
+    .where(eq(schema.branches.tenantId, ctx.tenantId))
+    .all();
+  const activeTenantBranchIds = tenantBranches.filter((branch) => branch.state !== 'archived').map((branch) => branch.id);
+  const requestScope = branchScope(ctx);
+
+  if (access.allBranches) {
+    if (!activeTenantBranchIds.every((branchId) => requestScope.includes(branchId))) {
+      throw invalid('All-branches access is outside the branches in this request.');
+    }
+  } else {
+    const validTenantBranchIds = new Set(activeTenantBranchIds);
+    if (!canonicalBranchIds.every((branchId) => validTenantBranchIds.has(branchId))) {
+      throw invalid('Choose active branches from this tenant.');
+    }
+    if (!canonicalBranchIds.every((branchId) => requestScope.includes(branchId))) {
+      throw invalid('Choose branches within this request scope.');
+    }
+  }
+
+  return { access: { ...access, branchIds: canonicalBranchIds }, branchIds: canonicalBranchIds };
+}
 
 billingRoutes.get('/products', (c) => {
   const ctx = ctxOf(c);
@@ -97,6 +153,7 @@ billingRoutes.post('/products', validate('json', ProductBody), (c) => {
   requirePermission(ctx, 'product.manage');
   const body = c.req.valid('json');
   const productId = id('prd');
+  const normalizedAccess = catalogueBranchAccess(ctx, body.access, body.branchIds);
 
   db.insert(schema.products)
     .values({
@@ -113,11 +170,11 @@ billingRoutes.post('/products', validate('json', ProductBody), (c) => {
       durationDays: body.durationDays,
       credits: body.credits,
       creditsExpireDays: body.creditsExpireDays,
-      access: body.access,
+      access: normalizedAccess.access,
       freeze: body.freeze,
       cancellation: body.cancellation,
       eligibility: body.eligibility,
-      branchIds: body.branchIds,
+      branchIds: normalizedAccess.branchIds,
       status: 'draft',
       createdAt: now(),
       updatedAt: now(),
@@ -138,6 +195,10 @@ billingRoutes.patch('/products/:productId', validate('json', ProductEditBody), (
 
   const product = db.select().from(schema.products).where(and(eq(schema.products.id, productId), eq(schema.products.tenantId, ctx.tenantId))).get();
   if (!product) throw notFound('That product');
+  const normalizedAccess =
+    body.access !== undefined || body.branchIds !== undefined
+      ? catalogueBranchAccess(ctx, body.access ?? product.access, body.branchIds)
+      : null;
 
   // Editing published terms bumps the version — memberships already sold
   // keep their frozen productSnapshot regardless (PF-CAT-003); this only
@@ -147,10 +208,11 @@ billingRoutes.patch('/products/:productId', validate('json', ProductEditBody), (
   db.update(schema.products)
     .set({
       ...body,
+      ...(normalizedAccess ? { access: normalizedAccess.access, branchIds: normalizedAccess.branchIds } : {}),
       version: bumpsVersion ? product.version + 1 : product.version,
       updatedAt: now(),
     })
-    .where(eq(schema.products.id, productId))
+    .where(and(eq(schema.products.id, productId), eq(schema.products.tenantId, ctx.tenantId)))
     .run();
 
   audit(ctx, { action: 'product.updated', entityType: 'product', entityId: productId, entityLabel: product.name, before: { status: product.status }, after: { status: body.status ?? product.status } });
@@ -262,7 +324,7 @@ billingRoutes.get('/summary', (c) => {
 });
 
 const InvoiceListQuery = z.object({
-  state: z.string().optional(),
+  state: z.enum(['outstanding', 'open', 'partially_paid', 'overdue', 'paid', 'void', 'partially_refunded', 'refunded']).optional(),
   memberId: z.string().optional(),
   q: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(500).default(200),
@@ -276,7 +338,8 @@ billingRoutes.get('/invoices', validate('query', InvoiceListQuery), (c) => {
   const scope = branchScope(ctx);
 
   const filters = [eq(schema.invoices.tenantId, ctx.tenantId), inArray(schema.invoices.branchId, scope)];
-  if (q.state) filters.push(eq(schema.invoices.state, q.state));
+  if (q.state === 'outstanding') filters.push(inArray(schema.invoices.state, ['open', 'partially_paid', 'overdue']));
+  else if (q.state) filters.push(eq(schema.invoices.state, q.state));
   if (q.memberId) filters.push(eq(schema.invoices.memberId, q.memberId));
 
   const rows = db

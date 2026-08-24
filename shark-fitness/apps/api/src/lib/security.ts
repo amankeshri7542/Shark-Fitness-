@@ -1,42 +1,22 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { Context, MiddlewareHandler } from 'hono';
 import { getCookie, setCookie } from 'hono/cookie';
+import { runtimeConfig } from './config.js';
 import { AppError } from './errors.js';
 import { token } from './ids.js';
 
 export const SESSION_COOKIE = 'shark_session';
 export const CSRF_COOKIE = 'shark_csrf';
 
-const LOCAL_ORIGINS = [
-  'http://localhost:5173',
-  'http://127.0.0.1:5173',
-  'http://localhost:5174',
-  'http://127.0.0.1:5174',
-  'http://localhost:8787',
-  'http://127.0.0.1:8787',
-];
-
-const isProduction = (): boolean => process.env.NODE_ENV === 'production';
+const CONFIGURED_ORIGINS = new Set(runtimeConfig.allowedOrigins);
 
 export function allowedOrigins(): Set<string> {
-  const configured = (process.env.SHARK_ALLOWED_ORIGINS ?? '')
-    .split(',')
-    .map((value) => value.trim().replace(/\/$/, ''))
-    .filter(Boolean);
-
-  const publicOrigins = [process.env.SHARK_PUBLIC_ORIGIN, process.env.RENDER_EXTERNAL_URL]
-    .map((value) => value?.trim().replace(/\/$/, ''))
-    .filter((value): value is string => Boolean(value));
-  configured.push(...publicOrigins);
-
-  if (!isProduction()) configured.push(...LOCAL_ORIGINS);
-
-  return new Set(configured);
+  return new Set(CONFIGURED_ORIGINS);
 }
 
 export function isAllowedOrigin(origin: string | undefined): boolean {
   if (!origin) return true;
-  return allowedOrigins().has(origin.replace(/\/$/, ''));
+  return CONFIGURED_ORIGINS.has(origin.replace(/\/$/, ''));
 }
 
 export function csrfTokenFrom(c: Context): string | undefined {
@@ -47,7 +27,7 @@ export function issueCsrfCookie(c: Context): string {
   const value = token(24);
   setCookie(c, CSRF_COOKIE, value, {
     httpOnly: false,
-    secure: isProduction(),
+    secure: runtimeConfig.isProduction,
     sameSite: 'Lax',
     path: '/',
     maxAge: 30 * 24 * 60 * 60,
@@ -58,7 +38,7 @@ export function issueCsrfCookie(c: Context): string {
 export function clearCsrfCookie(c: Context): void {
   setCookie(c, CSRF_COOKIE, '', {
     httpOnly: false,
-    secure: isProduction(),
+    secure: runtimeConfig.isProduction,
     sameSite: 'Lax',
     path: '/',
     maxAge: 0,
@@ -133,7 +113,7 @@ export const securityHeaders: MiddlewareHandler = async (c, next) => {
   c.header('permissions-policy', 'camera=(), microphone=(), geolocation=()');
   c.header('cross-origin-opener-policy', 'same-origin');
   c.header('cross-origin-resource-policy', 'same-site');
-  if (isProduction()) {
+  if (runtimeConfig.isProduction) {
     c.header('strict-transport-security', 'max-age=31536000; includeSubDomains');
   }
 };

@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
-import { channels } from '@shark/contracts';
-import { evaluateEligibility, holdIsLive, isEntitled } from '@shark/domain';
+import { channels, type BranchState } from '@shark/contracts';
+import { branchTrades, evaluateEligibility, holdIsLive, isEntitled } from '@shark/domain';
 import { db, schema, transact } from '../db/client.js';
 import type { RequestContext } from '../lib/context.js';
 import { audit } from '../lib/audit.js';
@@ -24,6 +24,20 @@ import { AppError, capacityExhausted, conflict, entitlementMissing, forbidden, p
 
 export const LIVE_BOOKING_STATES = ['held', 'confirmed', 'attended'] as const;
 export const LIVE_WAITLIST_STATES = ['waiting', 'offered'] as const;
+
+/** Branch lifecycle is a hard boundary, not an eligibility override. Read it
+ * inside the same transaction that claims the seat so a closed branch cannot
+ * accept a last concurrent booking. */
+export function assertBranchAcceptsBookings(tenantId: string, branchId: string): void {
+  const branch = db
+    .select({ state: schema.branches.state })
+    .from(schema.branches)
+    .where(and(eq(schema.branches.id, branchId), eq(schema.branches.tenantId, tenantId)))
+    .get();
+  if (!branch || !branchTrades(branch.state as BranchState)) {
+    throw precondition('This branch is not accepting new bookings right now.');
+  }
+}
 
 export interface SessionRow {
   id: string;
@@ -361,6 +375,8 @@ export function claimSeat(ctx: RequestContext, input: ClaimSeatInput): ClaimSeat
       return { booking: existing, replayed: true, creditsUsed: existing.creditsUsed, chargeMinor: existing.chargeMinor };
     }
 
+    assertBranchAcceptsBookings(ctx.tenantId, input.session.branchId);
+
     // A seat held by someone who walked away is a seat.
     reapExpiredHolds(input.session.id, input.atMs);
     const fresh = sessionById(ctx.tenantId, input.session.id)!;
@@ -535,6 +551,8 @@ export function claimSeatOverride(ctx: RequestContext, input: ClaimSeatOverrideI
       }
       return { booking: existing, replayed: true, creditsUsed: existing.creditsUsed, chargeMinor: existing.chargeMinor };
     }
+
+    assertBranchAcceptsBookings(ctx.tenantId, input.session.branchId);
 
     reapExpiredHolds(input.session.id, input.atMs);
     const fresh = sessionById(ctx.tenantId, input.session.id)!;

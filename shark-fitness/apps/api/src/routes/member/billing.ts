@@ -7,6 +7,7 @@ import { db, schema, transact } from '../../db/client.js';
 import { ctxOf } from '../../middleware/index.js';
 import { conflict, notFound, precondition } from '../../lib/errors.js';
 import { id, token } from '../../lib/ids.js';
+import { runIdempotently } from '../../lib/idempotency.js';
 import { MINUTE, now } from '../../lib/time.js';
 import { applyPaymentToInvoice } from '../../services/billing.js';
 
@@ -91,50 +92,65 @@ billingRoutes.post('/checkout-intent', validate('json', CheckoutIntentBody), (c)
   const ctx = ctxOf(c);
   const memberId = ctx.memberId!;
   const { invoiceId } = c.req.valid('json');
+  const response = runIdempotently(
+    ctx,
+    'member.checkout-intent',
+    c.req.header('idempotency-key'),
+    { invoiceId },
+    () => {
+      const invoice = db
+        .select()
+        .from(schema.invoices)
+        .where(and(eq(schema.invoices.id, invoiceId), eq(schema.invoices.memberId, memberId)))
+        .get();
+      if (!invoice) throw notFound('That invoice');
+      if (invoice.voided || ['paid', 'refunded'].includes(invoice.state)) {
+        throw conflict('This invoice is not payable.');
+      }
 
-  const invoice = db.select().from(schema.invoices).where(and(eq(schema.invoices.id, invoiceId), eq(schema.invoices.memberId, memberId))).get();
-  if (!invoice) throw notFound('That invoice');
-  if (invoice.voided || ['paid', 'refunded'].includes(invoice.state)) throw conflict('This invoice is not payable.');
+      const dueMinor = invoice.totalMinor - invoice.paidMinor;
+      if (dueMinor <= 0) throw conflict('This invoice has nothing outstanding.');
 
-  const dueMinor = invoice.totalMinor - invoice.paidMinor;
-  if (dueMinor <= 0) throw conflict('This invoice has nothing outstanding.');
+      const paymentId = id('pay');
+      const clientToken = token(16);
+      const expiresAt = now() + INTENT_TTL_MS;
 
-  const paymentId = id('pay');
-  const clientToken = token(16);
-  const expiresAt = now() + INTENT_TTL_MS;
+      db.insert(schema.payments)
+        .values({
+          id: paymentId,
+          tenantId: ctx.tenantId,
+          branchId: invoice.branchId,
+          invoiceId,
+          memberId,
+          method: 'upi',
+          state: 'created',
+          amountMinor: dueMinor,
+          currency: invoice.currency,
+          provider: 'demo',
+          providerRef: clientToken,
+          idempotencyKey: paymentId,
+          recordedById: null,
+          recordedByName: null,
+          failureReason: null,
+          note: null,
+          createdAt: now(),
+          settledAt: null,
+        })
+        .run();
 
-  db.insert(schema.payments)
-    .values({
-      id: paymentId,
-      tenantId: ctx.tenantId,
-      branchId: invoice.branchId,
-      invoiceId,
-      memberId,
-      method: 'upi',
-      state: 'created',
-      amountMinor: dueMinor,
-      currency: invoice.currency,
-      provider: 'demo',
-      providerRef: clientToken,
-      idempotencyKey: paymentId,
-      recordedById: null,
-      recordedByName: null,
-      failureReason: null,
-      note: null,
-      createdAt: now(),
-      settledAt: null,
-    })
-    .run();
+      return {
+        intentId: paymentId,
+        invoiceId,
+        amountMinor: dueMinor,
+        currency: invoice.currency,
+        provider: 'demo',
+        clientToken,
+        expiresAt: new Date(expiresAt).toISOString(),
+      };
+    },
+  );
 
-  return c.json({
-    intentId: paymentId,
-    invoiceId,
-    amountMinor: dueMinor,
-    currency: invoice.currency,
-    provider: 'demo',
-    clientToken,
-    expiresAt: new Date(expiresAt).toISOString(),
-  });
+  return c.json(response);
 });
 
 /**

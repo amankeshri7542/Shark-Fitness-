@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { channels } from '@shark/contracts';
 import type {
+  BranchState,
   PosOrderDetail,
   PosOrderList,
   PosOrderKind,
@@ -25,17 +26,19 @@ import type {
   StoreReport,
   Supplier,
 } from '@shark/contracts';
+import { branchTrades } from '@shark/domain';
 import { db, schema, transact } from '../db/client.js';
 import { policyValue } from '../lib/policy.js';
 import { audit } from '../lib/audit.js';
 import type { RequestContext } from '../lib/context.js';
-import { requireBranch, requirePermission } from '../lib/context.js';
+import { branchScope, requireBranch, requirePermission } from '../lib/context.js';
 import { conflict, invalid, notFound, precondition } from '../lib/errors.js';
 import { emit } from '../lib/events.js';
 import { id } from '../lib/ids.js';
 import { branchTimeZone } from '../lib/branch-time.js';
 import { addDays, isoDate, now } from '../lib/time.js';
 import { nextInvoiceNumber } from './billing.js';
+import { loadMemberInScope } from './members.js';
 
 /**
  * Store: point of sale and inventory (PF-POS-001…006).
@@ -144,6 +147,26 @@ function productInTenant(ctx: RequestContext, productId: string) {
   return product;
 }
 
+function groupInTenant(ctx: RequestContext, groupId: string) {
+  const group = db
+    .select()
+    .from(schema.retailProductGroups)
+    .where(and(eq(schema.retailProductGroups.id, groupId), eq(schema.retailProductGroups.tenantId, ctx.tenantId)))
+    .get();
+  if (!group) throw notFound('That product group');
+  return group;
+}
+
+function supplierInTenant(ctx: RequestContext, supplierId: string) {
+  const supplier = db
+    .select()
+    .from(schema.suppliers)
+    .where(and(eq(schema.suppliers.id, supplierId), eq(schema.suppliers.tenantId, ctx.tenantId)))
+    .get();
+  if (!supplier) throw notFound('That supplier');
+  return supplier;
+}
+
 function orderInScope(ctx: RequestContext, orderId: string) {
   const order = db
     .select()
@@ -153,7 +176,7 @@ function orderInScope(ctx: RequestContext, orderId: string) {
   if (!order) throw notFound('That order');
   // An order at a branch the caller cannot see does not exist as far as they
   // are concerned.
-  if (!ctx.branchIds.includes(order.branchId)) throw notFound('That order');
+  if (!branchScope(ctx).includes(order.branchId)) throw notFound('That order');
   return order;
 }
 
@@ -655,6 +678,16 @@ export function checkout(ctx: RequestContext, input: CheckoutInput) {
   }
 
   return transact(() => {
+    const branch = db
+      .select({ state: schema.branches.state })
+      .from(schema.branches)
+      .where(and(eq(schema.branches.id, input.branchId), eq(schema.branches.tenantId, ctx.tenantId)))
+      .get();
+    if (!branch) throw notFound('That branch');
+    if (!branchTrades(branch.state as BranchState)) {
+      throw precondition('This branch is not accepting new sales right now.');
+    }
+
     const priced: PricedLine[] = [];
 
     for (const line of input.lines) {
@@ -679,12 +712,10 @@ export function checkout(ctx: RequestContext, input: CheckoutInput) {
     }
 
     if (input.memberId) {
-      const member = db
-        .select({ id: schema.members.id })
-        .from(schema.members)
-        .where(and(eq(schema.members.id, input.memberId), eq(schema.members.tenantId, ctx.tenantId)))
-        .get();
-      if (!member) throw notFound('That member');
+      // A member attached to a till order must be entitled to the till's
+      // branch, not merely exist somewhere in the tenant. The shared loader
+      // also honours an explicit `member_branches` grant.
+      loadMemberInScope({ tenantId: ctx.tenantId, branchIds: [input.branchId] }, input.memberId);
     }
 
     const orderId = id('pos');
@@ -1229,13 +1260,7 @@ export interface OrderQuery {
 export function listOrders(ctx: RequestContext, query: OrderQuery): PosOrderList {
   requirePermission(ctx, 'inventory.view');
   const conditions = [eq(schema.posOrders.tenantId, ctx.tenantId)];
-  if (query.branchId) {
-    requireBranch(ctx, query.branchId);
-    conditions.push(eq(schema.posOrders.branchId, query.branchId));
-  } else {
-    // No branch filter means "every branch I may see", never every branch.
-    conditions.push(inArray(schema.posOrders.branchId, ctx.branchIds));
-  }
+  conditions.push(inArray(schema.posOrders.branchId, branchScope(ctx, query.branchId)));
   if (query.staffId) conditions.push(eq(schema.posOrders.staffId, query.staffId));
   if (query.from) conditions.push(sql`${schema.posOrders.createdAt} >= ${query.from}`);
   if (query.to) conditions.push(sql`${schema.posOrders.createdAt} <= ${query.to}`);
@@ -1367,10 +1392,23 @@ function hydrateProduct(
   const access = financialAccess(ctx);
   const qty = branchId ? onHand(ctx.tenantId, branchId, row.id) : (onHandMap(ctx.tenantId, null).get(row.id) ?? 0);
   const group = row.groupId
-    ? db.select().from(schema.retailProductGroups).where(eq(schema.retailProductGroups.id, row.groupId)).get()
+    ? db
+        .select()
+        .from(schema.retailProductGroups)
+        .where(
+          and(
+            eq(schema.retailProductGroups.id, row.groupId),
+            eq(schema.retailProductGroups.tenantId, ctx.tenantId),
+          ),
+        )
+        .get()
     : null;
   const supplier = row.supplierId
-    ? db.select().from(schema.suppliers).where(eq(schema.suppliers.id, row.supplierId)).get()
+    ? db
+        .select()
+        .from(schema.suppliers)
+        .where(and(eq(schema.suppliers.id, row.supplierId), eq(schema.suppliers.tenantId, ctx.tenantId)))
+        .get()
     : null;
   return toProduct(
     row,
@@ -1424,16 +1462,8 @@ export function createProduct(ctx: RequestContext, input: ProductInput): StorePr
     .get();
   if (existingSku) throw conflict('That SKU already exists.');
 
-  if (input.groupId) {
-    const group = db
-      .select({ id: schema.retailProductGroups.id })
-      .from(schema.retailProductGroups)
-      .where(
-        and(eq(schema.retailProductGroups.id, input.groupId), eq(schema.retailProductGroups.tenantId, ctx.tenantId)),
-      )
-      .get();
-    if (!group) throw notFound('That product group');
-  }
+  if (input.groupId) groupInTenant(ctx, input.groupId);
+  if (input.supplierId) supplierInTenant(ctx, input.supplierId);
 
   const productId = id('rtl');
   db.insert(schema.retailProducts)
@@ -1474,6 +1504,8 @@ export function updateProduct(
   requirePermission(ctx, 'inventory.manage');
   const before = productInTenant(ctx, productId);
   if (patch.barcode !== undefined) assertBarcodeFree(ctx, patch.barcode, productId);
+  if (patch.groupId) groupInTenant(ctx, patch.groupId);
+  if (patch.supplierId) supplierInTenant(ctx, patch.supplierId);
 
   db.update(schema.retailProducts)
     .set({
@@ -1489,7 +1521,7 @@ export function updateProduct(
       ...(patch.groupId !== undefined ? { groupId: patch.groupId } : {}),
       ...(patch.active !== undefined ? { active: patch.active } : {}),
     })
-    .where(eq(schema.retailProducts.id, productId))
+    .where(and(eq(schema.retailProducts.id, productId), eq(schema.retailProducts.tenantId, ctx.tenantId)))
     .run();
 
   const after = productInTenant(ctx, productId);
@@ -1555,6 +1587,7 @@ export function createGroup(
   input: { name: string; category: string; supplierId?: string | null },
 ): ProductGroup {
   requirePermission(ctx, 'inventory.manage');
+  if (input.supplierId) supplierInTenant(ctx, input.supplierId);
   const groupId = id('grp');
   db.insert(schema.retailProductGroups)
     .values({
@@ -1742,7 +1775,8 @@ function transferInScope(ctx: RequestContext, transferId: string) {
     .where(and(eq(schema.stockTransfers.id, transferId), eq(schema.stockTransfers.tenantId, ctx.tenantId)))
     .get();
   if (!transfer) throw notFound('That transfer');
-  const visible = ctx.branchIds.includes(transfer.fromBranchId) || ctx.branchIds.includes(transfer.toBranchId);
+  const scope = branchScope(ctx);
+  const visible = scope.includes(transfer.fromBranchId) || scope.includes(transfer.toBranchId);
   if (!visible) throw notFound('That transfer');
   return transfer;
 }
@@ -1778,13 +1812,14 @@ export function listTransfers(ctx: RequestContext, state?: string | null): Stock
   requirePermission(ctx, 'inventory.view');
   const conditions = [eq(schema.stockTransfers.tenantId, ctx.tenantId)];
   if (state) conditions.push(eq(schema.stockTransfers.state, state));
+  const scope = branchScope(ctx);
   const rows = db
     .select()
     .from(schema.stockTransfers)
     .where(and(...conditions))
     .orderBy(desc(schema.stockTransfers.createdAt))
     .all()
-    .filter((t) => ctx.branchIds.includes(t.fromBranchId) || ctx.branchIds.includes(t.toBranchId));
+    .filter((t) => scope.includes(t.fromBranchId) || scope.includes(t.toBranchId));
 
   // One query for every line rather than one per transfer, so the list stays
   // flat as the history grows.
@@ -1991,8 +2026,7 @@ export function reports(
 ): StoreReport {
   requirePermission(ctx, 'inventory.view');
   const branchId = opts.branchId ?? null;
-  if (branchId) requireBranch(ctx, branchId);
-  const branchIds = branchId ? [branchId] : ctx.branchIds;
+  const branchIds = branchScope(ctx, branchId);
   const from = opts.from ?? 0;
   const to = opts.to ?? now();
 
@@ -2127,12 +2161,7 @@ export function ledgerFor(ctx: RequestContext, productId: string, branchId?: str
   requirePermission(ctx, 'inventory.view');
   productInTenant(ctx, productId);
   const conditions = [eq(schema.stockLedger.tenantId, ctx.tenantId), eq(schema.stockLedger.productId, productId)];
-  if (branchId) {
-    requireBranch(ctx, branchId);
-    conditions.push(eq(schema.stockLedger.branchId, branchId));
-  } else {
-    conditions.push(inArray(schema.stockLedger.branchId, ctx.branchIds));
-  }
+  conditions.push(inArray(schema.stockLedger.branchId, branchScope(ctx, branchId)));
   const rows = db
     .select()
     .from(schema.stockLedger)

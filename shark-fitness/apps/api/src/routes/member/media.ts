@@ -94,6 +94,23 @@ function blockFor(
   return null;
 }
 
+function publishedAsset(tenantId: string, assetId: string, atMs: number) {
+  const asset = db
+    .select()
+    .from(schema.mediaAssets)
+    .where(
+      and(
+        eq(schema.mediaAssets.id, assetId),
+        eq(schema.mediaAssets.tenantId, tenantId),
+        sql`${schema.mediaAssets.publishedAt} <= ${atMs}`,
+        or(isNull(schema.mediaAssets.expiresAt), gt(schema.mediaAssets.expiresAt, atMs)),
+      ),
+    )
+    .get();
+  if (!asset) throw notFound('That session');
+  return asset;
+}
+
 const ListQuery = z.object({
   category: z.string().optional(),
   level: z.enum(['all', 'beginner', 'intermediate', 'advanced']).default('all'),
@@ -207,12 +224,7 @@ mediaRoutes.get('/:assetId', (c) => {
   const memberId = ctx.memberId!;
   const atMs = now();
 
-  const asset = db
-    .select()
-    .from(schema.mediaAssets)
-    .where(and(eq(schema.mediaAssets.id, c.req.param('assetId')), eq(schema.mediaAssets.tenantId, ctx.tenantId)))
-    .get();
-  if (!asset) throw notFound('That session');
+  const asset = publishedAsset(ctx.tenantId, c.req.param('assetId'), atMs);
 
   const allowance = videoAllowance(ctx.tenantId, atMs);
   const held = heldProductKinds(ctx.tenantId, memberId);
@@ -270,12 +282,7 @@ mediaRoutes.post('/:assetId/progress', validate('json', ProgressBody), (c) => {
   const body = c.req.valid('json');
   const atMs = now();
 
-  const asset = db
-    .select()
-    .from(schema.mediaAssets)
-    .where(and(eq(schema.mediaAssets.id, c.req.param('assetId')), eq(schema.mediaAssets.tenantId, ctx.tenantId)))
-    .get();
-  if (!asset) throw notFound('That session');
+  const asset = publishedAsset(ctx.tenantId, c.req.param('assetId'), atMs);
 
   const existing = db
     .select()

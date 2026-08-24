@@ -1,11 +1,19 @@
 import { Hono } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { PasswordSignInInput, StartOtpInput, VerifyOtpInput } from '@shark/contracts';
 import { validate } from '../middleware/validate.js';
-import { authenticate, ctxOf, rateLimit } from '../middleware/index.js';
-import { revokeSession, signInWithPassword, startOtp, verifyOtp, viewerFor } from '../services/auth.js';
+import { authenticate, clientIp, ctxOf, rateLimit } from '../middleware/index.js';
+import {
+  OPERATIONAL_TENANT_STATUSES,
+  revokeSession,
+  signInWithPassword,
+  startOtp,
+  verifyOtp,
+  viewerFor,
+} from '../services/auth.js';
 import { db, schema } from '../db/client.js';
+import { runtimeConfig } from '../lib/config.js';
 import { DAY } from '../lib/time.js';
 import {
   CSRF_COOKIE,
@@ -17,14 +25,16 @@ import {
 
 export const authRoutes = new Hono();
 
-const clientIp = (c: { req: { header: (k: string) => string | undefined } }) =>
-  c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ?? '127.0.0.1';
-
 authRoutes.get('/tenants', (c) => {
   const rows = db
     .select({ slug: schema.tenants.slug, displayName: schema.tenants.displayName, currency: schema.tenants.currency })
     .from(schema.tenants)
-    .where(eq(schema.tenants.status, 'active'))
+    .where(
+      and(
+        eq(schema.tenants.kind, 'customer'),
+        inArray(schema.tenants.status, OPERATIONAL_TENANT_STATUSES),
+      ),
+    )
     .all();
   return c.json({ items: rows });
 });
@@ -94,7 +104,7 @@ export function setBrowserSession(c: Parameters<typeof setCookie>[0], rawToken: 
     sameSite: 'Lax',
     path: '/',
     maxAge: (30 * DAY) / 1000,
-    secure: process.env.NODE_ENV === 'production',
+    secure: runtimeConfig.isProduction,
   });
 
   if (getCookie(c, CSRF_COOKIE)) clearCsrfCookie(c);

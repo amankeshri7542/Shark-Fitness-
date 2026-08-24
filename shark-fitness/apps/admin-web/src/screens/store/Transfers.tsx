@@ -570,6 +570,7 @@ function BranchSelect({
   onChange: (value: string) => void;
 }) {
   const id = `transfer_${label.toLowerCase()}`;
+  const uniqueBranches = Array.from(new Map(branches.map((branch) => [branch.id, branch])).values());
   return (
     <div className="bg-panel px-3 py-2">
       <label htmlFor={id} className="font-utility text-[9px] uppercase tracking-[0.14em] text-foam-45">
@@ -581,7 +582,7 @@ function BranchSelect({
         value={value}
         onChange={(e) => onChange(e.target.value)}
       >
-        {branches.map((b) => (
+        {uniqueBranches.map((b) => (
           <option key={b.id} value={b.id}>
             {b.name}
           </option>

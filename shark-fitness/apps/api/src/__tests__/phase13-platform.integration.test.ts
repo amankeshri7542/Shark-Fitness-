@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { app } from '../app.js';
 import { db, schema } from '../db/client.js';
+import { id } from '../lib/ids.js';
 import { now } from '../lib/time.js';
 
 /* ============================================================================
@@ -250,6 +251,41 @@ describe('PF-PLAT-004 — support access borrows authority and acquires none', (
     expect(res.status).toBe(403);
   });
 
+  it('refuses to enter an account in a suspended gym', async () => {
+    const target = db
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(and(eq(schema.users.tenantId, REEF), eq(schema.users.email, 'owner@reefathletic.in')))
+      .get()!;
+    const sessionsBefore = db
+      .select({ n: sql<number>`count(*)` })
+      .from(schema.sessions)
+      .where(and(eq(schema.sessions.userId, target.id), isNull(schema.sessions.revokedAt)))
+      .get()!.n;
+
+    db.update(schema.tenants).set({ status: 'suspended', updatedAt: now() }).where(eq(schema.tenants.id, REEF)).run();
+    try {
+      const res = await post(support, '/v1/platform/impersonate', {
+        userId: target.id,
+        reason: 'Investigating a ticket while the gym is suspended',
+      });
+      expect(res.status).toBe(403);
+      expect(
+        db
+          .select({ n: sql<number>`count(*)` })
+          .from(schema.sessions)
+          .where(and(eq(schema.sessions.userId, target.id), isNull(schema.sessions.revokedAt)))
+          .get()!.n,
+      ).toBe(sessionsBefore);
+    } finally {
+      db.update(schema.sessions)
+        .set({ revokedAt: now() })
+        .where(and(eq(schema.sessions.userId, target.id), isNull(schema.sessions.revokedAt), sql`${schema.sessions.impersonatorId} is not null`))
+        .run();
+      db.update(schema.tenants).set({ status: 'active', updatedAt: now() }).where(eq(schema.tenants.id, REEF)).run();
+    }
+  });
+
   it('refuses a reason nobody could act on', async () => {
     const res = await post(support, '/v1/platform/impersonate', { userId: shark().ownerUserId, reason: 'test' });
     expect(res.status).toBe(422);
@@ -371,6 +407,109 @@ describe('PF-PLAT-001 — tenant lifecycle', () => {
       expect(statusOf(REEF)).toBe('active');
     } finally {
       db.update(schema.users).set({ accountState: 'active' }).where(eq(schema.users.id, held.id)).run();
+    }
+  });
+
+  it('reads tenant-scoped live classes and receivables before archiving', async () => {
+    const tenantId = id('ten');
+    const atMs = now();
+    const liveSessionId = id('ses');
+    const invoiceId = id('inv');
+
+    db.insert(schema.tenants)
+      .values({
+        id: tenantId,
+        slug: `archive-${tenantId}`,
+        legalName: 'Archive Blocker Test Gym Private Limited',
+        displayName: 'Archive Blocker Test Gym',
+        plan: 'growth',
+        kind: 'customer',
+        locale: 'en-IN',
+        currency: 'INR',
+        timezone: 'Asia/Kolkata',
+        unitSystem: 'metric',
+        status: 'active',
+        featureFlags: {},
+        quotas: {},
+        branding: {},
+        policy: {},
+        taxProfile: null,
+        dataProcessing: null,
+        createdAt: atMs,
+        updatedAt: atMs,
+      })
+      .run();
+    db.insert(schema.classSessions)
+      .values({
+        id: liveSessionId,
+        tenantId,
+        branchId: id('br'),
+        classTypeId: id('cty'),
+        roomId: null,
+        trainerId: null,
+        seriesId: null,
+        startsAt: atMs - 15 * 60_000,
+        endsAt: atMs + 15 * 60_000,
+        capacity: 12,
+        booked: 4,
+        state: 'scheduled',
+        bookingOpensAt: null,
+        cancelDeadlineAt: null,
+        creditsRequired: 0,
+        dropInPriceMinor: null,
+        lateCancelFeeMinor: 0,
+        waitlistEnabled: true,
+        cancelledReason: null,
+        substituteFor: null,
+        notes: 'Archive blocker regression fixture',
+        version: 1,
+        createdAt: atMs,
+        updatedAt: atMs,
+      })
+      .run();
+    db.insert(schema.invoices)
+      .values({
+        id: invoiceId,
+        tenantId,
+        branchId: id('br'),
+        memberId: id('mem'),
+        number: `ARCHIVE-${invoiceId}`,
+        state: 'partially_paid',
+        issuedOn: '2026-08-01',
+        dueOn: '2026-08-10',
+        currency: 'INR',
+        subtotalMinor: 10_000,
+        discountMinor: 0,
+        taxMinor: 0,
+        totalMinor: 10_000,
+        paidMinor: 2_500,
+        refundedMinor: 500,
+        voided: false,
+        voidReason: null,
+        refType: null,
+        refId: null,
+        createdAt: atMs,
+        updatedAt: atMs,
+      })
+      .run();
+
+    try {
+      const res = await post(admin, `/v1/platform/tenants/${tenantId}/status`, {
+        status: 'archived',
+        reason: 'Customer completed the offboarding checklist',
+        approvedBy: 'Ira Sundaram',
+      });
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as {
+        error: { message: string; details?: { legalHolds: number; liveClassesNow: number; unpaidMinor: number } };
+      };
+      expect(body.error.message).toMatch(/class is still running/);
+      expect(body.error.details).toEqual({ legalHolds: 0, liveClassesNow: 1, unpaidMinor: 7_000 });
+      expect(statusOf(tenantId)).toBe('active');
+    } finally {
+      db.delete(schema.classSessions).where(eq(schema.classSessions.id, liveSessionId)).run();
+      db.delete(schema.invoices).where(eq(schema.invoices.id, invoiceId)).run();
+      db.delete(schema.tenants).where(eq(schema.tenants.id, tenantId)).run();
     }
   });
 });

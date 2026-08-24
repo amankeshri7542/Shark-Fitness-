@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { runtimeConfig } from './config.js';
 import { token } from './ids.js';
 
 export const PASS_WINDOW_SECONDS = 30;
@@ -20,21 +21,12 @@ export interface IssuedPass {
   expiresAt: number;
 }
 
-function signingSecret(): string {
-  const configured = process.env.SHARK_PASS_SECRET?.trim();
-  if (configured) return configured;
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error('SHARK_PASS_SECRET is required in production');
-  }
-  return 'development-only-pass-secret-change-before-deploying';
-}
-
 function encode(payload: PassTokenPayload): string {
   return Buffer.from(JSON.stringify(payload)).toString('base64url');
 }
 
 function signature(encodedPayload: string): string {
-  return createHmac('sha256', signingSecret()).update(encodedPayload).digest('base64url');
+  return createHmac('sha256', runtimeConfig.passSecret).update(encodedPayload).digest('base64url');
 }
 
 export function issuePassBatch(

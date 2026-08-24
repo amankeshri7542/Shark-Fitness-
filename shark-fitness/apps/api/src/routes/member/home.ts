@@ -3,7 +3,7 @@ import { and, desc, eq, gt, gte, isNull, lt, sql } from 'drizzle-orm';
 import { computeStreak, isEntitled, levelFor, occupancyLabel } from '@shark/domain';
 import { db, schema } from '../../db/client.js';
 import { ctxOf } from '../../middleware/index.js';
-import { DAY, HOUR, isoDate, localTime, now, relativeTime } from '../../lib/time.js';
+import { DAY, HOUR, daysBetween, isoDate, localDayIndex, localDayRange, localTime, now, relativeTime } from '../../lib/time.js';
 import { notFound } from '../../lib/errors.js';
 
 export const homeRoutes = new Hono();
@@ -19,13 +19,15 @@ export const homeRoutes = new Hono();
 homeRoutes.get('/', (c) => {
   const ctx = ctxOf(c);
   const memberId = ctx.memberId!;
-  const today = isoDate(now(), 'Asia/Kolkata');
 
   const member = db.select().from(schema.members).where(eq(schema.members.id, memberId)).get();
   if (!member) throw notFound('Your membership');
 
   const branch = db.select().from(schema.branches).where(eq(schema.branches.id, member.homeBranchId)).get();
   const tz = branch?.timezone ?? 'Asia/Kolkata';
+  const atMs = now();
+  const today = isoDate(atMs, tz);
+  const todayRange = localDayRange(today, today, tz);
 
   /* — Membership and access ————————————————————————————————— */
 
@@ -82,7 +84,7 @@ homeRoutes.get('/', (c) => {
     .where(and(eq(schema.assignments.memberId, memberId), eq(schema.assignments.state, 'active')))
     .get();
 
-  const dayIndex = (new Date(now()).getUTCDay() + 6) % 7;
+  const dayIndex = localDayIndex(atMs, tz);
 
   const programDay = assignment
     ? db
@@ -130,7 +132,8 @@ homeRoutes.get('/', (c) => {
       and(
         eq(schema.workouts.memberId, memberId),
         eq(schema.workouts.state, 'completed'),
-        gte(schema.workouts.startedAt, Date.parse(`${today}T00:00:00+05:30`)),
+        gte(schema.workouts.startedAt, todayRange.from),
+        lt(schema.workouts.startedAt, todayRange.to),
       ),
     )
     .get();
@@ -211,7 +214,7 @@ homeRoutes.get('/', (c) => {
       and(
         eq(schema.bookings.memberId, memberId),
         eq(schema.bookings.state, 'confirmed'),
-        gt(schema.classSessions.startsAt, now() - HOUR),
+        gt(schema.classSessions.startsAt, atMs - HOUR),
       ),
     )
     .orderBy(schema.classSessions.startsAt)
@@ -227,7 +230,6 @@ homeRoutes.get('/', (c) => {
         eq(schema.checkIns.branchId, member.homeBranchId),
         eq(schema.checkIns.decision, 'granted'),
         isNull(schema.checkIns.exitedAt),
-        gt(schema.checkIns.enteredAt, now() - 6 * HOUR),
       ),
     )
     .get();
@@ -265,7 +267,7 @@ homeRoutes.get('/', (c) => {
   const monthVolume = db
     .select({ total: sql<number>`coalesce(sum(${schema.workouts.volumeKg}), 0)` })
     .from(schema.workouts)
-    .where(and(eq(schema.workouts.memberId, memberId), gt(schema.workouts.startedAt, now() - 30 * DAY)))
+    .where(and(eq(schema.workouts.memberId, memberId), gt(schema.workouts.startedAt, atMs - 30 * DAY)))
     .get();
 
   /* — Coach note and challenge ——————————————————————————————— */
@@ -332,14 +334,19 @@ homeRoutes.get('/', (c) => {
   const unread = db
     .select({ n: sql<number>`count(*)` })
     .from(schema.notifications)
-    .where(and(eq(schema.notifications.userId, ctx.userId), isNull(schema.notifications.readAt)))
+    .where(and(
+      eq(schema.notifications.tenantId, ctx.tenantId),
+      eq(schema.notifications.userId, ctx.userId),
+      eq(schema.notifications.state, 'sent'),
+      isNull(schema.notifications.readAt),
+    ))
     .get();
 
   /* — Card order. Explicit, inspectable, no feed algorithm. ————— */
 
   const order: string[] = [];
   if (membershipIssue) order.push('membership_issue');
-  if (nextBooking && nextBooking.startsAt - now() < 3 * HOUR) order.push('next_booking');
+  if (nextBooking && nextBooking.startsAt - atMs < 3 * HOUR) order.push('next_booking');
   order.push('training');
   if (adaptive) order.push('adaptive');
   if (!order.includes('next_booking') && nextBooking) order.push('next_booking');
@@ -366,7 +373,7 @@ homeRoutes.get('/', (c) => {
         weekday: 'long',
         day: 'numeric',
         month: 'short',
-      }).format(now()),
+      }).format(atMs),
     },
     order,
     membership: membership
@@ -400,7 +407,7 @@ homeRoutes.get('/', (c) => {
           capacity: nextBooking.capacity,
           cancelled: nextBooking.state === 'cancelled',
           cancelledReason: nextBooking.cancelledReason,
-          startsInMin: Math.round((nextBooking.startsAt - now()) / 60_000),
+          startsInMin: Math.round((nextBooking.startsAt - atMs) / 60_000),
         }
       : null,
     occupancy: {
@@ -449,7 +456,7 @@ homeRoutes.get('/', (c) => {
       ? {
           id: challenge.id,
           name: challenge.name,
-          daysLeft: Math.max(0, Math.round((Date.parse(`${challenge.endsOn}T23:59:59Z`) - now()) / DAY)),
+          daysLeft: Math.max(0, daysBetween(today, challenge.endsOn)),
           rank: (challengeStanding?.n ?? 0) + 1,
           score: challenge.score,
           metricLabel: challenge.metricLabel,
@@ -467,6 +474,7 @@ homeRoutes.get('/occupancy/:branchId', (c) => {
 
   const branch = db.select().from(schema.branches).where(eq(schema.branches.id, branchId)).get();
   if (!branch) throw notFound('That branch');
+  const atMs = now();
 
   const inside = db
     .select({ n: sql<number>`count(*)` })
@@ -476,12 +484,12 @@ homeRoutes.get('/occupancy/:branchId', (c) => {
         eq(schema.checkIns.branchId, branchId),
         eq(schema.checkIns.decision, 'granted'),
         isNull(schema.checkIns.exitedAt),
-        gt(schema.checkIns.enteredAt, now() - 6 * HOUR),
       ),
     )
     .get();
 
-  const todayStart = Date.parse(`${isoDate(now(), branch.timezone)}T00:00:00+05:30`);
+  const today = isoDate(atMs, branch.timezone);
+  const todayRange = localDayRange(today, today, branch.timezone);
   const rows = db
     .select({ enteredAt: schema.checkIns.enteredAt })
     .from(schema.checkIns)
@@ -489,8 +497,8 @@ homeRoutes.get('/occupancy/:branchId', (c) => {
       and(
         eq(schema.checkIns.branchId, branchId),
         eq(schema.checkIns.decision, 'granted'),
-        gte(schema.checkIns.enteredAt, todayStart),
-        lt(schema.checkIns.enteredAt, todayStart + DAY),
+        gte(schema.checkIns.enteredAt, todayRange.from),
+        lt(schema.checkIns.enteredAt, todayRange.to),
       ),
     )
     .all();
@@ -512,10 +520,10 @@ homeRoutes.get('/occupancy/:branchId', (c) => {
     inside: insideNow,
     capacity: branch.capacity,
     label: occupancyLabel(insideNow, branch.capacity),
-    at: new Date(now()).toISOString(),
+    at: new Date(atMs).toISOString(),
     hourly,
     currentHour: Number(
-      new Intl.DateTimeFormat('en-GB', { timeZone: branch.timezone, hour: '2-digit', hour12: false }).format(now()),
+      new Intl.DateTimeFormat('en-GB', { timeZone: branch.timezone, hour: '2-digit', hour12: false }).format(atMs),
     ),
     areas: [
       { name: 'Free weights', busy: insideNow > branch.capacity * 0.6 ? 'busy' : 'steady', free: null },

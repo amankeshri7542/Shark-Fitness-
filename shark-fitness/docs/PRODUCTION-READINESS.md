@@ -18,18 +18,18 @@ Nothing here recommends architecture for a scale this product does not have.
 
 | Area | State | Blocking? |
 |---|---|---|
-| Business logic and authorisation | Strong. 992 tests, tenant and branch isolation tested from the outside | No |
+| Business logic and authorisation | Strong. 1,125 automated tests, including tenant and branch isolation from the outside | No |
 | Persistence | SQLite on one disk. No backups configured | **Yes** |
 | Payments | No real provider. Cash and card are recorded, not taken | **Yes** for card |
 | Scaling | Single instance only, by design and by constraint | No, at this size |
 | Realtime | In-process WebSocket fan-out, lost on restart | No |
 | Scheduler | In-process timers, one set per instance | **Yes** if ever scaled |
-| Observability | `console.log`. No metrics, no traces, no alerting | **Yes** |
-| Secrets | One secret validated in production; the rest fail late | **Yes** |
-| Rate limiting | In-memory, auth routes only | Partially |
+| Observability | Durable scheduler runs plus `console.log`; no metrics, no traces, no alerting | **Yes** |
+| Secrets | Canonical boot-time production validation | No |
+| Rate limiting | In-memory, endpoint-sensitive IP/actor/tenant budgets | Partially |
 | Migrations | Forward-only, additive, tested | No |
 
-**Four blockers.** Backups, a payment provider, secrets validation, and
+**Three blockers.** Backups, a payment provider where cards are accepted, and
 somewhere for errors to go. Everything else is either fine at this size or a
 known trade-off with a written reason.
 
@@ -123,32 +123,35 @@ so a client cannot subscribe to a channel it has no claim on.
 
 **Limits.** In-process only. No reconnect backoff on the server side; the
 client reconnects and replays from a sequence number, which covers a dropped
-connection but not a restart with a cold outbox. `outbox_events` rows are
-marked delivered but nothing prunes them — the table grows forever.
+connection but not a restart with a cold outbox. Delivered `outbox_events` are
+retained for the reconnect window and then pruned while preserving the latest
+sequence high-water row, so a restart cannot reuse a cursor.
 
 ---
 
 ## 6. Scheduler behaviour
 
-Six jobs on `setInterval`, unref'd, started in `server.ts`:
+Eight jobs on `setInterval`, unref'd, started in `server.ts`:
 
 | Job | Every |
 |---|---|
+| `deliver-automation-queue` | 1 min |
 | `run-automations` | 1 hour |
 | `expire-memberships` | 6 hours |
 | `roll-up-metrics` | 6 hours |
 | `close-stale-check-ins` | 30 min |
 | `expire-waitlist-offers` | 1 min |
 | `release-expired-holds` | 1 min |
+| `prune-operational-data` | 24 hours |
 
 **Every job runs on every instance.** There is no lock and no leader election.
 With one instance that is correct and simple. `SHARK_DISABLE_JOBS=true` turns
 them off, which is what a second instance would need.
 
-There is also no record of a job having run, so a job that silently stops is
-invisible until somebody notices the effect. The platform health screen lists
-what is *registered*, not what last succeeded — a real gap, and a small one to
-close.
+Each execution writes a durable `job_runs` record with start, finish, status,
+duration and error. Platform health derives `overdue` from each job’s cadence,
+and shows intentionally disabled jobs as `disabled`; a historical success no
+longer means the scheduler is healthy forever.
 
 ---
 
@@ -193,7 +196,8 @@ part is sound.
 
 ## 9. Logging and observability
 
-**`console.log`, and nothing else.** This is the third blocker.
+**Durable job history plus `console.log`, but nothing else.** This is the third
+blocker.
 
 - One line per request with method, path, status and duration; warnings over
   400ms; errors on 5xx.
@@ -218,20 +222,20 @@ between finding out from a graph and finding out from a member.
 
 ## 10. Rate limiting
 
-`rateLimit(max, windowMs)` in `middleware/index.ts`, keyed on path plus
-`x-forwarded-for`.
+`rateLimit(max, windowMs)` in `middleware/index.ts` has endpoint-sensitive
+budgets. It uses a trusted-proxy hop count and the direct socket address rather
+than accepting the leftmost client-supplied `x-forwarded-for` value.
 
-**Applied to four routes only**: OTP start, OTP verify, password sign-in, and
-the auth-stabilisation route. That is the right priority — credential stuffing
-is the attack that matters — but the rest of the API has no limit at all. A
-signed-in member can hammer any endpoint.
+Auth flows retain tight budgets. Protected API routes also have outer IP,
+tenant and actor budgets, while door scans and manual automation runs have
+their own lower ceilings.
 
 **It is in-memory.** The bucket `Map` is per-process and lost on restart, so a
 deploy resets every counter. With one instance that is a minor weakness; with
 several it would be useless.
 
-There is no global request cap and no per-tenant cap, so one gym's runaway
-client can exhaust the single instance for everybody on it.
+The limiter remains process-local, so it is an appropriate single-instance
+safeguard rather than distributed DDoS protection.
 
 ---
 
@@ -249,8 +253,9 @@ elsewhere.
   `automation_runs_sent_uq` (one send per logical event) and the class capacity
   trigger.
 
-`idempotency_keys` is never pruned. It grows forever, which is slow rather than
-wrong.
+Operational idempotency evidence is retained for its documented window and
+then pruned in bounded batches. Audit, accounting, consent and ledger history
+are explicitly excluded from pruning.
 
 ---
 
@@ -258,17 +263,16 @@ wrong.
 
 Read from the environment, with `.env.example` as the reference.
 
-**Only `SHARK_PASS_SECRET` is validated**, and only when it is first used —
-which means a deployment missing it starts, serves, and fails at the first door
-scan. `SHARK_ALLOWED_ORIGINS`, `SHARK_DB`, `SHARK_PUBLIC_ORIGIN` and the reader
-keys are read where needed with silent fallbacks.
+`src/lib/config.ts` validates the shared API configuration before the
+application graph opens SQLite or registers static serving. Booleans accept
+only the exact strings `true` and `false`; ports, reader JSON and exact browser
+origins are parsed once and shared by every consumer.
 
-`SHARK_ALLOW_BEARER_AUTH` and `SHARK_ECHO_OTP` are unsafe switches that default
-off and are ignored in production — that part is right.
-
-**This is the fourth blocker, and the cheapest to fix:** validate the whole
-environment at boot with a Zod schema and refuse to start when it is wrong. A
-config error should be a crash on deploy, not a 500 at 06:00.
+Production additionally requires an explicit database path, a pass secret of
+at least 48 bytes and at least one configured public/allowed/platform origin.
+Origins must use HTTPS except for the explicit loopback smoke-test case, and
+OTP echo is refused rather than silently ignored. A bad deployment now exits
+at boot instead of failing on its first door scan or browser request.
 
 ---
 
@@ -287,9 +291,10 @@ an error.
 
 ## 14. Migrations
 
-Six migrations, forward-only, generated by drizzle-kit, checked in with their
-snapshots. Additive throughout: Phases 11, 12 and 13 added columns and one
-table and rewrote nothing.
+Seven migrations, forward-only, generated by drizzle-kit, checked in with their
+snapshots. The final hardening migration is additive: it adds durable delivery
+and job history, retention indexes, delivery idempotency, and append-only stock
+delete protection without rewriting existing business records.
 
 `migrate.ts` applies extras drizzle cannot express — the append-only triggers
 on `audit_log`, `xp_ledger`, `stock_ledger` and `ticket_events`, the capacity

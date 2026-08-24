@@ -638,6 +638,23 @@ function feedFor(ctx: RequestContext, scope: Scope, limit: number) {
   };
 }
 
+/** Apply the feed's visibility rule again on direct-id mutations. A hidden id
+ * must not become an alternate write API for private or other-branch posts. */
+function postForFeedInteraction(ctx: RequestContext, postId: string) {
+  const scope = scopeOf(ctx);
+  const post = db
+    .select()
+    .from(schema.posts)
+    .where(and(eq(schema.posts.id, postId), eq(schema.posts.tenantId, ctx.tenantId)))
+    .get();
+  const visible = post &&
+    post.visibility !== 'private' &&
+    (post.visibility === 'tenant' || post.branchId === scope.branchId);
+  const hidden = post?.memberId ? blockSet(ctx).hidden.has(post.memberId) : false;
+  if (!visible || hidden) throw notFound('That post');
+  return post;
+}
+
 /* ============================================================================
    GET /  — the Pack overview
    ========================================================================= */
@@ -1246,12 +1263,7 @@ engagementRoutes.post('/feed/:id/kudos', (c) => {
   const ctx = ctxOf(c);
   const postId = c.req.param('id');
 
-  const post = db
-    .select()
-    .from(schema.posts)
-    .where(and(eq(schema.posts.id, postId), eq(schema.posts.tenantId, ctx.tenantId)))
-    .get();
-  if (!post) throw notFound('That post');
+  const post = postForFeedInteraction(ctx, postId);
   if (post.state === 'removed' || post.deletedAt) throw conflict('That post is no longer available.');
 
   const already = db
@@ -1287,12 +1299,7 @@ engagementRoutes.delete('/feed/:id/kudos', (c) => {
   const ctx = ctxOf(c);
   const postId = c.req.param('id');
 
-  const post = db
-    .select()
-    .from(schema.posts)
-    .where(and(eq(schema.posts.id, postId), eq(schema.posts.tenantId, ctx.tenantId)))
-    .get();
-  if (!post) throw notFound('That post');
+  const post = postForFeedInteraction(ctx, postId);
 
   const existing = db
     .select()
@@ -1322,19 +1329,9 @@ engagementRoutes.post(
     const postId = c.req.param('id');
     const { body } = c.req.valid('json');
 
-    const post = db
-      .select()
-      .from(schema.posts)
-      .where(and(eq(schema.posts.id, postId), eq(schema.posts.tenantId, ctx.tenantId)))
-      .get();
-    if (!post) throw notFound('That post');
+    const post = postForFeedInteraction(ctx, postId);
     if (post.state === 'removed' || post.deletedAt) {
       throw conflict('That post was removed, so it can no longer be replied to.');
-    }
-
-    const { hidden } = blockSet(ctx);
-    if (post.memberId && hidden.has(post.memberId)) {
-      throw forbidden('You and this member have blocked each other, so you cannot reply here.');
     }
 
     const budget = commentBudget(ctx);

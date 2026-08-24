@@ -27,6 +27,7 @@ import { RESPONSE_MINUTES as SUPPORT_RESPONSE_MINUTES } from '../services/suppor
 import { backfillRollups } from '../services/reports.js';
 import { EXERCISES } from './seed/exercises.js';
 import { makeRandom } from './seed/random.js';
+import { wipeSeedTables } from './seed-tables.js';
 import {
   ACHIEVEMENTS_SEED,
   CLASS_TYPES,
@@ -44,40 +45,7 @@ const TODAY = isoDate(NOW, TZ);
 
 /** Wipe in reverse dependency order so a reseed is clean. */
 function wipe(): void {
-  const tables = [
-    'media_progress', 'media_assets', 'live_sessions', 'usage_meters',
-    'ticket_events', 'interventions', 'feedback',
-    'messages', 'conversations', 'tickets',
-    'reactions', 'comments', 'content_reports', 'blocks', 'posts',
-    'challenge_participants', 'challenges', 'referrals', 'member_achievements', 'achievements',
-    'streaks', 'xp_ledger',
-    'weekly_check_ins', 'nutrition_targets', 'daily_metrics', 'habit_logs', 'habits',
-    'progress_photos', 'assessments', 'goals', 'measurements',
-    'adaptive_decisions', 'personal_records', 'workout_sets', 'workouts',
-    'assignment_overrides', 'assignments', 'program_items', 'program_days', 'programs', 'exercises',
-    'facility_tasks', 'work_orders', 'equipment',
-    'pos_payments', 'pos_order_lines', 'pos_orders',
-    'stock_transfer_lines', 'stock_transfers',
-    'stock_ledger', 'retail_products', 'retail_product_groups', 'suppliers',
-    'appointments', 'waitlist_entries', 'bookings', 'class_sessions', 'rooms', 'class_types',
-    'used_access_windows', 'check_ins', 'access_tokens',
-    'dunning_attempts', 'provider_events', 'refunds', 'payments', 'invoice_lines', 'invoices',
-    'commission_lines', 'commission_rates', 'shifts', 'staff', 'lead_activities', 'leads',
-    'credits', 'membership_events', 'memberships', 'products',
-    'member_branches', 'members',
-    'metric_rollups', 'automations', 'message_templates', 'notifications',
-    'idempotency_keys', 'outbox_events', 'audit_log', 'consents', 'otp_challenges', 'sessions', 'users',
-    'branches', 'tenants',
-  ];
-  sqlite.exec('PRAGMA foreign_keys = OFF');
-  for (const t of tables) {
-    try {
-      sqlite.exec(`DELETE FROM ${t}`);
-    } catch {
-      /* table may not exist on a partial schema */
-    }
-  }
-  sqlite.exec('PRAGMA foreign_keys = ON');
+  wipeSeedTables(sqlite);
 }
 
 console.log('seeding…');
@@ -3771,10 +3739,13 @@ const TEMPLATES = [
   },
 ];
 
+const TEMPLATE_IDS = new Map<string, string>();
 for (const template of TEMPLATES) {
+  const templateId = id('tpl');
+  TEMPLATE_IDS.set(template.code, templateId);
   db.insert(schema.messageTemplates)
     .values({
-      id: id('tpl'),
+      id: templateId,
       tenantId,
       code: template.code,
       channel: template.channel,
@@ -3794,7 +3765,7 @@ const AUTOMATIONS = [
     trigger: 'membership.expiring',
     description: 'Texts members a week before their plan ends.',
     conditions: [{ field: 'daysLeft', op: 'lte', value: '7' }],
-    actions: [{ kind: 'sms', templateCode: 'membership.expiring', delayMin: 0 }],
+    actions: [{ kind: 'sms', templateCode: 'membership.expiring', templateId: TEMPLATE_IDS.get('membership.expiring')!, templateVersion: 1, delayMin: 0 }],
     state: 'active',
     dryRun: false,
   },
@@ -3803,7 +3774,7 @@ const AUTOMATIONS = [
     trigger: 'membership.payment_failed',
     description: 'Texts a member whose card was refused, while the grace period runs.',
     conditions: [],
-    actions: [{ kind: 'sms', templateCode: 'payment.failed', delayMin: 0 }],
+    actions: [{ kind: 'sms', templateCode: 'payment.failed', templateId: TEMPLATE_IDS.get('payment.failed')!, templateVersion: 1, delayMin: 0 }],
     state: 'active',
     dryRun: true,
   },
@@ -3812,7 +3783,7 @@ const AUTOMATIONS = [
     trigger: 'member.inactive',
     description: 'Emails members who have not trained for three weeks. Paused while the copy is rewritten.',
     conditions: [{ field: 'daysSinceVisit', op: 'gte', value: '21' }],
-    actions: [{ kind: 'email', templateCode: 'member.winback', delayMin: 0 }],
+    actions: [{ kind: 'email', templateCode: 'member.winback', templateId: TEMPLATE_IDS.get('member.winback')!, templateVersion: 1, delayMin: 0 }],
     state: 'paused',
     dryRun: true,
   },
@@ -3828,6 +3799,7 @@ for (const automation of AUTOMATIONS) {
       description: automation.description,
       conditions: automation.conditions,
       actions: automation.actions,
+      branchIds: null,
       quietHours: null,
       state: automation.state,
       dryRun: automation.dryRun,

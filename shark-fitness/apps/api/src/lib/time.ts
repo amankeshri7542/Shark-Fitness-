@@ -7,6 +7,21 @@ export const now = (): number => Date.now();
 
 export const iso = (ms: number): string => new Date(ms).toISOString();
 
+/** Whether this runtime can resolve an IANA timezone name or accepted alias.
+ *
+ * `Intl` is deliberately the authority: a copied timezone list goes stale as
+ * governments change rules, while this preserves valid stored aliases (for
+ * example both Asia/Kolkata and Asia/Calcutta) exactly as supplied.
+ */
+export function isValidTimeZone(timeZone: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function isoDate(ms: number, timeZone: string): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone,
@@ -82,9 +97,56 @@ export function startOfLocalDay(isoDay: string, timeZone: string): number {
   return ms;
 }
 
+/** Resolve a wall-clock minute on a local calendar day to its UTC instant.
+ *
+ * The correction loop handles ordinary offset changes without assuming every
+ * local day is 24 hours. If the requested minute is skipped by a spring DST
+ * transition, the bounded fallback returns the first real local minute after
+ * the gap. During an autumn fold it returns the first occurrence.
+ */
+export function localClockOnDay(isoDay: string, clock: string, timeZone: string): number {
+  const [hour, minute] = clock.split(':').map(Number);
+  if (
+    !Number.isInteger(hour) || !Number.isInteger(minute) ||
+    hour! < 0 || hour! > 23 || minute! < 0 || minute! > 59
+  ) {
+    throw new RangeError(`Invalid local clock: ${clock}`);
+  }
+
+  const targetMinutes = hour! * 60 + minute!;
+  let candidate = startOfLocalDay(isoDay, timeZone) + targetMinutes * MINUTE;
+  const seen = new Set<number>();
+  for (let pass = 0; pass < 4; pass += 1) {
+    if (isoDate(candidate, timeZone) === isoDay && localMinutes(candidate, timeZone) === targetMinutes) return candidate;
+    if (seen.has(candidate)) break;
+    seen.add(candidate);
+    const actualDay = isoDate(candidate, timeZone);
+    const correction = daysBetween(actualDay, isoDay) * DAY + (targetMinutes - localMinutes(candidate, timeZone)) * MINUTE;
+    candidate += correction;
+  }
+
+  const from = startOfLocalDay(isoDay, timeZone);
+  const to = startOfLocalDay(addDays(isoDay, 1), timeZone);
+  for (let instant = from; instant < to; instant += MINUTE) {
+    if (isoDate(instant, timeZone) === isoDay && localMinutes(instant, timeZone) >= targetMinutes) return instant;
+  }
+  throw new RangeError(`Could not resolve ${isoDay} ${clock} in ${timeZone}.`);
+}
+
 /** The half-open range [from, to) covering whole local days, inclusive of `toDay`. */
 export function localDayRange(fromDay: string, toDay: string, timeZone: string): { from: number; to: number } {
   return { from: startOfLocalDay(fromDay, timeZone), to: startOfLocalDay(addDays(toDay, 1), timeZone) };
+}
+
+/** The next local calendar day as a half-open UTC instant range.
+ *
+ * This intentionally does not add 24 hours. On DST transitions a local day
+ * can be 23 or 25 hours, while "tomorrow's class" still means the next date
+ * on the branch calendar.
+ */
+export function nextLocalDayRange(atMs: number, timeZone: string): { day: string; from: number; to: number } {
+  const day = addDays(isoDate(atMs, timeZone), 1);
+  return { day, from: startOfLocalDay(day, timeZone), to: startOfLocalDay(addDays(day, 1), timeZone) };
 }
 
 export const MINUTE = 60_000;

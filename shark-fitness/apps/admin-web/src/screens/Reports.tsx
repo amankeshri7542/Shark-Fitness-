@@ -67,11 +67,23 @@ const PRESETS = [
   { key: '365', label: 'Last 12 months', days: 365 },
 ];
 
-const isoDay = (at: Date): string => at.toISOString().slice(0, 10);
+export const isoDayInZone = (atMs: number, timeZone: string): string =>
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(atMs);
 
-function defaultRange(): { from: string; to: string } {
-  const today = new Date();
-  return { from: isoDay(new Date(today.getTime() - 29 * 86_400_000)), to: isoDay(today) };
+const addCalendarDays = (isoDay: string, days: number): string => {
+  const date = new Date(`${isoDay}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+};
+
+export function reportRangeEndingAt(atMs: number, timeZone: string, days = 30): { from: string; to: string } {
+  const to = isoDayInZone(atMs, timeZone);
+  return { from: addCalendarDays(to, -(days - 1)), to };
 }
 
 export default function ReportsScreen() {
@@ -88,12 +100,14 @@ export default function ReportsScreen() {
   const online = useOnline();
   const branches = useAdmin((s) => s.branches);
   const [exported, setExported] = useState<ReportExport | null>(null);
+  const [rangeClock] = useState(Date.now);
 
   const tab: ReportKind = search.tab ?? 'revenue';
-  const fallback = defaultRange();
+  const branchId = search.branchId ?? '';
+  const rangeTimeZone = branches.find((branch) => branch.id === branchId)?.timezone ?? timeZone;
+  const fallback = reportRangeEndingAt(rangeClock, rangeTimeZone);
   const from = search.from ?? fallback.from;
   const to = search.to ?? fallback.to;
-  const branchId = search.branchId ?? '';
 
   const setSearch = (next: Partial<{ tab: ReportKind; from: string; to: string; branchId: string }>): void => {
     void navigate({
@@ -141,8 +155,7 @@ export default function ReportsScreen() {
   }
 
   const applyPreset = (days: number): void => {
-    const today = new Date();
-    setSearch({ from: isoDay(new Date(today.getTime() - (days - 1) * 86_400_000)), to: isoDay(today) });
+    setSearch(reportRangeEndingAt(rangeClock, rangeTimeZone, days));
   };
 
   return (

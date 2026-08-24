@@ -59,6 +59,8 @@ const tenantId = (): string =>
 let owner: Session;
 let manager: Session;
 let reception: Session;
+let dedupeAutomationId: string;
+const IN_APP_TEMPLATE = 'test.automation.in-app';
 
 /**
  * A window that is never quiet.
@@ -100,6 +102,12 @@ beforeAll(async () => {
   owner = await signIn('owner@sharkfitness.in');
   manager = await signIn('manager@sharkfitness.in');
   reception = await signIn('reception@sharkfitness.in');
+  await post(owner, '/v1/admin/automations/templates', {
+    code: IN_APP_TEMPLATE,
+    channel: 'in_app',
+    subject: 'Reminder',
+    body: 'Hi {{firstName}}, this is your reminder from {{branchName}}.',
+  });
 });
 
 /* ——— Permission ————————————————————————————————————————— */
@@ -265,13 +273,17 @@ describe('PF-COMM-004 — a dry run cannot send', () => {
     const rehearsedKeys = runsFor(automation.id, 'dry_run').map((r) => r.eventKey);
     expect(rehearsedKeys.length).toBeGreaterThan(0);
 
-    await patch(owner, `/v1/admin/automations/${automation.id}`, { dryRun: false, state: 'active', quietHours: NEVER_QUIET });
+    await patch(owner, `/v1/admin/automations/${automation.id}`, {
+      channel: 'in_app', templateCode: IN_APP_TEMPLATE, quietHours: NEVER_QUIET,
+    });
+    await patch(owner, `/v1/admin/automations/${automation.id}`, { dryRun: false, state: 'active' });
     const res = await post(owner, `/v1/admin/automations/${automation.id}/run`, {});
     const summary = (await res.json()) as { dryRun: boolean; sent: number };
     expect(summary.dryRun).toBe(false);
     expect(summary.sent).toBeGreaterThan(0);
 
     // Put it back so the rest of the suite is not messaging people.
+    await patch(owner, `/v1/admin/automations/${automation.id}`, { channel: 'sms', templateCode: 'payment.failed' });
     await patch(owner, `/v1/admin/automations/${automation.id}`, { dryRun: true, state: 'paused' });
   });
 
@@ -288,10 +300,15 @@ describe('PF-COMM-004 — a dry run cannot send', () => {
 
 describe('PF-COMM-004 — the same logical event never sends twice', () => {
   it('sends once, then suppresses the repeat', async () => {
-    const automation = await byName('Renewal nudge');
-    await patch(owner, `/v1/admin/automations/${automation.id}`, { quietHours: NEVER_QUIET });
-    const first = (await (await post(owner, `/v1/admin/automations/${automation.id}/run`, {})).json()) as { sent: number };
-    const second = (await (await post(owner, `/v1/admin/automations/${automation.id}/run`, {})).json()) as {
+    const created = await post(owner, '/v1/admin/automations', {
+      name: 'Dedupe probe', trigger: 'membership.expiring', channel: 'in_app',
+      templateCode: IN_APP_TEMPLATE, conditions: [], quietHours: NEVER_QUIET,
+    });
+    dedupeAutomationId = ((await created.json()) as { automation: AutomationRow }).automation.id;
+    await patch(owner, `/v1/admin/automations/${dedupeAutomationId}`, { state: 'active' });
+    await patch(owner, `/v1/admin/automations/${dedupeAutomationId}`, { dryRun: false });
+    const first = (await (await post(owner, `/v1/admin/automations/${dedupeAutomationId}/run`, {})).json()) as { sent: number };
+    const second = (await (await post(owner, `/v1/admin/automations/${dedupeAutomationId}/run`, {})).json()) as {
       sent: number;
       bySuppression: Array<{ code: string; count: number }>;
     };
@@ -302,8 +319,7 @@ describe('PF-COMM-004 — the same logical event never sends twice', () => {
   });
 
   it('produces exactly one notification per member per event', async () => {
-    const automation = await byName('Renewal nudge');
-    const sent = runsFor(automation.id, 'sent');
+    const sent = runsFor(dedupeAutomationId, 'sent');
     const keys = sent.map((r) => r.eventKey);
     expect(new Set(keys).size).toBe(keys.length);
   });
@@ -351,8 +367,8 @@ describe('PF-COMM — the reasons not to send', () => {
     // before quiet hours, so testing this on a rule that has already run would
     // assert the wrong suppression and pass for the wrong reason.
     const created = await post(owner, '/v1/admin/automations', {
-      name: 'Quiet hours probe', trigger: 'membership.expiring', channel: 'sms',
-      templateCode: 'membership.expiring', conditions: [{ field: 'daysLeft', op: 'lte', value: '30' }],
+      name: 'Quiet hours probe', trigger: 'membership.expiring', channel: 'in_app',
+      templateCode: IN_APP_TEMPLATE, conditions: [{ field: 'daysLeft', op: 'lte', value: '30' }],
     });
     const { automation } = (await created.json()) as { automation: AutomationRow };
 
@@ -389,6 +405,7 @@ describe('PF-COMM — the reasons not to send', () => {
 
   it('records every decision, including the ones not to send', async () => {
     const automation = await byName('Renewal nudge');
+    await post(owner, `/v1/admin/automations/${automation.id}/run`, {});
     const body = (await (await get(owner, `/v1/admin/automations/runs?automationId=${automation.id}&limit=200`)).json()) as {
       items: Array<{ outcome: string; reason: string; memberName: string | null }>;
     };
@@ -415,7 +432,9 @@ describe('PF-COMM-003 — templates are versioned, never edited in place', () =>
     const before = (await (await get(owner, '/v1/admin/automations/templates')).json()) as {
       items: Array<{ code: string; version: number }>;
     };
-    const original = before.items.find((t) => t.code === 'member.welcome')!;
+    const original = before.items
+      .filter((template) => template.code === 'member.welcome')
+      .sort((left, right) => right.version - left.version)[0]!;
 
     await post(owner, '/v1/admin/automations/templates', {
       code: 'member.welcome', channel: 'in_app', subject: 'Welcome',
@@ -430,6 +449,10 @@ describe('PF-COMM-003 — templates are versioned, never edited in place', () =>
     // A message already sent was sent under the words that existed then.
     expect(versions.length).toBeGreaterThan(1);
     expect(Math.max(...versions.map((v) => v.version))).toBe(original.version + 1);
+
+    const pinnedAutomation = await byName('Test welcome');
+    const pinned = db.select().from(schema.automations).where(eq(schema.automations.id, pinnedAutomation.id)).get()!;
+    expect(pinned.actions[0]?.templateVersion).toBe(original.version);
   });
 
   it('reports the variables a template uses', async () => {

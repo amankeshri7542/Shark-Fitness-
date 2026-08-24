@@ -1,9 +1,10 @@
 import { useState } from 'react';
+import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, api } from '../lib/api';
 import { usePermission } from '../lib/store';
 import { Page } from '../ui/shell';
-import { Button, Checkbox, Chip, EmptyState, ErrorState, Field, Label, Metric, Panel, PermissionState, Seam, SelectField, Skeleton, Table, TableScroll, type Tone } from '../ui/console';
+import { Button, Checkbox, Chip, EmptyState, ErrorState, Field, Label, Metric, Panel, PermissionState, RowOpen, Seam, SelectField, Skeleton, Table, TableScroll, type Tone } from '../ui/console';
 import { ConfirmDialog, Drawer, Modal } from '../ui/overlay';
 import { useIdempotentAttempt } from '../lib/idempotent-attempt';
 
@@ -68,13 +69,17 @@ const STATE_TONE: Record<string, Tone> = {
   refunded: 'neutral',
 };
 
+const INVOICE_STATES = ['', 'outstanding', 'open', 'partially_paid', 'overdue', 'paid', 'void', 'partially_refunded', 'refunded'] as const;
+
 export default function BillingScreen() {
   const canView = usePermission('billing.view');
   const canRecordPayment = usePermission('billing.record_payment');
   const canRefund = usePermission('billing.refund');
   const canWriteOff = usePermission('billing.write_off');
   const queryClient = useQueryClient();
-  const [stateFilter, setStateFilter] = useState('');
+  const { state } = useSearch({ from: '/console/billing' });
+  const stateFilter = state ?? '';
+  const navigate = useNavigate({ from: '/billing' });
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
 
   const summary = useQuery({ queryKey: ['billing-summary'], queryFn: () => api<Summary>('/admin/billing/summary'), enabled: canView });
@@ -176,11 +181,11 @@ export default function BillingScreen() {
         <div className="flex flex-col gap-1">
           <Label>State</Label>
           <div className="flex flex-wrap">
-            {['', 'open', 'partially_paid', 'overdue', 'paid', 'void', 'refunded'].map((s, i) => (
+            {INVOICE_STATES.map((s, i) => (
               <button
                 key={s || 'all'}
                 type="button"
-                onClick={() => setStateFilter(s)}
+                onClick={() => void navigate({ search: () => ({ state: s }), replace: true })}
                 aria-pressed={stateFilter === s}
                 className={`min-h-9 border border-line px-2.5 font-utility text-[10px] font-semibold uppercase tracking-[0.1em] transition-colors ${i > 0 ? '-ml-px' : ''} ${stateFilter === s ? 'z-10 border-sonar text-sonar' : 'text-foam-45 hover:text-foam'}`}
               >
@@ -216,7 +221,9 @@ export default function BillingScreen() {
           <tbody>
             {invoices.data.items.map((inv) => (
               <tr key={inv.id} onClick={() => setSelectedInvoiceId(inv.id)} className="cursor-pointer">
-                <td className="font-utility text-[11px] uppercase tracking-[0.08em]">{inv.number}</td>
+                <td className="font-utility text-[11px] uppercase tracking-[0.08em]">
+                  <RowOpen onClick={() => setSelectedInvoiceId(inv.id)}>{inv.number}</RowOpen>
+                </td>
                 <td>
                   {inv.memberName} <span className="text-foam-35">· {inv.memberNo}</span>
                 </td>

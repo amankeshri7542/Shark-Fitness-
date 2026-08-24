@@ -24,7 +24,7 @@ jobs:
     env:
       NODE_ENV: test
       SHARK_ECHO_OTP: 'false'
-      SHARK_PASS_SECRET: phase1-ci-pass-secret-not-for-production
+      SHARK_PASS_SECRET: phase1-ci-pass-secret-not-for-production-use-48-bytes
       SHARK_DEMO_READER_KEY: phase1-test-reader-secret
 
     steps:
@@ -221,7 +221,7 @@ jobs:
           set -euo pipefail
 
           docker run -d --name shark-ci -p 8787:8787 \
-            -e SHARK_PASS_SECRET=ci-image-smoke-secret \
+            -e SHARK_PASS_SECRET=ci-image-smoke-secret-with-at-least-48-random-bytes \
             -e SHARK_ALLOWED_ORIGINS=http://localhost:8787,http://127.0.0.1:8787 \
             shark-fitness:ci
           cleanup() {

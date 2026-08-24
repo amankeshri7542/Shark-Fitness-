@@ -429,10 +429,26 @@ describe('billing — member self-service', () => {
     const payable = rohitBody.invoices.find((i) => i.payable);
     expect(payable).toBeTruthy();
 
-    const intent = await app.request('/v1/member/billing/checkout-intent', { method: 'POST', headers: headers(rohit, true), body: JSON.stringify({ invoiceId: payable!.id }) });
+    const intentHeaders = { ...headers(rohit, true), 'idempotency-key': idemKey('member-checkout') };
+    const paymentsBefore = db
+      .select()
+      .from(schema.payments)
+      .where(and(eq(schema.payments.invoiceId, payable!.id), eq(schema.payments.state, 'created')))
+      .all().length;
+    const intent = await app.request('/v1/member/billing/checkout-intent', { method: 'POST', headers: intentHeaders, body: JSON.stringify({ invoiceId: payable!.id }) });
     expect(intent.status).toBe(200);
     const intentBody = (await intent.json()) as { intentId: string; clientToken: string };
     expect(intentBody.clientToken).toBeTruthy();
+
+    const replayedIntent = await app.request('/v1/member/billing/checkout-intent', { method: 'POST', headers: intentHeaders, body: JSON.stringify({ invoiceId: payable!.id }) });
+    expect(replayedIntent.status).toBe(200);
+    expect((await replayedIntent.json()) as unknown).toMatchObject({ intentId: intentBody.intentId });
+    const paymentsAfter = db
+      .select()
+      .from(schema.payments)
+      .where(and(eq(schema.payments.invoiceId, payable!.id), eq(schema.payments.state, 'created')))
+      .all().length;
+    expect(paymentsAfter).toBe(paymentsBefore + 1);
 
     const confirm = await app.request(`/v1/member/billing/checkout-intent/${intentBody.intentId}/confirm`, { method: 'POST', headers: headers(rohit, true) });
     expect(confirm.status).toBe(200);
