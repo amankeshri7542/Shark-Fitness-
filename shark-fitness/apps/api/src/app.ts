@@ -1,5 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { sqlite } from './db/client.js';
+import { runtimeConfig } from './lib/config.js';
 import { authenticate, errorHandler, logger, memberOnly, rateLimit, requestId, staffOnly } from './middleware/index.js';
 import { allowedOrigins, csrfProtection, securityHeaders } from './lib/security.js';
 
@@ -87,6 +89,14 @@ app.notFound((c) =>
 );
 
 app.get('/health', (c) => c.json({ ok: true, at: new Date().toISOString() }));
+app.get('/ready', (c) => {
+  try {
+    sqlite.prepare('select 1').get();
+    return c.json({ ok: true, release: runtimeConfig.release, database: 'ready', scheduler: runtimeConfig.disableJobs ? 'disabled' : 'enabled' });
+  } catch {
+    return c.json({ ok: false, release: runtimeConfig.release, database: 'unavailable' }, 503);
+  }
+});
 
 app.route('/v1/auth', authStabilizationRoutes);
 app.route('/v1/auth', authRoutes);

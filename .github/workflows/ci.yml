@@ -47,6 +47,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Reject whitespace errors and conflict markers
+        run: |
+          git diff --check HEAD^ HEAD
+          ! rg -n '^(<<<<<<<|=======|>>>>>>>)' --glob '!*.md' .
+
+      - name: Prove a fresh database migrates and seeds
+        run: |
+          SHARK_DB=/tmp/shark-fresh.db pnpm -F @shark/api migrate
+          SHARK_DB=/tmp/shark-fresh.db pnpm -F @shark/api seed
+          sqlite3 /tmp/shark-fresh.db 'pragma integrity_check;' | grep -qx ok
+
       - name: Lint all packages
         run: pnpm lint
 
@@ -91,6 +102,7 @@ jobs:
             exit 1
           fi
           grep -q '"ok":true' /tmp/shark-health.json
+          curl -fsS http://127.0.0.1:8787/ready | grep -q '"database":"ready"'
 
           assert_asset() {
             url="$1"

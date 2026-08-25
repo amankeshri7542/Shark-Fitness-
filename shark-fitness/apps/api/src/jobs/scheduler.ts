@@ -12,6 +12,7 @@ import { runDueDunning } from '../services/dunning.js';
 import { rollUpCompletedDays } from '../services/reports.js';
 import { DAY, HOUR, MINUTE, addDays, isoDate, localClockOnDay, localDayIndex, now, startOfLocalDay } from '../lib/time.js';
 import { id } from '../lib/ids.js';
+import { log, reportException } from '../lib/observability.js';
 
 /**
  * Cron-equivalent jobs (Engineering PRD §"Background processing").
@@ -238,13 +239,13 @@ function rollUpMetrics(): void {
  */
 function runAutomations(): void {
   const { ran, sent } = runDueAutomations();
-  if (ran > 0) console.log(`[jobs] automations ran ${ran}, sent ${sent}`);
+  if (ran > 0) log('info', 'scheduler_automations_completed', { ran, sent });
 }
 
 function deliverQueuedAutomations(): void {
   const result = processDueDeliveries();
   if (result.processed > 0) {
-    console.log(`[jobs] automation queue processed ${result.processed}, sent ${result.sent}, failed ${result.failed}`);
+    log('info', 'scheduler_automation_delivery_completed', result);
   }
   if (result.failed > 0) {
     throw new Error(`${result.failed} automation delivery attempt${result.failed === 1 ? '' : 's'} failed.`);
@@ -259,10 +260,7 @@ function deliverQueuedAutomations(): void {
 function advanceDunning(): void {
   const result = runDueDunning();
   if (result.sent + result.escalated + result.recovered > 0) {
-    console.log(
-      `[jobs] dunning: ${result.sent} sent, ${result.recovered} recovered, ${result.escalated} escalated, ` +
-        `${result.deferred} deferred for quiet hours, ${result.retriesUnavailable} retries not submitted (no provider)`,
-    );
+    log('info', 'scheduler_dunning_completed', { ...result });
   }
 }
 
@@ -275,20 +273,20 @@ function advanceDunning(): void {
 function extendSeriesHorizon(): void {
   const result = extendActiveSeries();
   if (result.created > 0) {
-    console.log(`[jobs] generated ${result.created} class occurrences across ${result.series} series`);
+    log('info', 'scheduler_series_extended', result);
   }
 }
 
 function pruneOperationalRows(): void {
   const result = pruneOperationalData();
   const removed = Object.values(result).reduce((total, count) => total + count, 0);
-  if (removed > 0) console.log(`[jobs] operational retention pruned ${removed} rows`);
+  if (removed > 0) log('info', 'scheduler_operational_data_pruned', { removed });
 
   // Bookkeeping, not enforcement: every read path already treats a lapsed
   // invitation as unusable, so this only stops the stored state column from
   // saying `pending` about something nobody can accept.
   const expired = expireChallengeInvitations();
-  if (expired > 0) console.log(`[jobs] expired ${expired} challenge invitations`);
+  if (expired > 0) log('info', 'scheduler_challenge_invitations_expired', { expired });
 }
 
 const JOBS: Job[] = [
@@ -351,7 +349,7 @@ export function startScheduler(): void {
       try {
         executeJob(job);
       } catch (err) {
-        console.error(`[jobs] ${job.name} failed`, err);
+        reportException(err, { job: job.name, source: 'scheduler' });
       }
     };
     tick();

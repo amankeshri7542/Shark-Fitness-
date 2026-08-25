@@ -92,6 +92,7 @@ const RuntimeEnvironment = z
     SHARK_READER_KEYS_JSON: ReaderKeys,
     SHARK_DEMO_READER_KEY: z.string().min(1).optional(),
     SHARK_MEDIA_BUCKET: z.string().transform((value) => value.trim()).optional(),
+    SHARK_ERROR_REPORTING_ENDPOINT: OptionalOrigin,
     RENDER_EXTERNAL_URL: OptionalOrigin,
     RENDER_GIT_COMMIT: z.string().trim().optional(),
     GITHUB_SHA: z.string().trim().optional(),
@@ -175,6 +176,7 @@ export interface RuntimeConfig {
   readerKeys: Record<string, ReaderConfig>;
   demoReaderKey: string;
   mediaBucket: string | null;
+  errorReportingEndpoint: string | null;
   release: string;
 }
 
@@ -203,6 +205,7 @@ export function parseRuntimeConfig(environment: Record<string, string | undefine
     readerKeys: parsed.SHARK_READER_KEYS_JSON,
     demoReaderKey: parsed.SHARK_DEMO_READER_KEY ?? 'demo-reader-secret-change-me',
     mediaBucket: parsed.SHARK_MEDIA_BUCKET || null,
+    errorReportingEndpoint: parsed.SHARK_ERROR_REPORTING_ENDPOINT ?? null,
     release: parsed.RENDER_GIT_COMMIT || parsed.GITHUB_SHA || 'local',
   };
 }

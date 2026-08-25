@@ -26,7 +26,7 @@ in [`shark-fitness/docs/PRODUCTION-READINESS.md`](./shark-fitness/docs/PRODUCTIO
 which is the honest assessment of what this system is not yet.
 
 Evidence: `pnpm lint` and `pnpm typecheck` clean across 6 packages, `pnpm test`
-**992 passing** (248 domain, 468 API integration, 24 member PWA, 252 admin
+**1,215 passing** (252 domain, 681 API integration, 26 member PWA, 256 admin
 console), `pnpm build` clean, and a browser pass at 1440×900, 1024×768,
 768×1024 and 375×812 in both themes and both densities across every console
 route — no horizontal overflow, no clipped content, no console errors.
@@ -91,7 +91,7 @@ Do not re-implement any of this. Read it before planning a change.
 | Database schema | **94 tables** across 5 schema files (counted as `sqliteTable()` definitions, and matching `CREATE TABLE` in the generated migrations), with 9 append-only guard triggers and 2 partial unique indexes that enforce "once" where money or a seat is at stake. |
 | Migrations | Generated and checked in at `infrastructure/migrations/`. |
 | `@shark/contracts` | Zod schemas, enums, error envelope, realtime events (29 topics, including 6 for POS). `schemas/pos.ts` is the Store's canonical wire shape — the console reads it rather than keeping its own copy. |
-| `@shark/domain` | Membership state machine, booking eligibility, access decisions, strength maths, adaptive engine, gamification, money, permissions, safety scanning, retention risk, reporting periods, tenant and branch settings, platform and impersonation rules, automation triggers and suppression. 248 tests. |
+| `@shark/domain` | Membership state machine, booking eligibility, access decisions, strength maths, adaptive engine, gamification, money, permissions, safety scanning, retention risk, reporting periods, tenant and branch settings, platform and impersonation rules, automation triggers and suppression. 252 tests. |
 | `@shark/design-tokens` | The Sonar system and the bounded copy register (`tone.ts`). |
 | Member PWA | **All 18 screens implemented.** No stubs remain. |
 | Admin console | **All 21 screens implemented. No placeholders remain.** Five are shells over their own sub-surfaces: Reports (5 under `screens/reports/`), Store (5 under `screens/store/`), Support (4 under `screens/support/`), Settings (5 under `screens/settings/`), Automations (4 under `screens/automations/`), Platform (2 under `screens/platform/`). |
@@ -795,7 +795,7 @@ pnpm db:reset
 
 pnpm lint             # eslint --max-warnings=0
 pnpm typecheck        # 6 packages, 0 errors
-pnpm test             # 992 across 4 packages
+pnpm test             # 1,215 across 4 packages
 pnpm build            # both apps
 git diff --check      # no whitespace damage
 ```

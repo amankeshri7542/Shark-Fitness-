@@ -10,7 +10,7 @@ Shark Fitness provides an end-to-end multi-tenant platform comprising:
 - **Member Mobile PWA (`apps/member-pwa`):** Member app featuring the industrial "Sonar" dark-mode theme (`#04080b` abyss, `#46c8dd` cyan accent, zero border-radius), workout logger with adaptive load calculation, plate calculator, rest timers, rotating 30s security entry pass, training calendar, class booking, progress charts, and gym pack leaderboards.
 - **Admin Web Dashboard (`apps/admin-web`):** Command center for gym owners, managers, and staff with real-time multi-branch KPIs, live animated occupancy trace canvas, searchable member directory, and 360° member detail drawer with lifecycle controls (freeze, cancel, renew).
 - **API Backend (`apps/api`):** High-performance Hono server with Drizzle SQLite, transactional outbox, WebSocket hub, audit logging, rate limiting, and background schedulers.
-- **Domain Business Engine (`packages/domain`):** Pure TypeScript domain rules with **153 unit tests** covering membership state machines, 1RM progression, recovery index, plate math, XP tiers, fair waitlists, and reporting periods and comparisons.
+- **Domain Business Engine (`packages/domain`):** Pure TypeScript domain rules with **252 unit tests** covering membership state machines, 1RM progression, recovery index, plate math, XP tiers, fair waitlists, and reporting periods and comparisons.
 - **Store / point of sale (`screens/store`, `routes/admin/store.ts`):** Till with mixed tender and a stable idempotency key per checkout attempt, stock derived from an append-only ledger, returns as compensating entries, inter-branch transfers with visible shrinkage, and cost/margin gated separately by permission.
 - **Support / retention (`screens/support`, `routes/admin/support.ts`):** Ticket queue with an SLA computed in the branch's *open* hours, staff replies flowing into the member's existing conversation rather than a parallel thread, an append-only ticket timeline for disputes, NPS/CSAT and cancellation reporting with honest reporting floors, and explainable retention risk with intervention effectiveness tracking.
 - **Reports and analytics (`screens/reports`, `routes/admin/reports.ts`):** Revenue, membership, attendance, coach utilisation and retention cohorts over any range, computed in the branch's timezone; `report.financial` withholds money as *absent* rather than as zero; totals are never summed across currencies; every figure states how fresh it is; and every CSV export is audited with the filters that produced it.
@@ -36,7 +36,7 @@ Shark Fitness provides an end-to-end multi-tenant platform comprising:
     ├── packages/
     │   ├── contracts/                             # Shared Zod schemas & API contracts
     │   ├── design-tokens/                         # Sonar CSS tokens & tone copy register
-    │   └── domain/                                # Pure business logic & 153 unit tests
+    │   └── domain/                                # Pure business logic & 252 unit tests
     ├── infrastructure/migrations/                 # Generated Drizzle SQL migrations
     └── scripts/                                   # CI browser smoke harness
 ```
@@ -58,7 +58,7 @@ this is **beta ready, not production ready**, and that document says exactly why
 
 ### ✅ Completed & Working
 - **Domain Engine:** 248 unit tests across membership, access decisions, training algorithms, fair scheduling, report maths, tenant settings, platform rules and automation suppression.
-- **Test suite:** **992 tests** in 60 files — 248 domain, 468 API integration, 24 member PWA, 252 admin console. Includes an end-to-end journey suite that walks lead → member → plan → invoice → payment → door → class → training → shop → support → report → refund as one continuous story, across seven roles and two tenants.
+- **Test suite:** **1,215 tests** — 252 domain, 681 API integration, 26 member PWA, and 256 admin console. Includes an end-to-end journey suite that walks lead → member → plan → invoice → payment → door → class → training → shop → support → report → refund as one continuous story, across seven roles and two tenants.
 - **Database & Migrations:** 94 SQLite tables across 5 schema files, six forward-only additive migrations, deterministic seed data with two customer tenants and a platform operator, 9 append-only/guard triggers, and 2 partial unique indexes enforcing "once" where a seat or a message is at stake.
 - **Quality gates:** `pnpm lint` (ESLint 10 flat config, `--max-warnings=0`), `pnpm typecheck` and `pnpm build` pass with 0 errors, all gated in CI.
 - **Member PWA:** all 18 screens implemented — no stubs remain.
@@ -133,7 +133,7 @@ pnpm dev
 cd shark-fitness
 pnpm lint         # ESLint across the workspace; --max-warnings=0
 pnpm typecheck    # TypeScript across all 6 packages
-pnpm test         # 992 tests (domain, API integration, member PWA, admin console)
+pnpm test         # 1,215 tests (domain, API integration, member PWA, admin console)
 pnpm build        # Production bundles for both front ends
 ```
 

@@ -19,7 +19,7 @@ Nothing here recommends architecture for a scale this product does not have.
 | Area | State | Blocking? |
 |---|---|---|
 | Business logic and authorisation | Strong. 1,214 automated tests, including tenant and branch isolation from the outside | No |
-| Persistence | SQLite on one disk. No backups configured | **Yes** |
+| Persistence | SQLite on one disk. Backup/restore tooling exists; external scheduling and off-host retention remain required | **Yes** |
 | Payments | No real provider. Cash and card are recorded, not taken | **Yes** for card |
 | Scaling | Single instance only, by design and by constraint | No, at this size |
 | Realtime | In-process WebSocket fan-out, lost on restart | No |
@@ -29,9 +29,10 @@ Nothing here recommends architecture for a scale this product does not have.
 | Rate limiting | In-memory, endpoint-sensitive IP/actor/tenant budgets | Partially |
 | Migrations | Forward-only, additive, tested | No |
 
-**Three blockers.** Backups, a payment provider where cards are accepted, and
-somewhere for errors to go. Everything else is either fine at this size or a
-known trade-off with a written reason.
+**Two external blockers.** A payment provider where cards are accepted, and a
+configured error-reporting/alerting destination. Backup and restore tooling is
+now in the repository and proved locally; production still needs an external
+object-storage schedule and an owner for restore drills.
 
 ---
 
@@ -47,30 +48,33 @@ thousand rows a day. SQLite handles that on a laptop. The schema is D1-shaped
 so the port to a hosted SQLite is a migration-runner change rather than a
 rewrite. The deviation is noted in `db/client.ts`.
 
-**What is missing, and it is the first blocker.**
+**What remains operational work.**
 
-- **No backups.** There is no dump, no snapshot, no restore procedure and no
-  test that a restore works. One disk failure loses every member, invoice and
-  audit row. This is the single largest risk in the system and it is a
-  configuration problem, not a code problem.
+- **Repository tooling exists.** `pnpm db:backup` uses SQLite's online backup
+  API, timestamps the result and runs `integrity_check`. `pnpm db:restore --
+  <backup> <separate-target>` refuses to overwrite by default. `pnpm
+  db:backup:verify` proves fixture → backup → mutate → restore on an isolated
+  temporary path.
 - **No point-in-time recovery.** WAL gives crash consistency, not history. A
   bad migration or a wrong `DELETE` is permanent.
 - **The file must be on a real disk.** On a platform with an ephemeral
   filesystem the database is lost on every deploy. `render.yaml` must attach a
   persistent volume; the free tier does not.
 
-**Before production:** a scheduled `VACUUM INTO` to object storage every hour,
-a documented restore, and a restore actually performed once against a copy.
-Litestream is the usual answer for SQLite and would give continuous replication
-for near-zero effort.
+**Before production:** schedule `pnpm db:backup` on the persistent-volume host,
+copy the completed artifact to object storage, retain it independently of the
+application disk, and run a documented restore drill. The upload seam is the
+backup artifact path printed by the command; credentials are intentionally not
+part of this repository. Litestream remains a good continuous-replication
+option.
 
 ---
 
 ## 2. Backups and recovery
 
-Nothing exists. See above. The order of work is: take a backup, prove you can
-restore it, then automate it — in that order, because an automated backup
-nobody has restored is a belief rather than a backup.
+Run `pnpm db:backup:verify` after dependency or SQLite upgrades. To restore a
+real backup, first use a separate target and validate it; replacing an existing
+file requires both `--replace` and `--yes-replace`.
 
 ---
 
@@ -216,8 +220,11 @@ part is sound.
 
 ## 9. Logging and observability
 
-**Durable job history plus `console.log`, but nothing else.** This is the third
-blocker.
+**Structured request and scheduler diagnostics are present.** Every request
+emits JSON with request ID, method, path, status, duration and release; scheduler
+failures record safe exception metadata. `/ready` checks database connectivity
+without disclosing tenant data. `SHARK_ERROR_REPORTING_ENDPOINT` is an optional
+JSON collector seam and remains completely disabled when absent.
 
 - One line per request with method, path, status and duration; warnings over
   400ms; errors on 5xx.
@@ -233,10 +240,10 @@ blocker.
 The audit log is strong and is not a substitute: it records what people did,
 not what the system did to itself.
 
-**Before production:** ship stdout somewhere searchable, add error reporting
-(Sentry or equivalent) with the request id attached, and alert on 5xx rate and
-on the process being down. That is a day of work and it is the difference
-between finding out from a graph and finding out from a member.
+**Before production:** ship stdout somewhere searchable, configure an error
+collector/alerting destination, and alert on 5xx rate and process/readiness
+failure. No request bodies, cookies, passwords, tokens, OTPs or contact fields
+are included in the structured records.
 
 ---
 

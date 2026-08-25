@@ -9,6 +9,7 @@ import { runtimeConfig } from '../lib/config.js';
 import { id } from '../lib/ids.js';
 import { SESSION_COOKIE } from '../lib/security.js';
 import { resolveSession } from '../services/auth.js';
+import { log, reportException } from '../lib/observability.js';
 import type { RequestContext } from '../lib/context.js';
 
 declare module 'hono' {
@@ -31,12 +32,15 @@ export const requestId: MiddlewareHandler = async (c, next) => {
 
 export const logger: MiddlewareHandler = async (c, next) => {
   const started = performance.now();
-  await next();
-  const ms = Math.round(performance.now() - started);
-  const line = `${c.req.method} ${c.req.path} ${c.res.status} ${ms}ms`;
-  if (c.res.status >= 500) console.error(`[api] ${line}`);
-  else if (ms > 400) console.warn(`[api] ${line} (slow)`);
-  else console.log(`[api] ${line}`);
+  try {
+    await next();
+  } finally {
+    const durationMs = Math.round(performance.now() - started);
+    const status = c.res.status;
+    log(status >= 500 ? 'error' : durationMs > 400 ? 'warn' : 'info', 'http_request', {
+      requestId: c.get('requestId') ?? 'unknown', method: c.req.method, path: c.req.path, status, durationMs,
+    });
+  }
 };
 
 export const errorHandler = (err: unknown, c: Context): Response => {
@@ -87,7 +91,7 @@ export const errorHandler = (err: unknown, c: Context): Response => {
     );
   }
 
-  console.error(`[api] unhandled ${requestIdValue}`, err);
+  reportException(err, { requestId: requestIdValue, method: c.req.method, path: c.req.path });
   return c.json(
     { error: { code: 'INTERNAL', message: 'Something went wrong on our side. The team has been notified.', requestId: requestIdValue } },
     500,
