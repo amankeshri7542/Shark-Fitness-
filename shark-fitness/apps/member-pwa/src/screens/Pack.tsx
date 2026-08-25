@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { Link } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useCopy } from '../lib/store';
@@ -156,7 +155,7 @@ export default function PackScreen() {
   }
 
   const d = engagement.data;
-  const challenge = d.challenges[0] ?? null;
+  const challenges = d.challenges;
 
   return (
     <ScreenBody>
@@ -212,20 +211,19 @@ export default function PackScreen() {
           <Invitations />
 
           {/* Challenge */}
-          {challenge ? (
+          {challenges.length > 0 ? (
             <div>
               <SectionRule
                 action={
-                  <Link to="/pack/challenge/$challengeId" params={{ challengeId: challenge.id }}>
-                    <Button variant="ghost" size="sm">
-                      Rules
-                    </Button>
-                  </Link>
+                  <span className="text-[11px] text-foam-45">{challenges.length} active</span>
                 }
               >
                 {copy('challengeTitle')}
               </SectionRule>
 
+              <div className="flex flex-col gap-2.5">
+                {challenges.map((challenge) => (
+                  <div key={challenge.id}>
               <Panel tone="accent" className="p-3.5">
                 <div className="flex items-center gap-2">
                   <span className="font-display text-[15px] tracking-[0.06em] text-sonar">{challenge.name}</span>
@@ -293,6 +291,9 @@ export default function PackScreen() {
 
               {/* Fairness is stated in the open, not buried in terms. */}
               <p className="mt-2 text-[11px] leading-relaxed text-foam-45">{challenge.fairnessNote}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           ) : (
             <EmptyState

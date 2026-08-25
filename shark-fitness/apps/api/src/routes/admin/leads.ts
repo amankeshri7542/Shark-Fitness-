@@ -10,7 +10,8 @@ import { audit } from '../../lib/audit.js';
 import { emit } from '../../lib/events.js';
 import { AppError, conflict } from '../../lib/errors.js';
 import { id, initialsOf, normalizeEmail, normalizePhone } from '../../lib/ids.js';
-import { now } from '../../lib/time.js';
+import { isoDate, now } from '../../lib/time.js';
+import { branchTimeZone } from '../../lib/branch-time.js';
 import {
   LEAD_STAGE_TRANSITIONS,
   assertValidOwner,
@@ -561,7 +562,7 @@ leadsRoutes.post('/:leadId/convert', (c) => {
         staffNotes: null,
         riskScore: null,
         riskReasons: null,
-        joinedOn: new Date(now()).toISOString().slice(0, 10),
+        joinedOn: isoDate(now(), branchTimeZone(ctx.tenantId, lead.branchId)),
         lastVisitAt: null,
         mergedIntoId: null,
         version: 1,

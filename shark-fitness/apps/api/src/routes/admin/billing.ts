@@ -11,7 +11,8 @@ import { branchScope, requireBranch, requirePermission } from '../../lib/context
 import { audit } from '../../lib/audit.js';
 import { conflict, invalid, notFound, precondition } from '../../lib/errors.js';
 import { id } from '../../lib/ids.js';
-import { DAY, now } from '../../lib/time.js';
+import { DAY, addDays, isoDate, now } from '../../lib/time.js';
+import { branchTimeZone } from '../../lib/branch-time.js';
 import { applyPaymentToInvoice, applyRefund, createInvoiceForProduct, loadInvoiceInScope } from '../../services/billing.js';
 import { dunningForInvoice, openDunning } from '../../services/dunning.js';
 
@@ -610,7 +611,7 @@ billingRoutes.post('/members/:memberId/assign-plan', validate('json', AssignPlan
   let activated = false;
 
   const result = transact(() => {
-    const startedOn = new Date(now()).toISOString().slice(0, 10);
+    const startedOn = isoDate(now(), branchTimeZone(ctx.tenantId, member.homeBranchId));
     db.insert(schema.memberships)
       .values({
         id: membershipId,
@@ -621,7 +622,7 @@ billingRoutes.post('/members/:memberId/assign-plan', validate('json', AssignPlan
         productSnapshot: product as unknown as Product,
         state: 'pending_payment',
         startedOn,
-        endsOn: product.durationDays ? new Date(now() + product.durationDays * DAY).toISOString().slice(0, 10) : null,
+        endsOn: product.durationDays ? addDays(startedOn, product.durationDays) : null,
         autoRenew: true,
         priceMinor: product.priceMinor,
         currency: product.currency,
