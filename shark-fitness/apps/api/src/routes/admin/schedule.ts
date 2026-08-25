@@ -18,12 +18,12 @@ import {
   loadSessionInScope,
   markAttendance,
   releaseBooking,
-  substituteTrainer,
   updateSession,
   waitlistCount,
 } from '../../services/schedule.js';
 import { branchTimeZone } from '../../lib/branch-time.js';
 import { runIdempotently } from '../../lib/idempotency.js';
+import { assignCover, eligibleSubstitutes } from '../../services/staff-coverage.js';
 import {
   cancelSeries,
   createSeries,
@@ -471,11 +471,25 @@ scheduleRoutes.post('/session/:id/cancel', validate('json', CancelBody), (c) => 
 
 const SubstituteBody = z.object({ trainerId: z.string().min(1) });
 
+/** Who could take this class, and who could not, with the reason.
+ *
+ *  Eligibility is a hard gate (branch, employment, clash, own absence) plus a
+ *  ranking (speciality overlap, lapsed certifications, load that day). The two
+ *  are kept apart deliberately — a gym covers a class with whoever is free,
+ *  and refusing on speciality would just be worked around. */
+scheduleRoutes.get('/session/:id/substitutes', (c) =>
+  c.json(eligibleSubstitutes(ctxOf(c), c.req.param('id'))),
+);
+
 scheduleRoutes.post('/session/:id/substitute', validate('json', SubstituteBody), (c) => {
   const ctx = ctxOf(c);
   requirePermission(ctx, 'schedule.manage');
-  const session = substituteTrainer(ctx, c.req.param('id'), c.req.valid('json').trainerId);
-  return c.json({ session: { id: session.id, trainerId: session.trainerId, version: session.version } });
+  // Through `assignCover` rather than `substituteTrainer` directly, so a
+  // replacement who is themselves away is refused here as well as in the
+  // coverage screen. Everything else — clash check, original-trainer
+  // attribution, notifying everybody booked, the audit row — is unchanged.
+  const result = assignCover(ctx, c.req.param('id'), c.req.valid('json').trainerId);
+  return c.json(result);
 });
 
 /* ============================================================================

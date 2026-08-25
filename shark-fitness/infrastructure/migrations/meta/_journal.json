@@ -64,6 +64,13 @@
       "when": 1787629327782,
       "tag": "0008_class_series",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1787629921966,
+      "tag": "0009_staff_unavailability",
+      "breakpoints": true
     }
   ]
 }

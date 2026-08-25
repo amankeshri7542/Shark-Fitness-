@@ -19,7 +19,7 @@ export const SEED_WIPE_TABLES = [
   'appointments', 'waitlist_entries', 'bookings', 'class_sessions', 'class_series', 'rooms', 'class_types',
   'used_access_windows', 'check_ins', 'access_tokens',
   'dunning_attempts', 'provider_events', 'refunds', 'payments', 'invoice_lines', 'invoices',
-  'commission_lines', 'commission_rates', 'shifts', 'staff', 'lead_activities', 'leads',
+  'commission_lines', 'commission_rates', 'staff_unavailability', 'shifts', 'staff', 'lead_activities', 'leads',
   'credits', 'membership_events', 'memberships', 'products',
   'member_branches', 'members',
   'automation_runs', 'automation_deliveries', 'metric_rollups', 'automations', 'message_templates', 'notifications',

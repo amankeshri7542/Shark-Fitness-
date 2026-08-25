@@ -252,6 +252,41 @@ export const shifts = sqliteTable(
   (t) => ({ byBranchTime: index('shifts_branch_time_idx').on(t.branchId, t.startsAt) }),
 );
 
+/**
+ * A period a member of staff cannot work (PF-STAFF).
+ *
+ * Substitution already existed as a verb — `substituteTrainer` swapped the
+ * coach on one class and told everybody booked. What was missing was the thing
+ * that *causes* a substitution: a manager had to already know which classes
+ * were affected, because nothing recorded that Nikhil is off next week.
+ *
+ * Recorded as an interval rather than a set of session ids on purpose. The
+ * affected classes are derived from it, so a class created after the absence
+ * was recorded is still covered by it, and withdrawing the absence does not
+ * have to unpick a list.
+ */
+export const staffUnavailability = sqliteTable(
+  'staff_unavailability',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    staffId: text('staff_id').notNull(),
+    /** Half-open [startsAt, endsAt) in epoch ms. */
+    startsAt: integer('starts_at').notNull(),
+    endsAt: integer('ends_at').notNull(),
+    /** sick | leave | training | other */
+    reason: text('reason').notNull(),
+    note: text('note'),
+    /** active | withdrawn */
+    state: text('state').notNull().default('active'),
+    createdByUserId: text('created_by_user_id').notNull(),
+    withdrawnAt: integer('withdrawn_at'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (t) => ({ byStaff: index('staff_unavailability_staff_idx').on(t.staffId, t.startsAt) }),
+);
+
 export const commissionLines = sqliteTable(
   'commission_lines',
   {
