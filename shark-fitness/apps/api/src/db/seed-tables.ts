@@ -6,7 +6,7 @@ export const SEED_WIPE_TABLES = [
   'ticket_events', 'interventions', 'feedback',
   'messages', 'conversations', 'tickets',
   'reactions', 'comments', 'content_reports', 'blocks', 'posts',
-  'challenge_participants', 'challenges', 'referrals', 'member_achievements', 'achievements',
+  'challenge_invitations', 'challenge_participants', 'challenges', 'referrals', 'member_achievements', 'achievements',
   'streaks', 'xp_ledger',
   'weekly_check_ins', 'nutrition_targets', 'daily_metrics', 'habit_logs', 'habits',
   'progress_photos', 'assessments', 'goals', 'measurements',

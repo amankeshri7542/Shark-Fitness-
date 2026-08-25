@@ -15,6 +15,7 @@ import { trainingRoutes as memberTrainingRoutes } from './routes/member/training
 import { progressRoutes } from './routes/member/progress.js';
 import { habitsRoutes } from './routes/member/habits.js';
 import { engagementRoutes } from './routes/member/engagement.js';
+import { adminEngagementRoutes } from './routes/admin/engagement.js';
 import { messagesRoutes } from './routes/member/messages.js';
 import { billingRoutes as memberBillingRoutes } from './routes/member/billing.js';
 import { mediaRoutes } from './routes/member/media.js';
@@ -120,6 +121,7 @@ app.route('/v1/admin/reports', reportsRoutes);
 app.route('/v1/admin/settings', settingsRoutes);
 app.route('/v1/admin/support', supportRoutes);
 app.route('/v1/admin/automations', automationRoutes);
+app.route('/v1/admin/engagement', adminEngagementRoutes);
 
 /* Platform administration (PF-PLAT). `staffOnly` is not enough here and is not
    used: each route carries `platformOnly`, which refuses an impersonated

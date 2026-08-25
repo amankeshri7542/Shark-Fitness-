@@ -6,6 +6,7 @@ import { runtimeConfig } from '../lib/config.js';
 import { emit } from '../lib/events.js';
 import { processDueDeliveries, runDueAutomations } from '../services/automations.js';
 import { pruneOperationalData } from '../services/maintenance.js';
+import { expireChallengeInvitations } from '../services/engagement-admin.js';
 import { rollUpCompletedDays } from '../services/reports.js';
 import { DAY, HOUR, MINUTE, addDays, isoDate, localClockOnDay, localDayIndex, now, startOfLocalDay } from '../lib/time.js';
 import { id } from '../lib/ids.js';
@@ -252,6 +253,12 @@ function pruneOperationalRows(): void {
   const result = pruneOperationalData();
   const removed = Object.values(result).reduce((total, count) => total + count, 0);
   if (removed > 0) console.log(`[jobs] operational retention pruned ${removed} rows`);
+
+  // Bookkeeping, not enforcement: every read path already treats a lapsed
+  // invitation as unusable, so this only stops the stored state column from
+  // saying `pending` about something nobody can accept.
+  const expired = expireChallengeInvitations();
+  if (expired > 0) console.log(`[jobs] expired ${expired} challenge invitations`);
 }
 
 const JOBS: Job[] = [
