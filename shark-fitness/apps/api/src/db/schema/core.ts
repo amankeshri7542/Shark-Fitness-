@@ -215,6 +215,107 @@ export const auditLog = sqliteTable(
   }),
 );
 
+/**
+ * A data subject's request about their own data (PF-COMP, DPDP/GDPR shaped).
+ *
+ * Before this, `POST /me/data-export` and `POST /me/deletion-request` wrote an
+ * audit row, flipped an account state, and told the member honestly that a
+ * person would have to do the rest by hand. That was truthful and it was not a
+ * workflow: nothing recorded the request as a thing with a state, so nobody
+ * could see a queue, nothing tracked the statutory clock, and "did we ever
+ * answer that?" had no answer but a search of the audit log.
+ *
+ * The request is now a row with a lifecycle. What it deliberately does *not*
+ * do is deliver anything outbound — there is no email provider and no object
+ * storage — so the export is produced as an internal artifact and handed over
+ * by whoever is doing the handing over.
+ */
+export const privacyRequests = sqliteTable(
+  'privacy_requests',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    /** The person the data is about. */
+    subjectUserId: text('subject_user_id').notNull(),
+    subjectMemberId: text('subject_member_id'),
+    /** export | deletion */
+    kind: text('kind').notNull(),
+    /**
+     * submitted | in_review | on_hold | completed | refused
+     *
+     * `on_hold` is not a pause somebody chose. It is what a legal hold does to
+     * a request, and it is a separate state from `in_review` so that a queue
+     * cannot show a blocked request as merely slow.
+     */
+    state: text('state').notNull().default('submitted'),
+    /** Who asked. Usually the subject; a guardian or staff member otherwise. */
+    requestedByUserId: text('requested_by_user_id').notNull(),
+    reason: text('reason'),
+    submittedAt: integer('submitted_at').notNull(),
+    reviewedAt: integer('reviewed_at'),
+    reviewedByUserId: text('reviewed_by_user_id'),
+    completedAt: integer('completed_at'),
+    completedByUserId: text('completed_by_user_id'),
+    /** What was decided and why, in the reviewer's words. */
+    outcomeNote: text('outcome_note'),
+    /** The generated export, when there is one. */
+    artifactId: text('artifact_id'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (t) => ({
+    bySubject: index('privacy_requests_subject_idx').on(t.subjectUserId, t.submittedAt),
+    byState: index('privacy_requests_state_idx').on(t.tenantId, t.state),
+  }),
+);
+
+/**
+ * The export package, kept inside the database.
+ *
+ * Not a file on a disk and not a link to object storage, because this system
+ * has neither and a URL to nothing is worse than no URL. The payload is the
+ * structured data itself and the checksum is what makes "this is the package
+ * we produced on that date" a checkable claim rather than an assertion.
+ */
+export const privacyArtifacts = sqliteTable('privacy_artifacts', {
+  id: text('id').primaryKey(),
+  tenantId: text('tenant_id').notNull(),
+  requestId: text('request_id').notNull(),
+  format: text('format').notNull().default('json'),
+  /** The export itself. */
+  payload: text('payload', { mode: 'json' }).$type<Record<string, unknown>>().notNull(),
+  byteSize: integer('byte_size').notNull(),
+  checksum: text('checksum').notNull(),
+  generatedByUserId: text('generated_by_user_id').notNull(),
+  generatedAt: integer('generated_at').notNull(),
+});
+
+/**
+ * A legal hold on one person's data.
+ *
+ * The reason erasure has to ask before it acts. A hold outranks a deletion
+ * request unconditionally: a live dispute, an investigation or a statutory
+ * obligation is not something a member can opt out of by asking, and a system
+ * that erased through one would destroy the evidence it exists to preserve.
+ */
+export const legalHolds = sqliteTable(
+  'legal_holds',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    subjectUserId: text('subject_user_id').notNull(),
+    subjectMemberId: text('subject_member_id'),
+    reason: text('reason').notNull(),
+    reference: text('reference'),
+    placedByUserId: text('placed_by_user_id').notNull(),
+    placedAt: integer('placed_at').notNull(),
+    releasedAt: integer('released_at'),
+    releasedByUserId: text('released_by_user_id'),
+    releaseReason: text('release_reason'),
+  },
+  (t) => ({ bySubject: index('legal_holds_subject_idx').on(t.subjectUserId, t.releasedAt) }),
+);
+
 /** Transactional outbox. Realtime fan-out and async jobs both read from here,
  *  so an event is never lost because a socket was down. */
 export const outboxEvents = sqliteTable(

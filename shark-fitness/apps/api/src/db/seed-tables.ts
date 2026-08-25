@@ -23,6 +23,7 @@ export const SEED_WIPE_TABLES = [
   'credits', 'membership_events', 'memberships', 'products',
   'member_branches', 'members',
   'automation_runs', 'automation_deliveries', 'metric_rollups', 'automations', 'message_templates', 'notifications',
+  'privacy_artifacts', 'privacy_requests', 'legal_holds',
   'job_runs', 'idempotency_keys', 'outbox_events', 'audit_log', 'consents', 'otp_challenges', 'sessions', 'users',
   'branches', 'tenants',
 ] as const;

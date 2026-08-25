@@ -11,6 +11,7 @@ import { now, relativeTime } from '../lib/time.js';
 import { notFound } from '../lib/errors.js';
 import { issueRealtimeTicket } from '../lib/realtime-ticket.js';
 import { impersonationBanner } from '../services/platform.js';
+import { submitPrivacyRequest } from '../services/privacy.js';
 
 export const meRoutes = new Hono();
 
@@ -255,15 +256,25 @@ meRoutes.post('/data-export', (c) => {
     .where(eq(schema.tenants.id, ctx.tenantId))
     .get();
   const privacyContact = String(tenant?.dataProcessing?.privacyContact ?? 'your gym privacy contact');
+
+  // The request is now a row in a queue with a state, rather than only an
+  // audit line nobody works from. What it is *not* is a delivery: there is no
+  // email provider and no object storage, so the message below stays exactly
+  // as honest as it was.
+  const request = submitPrivacyRequest(ctx, { subjectUserId: ctx.userId, kind: 'export', reason: null });
+
   audit(ctx, {
     action: 'data.export_requested',
     entityType: 'user',
     entityId: ctx.userId,
     entityLabel: ctx.name,
+    after: { requestId: request.requestId },
   });
   return c.json({
     ok: true,
     status: 'recorded_manual',
+    requestId: request.requestId,
+    requestState: request.state,
     message:
       `Your request is recorded in the audit trail. This release does not generate or send the file automatically; ` +
       `${privacyContact} must prepare it and contact you.`,
@@ -289,17 +300,29 @@ meRoutes.post('/deletion-request', validate('json', z.object({ reason: z.string(
     .get();
   const privacyContact = String(tenant?.dataProcessing?.privacyContact ?? 'your gym privacy contact');
 
+  // Raised into the review queue. A legal hold on this member lands the
+  // request in `on_hold` rather than `submitted`, so the queue shows a blocked
+  // request as blocked rather than as merely slow.
+  const request = submitPrivacyRequest(ctx, {
+    subjectUserId: ctx.userId,
+    kind: 'deletion',
+    reason: reason ?? null,
+  });
+
   audit(ctx, {
     action: 'account.deletion_requested',
     entityType: 'user',
     entityId: ctx.userId,
     entityLabel: ctx.name,
     reason: reason ?? null,
+    after: { requestId: request.requestId },
   });
 
   return c.json({
     ok: true,
     status: 'recorded_manual',
+    requestId: request.requestId,
+    requestState: request.state,
     message:
       `Your request is recorded and this account has been signed out. This release does not erase data automatically; ` +
       `${privacyContact} must review the request, apply the gym’s retention policy, and contact you about the outcome.`,
