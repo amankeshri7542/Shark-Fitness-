@@ -125,10 +125,36 @@ const billingRoute = createRoute({
   }),
 });
 const floorRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/floor', component: FloorScreen });
-const scheduleRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/schedule', component: ScheduleScreen });
+/** The day grid and the recurrence rules behind it are two surfaces on one
+ *  path, and which one is open belongs in the URL for the same reasons the
+ *  store's do: a manager sends a colleague "the recurring classes screen". */
+const SCHEDULE_TABS = ['day', 'series'] as const;
+export interface ScheduleSearch {
+  tab: (typeof SCHEDULE_TABS)[number];
+}
+const scheduleRoute = createRoute({
+  getParentRoute: () => consoleRoute,
+  path: '/schedule',
+  component: ScheduleScreen,
+  validateSearch: (search: Record<string, unknown>): ScheduleSearch => ({
+    tab: SCHEDULE_TABS.includes(search.tab as never) ? (search.tab as ScheduleSearch['tab']) : 'day',
+  }),
+});
 const trainingRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/training', component: TrainingScreen });
 const trainingBuilderRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/training/$programId', component: TrainingBuilderScreen });
-const staffRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/staff', component: StaffScreen });
+/** The directory and the commission ledger are two surfaces on one path. */
+const STAFF_TABS = ['directory', 'commission'] as const;
+export interface StaffSearch {
+  tab: (typeof STAFF_TABS)[number];
+}
+const staffRoute = createRoute({
+  getParentRoute: () => consoleRoute,
+  path: '/staff',
+  component: StaffScreen,
+  validateSearch: (search: Record<string, unknown>): StaffSearch => ({
+    tab: STAFF_TABS.includes(search.tab as never) ? (search.tab as StaffSearch['tab']) : 'directory',
+  }),
+});
 const staffDetailRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/staff/$staffId', component: StaffDetailScreen });
 /**
  * Store is the first module with several working surfaces behind one path, and

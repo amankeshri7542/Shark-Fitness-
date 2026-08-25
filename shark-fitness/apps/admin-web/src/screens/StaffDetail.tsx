@@ -136,6 +136,17 @@ export default function StaffDetailScreen() {
         <ProfilePanel staff={staff} branches={branches} branchNames={branchNames} canManage={canManage && online} editing={editing} onEdit={() => setEditing(true)} onCancel={() => setEditing(false)} onSave={(body) => update.mutate(body)} isPending={update.isPending} />
         <CertificationPanel certifications={staff.certifications} canManage={canManage && online} onSave={(certifications) => update.mutate({ certifications })} isPending={update.isPending} />
         <ShiftPanel staffId={staffId} shifts={shifts} branchNames={branchNames} canManage={canManage && online} onChanged={invalidate} />
+        <CoveragePanel
+          staffId={staffId}
+          canManage={canManage && online}
+          onNotice={(message) => {
+            setActionError(null);
+            setNotice(message);
+          }}
+          onError={(error) =>
+            setActionError(error instanceof ApiError ? error.message : 'That did not go through. Nothing has changed.')
+          }
+        />
         <Panel title="Trainer workload" action={<Chip tone="accent">{workload.activeCount} active</Chip>}>
           {workload.members.length === 0 ? <EmptyState title="No active programs" body="This profile has no active training assignments in the current tenant." /> : <div className="divide-y divide-line">{workload.members.map((member) => <Link key={member.assignmentId} to="/members/$memberId" params={{ memberId: member.memberId }} className="flex min-h-11 items-center gap-3 px-3.5 py-2.5 hover:bg-wash-sonar"><div className="min-w-0 flex-1"><div className="truncate text-[13px]">{member.name}</div><div className="font-utility text-[10px] uppercase tracking-[0.1em] text-foam-35">{member.memberNo} · {member.programName}</div></div><Chip tone="neutral">Week {member.currentWeek}/{member.weeks}</Chip></Link>)}</div>}
         </Panel>
@@ -228,3 +239,344 @@ function SelectField({ label, value, onChange, options }: { label: string; value
 }
 function Info({ label, value }: { label: string; value: string }) { return <div><Label>{label}</Label><p className="mt-1 text-[13px] leading-relaxed text-foam-80">{value}</p></div>; }
 function StaffDetailSkeleton() { return <Page title="Staff" kicker="Loading"><div className="grid grid-cols-1 gap-px bg-line p-4 md:grid-cols-2">{Array.from({ length: 4 }, (_, index) => <Skeleton key={index} className="h-48" />)}</div></Page>; }
+
+/* ============================================================================
+   Coverage — PF-STAFF.
+
+   Recording an absence changes nothing about anybody's booking, and this panel
+   is built to make that obvious: the absence and the damage it causes are two
+   separate readings, and every class stays exactly where it was until somebody
+   decides otherwise.
+   ========================================================================= */
+
+interface CoverageImpact {
+  sessions: Array<{
+    sessionId: string;
+    className: string;
+    branchId: string;
+    startsAt: number;
+    localDate: string;
+    booked: number;
+    capacity: number;
+  }>;
+  appointments: Array<{
+    appointmentId: string;
+    memberId: string;
+    memberName: string;
+    startsAt: number;
+    kind: string;
+  }>;
+  shifts: Array<{ shiftId: string; startsAt: number; endsAt: number; role: string }>;
+}
+
+interface Absence {
+  id: string;
+  startsAt: number;
+  endsAt: number;
+  reason: string;
+  note: string | null;
+  state: string;
+}
+
+interface SubstituteCandidate {
+  staffId: string;
+  name: string;
+  eligible: boolean;
+  blockedReason: string | null;
+  matchingSpecialties: string[];
+  expiredCertifications: string[];
+  sessionsThatDay: number;
+}
+
+const REASON_LABEL: Record<string, string> = {
+  sick: 'Off sick',
+  leave: 'On leave',
+  training: 'Training',
+  other: 'Unavailable',
+};
+
+function CoveragePanel({
+  staffId,
+  canManage,
+  onNotice,
+  onError,
+}: {
+  staffId: string;
+  canManage: boolean;
+  onNotice: (message: string) => void;
+  onError: (err: unknown) => void;
+}) {
+  const queryClient = useQueryClient();
+  const { branchId } = useBranchScope();
+  const [adding, setAdding] = useState(false);
+  const [from, setFrom] = useState(() => new Date().toISOString().slice(0, 10));
+  const [to, setTo] = useState(() => new Date(Date.now() + 86_400_000).toISOString().slice(0, 10));
+  const [reason, setReason] = useState('sick');
+  const [note, setNote] = useState('');
+  const [coveringSessionId, setCoveringSessionId] = useState<string | null>(null);
+
+  const absences = useQuery({
+    queryKey: ['staff', staffId, 'unavailability'],
+    queryFn: () => api<{ unavailability: Absence[] }>(`/admin/staff/${staffId}/unavailability`, { branchId }),
+  });
+
+  const impact = useQuery({
+    queryKey: ['staff', staffId, 'coverage'],
+    queryFn: () => api<CoverageImpact>(`/admin/staff/${staffId}/coverage`, { branchId }),
+  });
+
+  const attempt = useIdempotentAttempt('admin-unavailability', staffId);
+
+  const refresh = (): void => {
+    void queryClient.invalidateQueries({ queryKey: ['staff', staffId] });
+    void queryClient.invalidateQueries({ queryKey: ['schedule'] });
+  };
+
+  const mark = useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      api<{ impact: CoverageImpact }>(`/admin/staff/${staffId}/unavailability`, {
+        method: 'POST',
+        body,
+        branchId,
+        idempotencyKey: attempt.keyFor(body),
+      }),
+    onSuccess: (result) => {
+      attempt.retire();
+      setAdding(false);
+      setNote('');
+      const n = result.impact.sessions.length;
+      const a = result.impact.appointments.length;
+      onNotice(
+        `Absence recorded. ${n} ${n === 1 ? 'class' : 'classes'} and ${a} ${a === 1 ? 'appointment' : 'appointments'} ` +
+          'are affected. Nothing has been moved — assign cover below when you are ready.',
+      );
+      refresh();
+    },
+    onError,
+  });
+
+  const withdraw = useMutation({
+    mutationFn: (id: string) => api(`/admin/staff/unavailability/${id}`, { method: 'DELETE', branchId }),
+    onSuccess: () => {
+      onNotice('Availability restored. Cover already assigned stays as it is — those members were told once already.');
+      refresh();
+    },
+    onError,
+  });
+
+  const live = (absences.data?.unavailability ?? []).filter((row) => row.state === 'active');
+
+  return (
+    <Panel
+      title="Availability and cover"
+      action={
+        canManage ? (
+          <Button variant="ghost" onClick={() => setAdding((v) => !v)}>
+            {adding ? 'Close' : 'Mark unavailable'}
+          </Button>
+        ) : null
+      }
+    >
+      {adding ? (
+        <div className="border-b border-line bg-wash-sonar-soft p-3.5">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <Field label="From" type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
+            <Field label="Until" type="date" value={to} onChange={(event) => setTo(event.target.value)} />
+            <SelectField
+              label="Reason"
+              value={reason}
+              onChange={setReason}
+              options={[
+                ['sick', 'Off sick'],
+                ['leave', 'On leave'],
+                ['training', 'Training'],
+                ['other', 'Other'],
+              ]}
+            />
+          </div>
+          <Field
+            label="Note"
+            className="mt-3"
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            placeholder="Optional — visible to managers only"
+          />
+          <Toolbar className="mt-3 -mx-3.5 -mb-3.5 border-t">
+            <Button variant="ghost" onClick={() => setAdding(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="cta"
+              disabled={mark.isPending || to <= from}
+              onClick={() =>
+                mark.mutate({
+                  startsAt: new Date(`${from}T00:00:00`).toISOString(),
+                  endsAt: new Date(`${to}T00:00:00`).toISOString(),
+                  reason,
+                  note: note.trim() || null,
+                })
+              }
+            >
+              {mark.isPending ? 'Recording…' : 'Record absence'}
+            </Button>
+          </Toolbar>
+        </div>
+      ) : null}
+
+      {live.length === 0 ? (
+        <EmptyState title="Available" body="No absence is recorded for this profile." />
+      ) : (
+        <div className="divide-y divide-line">
+          {live.map((row) => (
+            <div key={row.id} className="flex flex-wrap items-center gap-3 px-3.5 py-2.5">
+              <Chip tone="warn">{REASON_LABEL[row.reason] ?? row.reason}</Chip>
+              <div className="min-w-0 flex-1 text-[12px]">
+                {new Date(row.startsAt).toLocaleDateString()} → {new Date(row.endsAt).toLocaleDateString()}
+                {row.note ? <span className="text-foam-45"> · {row.note}</span> : null}
+              </div>
+              {canManage ? (
+                <Button variant="ghost" disabled={withdraw.isPending} onClick={() => withdraw.mutate(row.id)}>
+                  Restore availability
+                </Button>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="border-t border-line px-3.5 py-2.5">
+        <Label>Affected in the next four weeks</Label>
+        <p className="mt-1 text-[11px] leading-relaxed text-foam-45">
+          Nothing here has been changed. Classes can be covered by another coach; one-to-one appointments are listed
+          because the member chose this trainer, and moving them is a conversation rather than a button.
+        </p>
+      </div>
+
+      {impact.isLoading ? (
+        <Skeleton className="h-24" />
+      ) : impact.data && impact.data.sessions.length + impact.data.appointments.length === 0 ? (
+        <EmptyState title="Nothing affected" body="No classes or appointments fall inside a recorded absence." />
+      ) : (
+        <div className="divide-y divide-line">
+          {(impact.data?.sessions ?? []).map((row) => (
+            <div key={row.sessionId}>
+              <div className="flex flex-wrap items-center gap-3 px-3.5 py-2.5">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[13px]">{row.className}</div>
+                  <div className="font-utility text-[10px] uppercase tracking-[0.1em] text-foam-35">
+                    {row.localDate} · {row.booked}/{row.capacity} booked
+                  </div>
+                </div>
+                {canManage ? (
+                  <Button
+                    variant="outline"
+                    onClick={() => setCoveringSessionId(coveringSessionId === row.sessionId ? null : row.sessionId)}
+                  >
+                    {coveringSessionId === row.sessionId ? 'Close' : 'Find cover'}
+                  </Button>
+                ) : null}
+              </div>
+              {coveringSessionId === row.sessionId ? (
+                <SubstitutePicker
+                  sessionId={row.sessionId}
+                  branchId={branchId}
+                  onAssigned={(name) => {
+                    setCoveringSessionId(null);
+                    onNotice(`${name} is covering. Everyone booked in has been told, and nobody's seat moved.`);
+                    refresh();
+                  }}
+                  onError={onError}
+                />
+              ) : null}
+            </div>
+          ))}
+          {(impact.data?.appointments ?? []).map((row) => (
+            <div key={row.appointmentId} className="flex flex-wrap items-center gap-3 px-3.5 py-2.5">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[13px]">
+                  {row.memberName} <span className="text-foam-45">· {row.kind.replace(/_/g, ' ')}</span>
+                </div>
+                <div className="font-utility text-[10px] uppercase tracking-[0.1em] text-foam-35">
+                  {new Date(row.startsAt).toLocaleString()}
+                </div>
+              </div>
+              <Chip tone="warn">Needs a conversation</Chip>
+            </div>
+          ))}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+/** Who could take this class, and who could not, with the reason.
+ *
+ *  Ineligible coaches are shown rather than filtered out: "why is Priya not in
+ *  this list" is the question a manager asks next, and answering it here saves
+ *  the trip to her profile. */
+function SubstitutePicker({
+  sessionId,
+  branchId,
+  onAssigned,
+  onError,
+}: {
+  sessionId: string;
+  branchId: string | null;
+  onAssigned: (name: string) => void;
+  onError: (err: unknown) => void;
+}) {
+  const candidates = useQuery({
+    queryKey: ['schedule', 'substitutes', sessionId],
+    queryFn: () =>
+      api<{ candidates: SubstituteCandidate[] }>(`/admin/schedule/session/${sessionId}/substitutes`, { branchId }),
+  });
+
+  const assign = useMutation({
+    mutationFn: (candidate: SubstituteCandidate) =>
+      api(`/admin/schedule/session/${sessionId}/substitute`, {
+        method: 'POST',
+        body: { trainerId: candidate.staffId },
+        branchId,
+      }).then(() => candidate.name),
+    onSuccess: onAssigned,
+    onError,
+  });
+
+  if (candidates.isLoading) return <Skeleton className="h-20" />;
+  if (!candidates.data) return null;
+
+  return (
+    <div className="border-t border-line bg-wash-sonar-soft">
+      {candidates.data.candidates.length === 0 ? (
+        <EmptyState title="No other coaches" body="This branch has no other trainer on the books." />
+      ) : (
+        <div className="divide-y divide-line">
+          {candidates.data.candidates.map((candidate) => (
+            <div key={candidate.staffId} className="flex flex-wrap items-center gap-3 px-3.5 py-2.5">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[12px]">{candidate.name}</div>
+                <div className="font-utility text-[10px] uppercase tracking-[0.1em] text-foam-35">
+                  {candidate.eligible
+                    ? `${candidate.matchingSpecialties.length > 0 ? candidate.matchingSpecialties.join(', ') : 'No matching speciality'} · ${candidate.sessionsThatDay} classes that day`
+                    : candidate.blockedReason}
+                </div>
+                {candidate.expiredCertifications.length > 0 ? (
+                  <div className="mt-1 text-[11px] text-signal-warn">
+                    Lapsed: {candidate.expiredCertifications.join(', ')}
+                  </div>
+                ) : null}
+              </div>
+              <Button
+                variant={candidate.eligible ? 'cta' : 'outline'}
+                disabled={!candidate.eligible || assign.isPending}
+                onClick={() => assign.mutate(candidate)}
+              >
+                {candidate.eligible ? 'Assign cover' : 'Unavailable'}
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

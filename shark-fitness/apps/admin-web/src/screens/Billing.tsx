@@ -389,20 +389,7 @@ function InvoiceDetailPanel({
                 </Panel>
               ) : null}
 
-              {data.dunning.length > 0 ? (
-                <Panel title="Dunning history">
-                  <ul className="divide-y divide-line">
-                    {data.dunning.map((d) => (
-                      <li key={d.id} className="flex items-center justify-between px-3.5 py-2 text-[12px]">
-                        <span>
-                          Attempt {d.attempt} · {d.channel}
-                        </span>
-                        <Chip tone={d.state === 'sent' ? 'good' : d.state === 'failed' ? 'bad' : 'neutral'}>{d.state}</Chip>
-                      </li>
-                    ))}
-                  </ul>
-                </Panel>
-              ) : null}
+              {data.dunning.length > 0 ? <DunningPanel invoiceId={invoiceId} /> : null}
             </div>
           </>
         )}
@@ -567,5 +554,93 @@ function RefundSheet({ paymentId, onClose, onDone }: { paymentId: string; onClos
         ) : null}
       </div>
     </Modal>
+  );
+}
+
+/* ============================================================================
+   Dunning — PF-BILL-005.
+
+   The history, plus the sentence that matters most: there is no payment
+   provider, so nothing here retried a charge and nothing can. A console that
+   showed "attempt 2 · sent" without saying what was actually attempted would
+   read as three failed charges when in fact nobody was ever charged.
+   ========================================================================= */
+
+interface DunningView {
+  outstandingMinor: number;
+  currency: string;
+  totalSteps: number;
+  attempts: Array<{
+    attempt: number;
+    channel: string;
+    state: string;
+    scheduledFor: number;
+    sentAt: number | null;
+    stopReason: string | null;
+    retrySubmitted: boolean;
+    retryOutcome: string | null;
+  }>;
+  nextAttemptAt: number | null;
+  escalated: boolean;
+  automaticCollection: { available: boolean; reason: string; message: string };
+}
+
+function DunningPanel({ invoiceId }: { invoiceId: string }) {
+  const view = useQuery({
+    queryKey: ['invoice', invoiceId, 'dunning'],
+    queryFn: () => api<DunningView>(`/admin/billing/invoices/${invoiceId}/dunning`),
+  });
+
+  if (view.isLoading) return <Skeleton className="h-32" />;
+  if (!view.data) return null;
+  const data = view.data;
+
+  return (
+    <Panel title="Dunning">
+      {!data.automaticCollection.available ? (
+        <p className="border-b border-line px-3.5 py-2.5 text-[11px] leading-relaxed text-foam-45">
+          {data.automaticCollection.message}
+        </p>
+      ) : null}
+      <ul className="divide-y divide-line">
+        {data.attempts.map((row) => (
+          <li key={row.attempt} className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2 text-[12px]">
+            <span className="min-w-0 flex-1">
+              Attempt {row.attempt} of {data.totalSteps} · {row.channel}
+              <span className="block font-utility text-[10px] uppercase tracking-[0.1em] text-foam-35">
+                {row.sentAt
+                  ? `Told the member ${new Date(row.sentAt).toLocaleString()}`
+                  : `Due ${new Date(row.scheduledFor).toLocaleString()}`}
+                {/* The honest bit: what, if anything, was actually submitted. */}
+                {row.retrySubmitted ? ' · charge submitted' : row.retryOutcome ? ' · no charge submitted' : ''}
+                {row.stopReason ? ` · ${row.stopReason.replace(/_/g, ' ')}` : ''}
+              </span>
+            </span>
+            <Chip
+              tone={
+                row.state === 'sent'
+                  ? 'good'
+                  : row.state === 'escalated'
+                    ? 'bad'
+                    : row.state === 'deferred'
+                      ? 'warn'
+                      : 'neutral'
+              }
+            >
+              {row.state}
+            </Chip>
+          </li>
+        ))}
+      </ul>
+      {data.nextAttemptAt ? (
+        <p className="border-t border-line px-3.5 py-2.5 text-[11px] text-foam-45">
+          Next reminder {new Date(data.nextAttemptAt).toLocaleString()}.
+        </p>
+      ) : data.escalated ? (
+        <p className="border-t border-line px-3.5 py-2.5 text-[11px] text-signal-warn">
+          Escalated. The reminders are finished; this one needs somebody to call.
+        </p>
+      ) : null}
+    </Panel>
   );
 }

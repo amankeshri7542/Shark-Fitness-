@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate, useSearch } from '@tanstack/react-router';
 import { ApiError, api } from '../lib/api';
 import { useBranchScope, usePermission } from '../lib/store';
 import { Page } from '../ui/shell';
@@ -16,10 +17,12 @@ import {
   Panel,
   PermissionState,
   Skeleton,
+  Tabs,
   Toolbar,
   cx,
 } from '../ui/console';
 import { useIdempotentAttempt } from '../lib/idempotent-attempt';
+import SeriesSurface from './schedule/Series';
 
 /**
  * Calendar and class operations — UX-A09.
@@ -110,7 +113,43 @@ const ROSTER_TONE: Record<string, 'neutral' | 'accent' | 'good' | 'warn' | 'bad'
   held: 'warn',
 };
 
+const SCHEDULE_TABS = [
+  { key: 'day', label: 'Day' },
+  { key: 'series', label: 'Recurring' },
+] as const;
+
+/**
+ * The screen shell, and the choice of surface.
+ *
+ * `DayGrid` is the original screen unchanged. `Recurring` is the rules behind
+ * it — kept a sibling rather than a panel inside the grid, because the two
+ * answer different questions: "what is on today" and "what is on every
+ * Tuesday", and a manager is only ever asking one of them.
+ */
 export default function ScheduleScreen() {
+  const { tab } = useSearch({ from: '/console/schedule' });
+  const navigate = useNavigate({ from: '/schedule' });
+
+  return (
+    <>
+      <Tabs
+        label="Schedule"
+        active={tab}
+        items={SCHEDULE_TABS.map((t) => ({ key: t.key, label: t.label }))}
+        onChange={(key) => void navigate({ search: () => ({ tab: key as 'day' | 'series' }), replace: true })}
+      />
+      {tab === 'series' ? (
+        <Page title="Schedule" kicker="Recurring classes">
+          <SeriesSurface />
+        </Page>
+      ) : (
+        <DayGrid />
+      )}
+    </>
+  );
+}
+
+function DayGrid() {
   const canView = usePermission('schedule.view');
   const canManage = usePermission('schedule.manage');
   const canBookOthers = usePermission('booking.manage_others');
