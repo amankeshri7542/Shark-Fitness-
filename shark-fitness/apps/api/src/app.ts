@@ -16,6 +16,7 @@ import { progressRoutes } from './routes/member/progress.js';
 import { habitsRoutes } from './routes/member/habits.js';
 import { engagementRoutes } from './routes/member/engagement.js';
 import { adminEngagementRoutes } from './routes/admin/engagement.js';
+import { commissionRoutes } from './routes/admin/commission.js';
 import { messagesRoutes } from './routes/member/messages.js';
 import { billingRoutes as memberBillingRoutes } from './routes/member/billing.js';
 import { mediaRoutes } from './routes/member/media.js';
@@ -114,6 +115,10 @@ app.route('/v1/admin/billing', adminBillingRoutes);
 app.route('/v1/admin/attendance', attendanceRoutes);
 app.route('/v1/admin/schedule', adminScheduleRoutes);
 app.route('/v1/admin/training', adminTrainingRoutes);
+// Before `/v1/admin/staff`: the staff detail route is `GET /:staffId`, which
+// would otherwise match `/commission` and answer "that member of staff was not
+// found" for every commission read.
+app.route('/v1/admin/staff/commission', commissionRoutes);
 app.route('/v1/admin/staff', staffRoutes);
 app.route('/v1/admin/store', storeRoutes);
 app.route('/v1/admin/facility', facilityRoutes);

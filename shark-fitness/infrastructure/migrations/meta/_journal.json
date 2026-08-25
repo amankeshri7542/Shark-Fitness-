@@ -71,6 +71,13 @@
       "when": 1787629921966,
       "tag": "0009_staff_unavailability",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1787630394828,
+      "tag": "0010_commission_workflow",
+      "breakpoints": true
     }
   ]
 }

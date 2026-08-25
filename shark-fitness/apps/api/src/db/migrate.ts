@@ -38,6 +38,14 @@ const extras = [
      ON class_sessions (series_id, occurrence_date)
      WHERE series_id IS NOT NULL AND occurrence_date IS NOT NULL`,
 
+  // One commission accrual per source transaction per member of staff. The
+  // partial clause is what lets a correction exist: a compensating entry
+  // carries `correction_of_line_id` and is therefore outside the index, so a
+  // reversal can cite the same sale without colliding with it.
+  `CREATE UNIQUE INDEX IF NOT EXISTS commission_lines_source_uq
+     ON commission_lines (tenant_id, staff_id, kind, ref_type, ref_id)
+     WHERE correction_of_line_id IS NULL AND ref_id IS NOT NULL`,
+
   // One send per automation per logical event, enforced by the database rather
   // than by the service remembering to check (PF-COMM-004). Partial, so a
   // failed run leaves the key free to retry and a dry run never consumes it.

@@ -301,10 +301,44 @@ export const commissionLines = sqliteTable(
     amountMinor: integer('amount_minor').notNull(),
     ruleVersion: text('rule_version').notNull(),
     evidence: text('evidence', { mode: 'json' }).$type<string[]>().notNull(),
+    /**
+     * pending | approved | paid | reversed.
+     *
+     * The column default stays `accrued` — the value it shipped with — even
+     * though no code path uses it: every insert states the value, and changing
+     * a SQLite column default means rebuilding the table, which is not worth
+     * doing for a default nothing reads. Migrations here are additive on
+     * purpose.
+     */
     state: text('state').notNull().default('accrued'),
     refType: text('ref_type'),
     refId: text('ref_id'),
+    /** The branch the earning transaction happened at. Needed because staff
+     *  work across branches and a commission report is read per branch. */
+    branchId: text('branch_id'),
+    /**
+     * Set on a compensating entry, naming the line it reverses.
+     *
+     * A correction is never an edit. When a sale is returned or a line was
+     * calculated against the wrong rule, a second row is written with the
+     * negative amount and this column set — the original keeps saying what it
+     * always said. It is also what makes the source uniqueness workable: one
+     * accrual per source transaction, plus any number of corrections against
+     * it.
+     */
+    correctionOfLineId: text('correction_of_line_id'),
+    correctionReason: text('correction_reason'),
+    approvedByUserId: text('approved_by_user_id'),
+    approvedAt: integer('approved_at'),
+    paidByUserId: text('paid_by_user_id'),
+    paidAt: integer('paid_at'),
+    /** How it was settled outside this system — a payroll reference, not a
+     *  claim that this application moved any money. */
+    paidReference: text('paid_reference'),
     createdAt: integer('created_at').notNull(),
   },
-  (t) => ({ byStaff: index('commission_staff_idx').on(t.staffId, t.periodStart) }),
+  (t) => ({
+    byStaff: index('commission_staff_idx').on(t.staffId, t.periodStart),
+    byState: index('commission_state_idx').on(t.tenantId, t.state),
+  }),
 );

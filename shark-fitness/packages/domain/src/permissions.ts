@@ -30,6 +30,11 @@ export const PERMISSIONS = [
   'staff.view',
   'staff.manage',
   'staff.commission',
+  /** Separated from viewing on purpose: whoever calculates and reads a
+   *  commission run must not also be the person who signs it off. Owner and
+   *  platform admin hold it; a regional manager who can see the figures
+   *  deliberately cannot approve or pay them. */
+  'staff.commission.approve',
   'training.view',
   'training.assign',
   'training.program.manage',
