@@ -16,6 +16,7 @@ import {
   loadInvoiceInScope,
   type ApplyPaymentInput,
 } from './billing.js';
+import { stopDunning } from './dunning.js';
 
 type MemberRow = typeof schema.members.$inferSelect;
 type ProductRow = typeof schema.products.$inferSelect;
@@ -263,10 +264,9 @@ export function voidInvoiceSafely(ctx: RequestContext, invoiceId: string, reason
     .set({ voided: true, voidReason: reason, state: 'void', updatedAt: now() })
     .where(eq(schema.invoices.id, invoiceId))
     .run();
-  db.update(schema.dunningAttempts)
-    .set({ state: 'stopped', stopReason: 'invoice_voided' })
-    .where(and(eq(schema.dunningAttempts.tenantId, ctx.tenantId), eq(schema.dunningAttempts.invoiceId, invoiceId)))
-    .run();
+  // Through the shared helper so "stop chasing this" means the same thing
+  // whether the debt was paid, written off or voided.
+  stopDunning(ctx.tenantId, invoiceId, 'invoice_voided');
   audit(ctx, {
     action: 'invoice.voided',
     entityType: 'invoice',

@@ -46,6 +46,12 @@ const extras = [
      ON commission_lines (tenant_id, staff_id, kind, ref_type, ref_id)
      WHERE correction_of_line_id IS NULL AND ref_id IS NOT NULL`,
 
+  // One row per dunning step per invoice. The sequence is resumable and the
+  // worker is re-entrant, so "schedule the next attempt" has to be safe to
+  // execute twice — this is what makes it so.
+  `CREATE UNIQUE INDEX IF NOT EXISTS dunning_attempt_uq
+     ON dunning_attempts (tenant_id, invoice_id, attempt)`,
+
   // One send per automation per logical event, enforced by the database rather
   // than by the service remembering to check (PF-COMM-004). Partial, so a
   // failed run leaves the key free to retry and a dry run never consumes it.

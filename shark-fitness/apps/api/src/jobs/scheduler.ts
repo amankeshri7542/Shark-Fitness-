@@ -8,6 +8,7 @@ import { processDueDeliveries, runDueAutomations } from '../services/automations
 import { pruneOperationalData } from '../services/maintenance.js';
 import { expireChallengeInvitations } from '../services/engagement-admin.js';
 import { extendActiveSeries } from '../services/schedule-series.js';
+import { runDueDunning } from '../services/dunning.js';
 import { rollUpCompletedDays } from '../services/reports.js';
 import { DAY, HOUR, MINUTE, addDays, isoDate, localClockOnDay, localDayIndex, now, startOfLocalDay } from '../lib/time.js';
 import { id } from '../lib/ids.js';
@@ -250,6 +251,21 @@ function deliverQueuedAutomations(): void {
   }
 }
 
+/** Advance every dunning step that is due.
+ *
+ *  Re-entrant: each step is claimed by a conditional update before any work
+ *  happens, so a second worker finds it taken and moves on. That matters more
+ *  here than in the other jobs because the work sends a message to a member. */
+function advanceDunning(): void {
+  const result = runDueDunning();
+  if (result.sent + result.escalated + result.recovered > 0) {
+    console.log(
+      `[jobs] dunning: ${result.sent} sent, ${result.recovered} recovered, ${result.escalated} escalated, ` +
+        `${result.deferred} deferred for quiet hours, ${result.retriesUnavailable} retries not submitted (no provider)`,
+    );
+  }
+}
+
 /** Roll every active recurring class forward to the horizon.
  *
  *  Idempotent by construction — occurrence identity is a unique index — so a
@@ -283,6 +299,7 @@ const JOBS: Job[] = [
   { name: 'close-stale-check-ins', everyMs: 30 * MINUTE, run: closeStaleCheckIns },
   { name: 'expire-waitlist-offers', everyMs: MINUTE, run: expireWaitlistOffers },
   { name: 'release-expired-holds', everyMs: MINUTE, run: releaseExpiredHolds },
+  { name: 'run-dunning', everyMs: 15 * MINUTE, run: advanceDunning },
   { name: 'extend-class-series', everyMs: 6 * HOUR, run: extendSeriesHorizon },
   { name: 'prune-operational-data', everyMs: DAY, run: pruneOperationalRows },
 ];

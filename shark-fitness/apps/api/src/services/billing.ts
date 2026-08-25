@@ -2,6 +2,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import type { Product } from '@shark/contracts';
 import { channels } from '@shark/contracts';
 import { canTransition, invoiceStateFor, totalsFor } from '@shark/domain';
+import { stopDunning } from './dunning.js';
 import { db, schema } from '../db/client.js';
 import { audit } from '../lib/audit.js';
 import { conflict, invalid, notFound } from '../lib/errors.js';
@@ -207,6 +208,11 @@ export function applyPaymentToInvoice(input: ApplyPaymentInput): ApplyPaymentRes
   }
 
   db.update(schema.invoices).set({ paidMinor: newPaidMinor, state: newState, updatedAt: now() }).where(eq(schema.invoices.id, invoiceId)).run();
+
+  // Money arrived: stop chasing it. Without this a member who settles at the
+  // desk still gets next week's reminder, because the dunning worker only
+  // learns about the payment when it next reaches the step.
+  if (newState === 'paid') stopDunning(ctx.tenantId, invoiceId, 'recovered');
 
   // Activation only when the invoice is fully settled — a partial payment
   // does not activate a membership someone is still paying off.

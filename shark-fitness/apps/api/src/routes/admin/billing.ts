@@ -3,7 +3,7 @@ import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { validate } from '../../middleware/validate.js';
 import { BillingCadence, ProductKind, RecordPaymentInput, type Product } from '@shark/contracts';
-import { dunningPlan, formatMoney } from '@shark/domain';
+import { formatMoney } from '@shark/domain';
 import { db, schema, transact } from '../../db/client.js';
 import { ctxOf } from '../../middleware/index.js';
 import type { RequestContext } from '../../lib/context.js';
@@ -13,6 +13,7 @@ import { conflict, invalid, notFound, precondition } from '../../lib/errors.js';
 import { id } from '../../lib/ids.js';
 import { DAY, now } from '../../lib/time.js';
 import { applyPaymentToInvoice, applyRefund, createInvoiceForProduct, loadInvoiceInScope } from '../../services/billing.js';
+import { dunningForInvoice, openDunning } from '../../services/dunning.js';
 
 export const billingRoutes = new Hono();
 
@@ -520,11 +521,10 @@ billingRoutes.post('/webhooks/demo', validate('json', DemoWebhookBody), (c) => {
       .values({ id: id('pay'), tenantId: ctx.tenantId, branchId: invoice.branchId, invoiceId, memberId: invoice.memberId, method: 'upi', state: 'failed', amountMinor: invoice.totalMinor - invoice.paidMinor, currency: invoice.currency, provider: 'demo', providerRef: eventId, idempotencyKey: `demo:${eventId}`, recordedById: null, recordedByName: null, failureReason: reason ?? 'Simulated failure', note: null, createdAt: now(), settledAt: null })
       .run();
 
-    const plan = dunningPlan(['email', 'in_app']);
-    const first = plan[0]!;
-    db.insert(schema.dunningAttempts)
-      .values({ id: id('dun'), tenantId: ctx.tenantId, invoiceId, attempt: first.attempt, channel: first.channel, scheduledFor: now(), state: 'scheduled', sentAt: null, stopReason: null })
-      .run();
+    // Through the state machine rather than by writing one row: opening a case
+    // has to be idempotent, has to pick the tenant's own channels, and has to
+    // leave something the worker will actually advance.
+    openDunning(ctx, { invoiceId, reason: reason ?? 'Simulated failure' });
 
     audit(ctx, { action: 'payment.failed', entityType: 'invoice', entityId: invoiceId, entityLabel: invoice.number, reason: reason ?? 'Simulated failure' });
   });
@@ -532,6 +532,12 @@ billingRoutes.post('/webhooks/demo', validate('json', DemoWebhookBody), (c) => {
   db.update(schema.providerEvents).set({ processedAt: now() }).where(eq(schema.providerEvents.providerEventId, eventId)).run();
   return c.json({ ok: true, invoiceState: invoice.state });
 });
+
+/** The dunning state of one invoice, including — stated rather than implied —
+ *  that no automatic retry is possible. */
+billingRoutes.get('/invoices/:invoiceId/dunning', (c) =>
+  c.json(dunningForInvoice(ctxOf(c), c.req.param('invoiceId'))),
+);
 
 billingRoutes.get('/dunning', (c) => {
   const ctx = ctxOf(c);

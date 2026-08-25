@@ -120,6 +120,20 @@ export const providerEvents = sqliteTable(
   (t) => ({ eventUq: uniqueIndex('provider_events_uq').on(t.provider, t.providerEventId) }),
 );
 
+/**
+ * One step of a dunning sequence (PF-BILL-005).
+ *
+ * The row is the state machine. A step is `scheduled` until the worker reaches
+ * it, then `sent` once the member has actually been told, or `deferred` when
+ * quiet hours pushed it, or `stopped` when the debt was settled or the invoice
+ * voided underneath it. Nothing here is derived from the clock at read time —
+ * a resumable sequence has to survive a restart, and a state that has to be
+ * recomputed is a state that disagrees with itself after one.
+ *
+ * `retryOutcome` is the honest column. With no payment provider configured
+ * there is nothing to submit a retry to, and that is recorded per attempt
+ * rather than glossed as a retry that happened.
+ */
 export const dunningAttempts = sqliteTable(
   'dunning_attempts',
   {
@@ -129,11 +143,30 @@ export const dunningAttempts = sqliteTable(
     attempt: integer('attempt').notNull(),
     channel: text('channel').notNull(),
     scheduledFor: integer('scheduled_for').notNull(),
+    /** scheduled | sent | deferred | stopped | escalated */
     state: text('state').notNull().default('scheduled'),
     sentAt: integer('sent_at'),
     stopReason: text('stop_reason'),
+    /** Whether a charge was actually submitted anywhere, and what came back.
+     *  `no_payment_provider_configured` is the current answer for every row. */
+    retrySubmitted: integer('retry_submitted', { mode: 'boolean' }).notNull().default(false),
+    retryOutcome: text('retry_outcome'),
+    providerRef: text('provider_ref'),
+    /** The in-app notification raised for this step, so a re-run can see that
+     *  the member was already told rather than telling them twice. */
+    notificationId: text('notification_id'),
+    /** Scheduler safety: claimed before work, cleared after. A second worker
+     *  finds the row already claimed and leaves it alone. */
+    lockedAt: integer('locked_at'),
+    attempts: integer('attempts').notNull().default(0),
+    lastError: text('last_error'),
+    createdAt: integer('created_at'),
+    updatedAt: integer('updated_at'),
   },
-  (t) => ({ byInvoice: index('dunning_invoice_idx').on(t.invoiceId, t.attempt) }),
+  (t) => ({
+    byInvoice: index('dunning_invoice_idx').on(t.invoiceId, t.attempt),
+    byDue: index('dunning_due_idx').on(t.state, t.scheduledFor),
+  }),
 );
 
 /* ——— Attendance ——————————————————————————————————————————— */
