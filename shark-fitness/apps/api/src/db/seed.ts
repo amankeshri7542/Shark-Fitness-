@@ -1448,6 +1448,20 @@ const DAILY_GRID = [
 
 const sessionsSeeded: Array<{ id: string; branchId: string; startsAt: number; capacity: number; name: string }> = [];
 
+/** The recurrence rules behind the grid below.
+ *
+ *  The grid was always a series in spirit — same class, same room, same coach,
+ *  same time, every day — but `class_sessions.series_id` was a free-text key
+ *  with no row behind it. Collected here as real `class_series` rows so the
+ *  demo data matches the model: every seeded occurrence carries the
+ *  `occurrence_date` the generator dedupes on, and re-running the generator
+ *  over seeded data is the no-op it should be rather than a duplicate
+ *  timetable.
+ *
+ *  Deliberately takes no `rng` draws — this seed is one deterministic stream
+ *  and an extra draw here would silently re-roll every later fixture. */
+const seriesSeeded = new Map<string, typeof schema.classSeries.$inferInsert>();
+
 for (let dayOffset = -7; dayOffset <= 14; dayOffset++) {
   const date = addDays(TODAY, dayOffset);
   for (const b of BRANCHES) {
@@ -1463,6 +1477,44 @@ for (let dayOffset = -7; dayOffset <= 14; dayOffset++) {
       // Branch-local time expressed as UTC (IST is +5:30).
       const startsAt = Date.parse(`${date}T${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00+05:30`);
       const sessionId = id('ses');
+      const seriesId = `series_${b.id}_${ct.name.replace(/\s+/g, '_')}_${slot.time}`;
+      if (!seriesSeeded.has(seriesId)) {
+        seriesSeeded.set(seriesId, {
+          id: seriesId,
+          tenantId,
+          branchId: b.id,
+          classTypeId: classTypeIds.get(ct.name)!,
+          roomId: room.id,
+          trainerId: slot.trainer.staffId,
+          frequency: 'weekly',
+          interval: 1,
+          // Every day of the week — the grid runs daily so the date strip is
+          // never empty.
+          weekdays: [0, 1, 2, 3, 4, 5, 6],
+          startDate: addDays(TODAY, -7),
+          // Ends where the seeded occurrences end, so the horizon job finds
+          // nothing to do rather than extending demo data behind your back.
+          endDate: addDays(TODAY, 14),
+          occurrenceCount: null,
+          startTime: `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`,
+          durationMin: ct.duration,
+          capacity: room.capacity,
+          creditsRequired: ['Deep Mobility', 'Reef Yoga', 'Cage Boxing'].includes(ct.name) ? 1 : 0,
+          dropInPriceMinor: ['Deep Mobility', 'Reef Yoga', 'Cage Boxing'].includes(ct.name) ? 35_000 : null,
+          lateCancelFeeMinor: 0,
+          waitlistEnabled: true,
+          bookingOpensMinBefore: 14 * 24 * 60,
+          cancelDeadlineMinBefore: 120,
+          notes: null,
+          state: 'active',
+          generatedThrough: addDays(TODAY, 14),
+          supersedesSeriesId: null,
+          supersededBySeriesId: null,
+          version: 1,
+          createdAt: NOW - 30 * DAY,
+          updatedAt: NOW,
+        });
+      }
 
       sessionsSeeded.push({ id: sessionId, branchId: b.id, startsAt, capacity: room.capacity, name: ct.name });
 
@@ -1474,7 +1526,8 @@ for (let dayOffset = -7; dayOffset <= 14; dayOffset++) {
           classTypeId: classTypeIds.get(ct.name)!,
           roomId: room.id,
           trainerId: slot.trainer.staffId,
-          seriesId: `series_${b.id}_${ct.name.replace(/\s+/g, '_')}_${slot.time}`,
+          seriesId,
+          occurrenceDate: date,
           startsAt,
           endsAt: startsAt + ct.duration * MINUTE,
           capacity: room.capacity,
@@ -1499,6 +1552,10 @@ for (let dayOffset = -7; dayOffset <= 14; dayOffset++) {
         .run();
     }
   }
+}
+
+for (const series of seriesSeeded.values()) {
+  db.insert(schema.classSeries).values(series).run();
 }
 
 /** Fill seats. One evening class is deliberately full with a waitlist. */

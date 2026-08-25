@@ -23,6 +23,14 @@ import {
   waitlistCount,
 } from '../../services/schedule.js';
 import { branchTimeZone } from '../../lib/branch-time.js';
+import { runIdempotently } from '../../lib/idempotency.js';
+import {
+  cancelSeries,
+  createSeries,
+  editSeries,
+  listSeries,
+  seriesDetail,
+} from '../../services/schedule-series.js';
 
 /**
  * Calendar and class operations — UX-A09, PF-SCH.
@@ -468,6 +476,125 @@ scheduleRoutes.post('/session/:id/substitute', validate('json', SubstituteBody),
   requirePermission(ctx, 'schedule.manage');
   const session = substituteTrainer(ctx, c.req.param('id'), c.req.valid('json').trainerId);
   return c.json({ session: { id: session.id, trainerId: session.trainerId, version: session.version } });
+});
+
+/* ============================================================================
+   Recurring series — PF-SCH.
+
+   The rule, not the occurrences. Editing or cancelling a single class stays on
+   `/session/:id`; these endpoints change what the timetable *says*, and the
+   service regenerates from there.
+   ========================================================================= */
+
+const WeekdaySet = z.array(z.number().int().min(0).max(6)).min(1).max(7);
+
+const SeriesBody = z.object({
+  branchId: z.string().min(1),
+  classTypeId: z.string().min(1),
+  roomId: z.string().min(1).nullable().default(null),
+  trainerId: z.string().min(1).nullable().default(null),
+  weekdays: WeekdaySet,
+  interval: z.number().int().min(1).max(12).default(1),
+  /** Branch-local calendar dates and wall clock, never instants — the whole
+   *  point of a series is that it holds its local time across a DST change. */
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().default(null),
+  occurrenceCount: z.number().int().min(1).max(520).nullable().default(null),
+  startTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+  durationMin: z.number().int().min(5).max(300).nullable().default(null),
+  capacity: z.number().int().min(1).max(500),
+  creditsRequired: z.number().int().min(0).max(10).default(0),
+  dropInPriceMinor: z.number().int().min(0).nullable().default(null),
+  lateCancelFeeMinor: z.number().int().min(0).default(0),
+  waitlistEnabled: z.boolean().default(true),
+  bookingOpensMinBefore: z.number().int().min(0).max(365 * 24 * 60).nullable().default(null),
+  cancelDeadlineMinBefore: z.number().int().min(0).max(365 * 24 * 60).nullable().default(null),
+  notes: z.string().max(500).nullable().default(null),
+});
+
+scheduleRoutes.get('/series', validate('query', z.object({
+  branchId: z.string().min(1).optional(),
+  includeEnded: z.enum(['true', 'false']).default('false'),
+})), (c) => {
+  const query = c.req.valid('query');
+  return c.json(listSeries(ctxOf(c), {
+    ...(query.branchId ? { branchId: query.branchId } : {}),
+    includeEnded: query.includeEnded === 'true',
+  }));
+});
+
+scheduleRoutes.get('/series/:id', (c) => c.json(seriesDetail(ctxOf(c), c.req.param('id'))));
+
+scheduleRoutes.post('/series', validate('json', SeriesBody), (c) => {
+  const ctx = ctxOf(c);
+  const body = c.req.valid('json');
+  const response = runIdempotently(ctx, '/admin/schedule/series', c.req.header('idempotency-key'), body, () => {
+    const { series, generation } = createSeries(ctx, body);
+    return {
+      series: { id: series.id, version: series.version, generatedThrough: series.generatedThrough },
+      generation,
+    };
+  });
+  return c.json(response, 201);
+});
+
+const SeriesPatchBody = z.object({
+  roomId: z.string().min(1).nullable().optional(),
+  trainerId: z.string().min(1).nullable().optional(),
+  weekdays: WeekdaySet.optional(),
+  interval: z.number().int().min(1).max(12).optional(),
+  startTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
+  durationMin: z.number().int().min(5).max(300).optional(),
+  capacity: z.number().int().min(1).max(500).optional(),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  occurrenceCount: z.number().int().min(1).max(520).nullable().optional(),
+  notes: z.string().max(500).nullable().optional(),
+  waitlistEnabled: z.boolean().optional(),
+  creditsRequired: z.number().int().min(0).max(10).optional(),
+  dropInPriceMinor: z.number().int().min(0).nullable().optional(),
+  lateCancelFeeMinor: z.number().int().min(0).optional(),
+  bookingOpensMinBefore: z.number().int().min(0).max(365 * 24 * 60).nullable().optional(),
+  cancelDeadlineMinBefore: z.number().int().min(0).max(365 * 24 * 60).nullable().optional(),
+  /** `this_and_future` splits the series at `fromSessionId` rather than
+   *  rewriting what earlier occurrences were scheduled to be. */
+  scope: z.enum(['series', 'this_and_future']).default('series'),
+  fromSessionId: z.string().min(1).optional(),
+});
+
+scheduleRoutes.patch('/series/:id', validate('json', SeriesPatchBody), (c) => {
+  const ctx = ctxOf(c);
+  const { scope, fromSessionId, ...patch } = c.req.valid('json');
+  const result = editSeries(ctx, c.req.param('id'), patch, {
+    scope,
+    ...(fromSessionId ? { fromSessionId } : {}),
+  });
+  return c.json({
+    series: { id: result.series.id, version: result.series.version },
+    successorSeriesId: result.successorSeriesId,
+    removedOccurrences: result.removedOccurrences,
+    generation: result.generation,
+  });
+});
+
+const SeriesCancelBody = z.object({
+  reason: z.string().trim().min(4).max(280),
+  /** `future` cancels from `fromSessionId` onwards and leaves everything
+   *  before it standing; `series` cancels every remaining occurrence. Neither
+   *  touches a class that has already run. */
+  scope: z.enum(['series', 'future']).default('series'),
+  fromSessionId: z.string().min(1).optional(),
+});
+
+scheduleRoutes.post('/series/:id/cancel', validate('json', SeriesCancelBody), (c) => {
+  const ctx = ctxOf(c);
+  const body = c.req.valid('json');
+  return c.json(
+    cancelSeries(ctx, c.req.param('id'), {
+      reason: body.reason,
+      scope: body.scope,
+      ...(body.fromSessionId ? { fromSessionId: body.fromSessionId } : {}),
+    }),
+  );
 });
 
 /** Conflict preview for the create/move form, so the panel can warn before the

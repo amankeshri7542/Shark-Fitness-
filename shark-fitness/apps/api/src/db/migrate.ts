@@ -29,6 +29,15 @@ const extras = [
      WHEN NEW.booked < 0
      BEGIN SELECT RAISE(ABORT, 'NEGATIVE_BOOKED'); END`,
 
+  // One occurrence per series per branch-local date. This is what makes series
+  // generation idempotent: a second generator run, or two of them at once,
+  // loses at the index rather than producing a second Tuesday. Partial,
+  // because legacy sessions carry a free-text `series_id` and no
+  // `occurrence_date`, and NULLs must not collide with each other.
+  `CREATE UNIQUE INDEX IF NOT EXISTS class_sessions_series_occurrence_uq
+     ON class_sessions (series_id, occurrence_date)
+     WHERE series_id IS NOT NULL AND occurrence_date IS NOT NULL`,
+
   // One send per automation per logical event, enforced by the database rather
   // than by the service remembering to check (PF-COMM-004). Partial, so a
   // failed run leaves the key free to retry and a dry run never consumes it.

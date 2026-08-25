@@ -7,6 +7,7 @@ import { emit } from '../lib/events.js';
 import { processDueDeliveries, runDueAutomations } from '../services/automations.js';
 import { pruneOperationalData } from '../services/maintenance.js';
 import { expireChallengeInvitations } from '../services/engagement-admin.js';
+import { extendActiveSeries } from '../services/schedule-series.js';
 import { rollUpCompletedDays } from '../services/reports.js';
 import { DAY, HOUR, MINUTE, addDays, isoDate, localClockOnDay, localDayIndex, now, startOfLocalDay } from '../lib/time.js';
 import { id } from '../lib/ids.js';
@@ -249,6 +250,19 @@ function deliverQueuedAutomations(): void {
   }
 }
 
+/** Roll every active recurring class forward to the horizon.
+ *
+ *  Idempotent by construction — occurrence identity is a unique index — so a
+ *  second instance running this costs a wasted read rather than a duplicated
+ *  timetable. That is deliberate: of the eight jobs here it is the one most
+ *  likely to be running when somebody scales out by accident. */
+function extendSeriesHorizon(): void {
+  const result = extendActiveSeries();
+  if (result.created > 0) {
+    console.log(`[jobs] generated ${result.created} class occurrences across ${result.series} series`);
+  }
+}
+
 function pruneOperationalRows(): void {
   const result = pruneOperationalData();
   const removed = Object.values(result).reduce((total, count) => total + count, 0);
@@ -269,6 +283,7 @@ const JOBS: Job[] = [
   { name: 'close-stale-check-ins', everyMs: 30 * MINUTE, run: closeStaleCheckIns },
   { name: 'expire-waitlist-offers', everyMs: MINUTE, run: expireWaitlistOffers },
   { name: 'release-expired-holds', everyMs: MINUTE, run: releaseExpiredHolds },
+  { name: 'extend-class-series', everyMs: 6 * HOUR, run: extendSeriesHorizon },
   { name: 'prune-operational-data', everyMs: DAY, run: pruneOperationalRows },
 ];
 

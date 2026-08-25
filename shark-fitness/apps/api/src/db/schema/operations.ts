@@ -213,6 +213,80 @@ export const rooms = sqliteTable('rooms', {
   capacity: integer('capacity').notNull(),
 });
 
+/**
+ * A recurring class (PF-SCH). The rule; `class_sessions` are the occurrences.
+ *
+ * Two decisions worth stating, because both are load-bearing:
+ *
+ * **The rule is stored as local wall-clock, not as an offset.** `startDate`,
+ * `endDate` and `startTime` are the branch's calendar and clock, and each
+ * occurrence's UTC instant is resolved per day through `localClockOnDay`.
+ * Generating by adding 7 × 24h to the first instant is the classic bug: it is
+ * correct in Asia/Kolkata and wrong twice a year everywhere that observes DST,
+ * where "Tuesday 18:30" quietly becomes 17:30 or 19:30 for half the year.
+ *
+ * **Editing "this and future" splits the series rather than rewriting it.**
+ * The old series is closed the day before the pivot and a new one takes over,
+ * linked by `supersedesSeriesId`. Rewriting in place would silently restate
+ * what past occurrences were scheduled to be, and those have attendance
+ * against them.
+ */
+export const classSeries = sqliteTable(
+  'class_series',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    branchId: text('branch_id').notNull(),
+    classTypeId: text('class_type_id').notNull(),
+    roomId: text('room_id'),
+    trainerId: text('trainer_id'),
+
+    /** Only `weekly` today. A column rather than an assumption, so adding
+     *  fortnightly is a migration and not an archaeology exercise. */
+    frequency: text('frequency').notNull().default('weekly'),
+    /** Every N weeks. 1 = every week. */
+    interval: integer('interval').notNull().default(1),
+    /** 0 = Monday … 6 = Sunday, matching `localDayIndex` in lib/time.ts. */
+    weekdays: text('weekdays', { mode: 'json' }).$type<number[]>().notNull(),
+
+    /** Branch-local calendar dates and wall clock. Never instants. */
+    startDate: text('start_date').notNull(),
+    endDate: text('end_date'),
+    /** Stop after this many occurrences. Mutually exclusive with `endDate`. */
+    occurrenceCount: integer('occurrence_count'),
+    startTime: text('start_time').notNull(),
+    durationMin: integer('duration_min').notNull(),
+
+    capacity: integer('capacity').notNull(),
+    creditsRequired: integer('credits_required').notNull().default(0),
+    dropInPriceMinor: integer('drop_in_price_minor'),
+    lateCancelFeeMinor: integer('late_cancel_fee_minor').notNull().default(0),
+    waitlistEnabled: integer('waitlist_enabled', { mode: 'boolean' }).notNull().default(true),
+    /** Booking rules stated relative to each occurrence, because an absolute
+     *  instant cannot describe a rule that applies to every Tuesday. */
+    bookingOpensMinBefore: integer('booking_opens_min_before'),
+    cancelDeadlineMinBefore: integer('cancel_deadline_min_before'),
+    notes: text('notes'),
+
+    /** active | ended | cancelled */
+    state: text('state').notNull().default('active'),
+    /** How far the generator has run, as a branch-local date. The watermark
+     *  that makes generation resumable; the unique index is what makes it
+     *  idempotent. */
+    generatedThrough: text('generated_through'),
+    /** Split lineage for "this and future". */
+    supersedesSeriesId: text('supersedes_series_id'),
+    supersededBySeriesId: text('superseded_by_series_id'),
+
+    version: integer('version').notNull().default(1),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (t) => ({
+    byBranch: index('class_series_branch_idx').on(t.branchId, t.state),
+  }),
+);
+
 export const classSessions = sqliteTable(
   'class_sessions',
   {
@@ -223,6 +297,12 @@ export const classSessions = sqliteTable(
     roomId: text('room_id'),
     trainerId: text('trainer_id'),
     seriesId: text('series_id'),
+    /** The branch-local calendar date this occurrence belongs to.
+     *
+     *  The identity the generator dedupes on. It is not derivable from
+     *  `startsAt` after somebody moves a single occurrence to another day —
+     *  which is exactly when regenerating must not create a duplicate. */
+    occurrenceDate: text('occurrence_date'),
     startsAt: integer('starts_at').notNull(),
     endsAt: integer('ends_at').notNull(),
     capacity: integer('capacity').notNull(),

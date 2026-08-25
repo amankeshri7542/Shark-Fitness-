@@ -57,6 +57,13 @@
       "when": 1787628860483,
       "tag": "0007_challenge_invitations",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1787629327782,
+      "tag": "0008_class_series",
+      "breakpoints": true
     }
   ]
 }
