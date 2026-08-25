@@ -457,7 +457,8 @@ membersRoutes.post('/:memberId/freeze', validate('json', FreezeBody), (c) => {
 
   // The member first, and in scope. The membership lookup below matches on
   // member id alone — without this it did not check the tenant either.
-  requireAssignedMember(ctx, loadMemberInScope(ctx, memberId).trainerId);
+  const member = loadMemberInScope(ctx, memberId);
+  requireAssignedMember(ctx, member.trainerId);
 
   const membership = db
     .select()
@@ -494,7 +495,8 @@ membersRoutes.post('/:memberId/freeze', validate('json', FreezeBody), (c) => {
         state: 'frozen',
         endsOn: outcome.newEndsOn,
         freezeDaysUsed: outcome.daysUsed,
-        freezeStartedOn: isoDate(now(), 'Asia/Kolkata'),
+        // The member's own gym decides which day the freeze began.
+        freezeStartedOn: isoDate(now(), branchTimeZone(ctx.tenantId, member.homeBranchId)),
         updatedAt: now(),
         version: membership.version + 1,
       })
@@ -612,7 +614,8 @@ membersRoutes.post('/:memberId/cancel', validate('json', CancelBody), (c) => {
   const memberId = c.req.param('memberId');
   const { reason, immediate } = c.req.valid('json');
 
-  requireAssignedMember(ctx, loadMemberInScope(ctx, memberId).trainerId);
+  const cancellingMember = loadMemberInScope(ctx, memberId);
+  requireAssignedMember(ctx, cancellingMember.trainerId);
 
   const membership = db
     .select()
@@ -628,9 +631,14 @@ membersRoutes.post('/:memberId/cancel', validate('json', CancelBody), (c) => {
   if (!membership) throw notFound('An active membership');
 
   const policy = membership.productSnapshot.cancellation;
+  // A notice period is counted in the member's own calendar. Counting it in
+  // India's moves the end of the notice by a day for every gym that is not
+  // there, which is the difference between a refundable cancellation and one
+  // that is a day late.
+  const cancelTz = branchTimeZone(ctx.tenantId, cancellingMember.homeBranchId);
   const effectiveOn = immediate
-    ? isoDate(now(), 'Asia/Kolkata')
-    : addDays(isoDate(now(), 'Asia/Kolkata'), policy.noticeDays);
+    ? isoDate(now(), cancelTz)
+    : addDays(isoDate(now(), cancelTz), policy.noticeDays);
 
   const target = immediate ? 'cancelled' : 'cancel_scheduled';
   const transition = canTransition({

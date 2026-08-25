@@ -7,6 +7,7 @@ import { id } from '../lib/ids.js';
 import { DAY, isoDate, now } from '../lib/time.js';
 import type { RequestContext } from '../lib/context.js';
 import { createInvoiceForProduct } from './billing.js';
+import { branchTimeZone } from '../lib/branch-time.js';
 
 type MemberRow = typeof schema.members.$inferSelect;
 type ProductRow = typeof schema.products.$inferSelect;
@@ -42,7 +43,7 @@ function validateMembershipProduct(
   // onboarding path instead of blocking every seeded plan, but once DOB is known
   // the age rule is authoritative and cannot be overridden by the client.
   if (member.dob && (rules.minAge !== null || rules.maxAge !== null)) {
-    const today = new Date(`${isoDate(now(), 'Asia/Kolkata')}T00:00:00Z`);
+    const today = new Date(`${isoDate(now(), branchTimeZone(member.tenantId, member.homeBranchId))}T00:00:00Z`);
     const birth = new Date(`${member.dob}T00:00:00Z`);
     let age = today.getUTCFullYear() - birth.getUTCFullYear();
     const monthDelta = today.getUTCMonth() - birth.getUTCMonth();
@@ -79,7 +80,9 @@ export function createMembershipPurchase(input: {
   if (current) throw conflict('This member already has a plan. Cancel or let it expire before assigning a new one.');
 
   const membershipId = id('msh');
-  const startedOn = isoDate(now(), 'Asia/Kolkata');
+  // A membership starts on the day it starts *at the gym that sold it*.
+  const tz = branchTimeZone(ctx.tenantId, member.homeBranchId);
+  const startedOn = isoDate(now(), tz);
   db.insert(schema.memberships)
     .values({
       id: membershipId,
@@ -90,7 +93,7 @@ export function createMembershipPurchase(input: {
       productSnapshot: product as unknown as Product,
       state: 'pending_payment',
       startedOn,
-      endsOn: product.durationDays ? isoDate(now() + product.durationDays * DAY, 'Asia/Kolkata') : null,
+      endsOn: product.durationDays ? isoDate(now() + product.durationDays * DAY, tz) : null,
       autoRenew: product.cadence !== 'one_time',
       priceMinor: product.priceMinor,
       currency: product.currency,

@@ -10,6 +10,7 @@ import { emit } from '../lib/events.js';
 import { id } from '../lib/ids.js';
 import { addDays, isoDate, now } from '../lib/time.js';
 import { branchScope, type RequestContext } from '../lib/context.js';
+import { branchTimeZone } from '../lib/branch-time.js';
 
 /** Must be called inside the transaction that inserts the invoice it numbers
  *  — this process is single-connection/synchronous (db/client.ts), so nothing
@@ -40,7 +41,10 @@ export function createInvoiceForProduct(input: CreateInvoiceInput): { invoiceId:
   const { ctx, memberId, branchId, product, refType, refId } = input;
   const totals = totalsFor([{ quantity: 1, unitMinor: product.priceMinor, taxRateBp: product.taxRateBp }]);
   const invoiceId = id('inv');
-  const issuedOn = isoDate(now(), 'Asia/Kolkata');
+  // The branch that raised it, not the server and not a literal. An invoice
+  // dated by the wrong zone is dated by the wrong *day* either side of
+  // midnight, which moves its due date and its ageing with it.
+  const issuedOn = isoDate(now(), branchTimeZone(ctx.tenantId, branchId));
   const dueOn = addDays(issuedOn, 7);
   const paidInFull = totals.totalMinor <= 0;
   const state = paidInFull ? 'paid' : 'open';
@@ -171,7 +175,9 @@ export function applyPaymentToInvoice(input: ApplyPaymentInput): ApplyPaymentRes
     paidMinor: newPaidMinor,
     refundedMinor: invoice.refundedMinor,
     dueOn: invoice.dueOn,
-    today: isoDate(now(), 'Asia/Kolkata'),
+    // Whether an invoice is overdue is a question about the counter's
+    // calendar, not the server's.
+    today: isoDate(now(), branchTimeZone(ctx.tenantId, invoice.branchId)),
     voided: invoice.voided,
   });
 
@@ -340,7 +346,7 @@ export function applyRefund(input: ApplyRefundInput): { refundId: string; invoic
     paidMinor: invoice.paidMinor,
     refundedMinor: newRefundedMinor,
     dueOn: invoice.dueOn,
-    today: isoDate(now(), 'Asia/Kolkata'),
+    today: isoDate(now(), branchTimeZone(ctx.tenantId, invoice.branchId)),
     voided: invoice.voided,
   });
 

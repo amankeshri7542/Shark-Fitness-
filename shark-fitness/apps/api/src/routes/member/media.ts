@@ -7,6 +7,7 @@ import { ctxOf } from '../../middleware/index.js';
 import { notFound } from '../../lib/errors.js';
 import { id } from '../../lib/ids.js';
 import { isoDate, now } from '../../lib/time.js';
+import { branchTimeZone } from '../../lib/branch-time.js';
 
 /**
  * On-demand library.
@@ -42,7 +43,10 @@ const BLOCK_COPY: Record<Exclude<Block, null>, string> = {
 /** The tenant's video allowance for the current month. Zero is a real answer,
  *  not a missing row — an absent meter is treated as no allowance. */
 function videoAllowance(tenantId: string, atMs: number): { used: number; limit: number; period: string } {
-  const period = isoDate(atMs, 'Asia/Kolkata').slice(0, 7);
+  // A tenant-level allowance, so the tenant's own zone is the right answer —
+  // reached through the one helper that answers "which zone", which falls back
+  // tenant-first rather than to a literal picked at the call site.
+  const period = isoDate(atMs, branchTimeZone(tenantId, null)).slice(0, 7);
   const row = db
     .select()
     .from(schema.usageMeters)
