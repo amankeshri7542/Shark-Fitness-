@@ -110,8 +110,6 @@ function assertOperationalTenant(tenantId: string): void {
 
 export function startOtp(args: { identifier: string; tenantSlug?: string; ip: string }) {
   const identifier = args.identifier.trim();
-  const emailN = normalizeEmail(identifier);
-  const phoneN = normalizePhone(identifier);
   const tenant = tenantFor(args.tenantSlug);
 
   // Creating a challenge is not delivery. Until an email/SMS adapter actually
@@ -124,21 +122,6 @@ export function startOtp(args: { identifier: string; tenantSlug?: string; ip: st
       'No sign-in code provider is configured. Use password sign-in or ask your gym to enable email or SMS sign-in.',
     );
   }
-
-  const user = db
-    .select()
-    .from(schema.users)
-    .where(
-      and(
-        eq(schema.users.tenantId, tenant.id),
-        isNull(schema.users.deletedAt),
-        or(
-          emailN ? eq(schema.users.email, emailN) : sql`0`,
-          phoneN ? sql`replace(replace(replace(${schema.users.phone}, ' ', ''), '-', ''), '+', '') like ${'%' + phoneN}` : sql`0`,
-        ),
-      ),
-    )
-    .get();
 
   const recent = db
     .select({ n: sql<number>`count(*)` })
@@ -167,12 +150,6 @@ export function startOtp(args: { identifier: string; tenantSlug?: string; ip: st
       consumedAt: null,
     })
     .run();
-
-  if (!user) {
-    console.log(`[auth] OTP requested for unknown identifier ${maskIdentifier(identifier)}`);
-  } else {
-    console.log(`[auth] development OTP for ${user.name} <${identifier}>: ${code}`);
-  }
 
   return {
     delivery: 'development_echo' as const,

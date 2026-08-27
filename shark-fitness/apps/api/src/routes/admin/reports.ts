@@ -21,6 +21,9 @@ import {
  * Mounted by `app.ts` at `/v1/admin/reports`.
  */
 export const reportsRoutes = new Hono();
+const reportTenantLimit = rateLimit(600, 60_000, { identity: 'tenant', bucket: 'report-computation-tenant' });
+const reportActorLimit = rateLimit(90, 60_000, { identity: 'actor', bucket: 'report-computation-actor' });
+reportsRoutes.use('*', reportTenantLimit, reportActorLimit);
 
 /**
  * A range is two calendar dates in the reporting timezone, never timestamps.

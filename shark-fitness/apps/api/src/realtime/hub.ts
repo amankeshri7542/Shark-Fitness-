@@ -2,6 +2,7 @@ import type { Server } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { channels } from '@shark/contracts';
 import { replay, subscribe, type OutboxEvent } from '../lib/events.js';
+import { log } from '../lib/observability.js';
 import { consumeRealtimeTicket } from '../lib/realtime-ticket.js';
 
 interface Client {
@@ -68,7 +69,7 @@ export function attachRealtime(server: Server): void {
     }
   });
 
-  console.log('[realtime] websocket listening on /v1/realtime');
+  log('info', 'realtime_listening', { route: '/v1/realtime' });
 }
 
 function send(socket: WebSocket, event: OutboxEvent): void {

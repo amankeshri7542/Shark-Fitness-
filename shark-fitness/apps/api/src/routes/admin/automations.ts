@@ -26,6 +26,9 @@ import {
  * Mounted by `app.ts` at `/v1/admin/automations`.
  */
 export const automationRoutes = new Hono();
+const automationPlanTenantLimit = rateLimit(200, 60_000, { identity: 'tenant', bucket: 'automation-planning-tenant' });
+const automationPlanActorLimit = rateLimit(30, 60_000, { identity: 'actor', bucket: 'automation-planning-actor' });
+const automationRunTenantLimit = rateLimit(100, 60_000, { identity: 'tenant', bucket: 'automation-manual-run-tenant' });
 
 const ConditionInput = z.object({
   field: z.string().trim().min(1).max(40),
@@ -66,7 +69,12 @@ automationRoutes.patch(
 );
 
 /** What this would do, recording nothing (PF-COMM-004). */
-automationRoutes.get('/:automationId/preview', (c) => c.json(previewRun(ctxOf(c), c.req.param('automationId'))));
+automationRoutes.get(
+  '/:automationId/preview',
+  automationPlanTenantLimit,
+  automationPlanActorLimit,
+  (c) => c.json(previewRun(ctxOf(c), c.req.param('automationId'))),
+);
 
 /**
  * Runs it. Sends only if the automation is active *and* out of dry run —
@@ -75,6 +83,7 @@ automationRoutes.get('/:automationId/preview', (c) => c.json(previewRun(ctxOf(c)
  */
 automationRoutes.post(
   '/:automationId/run',
+  automationRunTenantLimit,
   rateLimit(10, 60_000, { identity: 'actor', bucket: 'automation-manual-run' }),
   (c) => c.json(runAutomation(ctxOf(c), c.req.param('automationId'))),
 );

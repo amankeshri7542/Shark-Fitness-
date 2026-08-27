@@ -301,6 +301,10 @@ describe('journey · 6 · they book a class', () => {
         eq(schema.classSessions.tenantId, tenantId()),
         eq(schema.classSessions.branchId, 'br_kor'),
         eq(schema.classSessions.state, 'scheduled'),
+        // This step exercises the membership-to-booking seam. Paid drop-ins
+        // have their own explicit-consent coverage and must never be selected
+        // here merely because the suite happens to run late in the day.
+        eq(schema.classSessions.creditsRequired, 0),
         sql`${schema.classSessions.startsAt} > ${now()}`,
         sql`${schema.classSessions.booked} < ${schema.classSessions.capacity}`,
       ))

@@ -1,9 +1,9 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import { app } from '../app.js';
 import { db, schema } from '../db/client.js';
 import { id } from '../lib/ids.js';
-import { DAY, now } from '../lib/time.js';
+import { addDays, isoDate, localClockOnDay, now } from '../lib/time.js';
 import { NO_PROVIDER, resolvePaymentProvider, submitRetry } from '../lib/payment-provider.js';
 import { dunningForInvoice, openDunning, runDueDunning, stopDunning } from '../services/dunning.js';
 
@@ -120,14 +120,32 @@ function attemptsFor(invoiceId: string) {
  *  or fail on the hour it happens to run at. 14:00 IST is comfortably outside
  *  the window on any date. */
 function middayIST(daysFromNow = 0): number {
-  const day = new Date(now() + daysFromNow * DAY).toISOString().slice(0, 10);
-  return Date.parse(`${day}T14:00:00+05:30`);
+  const atMs = now();
+  const today = isoDate(atMs, 'Asia/Kolkata');
+  const requestedDay = addDays(today, daysFromNow);
+  const candidate = localClockOnDay(requestedDay, '14:00', 'Asia/Kolkata');
+  return daysFromNow === 0 && candidate <= atMs
+    ? localClockOnDay(addDays(today, 1), '14:00', 'Asia/Kolkata')
+    : candidate;
 }
 
 function midnightIST(daysFromNow = 0): number {
-  const day = new Date(now() + daysFromNow * DAY).toISOString().slice(0, 10);
-  return Date.parse(`${day}T02:00:00+05:30`);
+  const day = addDays(isoDate(now(), 'Asia/Kolkata'), daysFromNow);
+  return localClockOnDay(day, '02:00', 'Asia/Kolkata');
 }
+
+describe('the deterministic worker clock', () => {
+  it('chooses the next local midday when today\'s midday has passed', () => {
+    // The old helper returned 2026-08-27 14:00 here, half an hour before a
+    // step opened at this instant, and ten otherwise-correct tests failed.
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-08-27T14:30:00+05:30'));
+    try {
+      expect(middayIST()).toBe(Date.parse('2026-08-28T14:00:00+05:30'));
+    } finally {
+      clock.mockRestore();
+    }
+  });
+});
 
 describe('the provider boundary is honest', () => {
   it('has no provider, and says so with a reason code rather than a silence', () => {

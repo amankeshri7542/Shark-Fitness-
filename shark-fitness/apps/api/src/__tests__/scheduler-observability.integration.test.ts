@@ -24,9 +24,14 @@ describe('durable scheduler execution history', () => {
     expect(row.startedAt).toBe(startedAt);
     expect(row.finishedAt).toBe(startedAt + 17);
     expect(row.durationMs).toBe(17);
+    expect(row.summary).toMatchObject({ processed: expect.any(Number) });
+    expect(row.buildId).toBeTruthy();
     expect(scheduledJobs().find((job) => job.name === row.job)).toMatchObject({
       status: 'succeeded',
       durationMs: 17,
+      health: 'healthy',
+      lastSuccessfulRunAt: new Date(startedAt + 17).toISOString(),
+      nextExpectedAt: new Date(startedAt + MINUTE).toISOString(),
     });
   });
 
@@ -46,6 +51,7 @@ describe('durable scheduler execution history', () => {
       .get()!;
     expect(row.status).toBe('failed');
     expect(row.error).toMatch(/forced job completion failure/);
+    expect(row.errorCategory).toBeTruthy();
     expect(row.durationMs).toBe(10);
   });
 
@@ -99,9 +105,10 @@ describe('durable scheduler execution history', () => {
     try {
       expect(scheduledJobs(atMs, false).find((job) => job.name === 'deliver-automation-queue')).toMatchObject({
         status: 'overdue',
+        health: 'stale',
         error: expect.stringMatching(/No run observed/),
       });
-      expect(scheduledJobs(atMs, true).every((job) => job.status === 'disabled')).toBe(true);
+      expect(scheduledJobs(atMs, true).every((job) => job.status === 'disabled' && job.health === 'disabled')).toBe(true);
     } finally {
       db.delete(schema.jobRuns).where(eq(schema.jobRuns.id, runId)).run();
     }

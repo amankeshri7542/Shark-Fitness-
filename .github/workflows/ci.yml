@@ -58,6 +58,9 @@ jobs:
           SHARK_DB=/tmp/shark-fresh.db pnpm -F @shark/api seed
           sqlite3 /tmp/shark-fresh.db 'pragma integrity_check;' | grep -qx ok
 
+      - name: Prove backup, checksum, restore, migrate, immutable rows and restored API boot
+        run: pnpm db:backup:verify
+
       - name: Lint all packages
         run: pnpm lint
 
@@ -235,6 +238,7 @@ jobs:
           docker run -d --name shark-ci -p 8787:8787 \
             -e SHARK_PASS_SECRET=ci-image-smoke-secret-with-at-least-48-random-bytes \
             -e SHARK_ALLOWED_ORIGINS=http://localhost:8787,http://127.0.0.1:8787 \
+            -e SHARK_RELEASE=ci-image-smoke \
             shark-fitness:ci
           cleanup() {
             docker logs shark-ci 2>&1 | tail -60 || true
@@ -252,6 +256,10 @@ jobs:
           done
           test "$ready" -eq 1
           grep -q '"ok":true' /tmp/health.json
+          curl -fsS http://127.0.0.1:8787/ready >/tmp/ready.json
+          grep -q '"status":"ready"' /tmp/ready.json
+          grep -q '"schema":"ready"' /tmp/ready.json
+          grep -q '"release":"ci-image-smoke"' /tmp/ready.json
 
           # Both single-origin apps must be served by the one container.
           curl -fsS http://127.0.0.1:8787/ | grep -q '/assets/'

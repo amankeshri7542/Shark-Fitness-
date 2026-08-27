@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { StartOtpResult } from '@shark/contracts';
 import { app } from '../app.js';
@@ -158,6 +158,7 @@ describe('Phase 1 production boundaries', () => {
 
   it('labels local OTP echo explicitly instead of claiming provider delivery', async () => {
     const echoBefore = runtimeConfig.echoOtp;
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     let challengeId: string | undefined;
     runtimeConfig.echoOtp = true;
     try {
@@ -174,7 +175,9 @@ describe('Phase 1 production boundaries', () => {
       expect(body.devCode).toMatch(/^\d{6}$/);
       expect(body.destination).toContain('@sharkfitness.in');
       expect(body).not.toHaveProperty('sentTo');
+      expect(consoleLog.mock.calls.flat().join(' ')).not.toContain(body.devCode);
     } finally {
+      consoleLog.mockRestore();
       runtimeConfig.echoOtp = echoBefore;
       if (challengeId) db.delete(schema.otpChallenges).where(eq(schema.otpChallenges.id, challengeId)).run();
     }

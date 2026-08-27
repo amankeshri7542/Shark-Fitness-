@@ -92,6 +92,13 @@
       "when": 1787631329980,
       "tag": "0012_privacy_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1787839616588,
+      "tag": "0013_scheduler_execution_details",
+      "breakpoints": true
     }
   ]
 }

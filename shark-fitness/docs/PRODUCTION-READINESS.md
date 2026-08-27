@@ -18,13 +18,13 @@ Nothing here recommends architecture for a scale this product does not have.
 
 | Area | State | Blocking? |
 |---|---|---|
-| Business logic and authorisation | Strong. 1,214 automated tests, including tenant and branch isolation from the outside | No |
+| Business logic and authorisation | Strong. More than 1,200 automated tests, including tenant and branch isolation from the outside | No |
 | Persistence | SQLite on one disk. Backup/restore tooling exists; external scheduling and off-host retention remain required | **Yes** |
 | Payments | No real provider. Cash and card are recorded, not taken | **Yes** for card |
 | Scaling | Single instance only, by design and by constraint | No, at this size |
 | Realtime | In-process WebSocket fan-out, lost on restart | No |
 | Scheduler | In-process timers, one set per instance | **Yes** if ever scaled |
-| Observability | Durable scheduler runs plus `console.log`; no metrics, no traces, no alerting | **Yes** |
+| Observability | Structured request/job logs, durable job evidence and a replaceable error-provider boundary; no metrics or alerting backend | **Yes** operationally |
 | Secrets | Canonical boot-time production validation | No |
 | Rate limiting | In-memory, endpoint-sensitive IP/actor/tenant budgets | Partially |
 | Migrations | Forward-only, additive, tested | No |
@@ -51,10 +51,14 @@ rewrite. The deviation is noted in `db/client.ts`.
 **What remains operational work.**
 
 - **Repository tooling exists.** `pnpm db:backup` uses SQLite's online backup
-  API, timestamps the result and runs `integrity_check`. `pnpm db:restore --
-  <backup> <separate-target>` refuses to overwrite by default. `pnpm
-  db:backup:verify` proves fixture → backup → mutate → restore on an isolated
-  temporary path.
+  API, timestamps the result, runs `integrity_check`, and writes a sidecar
+  manifest with size and SHA-256. `pnpm db:restore -- <backup>
+  <separate-target>` verifies that manifest, refuses the backup itself as a
+  target, stages and integrity-checks the restored copy before replacement,
+  and refuses to overwrite by default. `pnpm db:backup:verify` proves migrate → seed → representative
+  audit/ledger writes → backup → restore → migrate, checks immutable rows and
+  counts, boots the restored API, signs in, and completes an authenticated
+  read.
 - **No point-in-time recovery.** WAL gives crash consistency, not history. A
   bad migration or a wrong `DELETE` is permanent.
 - **The file must be on a real disk.** On a platform with an ephemeral
@@ -75,6 +79,11 @@ option.
 Run `pnpm db:backup:verify` after dependency or SQLite upgrades. To restore a
 real backup, first use a separate target and validate it; replacing an existing
 file requires both `--replace` and `--yes-replace`.
+
+Move both the `.db` artifact and its `.manifest.json` sidecar to durable
+off-host/object storage. A checksum detects corruption or accidental
+replacement; it is not an authenticity signature and does not replace storage
+access controls, versioning or retention policy.
 
 ---
 
@@ -162,9 +171,10 @@ update before doing any work, with a five-minute lock timeout so a worker that
 dies holding a step does not strand the sequence — which matters more there than
 elsewhere because the work sends a message to a member.
 
-Each execution writes a durable `job_runs` record with start, finish, status,
-duration and error. Platform health derives `overdue` from each job’s cadence,
-and shows intentionally disabled jobs as `disabled`; a historical success no
+Each execution writes a durable `job_runs` record with start, finish, outcome,
+duration, bounded safe summary, error category/message and build identifier.
+Platform health reports the last success, last failure, next expected time and
+`healthy`/`stale`/`failing`/`never`/`disabled` state; a historical success no
 longer means the scheduler is healthy forever.
 
 ---
@@ -221,20 +231,23 @@ part is sound.
 ## 9. Logging and observability
 
 **Structured request and scheduler diagnostics are present.** Every request
-emits JSON with request ID, method, path, status, duration and release; scheduler
-failures record safe exception metadata. `/ready` checks database connectivity
-without disclosing tenant data. `SHARK_ERROR_REPORTING_ENDPOINT` is an optional
-JSON collector seam and remains completely disabled when absent.
+emits JSON with request ID, method, normalized route, status, duration, release
+and safe tenant/branch/actor identifiers when authentication succeeded.
+Scheduler executions include the job name and durable run id. `/ready` proves
+database connectivity and the current operational schema without disclosing
+tenant data. `SHARK_ERROR_REPORTING_ENDPOINT` initializes a replaceable JSON
+collector provider at boot and remains a no-op when absent.
 
-- One line per request with method, path, status and duration; warnings over
+- One line per request with method, normalized route, status and duration; warnings over
   400ms; errors on 5xx.
 - Every request carries an `x-request-id`, and it is written into `audit_log`.
   That is genuinely useful and is the one thread that ties a user report to a
   server event.
 - **No metrics.** No request rate, error rate, latency percentiles, database
   size, queue depth.
-- **No error reporting.** An unhandled 500 prints to stdout. If nobody is
-  tailing it, nobody knows.
+- **No configured reporting destination in the repository.** The boundary is
+  implemented, but an operator still has to configure and monitor a real
+  collector.
 - **No alerting.** Nothing pages anybody, ever.
 
 The audit log is strong and is not a substitute: it records what people did,
@@ -254,8 +267,9 @@ budgets. It uses a trusted-proxy hop count and the direct socket address rather
 than accepting the leftmost client-supplied `x-forwarded-for` value.
 
 Auth flows retain tight budgets. Protected API routes also have outer IP,
-tenant and actor budgets, while door scans and manual automation runs have
-their own lower ceilings.
+tenant and actor budgets. Door scans, report computation/export, retention,
+support writes, member messages, directory/attendance search, automation
+preview and manual runs have separate actor and tenant ceilings.
 
 **It is in-memory.** The bucket `Map` is per-process and lost on restart, so a
 deploy resets every counter. With one instance that is a minor weakness; with
@@ -300,9 +314,11 @@ origins are parsed once and shared by every consumer.
 
 Production additionally requires an explicit database path, a pass secret of
 at least 48 bytes and at least one configured public/allowed/platform origin.
-Origins must use HTTPS except for the explicit loopback smoke-test case, and
-OTP echo is refused rather than silently ignored. A bad deployment now exits
-at boot instead of failing on its first door scan or browser request.
+Origins and the optional error collector must use HTTPS except for explicit
+loopback smoke tests. OTP echo and bearer-session compatibility are refused,
+not silently enabled, in production. Operational retention/prune settings are
+bounded and parsed here as well. A bad deployment exits at boot instead of
+failing on its first door scan or browser request.
 
 ---
 
@@ -321,7 +337,7 @@ an error.
 
 ## 14. Migrations
 
-Thirteen migrations, forward-only, generated by drizzle-kit, checked in with
+Fourteen migrations, forward-only, generated by drizzle-kit, checked in with
 their snapshots. Every one of them is additive, and that is enforced by reading
 the generated SQL rather than assumed: drizzle proposed a table rebuild for the
 commission change whose `INSERT…SELECT` named the new columns while reading the
@@ -342,25 +358,19 @@ and it is why every migration so far has been additive on purpose.
 
 ## 15. Performance
 
-Not measured. No load test has been run, so anything here is an estimate from
-reading the code.
+Measured with the repeatable `pnpm perf:baseline` production-HTTP harness at
+5,000 members across three branches. Post-optimization p95 results on the
+recorded Node 22 darwin-arm64 run were: dashboard 11.68 ms, directory 8.11 ms,
+member detail 3.47 ms, retention 9.18 ms, revenue 15.96 ms, attendance 17.07 ms
+and automation planning 71.81 ms.
 
-**Known hot spots:**
-
-- **Retention risk** recomputes over every check-in, payment and membership of
-  every member in scope. Fine at 40 members, visibly slow at 5,000.
-- **Automation planning** loads the whole audience and runs a per-subject
-  consent and dedupe query. At a few thousand members that is a few thousand
-  small reads per run, hourly.
-- **`branchPolicy()`** reads the tenant and branch rows on every call, and the
-  door calls it twice per scan. Two indexed reads on tiny tables — deliberate,
-  because a cached anti-passback window is worse than a fast one.
-- **Reports** are backed by `metric_rollups` for completed days and recompute
-  only the current day. This is the one place performance was designed in.
-
-**Before production:** run the seed at 5,000 members and time the dashboard,
-the member directory and a retention read. Nothing above needs fixing until
-those numbers exist.
+The first evidence run found attendance at 190.09 ms p95 and automation
+planning at 304.93 ms p95. Reusing pure `Intl` timezone formatters reduced the
+attendance CPU path; batching automation dedupe/account/consent facts removed
+up to 10,000 per-candidate reads. Query plans already used the intended
+membership, attendance and partial dedupe indexes, so no speculative index or
+business-data cache was added. Full method, dataset, before/after numbers and
+limitations are in `docs/PERFORMANCE-BASELINE.md`.
 
 ---
 
@@ -386,15 +396,15 @@ Worth saying plainly, because the list above is all caveats:
 
 ## Recommended order
 
-1. **Backups.** `VACUUM INTO` on a timer, restore proven once. Half a day.
-2. **Environment validation at boot.** An hour.
-3. **Error reporting and log shipping**, with the request id attached. A day.
-4. **A payment provider**, if the gym takes card. A week, plus their review.
-5. **Job run records**, so a stopped scheduler is visible. Half a day.
-6. **Prune `idempotency_keys` and delivered `outbox_events`.** An hour.
-7. **Rate limits beyond auth**, per-tenant. A day.
-8. **A load test at 5,000 members**, then optimise what it finds. Two days.
-
-Items 1–3 are the difference between "a demo that works" and "a system a gym
-can run on". Item 4 is the difference between running a gym and running its
-membership records.
+1. **Configure off-host backup transfer and alerts**, then schedule and own
+   recurring restore drills. Repository recovery mechanics are proved; local
+   artifacts alone are not backups.
+2. **Configure log shipping/error reporting and paging.** The provider boundary
+   is present; nobody is alerted until operations connects it.
+3. **Add a payment provider**, if the gym takes card. Recorded card payments
+   are not charges.
+4. **Run the performance harness on the intended persistent disk** and retain
+   results before onboarding each materially larger gym.
+5. **Add scheduler leadership and a shared database only before a second
+   instance is introduced.** The current architecture remains explicitly
+   single-instance.

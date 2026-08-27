@@ -5,7 +5,7 @@ import { validate } from '../../middleware/validate.js';
 import { channels } from '@shark/contracts';
 import { applyFreeze, canTransition, formatMoney, levelFor } from '@shark/domain';
 import { db, schema, transact } from '../../db/client.js';
-import { ctxOf } from '../../middleware/index.js';
+import { ctxOf, rateLimit } from '../../middleware/index.js';
 import { branchScope, requireAssignedMember, requirePermission } from '../../lib/context.js';
 import { audit } from '../../lib/audit.js';
 import { emit } from '../../lib/events.js';
@@ -30,7 +30,12 @@ const ListQuery = z.object({
 });
 
 /** Directory (UX-A04). Task-focused columns, not every field in the table. */
-membersRoutes.get('/', validate('query', ListQuery), (c) => {
+membersRoutes.get(
+  '/',
+  rateLimit(1_200, 60_000, { identity: 'tenant', bucket: 'member-directory-tenant' }),
+  rateLimit(180, 60_000, { identity: 'actor', bucket: 'member-directory-actor' }),
+  validate('query', ListQuery),
+  (c) => {
   const ctx = ctxOf(c);
   requirePermission(ctx, 'member.view');
   const q = c.req.valid('query');
@@ -207,7 +212,8 @@ membersRoutes.get('/', validate('query', ListQuery), (c) => {
       };
     }),
   });
-});
+  },
+);
 
 /**
  * Member 360 (UX-A05).

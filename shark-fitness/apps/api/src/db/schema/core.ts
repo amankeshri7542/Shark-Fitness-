@@ -525,10 +525,14 @@ export const jobRuns = sqliteTable(
     status: text('status').notNull().default('running'),
     durationMs: integer('duration_ms'),
     error: text('error'),
+    summary: text('summary', { mode: 'json' }).$type<Record<string, string | number | boolean | null>>(),
+    errorCategory: text('error_category'),
+    buildId: text('build_id'),
   },
   (t) => ({
     byJob: index('job_runs_job_idx').on(t.job, t.startedAt),
     byRetention: index('job_runs_retention_idx').on(t.finishedAt, t.status),
+    byOutcome: index('job_runs_outcome_idx').on(t.job, t.status, t.finishedAt),
   }),
 );
 

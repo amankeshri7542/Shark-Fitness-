@@ -81,6 +81,19 @@ describe('runtime configuration', () => {
     });
   });
 
+  it('requires stronger physical-reader credentials in production', () => {
+    expect(() => parseRuntimeConfig(productionEnv({
+      SHARK_READER_KEYS_JSON: JSON.stringify({
+        door: { key: 'only-sixteen-byte-key', tenantSlug: 'shark', branchSlugs: ['koramangala'] },
+      }),
+    }))).toThrow(/Production reader keys/);
+    expect(parseRuntimeConfig(productionEnv({
+      SHARK_READER_KEYS_JSON: JSON.stringify({
+        door: { key: 'reader-key-with-at-least-thirty-two-random-bytes', tenantSlug: 'shark', branchSlugs: ['koramangala'] },
+      }),
+    })).readerKeys.door).toBeTruthy();
+  });
+
   it.each([
     ['not JSON', '{'],
     ['the wrong shape', '[]'],
@@ -106,6 +119,44 @@ describe('runtime configuration', () => {
     expect(config.allowedOrigins.filter((origin) => origin === 'https://fitness.example')).toHaveLength(1);
   });
 
+  it('accepts an error collector URL with a path and rejects embedded credentials', () => {
+    expect(parseRuntimeConfig({ SHARK_ERROR_REPORTING_ENDPOINT: 'https://errors.example/v1/envelopes' }).errorReportingEndpoint)
+      .toBe('https://errors.example/v1/envelopes');
+    expect(() => parseRuntimeConfig({ SHARK_ERROR_REPORTING_ENDPOINT: 'https://user:secret@errors.example/v1' }))
+      .toThrow(/SHARK_ERROR_REPORTING_ENDPOINT/);
+  });
+
+  it('parses bounded operational retention and pruning settings once', () => {
+    const config = parseRuntimeConfig({
+      SHARK_IDEMPOTENCY_RETENTION_DAYS: '45',
+      SHARK_OUTBOX_RETENTION_DAYS: '14',
+      SHARK_OTP_RETENTION_HOURS: '48',
+      SHARK_PRUNE_BATCH_SIZE: '250',
+      SHARK_PRUNE_MAX_BATCHES: '4',
+    });
+    expect(config.retention.idempotencyKeysMs).toBe(45 * 86_400_000);
+    expect(config.retention.outboxEventsMs).toBe(14 * 86_400_000);
+    expect(config.retention.otpChallengesMs).toBe(48 * 3_600_000);
+    expect(config.pruning).toEqual({ batchSize: 250, maxBatches: 4 });
+  });
+
+  it('accepts an explicit build identifier before platform-specific fallbacks', () => {
+    expect(parseRuntimeConfig({
+      SHARK_RELEASE: 'image-sha-abc123',
+      RENDER_GIT_COMMIT: 'render-sha',
+      GITHUB_SHA: 'github-sha',
+    }).release).toBe('image-sha-abc123');
+  });
+
+  it.each([
+    ['SHARK_IDEMPOTENCY_RETENTION_DAYS', '6'],
+    ['SHARK_OUTBOX_RETENTION_DAYS', '1'],
+    ['SHARK_PRUNE_BATCH_SIZE', '1001'],
+    ['SHARK_PRUNE_MAX_BATCHES', '0'],
+  ])('rejects unsafe maintenance setting %s=%s', (name, value) => {
+    expect(() => parseRuntimeConfig({ [name]: value })).toThrow(new RegExp(name));
+  });
+
   it.each([
     ['a path', 'https://fitness.example/admin'],
     ['credentials', 'https://user:pass@fitness.example'],
@@ -120,9 +171,22 @@ describe('runtime configuration', () => {
     ['a strong pass secret', { SHARK_PASS_SECRET: 'too-short' }],
     ['at least one origin', { SHARK_PUBLIC_ORIGIN: undefined }],
     ['OTP echo to stay off', { SHARK_ECHO_OTP: 'true' }],
+    ['bearer authentication to stay off', { SHARK_ALLOW_BEARER_AUTH: 'true' }],
     ['HTTPS origins', { SHARK_PUBLIC_ORIGIN: 'http://fitness.example' }],
+    ['an HTTPS error collector', { SHARK_ERROR_REPORTING_ENDPOINT: 'http://errors.example/v1' }],
   ])('requires %s in production', (_case, overrides) => {
     expect(() => parseRuntimeConfig(productionEnv(overrides))).toThrow();
+  });
+
+  it('does not include secret values in configuration errors', () => {
+    const secret = 'print-me-never';
+    try {
+      parseRuntimeConfig(productionEnv({ SHARK_PASS_SECRET: secret }));
+      throw new Error('expected configuration parsing to fail');
+    } catch (error) {
+      expect(String(error)).not.toContain(secret);
+      expect(String(error)).toContain('SHARK_PASS_SECRET');
+    }
   });
 
   it.each([

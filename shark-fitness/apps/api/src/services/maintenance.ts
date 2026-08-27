@@ -1,7 +1,7 @@
 import { and, inArray, isNotNull, lt, or, sql } from 'drizzle-orm';
 import { db, schema, transact } from '../db/client.js';
-import { OUTBOX_REPLAY_WINDOW_MS } from '../lib/events.js';
-import { DAY, now } from '../lib/time.js';
+import { runtimeConfig } from '../lib/config.js';
+import { now } from '../lib/time.js';
 
 /**
  * Operational rows are short-lived implementation evidence, not business
@@ -10,17 +10,18 @@ import { DAY, now } from '../lib/time.js';
  * in this service's allowlist at all.
  *
  * The outbox window is the documented reconnect/replay guarantee. A delivered
- * event remains replayable for seven full days after both creation and
- * delivery; an undelivered row is never eligible for deletion.
+ * event remains replayable for at least seven full days after both creation
+ * and delivery (the configured value may be longer); an undelivered row is
+ * never eligible for deletion.
  */
 export const OPERATIONAL_RETENTION_MS = {
-  idempotencyKeys: 30 * DAY,
-  outboxReplay: OUTBOX_REPLAY_WINDOW_MS,
-  sessions: 30 * DAY,
-  otpChallenges: DAY,
-  usedAccessWindows: DAY,
-  automationHistory: 90 * DAY,
-  jobRuns: 30 * DAY,
+  idempotencyKeys: runtimeConfig.retention.idempotencyKeysMs,
+  outboxReplay: runtimeConfig.retention.outboxEventsMs,
+  sessions: runtimeConfig.retention.sessionsMs,
+  otpChallenges: runtimeConfig.retention.otpChallengesMs,
+  usedAccessWindows: runtimeConfig.retention.usedAccessWindowsMs,
+  automationHistory: runtimeConfig.retention.automationHistoryMs,
+  jobRuns: runtimeConfig.retention.jobRunsMs,
 } as const;
 
 export const MAX_OPERATIONAL_PRUNE_BATCH = 1_000;
@@ -70,8 +71,8 @@ function checkedMaxBatches(value: number): number {
 export function pruneOperationalData(options: PruneOptions = {}): OperationalPruneResult {
   const atMs = options.atMs ?? now();
   if (!Number.isFinite(atMs)) throw new RangeError('atMs must be a finite epoch timestamp.');
-  const batchSize = checkedBatchSize(options.batchSize ?? MAX_OPERATIONAL_PRUNE_BATCH);
-  const maxBatches = checkedMaxBatches(options.maxBatches ?? MAX_OPERATIONAL_PRUNE_BATCHES);
+  const batchSize = checkedBatchSize(options.batchSize ?? runtimeConfig.pruning.batchSize);
+  const maxBatches = checkedMaxBatches(options.maxBatches ?? runtimeConfig.pruning.maxBatches);
   const total: OperationalPruneResult = {
     idempotencyKeys: 0,
     outboxEvents: 0,

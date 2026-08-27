@@ -24,7 +24,8 @@ export function ctxOf(c: Context): RequestContext {
 }
 
 export const requestId: MiddlewareHandler = async (c, next) => {
-  const rid = c.req.header('x-request-id') ?? id('req');
+  const supplied = c.req.header('x-request-id');
+  const rid = supplied && /^[A-Za-z0-9._:-]{1,128}$/.test(supplied) ? supplied : id('req');
   c.set('requestId', rid);
   c.header('x-request-id', rid);
   await next();
@@ -37,8 +38,20 @@ export const logger: MiddlewareHandler = async (c, next) => {
   } finally {
     const durationMs = Math.round(performance.now() - started);
     const status = c.res.status;
+    const requestContext = c.get('ctx') as RequestContext | undefined;
     log(status >= 500 ? 'error' : durationMs > 400 ? 'warn' : 'info', 'http_request', {
-      requestId: c.get('requestId') ?? 'unknown', method: c.req.method, path: c.req.path, status, durationMs,
+      requestId: c.get('requestId') ?? 'unknown',
+      method: c.req.method,
+      route: c.req.routePath || 'unmatched',
+      status,
+      durationMs,
+      ...(requestContext
+        ? {
+            tenantId: requestContext.tenantId,
+            branchScope: requestContext.activeBranchId ? [requestContext.activeBranchId] : requestContext.branchIds,
+            actorId: requestContext.impersonatorId ?? requestContext.userId,
+          }
+        : {}),
     });
   }
 };
@@ -91,7 +104,18 @@ export const errorHandler = (err: unknown, c: Context): Response => {
     );
   }
 
-  reportException(err, { requestId: requestIdValue, method: c.req.method, path: c.req.path });
+  const requestContext = c.get('ctx') as RequestContext | undefined;
+  reportException(err, {
+    requestId: requestIdValue,
+    route: c.req.routePath || 'unmatched',
+    ...(requestContext
+      ? {
+          tenantId: requestContext.tenantId,
+          branchScope: requestContext.activeBranchId ? [requestContext.activeBranchId] : requestContext.branchIds,
+          actorId: requestContext.impersonatorId ?? requestContext.userId,
+        }
+      : {}),
+  });
   return c.json(
     { error: { code: 'INTERNAL', message: 'Something went wrong on our side. The team has been notified.', requestId: requestIdValue } },
     500,

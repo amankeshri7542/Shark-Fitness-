@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { sqlite } from './db/client.js';
 import { runtimeConfig } from './lib/config.js';
+import { readinessCheck } from './lib/readiness.js';
 import { authenticate, errorHandler, logger, memberOnly, rateLimit, requestId, staffOnly } from './middleware/index.js';
 import { allowedOrigins, csrfProtection, securityHeaders } from './lib/security.js';
 
@@ -88,14 +88,17 @@ app.notFound((c) =>
   ),
 );
 
-app.get('/health', (c) => c.json({ ok: true, at: new Date().toISOString() }));
+app.get('/health', (c) => c.json({ ok: true, status: 'alive', at: new Date().toISOString() }));
 app.get('/ready', (c) => {
-  try {
-    sqlite.prepare('select 1').get();
-    return c.json({ ok: true, release: runtimeConfig.release, database: 'ready', scheduler: runtimeConfig.disableJobs ? 'disabled' : 'enabled' });
-  } catch {
-    return c.json({ ok: false, release: runtimeConfig.release, database: 'unavailable' }, 503);
-  }
+  const readiness = readinessCheck();
+  const body = {
+    ...readiness,
+    status: readiness.ok ? 'ready' : 'not_ready',
+    release: runtimeConfig.release,
+    configuration: 'ready' as const,
+    scheduler: runtimeConfig.disableJobs ? 'disabled' as const : 'enabled' as const,
+  };
+  return readiness.ok ? c.json(body) : c.json(body, 503);
 });
 
 app.route('/v1/auth', authStabilizationRoutes);

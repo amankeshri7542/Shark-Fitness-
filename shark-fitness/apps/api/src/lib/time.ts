@@ -7,6 +7,19 @@ export const now = (): number => Date.now();
 
 export const iso = (ms: number): string => new Date(ms).toISOString();
 
+// Intl formatter construction is materially more expensive than formatting.
+// These are pure timezone rules, not cached business decisions, and can be
+// safely reused for the life of the process.
+const zonedFormatters = new Map<string, Intl.DateTimeFormat>();
+function zonedFormatter(key: string, timeZone: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const cacheKey = `${key}\u0000${timeZone}`;
+  const existing = zonedFormatters.get(cacheKey);
+  if (existing) return existing;
+  const created = new Intl.DateTimeFormat(key === 'date' || key === 'offset' ? 'en-CA' : 'en-GB', { timeZone, ...options });
+  zonedFormatters.set(cacheKey, created);
+  return created;
+}
+
 /** Whether this runtime can resolve an IANA timezone name or accepted alias.
  *
  * `Intl` is deliberately the authority: a copied timezone list goes stale as
@@ -23,8 +36,7 @@ export function isValidTimeZone(timeZone: string): boolean {
 }
 
 export function isoDate(ms: number, timeZone: string): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone,
+  return zonedFormatter('date', timeZone, {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -32,8 +44,7 @@ export function isoDate(ms: number, timeZone: string): string {
 }
 
 export function localTime(ms: number, timeZone: string): string {
-  return new Intl.DateTimeFormat('en-GB', {
-    timeZone,
+  return zonedFormatter('time', timeZone, {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
@@ -48,14 +59,14 @@ export function localMinutes(ms: number, timeZone: string): number {
 
 /** 0 = Monday. */
 export function localDayIndex(ms: number, timeZone: string): number {
-  const name = new Intl.DateTimeFormat('en-GB', { timeZone, weekday: 'short' }).format(ms);
+  const name = zonedFormatter('weekday', timeZone, { weekday: 'short' }).format(ms);
   const order = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const idx = order.indexOf(name);
   return idx === -1 ? 0 : idx;
 }
 
 export function localHour(ms: number, timeZone: string): number {
-  return Number(new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', hour12: false }).format(ms));
+  return Number(zonedFormatter('hour', timeZone, { hour: '2-digit', hour12: false }).format(ms));
 }
 
 /**
@@ -80,8 +91,7 @@ export function startOfLocalDay(isoDay: string, timeZone: string): number {
   const offsetAt = (ms: number): number => {
     // What the wall clock in `timeZone` reads at this instant, read back as if
     // it were UTC. The gap between the two is the zone's offset there.
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone,
+    const parts = zonedFormatter('offset', timeZone, {
       year: 'numeric', month: '2-digit', day: '2-digit',
       hour: '2-digit', minute: '2-digit', second: '2-digit',
       hour12: false,

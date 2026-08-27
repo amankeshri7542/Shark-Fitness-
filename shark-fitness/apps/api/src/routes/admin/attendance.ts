@@ -3,7 +3,7 @@ import { and, desc, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { validate } from '../../middleware/validate.js';
 import { db, schema } from '../../db/client.js';
-import { ctxOf } from '../../middleware/index.js';
+import { ctxOf, rateLimit } from '../../middleware/index.js';
 import { branchScope, requireAssignedMember, requirePermission } from '../../lib/context.js';
 import { DAY, isoDate, now } from '../../lib/time.js';
 import {
@@ -269,7 +269,12 @@ attendanceRoutes.get('/', validate('query', FeedQuery), (c) => {
 
 const SearchQuery = z.object({ q: z.string().trim().min(2).max(60) });
 
-attendanceRoutes.get('/search', validate('query', SearchQuery), (c) => {
+attendanceRoutes.get(
+  '/search',
+  rateLimit(600, 60_000, { identity: 'tenant', bucket: 'attendance-search-tenant' }),
+  rateLimit(120, 60_000, { identity: 'actor', bucket: 'attendance-search-actor' }),
+  validate('query', SearchQuery),
+  (c) => {
   const ctx = ctxOf(c);
   requirePermission(ctx, 'attendance.view');
 
@@ -340,7 +345,8 @@ attendanceRoutes.get('/search', validate('query', SearchQuery), (c) => {
       insideSince: openVisits.has(row.id) ? new Date(openVisits.get(row.id)!).toISOString() : null,
     })),
   });
-});
+  },
+);
 
 /* ============================================================================
    Mutations

@@ -2,6 +2,7 @@ import { desc, isNull, sql } from 'drizzle-orm';
 import type { EventTopic } from '@shark/contracts';
 import { db, schema } from '../db/client.js';
 import { id } from './ids.js';
+import { reportException } from './observability.js';
 import { DAY, now } from './time.js';
 
 /**
@@ -87,7 +88,7 @@ export function emit(input: EmitInput): OutboxEvent {
       try {
         listener(event);
       } catch (err) {
-        console.error('[events] listener failed', err);
+        reportException(err, { job: 'outbox-listener' });
       }
     }
     db.update(schema.outboxEvents)

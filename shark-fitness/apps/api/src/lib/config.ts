@@ -10,6 +10,8 @@ const LOCAL_ORIGINS = [
 ] as const;
 
 const DEVELOPMENT_PASS_SECRET = 'development-only-pass-secret-change-before-deploying';
+const DAY_MS = 86_400_000;
+const HOUR_MS = 3_600_000;
 
 const ExactBoolean = z.enum(['true', 'false']).transform((value) => value === 'true');
 const Port = z
@@ -22,6 +24,14 @@ const TrustedProxyHops = z
   .regex(/^\d+$/, 'SHARK_TRUST_PROXY_HOPS must be an integer between 0 and 5.')
   .transform(Number)
   .refine((value) => value <= 5, 'SHARK_TRUST_PROXY_HOPS must be between 0 and 5.');
+
+function boundedInteger(variable: string, minimum: number, maximum: number) {
+  return z
+    .string()
+    .regex(/^\d+$/, `${variable} must be an integer between ${minimum} and ${maximum}.`)
+    .transform(Number)
+    .refine((value) => value >= minimum && value <= maximum, `${variable} must be between ${minimum} and ${maximum}.`);
+}
 
 const Origin = z.string().trim().min(1).transform((value, ctx) => {
   let url: URL;
@@ -47,6 +57,20 @@ const Origin = z.string().trim().min(1).transform((value, ctx) => {
 });
 
 const OptionalOrigin = Origin.optional();
+const HttpEndpoint = z.string().trim().min(1).transform((value, ctx) => {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Use a valid HTTP or HTTPS URL.' });
+    return z.NEVER;
+  }
+  if ((url.protocol !== 'http:' && url.protocol !== 'https:') || url.username !== '' || url.password !== '') {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Use an HTTP or HTTPS URL without embedded credentials.' });
+    return z.NEVER;
+  }
+  return url.toString();
+});
 const OriginList = z.preprocess(
   (value) => {
     if (value === undefined) return [];
@@ -92,7 +116,17 @@ const RuntimeEnvironment = z
     SHARK_READER_KEYS_JSON: ReaderKeys,
     SHARK_DEMO_READER_KEY: z.string().min(1).optional(),
     SHARK_MEDIA_BUCKET: z.string().transform((value) => value.trim()).optional(),
-    SHARK_ERROR_REPORTING_ENDPOINT: OptionalOrigin,
+    SHARK_ERROR_REPORTING_ENDPOINT: HttpEndpoint.optional(),
+    SHARK_IDEMPOTENCY_RETENTION_DAYS: boundedInteger('SHARK_IDEMPOTENCY_RETENTION_DAYS', 7, 365).optional(),
+    SHARK_OUTBOX_RETENTION_DAYS: boundedInteger('SHARK_OUTBOX_RETENTION_DAYS', 7, 365).optional(),
+    SHARK_SESSION_RETENTION_DAYS: boundedInteger('SHARK_SESSION_RETENTION_DAYS', 1, 365).optional(),
+    SHARK_OTP_RETENTION_HOURS: boundedInteger('SHARK_OTP_RETENTION_HOURS', 1, 168).optional(),
+    SHARK_ACCESS_WINDOW_RETENTION_HOURS: boundedInteger('SHARK_ACCESS_WINDOW_RETENTION_HOURS', 1, 168).optional(),
+    SHARK_AUTOMATION_RETENTION_DAYS: boundedInteger('SHARK_AUTOMATION_RETENTION_DAYS', 7, 730).optional(),
+    SHARK_JOB_RUN_RETENTION_DAYS: boundedInteger('SHARK_JOB_RUN_RETENTION_DAYS', 7, 365).optional(),
+    SHARK_PRUNE_BATCH_SIZE: boundedInteger('SHARK_PRUNE_BATCH_SIZE', 1, 1_000).optional(),
+    SHARK_PRUNE_MAX_BATCHES: boundedInteger('SHARK_PRUNE_MAX_BATCHES', 1, 10).optional(),
+    SHARK_RELEASE: z.string().trim().min(1).max(200).optional(),
     RENDER_EXTERNAL_URL: OptionalOrigin,
     RENDER_GIT_COMMIT: z.string().trim().optional(),
     GITHUB_SHA: z.string().trim().optional(),
@@ -152,6 +186,33 @@ const RuntimeEnvironment = z
         message: 'SHARK_ECHO_OTP must be false in production.',
       });
     }
+    if (environment.SHARK_ALLOW_BEARER_AUTH === true) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['SHARK_ALLOW_BEARER_AUTH'],
+        message: 'SHARK_ALLOW_BEARER_AUTH is a development-only switch and must be false in production.',
+      });
+    }
+    for (const readerId of Object.keys(environment.SHARK_READER_KEYS_JSON)) {
+      const reader = environment.SHARK_READER_KEYS_JSON[readerId]!;
+      if (Buffer.byteLength(reader.key, 'utf8') < 32) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['SHARK_READER_KEYS_JSON', readerId, 'key'],
+          message: 'Production reader keys must contain at least 32 bytes.',
+        });
+      }
+    }
+    if (environment.SHARK_ERROR_REPORTING_ENDPOINT) {
+      const url = new URL(environment.SHARK_ERROR_REPORTING_ENDPOINT);
+      if (url.protocol !== 'https:' && !isLoopback(url.hostname)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['SHARK_ERROR_REPORTING_ENDPOINT'],
+          message: 'SHARK_ERROR_REPORTING_ENDPOINT must use HTTPS in production.',
+        });
+      }
+    }
   });
 
 export interface ReaderConfig {
@@ -178,6 +239,16 @@ export interface RuntimeConfig {
   mediaBucket: string | null;
   errorReportingEndpoint: string | null;
   release: string;
+  retention: {
+    idempotencyKeysMs: number;
+    outboxEventsMs: number;
+    sessionsMs: number;
+    otpChallengesMs: number;
+    usedAccessWindowsMs: number;
+    automationHistoryMs: number;
+    jobRunsMs: number;
+  };
+  pruning: { batchSize: number; maxBatches: number };
 }
 
 export function parseRuntimeConfig(environment: Record<string, string | undefined>): RuntimeConfig {
@@ -206,7 +277,20 @@ export function parseRuntimeConfig(environment: Record<string, string | undefine
     demoReaderKey: parsed.SHARK_DEMO_READER_KEY ?? 'demo-reader-secret-change-me',
     mediaBucket: parsed.SHARK_MEDIA_BUCKET || null,
     errorReportingEndpoint: parsed.SHARK_ERROR_REPORTING_ENDPOINT ?? null,
-    release: parsed.RENDER_GIT_COMMIT || parsed.GITHUB_SHA || 'local',
+    release: parsed.SHARK_RELEASE || parsed.RENDER_GIT_COMMIT || parsed.GITHUB_SHA || 'local',
+    retention: {
+      idempotencyKeysMs: (parsed.SHARK_IDEMPOTENCY_RETENTION_DAYS ?? 30) * DAY_MS,
+      outboxEventsMs: (parsed.SHARK_OUTBOX_RETENTION_DAYS ?? 7) * DAY_MS,
+      sessionsMs: (parsed.SHARK_SESSION_RETENTION_DAYS ?? 30) * DAY_MS,
+      otpChallengesMs: (parsed.SHARK_OTP_RETENTION_HOURS ?? 24) * HOUR_MS,
+      usedAccessWindowsMs: (parsed.SHARK_ACCESS_WINDOW_RETENTION_HOURS ?? 24) * HOUR_MS,
+      automationHistoryMs: (parsed.SHARK_AUTOMATION_RETENTION_DAYS ?? 90) * DAY_MS,
+      jobRunsMs: (parsed.SHARK_JOB_RUN_RETENTION_DAYS ?? 30) * DAY_MS,
+    },
+    pruning: {
+      batchSize: parsed.SHARK_PRUNE_BATCH_SIZE ?? 1_000,
+      maxBatches: parsed.SHARK_PRUNE_MAX_BATCHES ?? 10,
+    },
   };
 }
 

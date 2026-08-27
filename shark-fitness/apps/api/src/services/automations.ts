@@ -442,43 +442,91 @@ export function planRun(ctx: RequestContext, automation: AutomationRow, atMs: nu
     matches(automation.conditions as Condition[], subject.facts),
   );
 
-  return audience.map((subject) => {
-    const day = isoDate(atMs, subject.branchTimezone);
-    const eventKey = dedupeKey(automation.trigger, subject.memberId, { day, occurrenceId: subject.occurrenceId });
+  const keyedAudience = audience.map((subject) => ({
+    subject,
+    eventKey: dedupeKey(automation.trigger, subject.memberId, {
+      day: isoDate(atMs, subject.branchTimezone),
+      occurrenceId: subject.occurrenceId,
+    }),
+  }));
+  const eventKeys = keyedAudience.map((candidate) => candidate.eventKey);
+  const alreadySentKeys = new Set<string>();
+  if (eventKeys.length > 0) {
+    for (const row of db
+      .select({ eventKey: schema.automationDeliveries.eventKey })
+      .from(schema.automationDeliveries)
+      .where(and(
+        eq(schema.automationDeliveries.automationId, automation.id),
+        inArray(schema.automationDeliveries.eventKey, eventKeys),
+      ))
+      .all()) alreadySentKeys.add(row.eventKey);
+    for (const row of db
+      .select({ eventKey: schema.automationRuns.eventKey })
+      .from(schema.automationRuns)
+      .where(and(
+        eq(schema.automationRuns.automationId, automation.id),
+        inArray(schema.automationRuns.eventKey, eventKeys),
+        eq(schema.automationRuns.outcome, 'sent'),
+      ))
+      .all()) alreadySentKeys.add(row.eventKey);
+  }
+
+  const userIds = [...new Set(audience.flatMap((subject) => subject.userId ? [subject.userId] : []))];
+  const activeUserIds = new Set<string>();
+  if (userIds.length > 0) {
+    for (const row of db
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(and(
+        eq(schema.users.tenantId, ctx.tenantId),
+        inArray(schema.users.id, userIds),
+        eq(schema.users.accountState, 'active'),
+        isNull(schema.users.deletedAt),
+      ))
+      .all()) activeUserIds.add(row.id);
+  }
+
+  const consentPurpose = CONSENT_PURPOSE[channel];
+  const consentedUserIds = new Set<string>();
+  if (consentPurpose && userIds.length > 0) {
+    for (const row of db
+      .select({ userId: schema.consents.userId })
+      .from(schema.consents)
+      .where(and(
+        eq(schema.consents.tenantId, ctx.tenantId),
+        inArray(schema.consents.userId, userIds),
+        eq(schema.consents.purpose, consentPurpose),
+        eq(schema.consents.granted, true),
+      ))
+      .all()) consentedUserIds.add(row.userId);
+  }
+
+  const quietHoursByBranch = new Map<string, { from: string; to: string }>();
+
+  return keyedAudience.map(({ subject, eventKey }) => {
 
     const rendered = template
       ? renderTemplate(template.body, subject.variables, spec.variables)
       : { text: '', missing: ['template'], unknown: [] };
 
-    const alreadySent = db
-      .select({ id: schema.automationDeliveries.id })
-      .from(schema.automationDeliveries)
-      .where(and(
-        eq(schema.automationDeliveries.automationId, automation.id),
-        eq(schema.automationDeliveries.eventKey, eventKey),
-      ))
-      .get() !== undefined || db
-      .select({ id: schema.automationRuns.id })
-      .from(schema.automationRuns)
-      .where(and(
-        eq(schema.automationRuns.automationId, automation.id),
-        eq(schema.automationRuns.eventKey, eventKey),
-        eq(schema.automationRuns.outcome, 'sent'),
-      ))
-      .get() !== undefined;
+    const alreadySent = alreadySentKeys.has(eventKey);
 
     // The branch's own window, in the branch's own clock (PF-TEN-003).
-    const quiet = automation.quietHours ?? {
-      from: String(branchPolicy(ctx.tenantId, subject.branchId, 'quietHoursFrom', '21:00').value),
-      to: String(branchPolicy(ctx.tenantId, subject.branchId, 'quietHoursTo', '08:00').value),
-    };
+    let quiet = automation.quietHours ?? quietHoursByBranch.get(subject.branchId);
+    if (!quiet) {
+      quiet = {
+        from: String(branchPolicy(ctx.tenantId, subject.branchId, 'quietHoursFrom', '21:00').value),
+        to: String(branchPolicy(ctx.tenantId, subject.branchId, 'quietHoursTo', '08:00').value),
+      };
+      quietHoursByBranch.set(subject.branchId, quiet);
+    }
 
     const facts: SendFacts = {
       automationState: automation.state,
       channel,
-      hasConsent: hasConsent(ctx.tenantId, subject.userId, channel),
+      hasConsent: consentPurpose ? Boolean(subject.userId && consentedUserIds.has(subject.userId)) : true,
       hasDestination: channel === 'sms' || channel === 'whatsapp' ? Boolean(subject.phone) : channel === 'email' ? Boolean(subject.email) : Boolean(subject.userId),
-      accountActive: hasActiveAccount(ctx.tenantId, subject.userId),
+      accountActive: Boolean(subject.userId && activeUserIds.has(subject.userId)),
       providerAvailable: channel === 'in_app',
       branchTrades: branchTrades(subject.branchState),
       inQuietHours: inQuietHours(quiet.from, quiet.to, localMinutes(atMs, subject.branchTimezone)),
@@ -1160,7 +1208,6 @@ export function runDueAutomations(atMs = now()): { ran: number; sent: number } {
         failures.push(new Error(`Automation ${automation.id} had ${failed} failed delivery attempt${failed === 1 ? '' : 's'}.`));
       }
     } catch (error) {
-      console.error(`[automations] ${automation.id} failed`, error);
       const detail = error instanceof Error ? error.message : String(error);
       failures.push(new Error(`Automation ${automation.id} failed: ${detail}`));
     }
