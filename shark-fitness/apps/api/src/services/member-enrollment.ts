@@ -18,6 +18,7 @@ export function enrollmentBranch(ctx: RequestContext, branchId: string): void {
 export function contactConflict(tenantId: string, email: string | null, phone: string | null, excludeMemberId?: string, excludeUserId?: string): boolean {
   const normalizedEmail = normalizeEmail(email);
   const normalizedPhone = normalizePhone(phone);
+  // ponytail: scan one gym's identities per row (imports cap at 200); index normalized user contacts if roster size makes this slow.
   const members = db.select().from(schema.members).where(and(eq(schema.members.tenantId, tenantId), excludeMemberId ? ne(schema.members.id, excludeMemberId) : undefined)).all();
   const users = db.select().from(schema.users).where(and(eq(schema.users.tenantId, tenantId), excludeUserId ? ne(schema.users.id, excludeUserId) : undefined)).all();
   return [...members, ...users].some((row) => (normalizedEmail && normalizeEmail(row.email) === normalizedEmail) || (normalizedPhone && normalizePhone(row.phone) === normalizedPhone));

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import type { QueryClient } from '@tanstack/react-query';
-import type { EventTopic, Viewer } from '@shark/contracts';
+import { channels, type EventTopic, type Viewer } from '@shark/contracts';
 import { API_ORIGIN, api } from './api';
 import { useSession } from './store';
+import { startOutbox, stopOutbox } from './outbox';
 
 export type Connection = 'connecting' | 'open' | 'closed';
 
@@ -182,4 +183,33 @@ export function useOnline(): boolean {
     };
   }, []);
   return online;
+}
+
+/** Keep the session connection alive across ordinary profile refreshes. */
+export function useMemberConnection(viewer: Viewer | null, queryClient: QueryClient): void {
+  const tenantId = viewer?.tenantId;
+  const userId = viewer?.userId;
+  const memberId = viewer?.memberId;
+  const branchKey = JSON.stringify(viewer?.permittedBranchIds ?? []);
+  useEffect(() => {
+    if (!tenantId || !userId) {
+      disconnectRealtime();
+      stopOutbox();
+      return;
+    }
+
+    const ownerKey = `${tenantId}:${userId}`;
+    const stop = startOutbox(ownerKey);
+    const subscribe = [
+      channels.tenant(tenantId),
+      ...(JSON.parse(branchKey) as string[]).map(channels.branch),
+      ...(memberId ? [channels.member(memberId)] : []),
+    ];
+    void connectRealtime(queryClient, subscribe);
+
+    return () => {
+      stop();
+      disconnectRealtime();
+    };
+  }, [tenantId, userId, memberId, branchKey, queryClient]);
 }

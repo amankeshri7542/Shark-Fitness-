@@ -1,11 +1,14 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
 import type { Viewer } from '@shark/contracts';
+import { cleanup, renderHook } from '@testing-library/react';
 
 vi.mock('../api', () => ({ api: vi.fn(), API_ORIGIN: '', auth: { get: () => 'cookie-session', clear: vi.fn() } }));
+vi.mock('../outbox', () => ({ startOutbox: vi.fn(() => vi.fn()), stopOutbox: vi.fn() }));
 import { api } from '../api';
 import { useSession } from '../store';
-import { connectRealtime, disconnectRealtime } from '../realtime';
+import { connectRealtime, disconnectRealtime, useMemberConnection } from '../realtime';
+import { startOutbox } from '../outbox';
 
 class Socket extends EventTarget {
   static latest: Socket;
@@ -14,7 +17,25 @@ class Socket extends EventTarget {
   close() { this.dispatchEvent(new Event('close')); }
 }
 const viewer = { userId: 'member-a', tenantId: 'gym', role: 'member', name: 'Original' } as Viewer;
-afterEach(() => { disconnectRealtime(); vi.unstubAllGlobals(); vi.clearAllMocks(); useSession.getState().setViewer(null); });
+afterEach(() => { cleanup(); disconnectRealtime(); vi.unstubAllGlobals(); vi.clearAllMocks(); useSession.getState().setViewer(null); });
+
+it('keeps one connection across profile updates, and reconnects only for changed access or account identity', async () => {
+  vi.stubGlobal('WebSocket', Socket);
+  vi.mocked(api).mockResolvedValue({ ticket: 'synthetic' } as never);
+  const current = { ...viewer, memberId: 'member', permittedBranchIds: ['main'] };
+  const client = new QueryClient();
+  const { rerender } = renderHook(({ value }) => useMemberConnection(value, client), { initialProps: { value: current as Viewer | null } });
+  await vi.waitFor(() => expect(api).toHaveBeenCalledTimes(1));
+  rerender({ value: { ...current, name: 'Corrected', permittedBranchIds: ['main'] } });
+  expect(api).toHaveBeenCalledTimes(1);
+  expect(startOutbox).toHaveBeenCalledTimes(1);
+  rerender({ value: { ...current, permittedBranchIds: ['main', 'second'] } });
+  await vi.waitFor(() => expect(api).toHaveBeenCalledTimes(2));
+  rerender({ value: { ...current, userId: 'member-b' } });
+  await vi.waitFor(() => expect(api).toHaveBeenCalledTimes(3));
+  rerender({ value: null });
+  expect(api).toHaveBeenCalledTimes(3);
+});
 
 it('refreshes the current profile but never restores a viewer after sign-out, account switch or disconnect', async () => {
   vi.stubGlobal('WebSocket', Socket);
