@@ -141,7 +141,7 @@ await cdp('Network.enable');
 await navigate(`${baseUrl}/`);
 try {
   await retry(
-    () => evaluate(`location.pathname === '/sign-in' && /demo accounts/i.test(document.body?.innerText ?? '')`),
+    () => evaluate(`location.pathname === '/sign-in' && [...document.querySelectorAll('label')].some((node) => node.textContent?.trim() === 'Gym code') && Boolean(document.querySelector('input[autocomplete="username"]'))`),
     'fresh member sign-in screen',
     5_000,
   );
@@ -157,6 +157,18 @@ if (initialMeRequests.length > 0) {
   );
 }
 console.log('[browser-smoke] fresh member browser reached sign-in without /v1/me');
+
+async function checkActivationNavigation() {
+  // Invalid display-only parameters: never submit a password or create an account.
+  await evaluate(`location.hash = 'activationId=invalid-ui-probe&activationToken=invalid-ui-probe&gym=probe'`);
+  await retry(() => evaluate(`/Activate account/i.test(document.body.innerText) && ![...document.querySelectorAll('label')].some(node => node.textContent?.trim() === 'Gym code')`), 'same-page activation form');
+  await evaluate(`location.hash = ''`);
+  await retry(() => evaluate(`[...document.querySelectorAll('label')].some(node => node.textContent?.trim() === 'Gym code')`), 'ordinary sign-in after removing activation fragment');
+}
+await cdp('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+await checkActivationNavigation();
+console.log('[browser-smoke] phone member activation fragment navigation OK (no password submitted)');
+await cdp('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 
 // Reproduce a returning member browser: install the root-scoped member worker,
 // wait until it is fully activated, then start another same-origin navigation so
@@ -196,7 +208,24 @@ const adminBundle = await evaluate(`document.querySelector('script[type="module"
 if (!adminBundle.includes('/admin/assets/')) {
   await failWithDiagnostics('wrong app shell at Admin sign-in', new Error(`Unexpected Admin module: ${adminBundle || '(none)'}`));
 }
+await checkActivationNavigation();
+console.log('[browser-smoke] desktop staff activation fragment navigation OK (no password submitted)');
 
+// Production has no demo selectors or prefilled credentials.
+const filled = await evaluate(`(() => {
+  const values = { 'Gym code': 'shark', 'Work email': 'owner@sharkfitness.in', 'Password': 'shark1234' };
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+  for (const [label, value] of Object.entries(values)) {
+    const labelNode = [...document.querySelectorAll('label')].find((node) => node.textContent?.trim() === label);
+    const input = labelNode?.htmlFor ? document.getElementById(labelNode.htmlFor) : null;
+    if (!(input instanceof HTMLInputElement)) return false;
+    setter.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  return true;
+})()`);
+if (!filled) await failWithDiagnostics('Admin sign-in fields missing', new Error('Could not fill gym code, work email and password'));
+await retry(() => evaluate(`Boolean([...document.querySelectorAll('button')].find((node) => node.textContent?.trim() === 'Sign in' && !node.disabled))`), 'enabled Admin sign-in button');
 const clicked = await evaluate(`(() => {
   const button = [...document.querySelectorAll('button')].find((node) => node.textContent?.trim() === 'Sign in');
   if (!button) return false;
@@ -229,4 +258,9 @@ if (!finalSnapshot.scripts.some((src) => src.includes('/admin/assets/'))) {
 console.log(`[browser-smoke] Admin runtime OK at ${finalSnapshot.href}`);
 console.log(`[browser-smoke] Admin bundle: ${finalSnapshot.scripts.join(', ')}`);
 console.log(`[browser-smoke] controller at Admin: ${finalSnapshot.controller ?? 'none'}`);
+await navigate(`${baseUrl}/admin/members`, '/admin/members');
+await retry(() => evaluate(`Boolean(document.querySelector('nav[aria-label="Member directory pages"]'))`), 'member directory pagination');
+await cdp('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+await retry(() => evaluate(`document.documentElement.scrollWidth <= innerWidth`), 'phone directory fits viewport');
+console.log('[browser-smoke] authenticated member directory and phone layout OK');
 socket.close();

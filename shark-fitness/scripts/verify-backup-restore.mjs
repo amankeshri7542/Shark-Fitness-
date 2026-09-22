@@ -21,6 +21,8 @@ const baseEnvironment = {
   SHARK_PASS_SECRET: 'recovery-proof-pass-secret-with-at-least-48-bytes-long',
   SHARK_DEMO_READER_KEY: 'recovery-proof-reader-secret',
   SHARK_RELEASE: 'recovery-proof',
+  SHARK_ECHO_OTP: 'false',
+  SHARK_ALLOW_BEARER_AUTH: 'false',
 };
 
 function pnpmInvocation(args) {

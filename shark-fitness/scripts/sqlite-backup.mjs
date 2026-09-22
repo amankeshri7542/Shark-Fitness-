@@ -2,15 +2,16 @@ import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { createReadStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // The SQLite driver is owned by the API workspace, while this deliberately
 // lives at repository level so operators have one documented recovery command.
-const requireFromApi = createRequire(resolve(process.cwd(), 'apps/api/package.json'));
+const apiDirectory = fileURLToPath(new URL('../apps/api/', import.meta.url));
+const requireFromApi = createRequire(resolve(apiDirectory, 'package.json'));
 const Database = requireFromApi('better-sqlite3');
 
 const usage = `Usage:
-  node scripts/sqlite-backup.mjs backup <source.db> [backup-directory]
+  node scripts/sqlite-backup.mjs backup [source.db] [backup-directory]
   node scripts/sqlite-backup.mjs restore <backup.db> <target.db> [--replace --yes-replace]
   node scripts/sqlite-backup.mjs verify [working-directory]
 
@@ -163,8 +164,8 @@ export async function restoreBackup(source, target, { replace = false } = {}) {
 }
 
 async function commandBackup(args) {
-  const [sourceArg, directoryArg = 'backups'] = args;
-  if (!sourceArg) fail('A source database is required.');
+  const [sourceArg = resolve(apiDirectory, process.env.SHARK_DB || 'data/shark.db'), directoryArg = 'backups'] = args;
+  if (!process.env.SHARK_DB && !args[0] && process.env.NODE_ENV === 'production') fail('SHARK_DB or an explicit source is required in production.');
   const source = absolute(sourceArg);
   const directory = absolute(directoryArg);
   const destination = resolve(directory, `${basename(source, '.db')}-${stamp()}.db`);

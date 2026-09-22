@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, 'agent/**', 'chore/**', 'feat/**', 'fix/**']
+    branches: [main, 'agent/**', 'chore/**', 'feat/**', 'fix/**', 'codex/**']
   # No branch filter: a pull request stacked onto a feature branch has to be
   # verified too, not just one targeting main.
   pull_request:
@@ -30,6 +30,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -60,6 +62,9 @@ jobs:
 
       - name: Prove backup, checksum, restore, migrate, immutable rows and restored API boot
         run: pnpm db:backup:verify
+
+      - name: Prove opt-in seeding and configured database backup
+        run: node scripts/verify-deployment.mjs
 
       - name: Lint all packages
         run: pnpm lint
@@ -235,14 +240,19 @@ jobs:
         run: |
           set -euo pipefail
 
-          docker run -d --name shark-ci -p 8787:8787 \
+          start_container() {
+          docker run -d --name shark-ci -p 8787:8787 -v shark-ci-data:/var/lib/shark-fitness \
             -e SHARK_PASS_SECRET=ci-image-smoke-secret-with-at-least-48-random-bytes \
             -e SHARK_ALLOWED_ORIGINS=http://localhost:8787,http://127.0.0.1:8787 \
             -e SHARK_RELEASE=ci-image-smoke \
+            -e SHARK_SEED_DEMO=true \
             shark-fitness:ci
+          }
+          start_container
           cleanup() {
             docker logs shark-ci 2>&1 | tail -60 || true
             docker rm -f shark-ci >/dev/null 2>&1 || true
+            docker volume rm shark-ci-data >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
 
@@ -286,3 +296,17 @@ jobs:
           grep -q '"csrfToken"' /tmp/signin.json
 
           echo 'container smoke passed'
+
+          # Recovery tooling must work with only the shipped runtime dependencies.
+          docker exec shark-ci pnpm db:backup:verify
+          docker exec shark-ci node scripts/sqlite-backup.mjs backup
+          docker exec shark-ci node -e "const D=require('./apps/api/node_modules/better-sqlite3');const d=new D(process.env.SHARK_DB);d.exec('create table deployment_proof (value text); insert into deployment_proof values (\'preserved\')');d.close()"
+          docker rm -f shark-ci
+          start_container
+          ready=0
+          for _ in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8787/ready >/dev/null 2>&1; then ready=1; break; fi
+            sleep 2
+          done
+          test "$ready" -eq 1
+          docker exec shark-ci node -e "const D=require('./apps/api/node_modules/better-sqlite3');const d=new D(process.env.SHARK_DB);if(d.prepare('select value from deployment_proof').pluck().get()!=='preserved')process.exit(1);d.close()"
