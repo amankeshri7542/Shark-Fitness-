@@ -1,0 +1,438 @@
+{
+  "recordedAt": "2026-09-22T20:44:22.189614+00:00",
+  "scope": "Local synthetic verification only; no hosted, off-instance, human activation or physical-device claim",
+  "branch": "codex/phase-4-5-gym-operations",
+  "sourceCommit": "b9da05ce7c6290ecac07b3f6437b1d3d64eb9a37",
+  "baseCommit": "14f2b183f73b87c9c8733e40ec680d70bed1116d",
+  "runtime": {
+    "node": "22.23.2",
+    "pnpm": "10.28.0"
+  },
+  "checks": {
+    "typecheck": "passed",
+    "lint": "passed",
+    "test": "passed",
+    "build": "passed",
+    "whitespace": "passed",
+    "conflictMarkers": "none",
+    "credentialSignatures": {
+      "filesScanned": 65,
+      "findings": 0,
+      "privateArtifactPathsTracked": 0
+    }
+  },
+  "tests": {
+    "total": 1326,
+    "files": 106,
+    "domain": 255,
+    "admin": 275,
+    "member": 34,
+    "api": 762,
+    "skipped": 0
+  },
+  "logs": [
+    {
+      "path": "/private/tmp/shark-phase45-typecheck-final.log",
+      "bytes": 572,
+      "sha256": "7184b51afbd15e326a42058e1e5eeb50be139305a1c1588b65ef1bd9c726ce27"
+    },
+    {
+      "path": "/private/tmp/shark-phase45-lint-final.log",
+      "bytes": 106,
+      "sha256": "3922474beeeee7ee865a88e84bc7e980866b5cdae54a90278b945804cd5e6e9a"
+    },
+    {
+      "path": "/private/tmp/shark-phase45-test-final.log",
+      "bytes": 871128,
+      "sha256": "d3f113a9f2646edea75baced317dbf6398a8641668ee236e1041371819e0b855"
+    },
+    {
+      "path": "/private/tmp/shark-phase45-build-final.log",
+      "bytes": 5916,
+      "sha256": "d83c6fc860354907154b2f00bb20a742ee0a7a1a1e8585b612ec22cf8d08e0f6"
+    }
+  ],
+  "assets": [
+    {
+      "path": "apps/admin-web/dist/assets/AccountActivation-DPaq_IEG.js",
+      "bytes": 4049,
+      "sha256": "a42febdf01cdd9f3348682702de7bab485da461d3eb0318517a29c8bd1d04f2a"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/Automations-C2szciOL.js",
+      "bytes": 23105,
+      "sha256": "265ab3ed4e8a5ddc2e5e51718a44df1b40af4a39cd4c365f6ca66ee4f9e63446"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/Billing-B01JqZhG.js",
+      "bytes": 15925,
+      "sha256": "3723c2524707e9f04dbd1b7b6c321e3bc9c0c1762df256fadad99c3ea12d1a7a"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/CommandCenter-kcXDGRUi.js",
+      "bytes": 9817,
+      "sha256": "02561fef66ed85fca2c3e2d9a90f95b72d344b6b58d99d71ab8c330be402255f"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/Equipment-DjjBx5uK.js",
+      "bytes": 21211,
+      "sha256": "7f466b4f7e74403053fd79fe65acc05a7319d88919f42932fe6feea6b224c8ae"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/Floor-Dobni8ev.js",
+      "bytes": 12997,
+      "sha256": "8745b340c3722d5a09d0e3bd88f828fb342d517ee1fc687883aae144a37b837d"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/LeadDetail-rUWRGe51.js",
+      "bytes": 6398,
+      "sha256": "f0693b28978457d4216c678a3775dd91734fe351d6b3363342be0cbc7679a31d"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/Leads-DHxowPjr.js",
+      "bytes": 7713,
+      "sha256": "29891fc5e006116bb94ed6daf2ec7d8779ada93b8a897d0b2a34c8574e0dd8a3"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/MemberDetail-fl3ohCx0.js",
+      "bytes": 32282,
+      "sha256": "dca7931fc3cc78af8c42415d0c0e3c4ad5a603d97b227903dd5c836b205e630d"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/Members-BChgY9_Z.js",
+      "bytes": 12461,
+      "sha256": "aaa881b3524e8c22919f5a74447a6cb5a0ad8bcfc3dceacb7e1dbe306d4167b2"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/Plans-B4Jjszd1.js",
+      "bytes": 8069,
+      "sha256": "5f8722276acdbd1b7925b41dfe2d9f7f9a0469ed2daa4dc806a694274c5efe46"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/Platform-BhLrdliv.js",
+      "bytes": 15567,
+      "sha256": "c527e401168d8491a066c5fffa9b335ace4ad310e9dc069e995fa395f2bf16c6"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/Reports-CSlIfv4u.js",
+      "bytes": 23645,
+      "sha256": "7d2144debb929b0e74dc2a4f6b5331d321d8265fcc60ccbd6be07d46b0e62f21"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/Schedule-BamkWUPq.js",
+      "bytes": 29049,
+      "sha256": "9e0ae0dd0582e0c05a5260b572beb7b62a59de7bd78a9a3f0b427c189a15cbc0"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/Settings-Do9rgGfv.js",
+      "bytes": 38112,
+      "sha256": "1a3c2db8bdaf268597a7f30f8b5c3469cd07a6c536bec39889ff8c313e37c5ac"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/Staff-falHOOb3.js",
+      "bytes": 17800,
+      "sha256": "251192d0987c89b13474114c3c8d1a80cf2f7ad8e31f30da11ddb8f8a3cc5683"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/StaffDetail-IpayPbAo.js",
+      "bytes": 19942,
+      "sha256": "6a3636c07f0d7bd11b46f8caa832617be6ff97d3c3856f79b1451c9096378632"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/Store-Dag1nf5B.js",
+      "bytes": 63792,
+      "sha256": "250848b2d5fe35de35266010e0130967c1761a2284125deb6e7969e2883e4e5a"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/Support-ByrpJCtI.js",
+      "bytes": 45689,
+      "sha256": "ea02a63d8cdaeea0fd620495931902859300798390817280449cf34d954f4c30"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/Training-fCAw2zvI.js",
+      "bytes": 9597,
+      "sha256": "40e537001c4b39c891606865bf92d553507d571617933ae287d026c5ffc880aa"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/TrainingBuilder-DNNKy3wS.js",
+      "bytes": 14803,
+      "sha256": "d6f623b3c0366ba776efa50311b8c094b5d30aa155d26950b0d9477d916b585b"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/idempotent-attempt-C16TYKE2.js",
+      "bytes": 462,
+      "sha256": "61ba3062b87d6d0cfba9887fc7e9f5c431dd7a37f63999a490389bd4d505d2dc"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/index-a_4r91I4.css",
+      "bytes": 43204,
+      "sha256": "0d631aa346ceb5abd9b353ee852b7ebc92c24ceb31bd9c09be7676e3c5d8ebea"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/index-tKUTRPku.js",
+      "bytes": 160872,
+      "sha256": "fc0d54ac1214ab6df5403a231a428fed5b0c99884abde7ca66284cba436064fe"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/react-vendor-COepQrKg.js",
+      "bytes": 185083,
+      "sha256": "be0addafdbbf3fb93d1663a60684a66f8306eb9c755dfb88f34610ecabac9d50"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/tanstack-vendor-DLyHWCoI.js",
+      "bytes": 104813,
+      "sha256": "f04d7aa3343798a58dc07b0c0c3eb3cc111dbef2c4819514fb4ab08fcf5fab44"
+    },
+    {
+      "path": "apps/admin-web/dist/favicon.svg",
+      "bytes": 247,
+      "sha256": "41249d21e2dda27f90a6c7e3b21851907dc06e583c98be0445d3ca8cfef92416"
+    },
+    {
+      "path": "apps/admin-web/dist/index.html",
+      "bytes": 2362,
+      "sha256": "b65671984c4951601a0261640ad26c3437a43d0bca3561b86db88592fc520b35"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Billing-qK1cCPuh.js",
+      "bytes": 5310,
+      "sha256": "5edc73aa5f5cd70992c3cc152a7647a6c0a54e5181655c61fe4ca52775970684"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Book-CD4aj1DV.js",
+      "bytes": 8309,
+      "sha256": "6db27268d376c2bff3749f1e84094859da92c8e4b2eb5a5868850e7c32990352"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Challenge-D7DHYEpr.js",
+      "bytes": 5131,
+      "sha256": "4837ba557589c7f272710190a71cb16659e68914ff1b2c8a6d5c8635b2912b04"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Conversation-DZLjslek.js",
+      "bytes": 4943,
+      "sha256": "c396fb1eaa1fcc3f5fe1dcd475234d9774ecb76f1af4b7079d0dadff02daa9f5"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Exercise-B4Bin2dP.js",
+      "bytes": 5028,
+      "sha256": "6c13507cd6cb5702d3ef6bd85bae210a48e7a1dcae4e87c97a78ae43daedda3d"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Habits-DecQLuJd.js",
+      "bytes": 5595,
+      "sha256": "7ff8f68bad448656b5e0b573c683ef9e4f93f98c3c91d6f461fb4d94f2e5efd9"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Home-D_rqe9Dx.js",
+      "bytes": 10259,
+      "sha256": "50ff56e948552b70d8b39cfc0dc4337bee2091c783b732260860dca82680423b"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Library-Bg2ujDdy.js",
+      "bytes": 4577,
+      "sha256": "1dda2d8aaaad784255b41da50644afb8ac532eae95515a251b51992800348ea2"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Messages-DSIzAdOw.js",
+      "bytes": 2663,
+      "sha256": "6a77a4a016bb5cdbc7b997922f5226b33333779cad948218438d60e5517d69e0"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Notifications-1WR0oArQ.js",
+      "bytes": 2361,
+      "sha256": "b1c7cf5a89411648877d0206a9b15de2244e1e90a30cd982238cd17084129a9e"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Pack-CcZFZNKo.js",
+      "bytes": 11752,
+      "sha256": "563765ebde60158952e14edcd635cbb449f3bfaa1b95c7ba73bfe77797ea30f2"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Pass-CbWp7Xa-.js",
+      "bytes": 4797,
+      "sha256": "43ae161e7ae620d5ad4bd385cea19111771fef6012771ae5771fb2a44744cb68"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Profile-4y42g1o1.js",
+      "bytes": 6965,
+      "sha256": "a2b3d0c07689ff332b06f2a8d07d19b6d248c56c10e6e0dfd97ef8add4c14c6e"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Progress-D0-bwNzJ.js",
+      "bytes": 9331,
+      "sha256": "4be9afc7bc0d975d1086abb6f33d9b7e053a1844f56b98c46257ed278f8eb8b3"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Summary-D_ZI1Tyx.js",
+      "bytes": 5881,
+      "sha256": "3d92f5f91a1fcbbcdd422337b3299c09592c29a9113a506f305a2cf344994769"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Train-CdZfcmD7.js",
+      "bytes": 8323,
+      "sha256": "ebdce0fd5f44fad072774a5c606de8b1443b2c9feef242c9c768d31e128db01c"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Workout-Dir-T5t0.js",
+      "bytes": 26762,
+      "sha256": "5f8436fe8b2b11a1829902bac08ae518052ddd9bcd081a926b55e9b2a00e34a6"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/index-CPqudMbj.js",
+      "bytes": 147975,
+      "sha256": "224e3890d5cbb681f0f91330b4f79bd0cfb8a4bcba8b7cf5f6aec57f26bf926d"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/index-evhaUhhz.css",
+      "bytes": 35010,
+      "sha256": "9ca53b3e482e67d1221506b69341399cbd222531e0f4f96cf6bd049df646ee58"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/react-vendor-COepQrKg.js",
+      "bytes": 185083,
+      "sha256": "be0addafdbbf3fb93d1663a60684a66f8306eb9c755dfb88f34610ecabac9d50"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/tanstack-vendor-Dc-ntDnI.js",
+      "bytes": 104773,
+      "sha256": "d02785388a080d3ac2a4e55bc2a4b3d42200ff0a1bdc7d8bbe6e9b6bf84c280c"
+    },
+    {
+      "path": "apps/member-pwa/dist/favicon.svg",
+      "bytes": 247,
+      "sha256": "41249d21e2dda27f90a6c7e3b21851907dc06e583c98be0445d3ca8cfef92416"
+    },
+    {
+      "path": "apps/member-pwa/dist/index.html",
+      "bytes": 1491,
+      "sha256": "5c46d2b43b6214fd54e0a6287b048cc5e3ef4425f1203038ee47aa0c4c57abfb"
+    },
+    {
+      "path": "apps/member-pwa/dist/manifest.webmanifest",
+      "bytes": 339,
+      "sha256": "4b1ae85cfa3cd28a2f0cc78d17a781a1a9d3c6a975cec1dcdf3284ee4d1efbe3"
+    },
+    {
+      "path": "apps/member-pwa/dist/registerSW.js",
+      "bytes": 134,
+      "sha256": "9742073ef7fc795e7673d98f272992843298426a0ffd8cb3507784df5143608b"
+    },
+    {
+      "path": "apps/member-pwa/dist/sw.js",
+      "bytes": 2413,
+      "sha256": "9d941627f07015876edf59446fff7d8c22ec10af0f6b2f553b0e313fb8226d5a"
+    },
+    {
+      "path": "apps/member-pwa/dist/workbox-dcde9eb3.js",
+      "bytes": 21434,
+      "sha256": "046096e76e8c6584babb03f8d76fa963d0ccfa195f0b7de847276fa0eaf92eda"
+    }
+  ],
+  "focused": {
+    "memberOperations": {
+      "tests": 7,
+      "log": {
+        "path": "/private/tmp/shark-member-operations-tests.log",
+        "bytes": 18329,
+        "sha256": "3ad65221d98d642bbf2afbb254cfc19198ba7d871ff1447ef0fd61cba7b0264d"
+      }
+    },
+    "continuousEmptyGymAndDirectory": {
+      "tests": 2,
+      "log": {
+        "path": "/private/tmp/shark-phase45-journey.log",
+        "bytes": 23727,
+        "sha256": "243313bc1cbbdfaec5e0d3b036c7449b00d27bfba98e1d861c57c78c92e15e7e"
+      }
+    },
+    "profileRace": {
+      "before": "failed: stale viewer restored signed-in after sign-out",
+      "after": "passed: normal refresh, sign-out, identity switch, disconnect",
+      "logs": [
+        {
+          "path": "/private/tmp/shark-profile-race-before.log",
+          "bytes": 1275,
+          "sha256": "c4b53599aa2bfe05cc05b322af6677dfaa4cd2b51165c2a4391109323d522b86"
+        },
+        {
+          "path": "/private/tmp/shark-profile-race-after.log",
+          "bytes": 320,
+          "sha256": "ac512cb09c7e391bdd9895416f0364a4ad4440dfa7b4486228e90225ff640ebc"
+        }
+      ]
+    },
+    "fullName": {
+      "before": "archived14f2b18 full-name HTTP200/total0, direct/first-name/member-number controls found member",
+      "after": "current full-name/member-number test passed",
+      "artifact": {
+        "path": "/private/var/folders/y1/5qgpl44s7w5_6cx9hmsh969h0000gn/T/shark-full-name-before-gawZq1/before.json",
+        "bytes": 1050,
+        "sha256": "e241e5b60b52f91c629b7037824acbb79f52e11b482da461777c604baa58030b"
+      }
+    },
+    "reconnectLoop": {
+      "before": "profile refresh reconnects and replays its own event; browser observed200+ requests/3seconds and429",
+      "after": "passed hook regression and original phone browser workflow; no request storm or429",
+      "logs": [
+        {
+          "path": "/private/tmp/shark-reconnect-before.log",
+          "bytes": 1404,
+          "sha256": "c12f8d5d13f36e77f387cf8229001729aa0395eb810a8aabbbe67d09ed5d78d8"
+        },
+        {
+          "path": "/private/tmp/shark-reconnect-after.log",
+          "bytes": 318,
+          "sha256": "a6a9fdf3c5e954fd186c02e9dcbb19477ed5923ec693f5a8836919bde1c84d07"
+        }
+      ]
+    }
+  },
+  "migration": {
+    "path": "/private/var/folders/y1/5qgpl44s7w5_6cx9hmsh969h0000gn/T/shark-schema14-migration-Uq95IV/evidence.json",
+    "bytes": 14082,
+    "sha256": "27b295826c282549a59e0d7f72cdf6772082006d93a2268c4fc0edaa68ae198d"
+  },
+  "recovery": {
+    "path": "/private/var/folders/y1/5qgpl44s7w5_6cx9hmsh969h0000gn/T/shark-recovery-proof-IJGNpw/evidence.json",
+    "bytes": 5494,
+    "sha256": "66522d0c9f26273ea4761aee7e3646bec633f595165c91ffb6c96b924d07dff5"
+  },
+  "pending": [
+    "credit allocation/return/refund policy",
+    "private activation/recovery browser acceptance",
+    "physical phone",
+    "uncoached staff acceptance",
+    "hosted persistence/redeploy",
+    "off-instance restore",
+    "alert delivery",
+    "actual real-member pilot"
+  ],
+  "initialImplementationCommit": "c3d26f6318529deff99608331f936130589050dc",
+  "discardedRun": {
+    "database": "apps/api/data/shark.db",
+    "cause": "DATABASE_URL was set instead of SHARK_DB; run used default local demo DB",
+    "utcWindow": "2026-09-22T20:21:24Z/2026-09-22T20:21:26Z",
+    "createdRows": {
+      "users": 56,
+      "members": 56,
+      "invoices": 0,
+      "payments": 0,
+      "refunds": 0
+    },
+    "cleanup": "None; no destructive cleanup or reset",
+    "acceptance": "Excluded; all accepted runs used isolated SHARK_DB paths"
+  },
+  "browser": {
+    "file": "docs/evidence/phase45-browser-2026-09-23.json",
+    "sha256": "6f87aa139c75aef7206b68aff4becda78482160622e3ced7f95cf09e8184aa00",
+    "sourceCommit": "b9da05ce7c6290ecac07b3f6437b1d3d64eb9a37",
+    "origin": "http://localhost:8898",
+    "result": "passed for enumerated prepared synthetic workflows; private human/device gates pending"
+  },
+  "pullRequest": {
+    "url": "https://github.com/amankeshri7542/Shark-Fitness-/pull/16",
+    "base": "codex/production-hardening-p0",
+    "exactHeadCI": "Read PR current head and its verify/image checks; final documentation SHA is not the runtime/source SHA"
+  }
+}
