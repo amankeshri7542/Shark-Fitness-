@@ -152,7 +152,7 @@ dashboardRoutes.get('/', (c) => {
       and(
         eq(schema.invoices.tenantId, ctx.tenantId),
         inArray(schema.invoices.branchId, scope),
-        sql`${schema.invoices.state} in ('open','partially_paid','overdue')`,
+        sql`${schema.invoices.voided} = 0 and ${schema.invoices.totalMinor} > ${schema.invoices.paidMinor}`,
       ),
     )
     .get();

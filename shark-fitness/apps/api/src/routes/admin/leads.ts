@@ -469,10 +469,10 @@ leadsRoutes.post('/:leadId/convert', (c) => {
 
   const lead = loadLeadInScope(ctx, leadId);
   if (lead.convertedMemberId) throw conflict('This lead has already been converted.');
-  // The canonical pipeline only allows won as a side effect of this endpoint,
-  // and only from trial_completed — see LEAD_STAGE_TRANSITIONS.
-  if (lead.stage !== 'trial_completed') {
-    throw conflict(`This lead is in ${lead.stage.replace(/_/g, ' ')}. Move it to trial completed before converting.`);
+  // A qualified walk-in can enroll without claiming a trial happened.
+  // "Won" still requires this atomic conversion, never a bare stage change.
+  if (lead.stage !== 'qualified' && lead.stage !== 'trial_completed') {
+    throw conflict(`This lead is in ${lead.stage.replace(/_/g, ' ')}. Qualify the lead or complete its trial before converting.`);
   }
 
   // Block a duplicate person rather than let a unique-index collision surface

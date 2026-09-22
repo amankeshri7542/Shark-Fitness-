@@ -1,3 +1,4 @@
+import { reconcileMembershipDates } from './membership-dates.js';
 import { and, desc, eq, gt, isNull, sql } from 'drizzle-orm';
 import { channels, type BranchState } from '@shark/contracts';
 import { DENIAL_COPY, branchTrades, decideAccess, occupancyLabel } from '@shark/domain';
@@ -89,6 +90,7 @@ export function scanSignedPass(input: {
     .map((row) => row.branchId);
   const permittedBranchIds = [...new Set([member.homeBranchId, ...extraBranches])];
 
+  reconcileMembershipDates(memberId);
   const membership = db
     .select()
     .from(schema.memberships)
@@ -112,7 +114,7 @@ export function scanSignedPass(input: {
       and(
         eq(schema.invoices.tenantId, tenantId),
         eq(schema.invoices.memberId, memberId),
-        sql`${schema.invoices.state} in ('open','partially_paid','overdue')`,
+        sql`${schema.invoices.voided} = 0 and ${schema.invoices.totalMinor} > ${schema.invoices.paidMinor}`,
       ),
     )
     .get();

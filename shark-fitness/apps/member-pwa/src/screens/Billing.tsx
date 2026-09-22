@@ -5,6 +5,8 @@ import { ScreenBody, Stack } from '../ui/shell';
 import { Button, Chip, Display, EmptyState, ErrorState, Label, Metric, Panel, Seam, SeamCell, SectionRule, Skeleton, type Tone } from '../ui/primitives';
 
 interface BillingPayload {
+  outstandingMinor: number;
+  outstandingLabel: string;
   membership: {
     id: string;
     productName: string;
@@ -80,7 +82,7 @@ export default function BillingScreen() {
     );
   }
 
-  const outstanding = data.invoices.reduce((sum, i) => sum + Math.max(0, i.dueMinor), 0);
+  const outstanding = data.outstandingMinor;
 
   return (
     <ScreenBody>
@@ -89,7 +91,7 @@ export default function BillingScreen() {
           <div className="p-4">
             <Label>Outstanding balance</Label>
             <div className="mt-1.5">
-              <Metric value={outstanding > 0 ? data.invoices.find((i) => i.dueMinor > 0)?.dueLabel ?? '—' : '₹0'} size="lg" tone={outstanding > 0 ? 'warn' : 'good'} />
+              <Metric value={data.outstandingLabel} size="lg" tone={outstanding > 0 ? 'warn' : 'good'} />
             </div>
           </div>
         </Panel>
@@ -106,14 +108,14 @@ export default function BillingScreen() {
               </div>
               <div className="flex items-center justify-between text-[13px] text-foam-65">
                 <span>{data.membership.priceLabel}</span>
-                <span>{data.membership.endsOn ? `Renews ${data.membership.endsOn}` : 'No fixed end date'}</span>
+                <span>{data.membership.endsOn ? `Term ends ${data.membership.endsOn}` : 'No fixed end date'}</span>
               </div>
               {data.membership.state === 'pending_payment' ? (
                 <p className="text-[12px] leading-relaxed text-flare">
                   This plan is not active yet. Settle the invoice below to activate it.
                 </p>
               ) : null}
-              {!data.membership.autoRenew ? <p className="text-[12px] text-foam-45">Auto-renew is off — this plan will not continue automatically.</p> : null}
+              <p className="text-[12px] text-foam-45">Renew at reception. Automatic renewal and collection are not available.</p>
             </div>
           </Panel>
         ) : (

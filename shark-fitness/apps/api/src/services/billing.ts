@@ -164,7 +164,7 @@ export function applyPaymentToInvoice(input: ApplyPaymentInput): ApplyPaymentRes
     .where(and(eq(schema.invoices.id, invoiceId), eq(schema.invoices.tenantId, ctx.tenantId)))
     .get();
   if (!invoice) throw notFound('That invoice');
-  if (['paid', 'void', 'refunded'].includes(invoice.state)) throw conflict('This invoice is already settled.');
+  if (invoice.voided || invoice.totalMinor <= invoice.paidMinor) throw conflict('This invoice is already settled.');
   const dueMinor = invoice.totalMinor - invoice.paidMinor;
   if (amountMinor > dueMinor) throw invalid(`That is more than the amount outstanding (${dueMinor}).`);
 
@@ -218,11 +218,11 @@ export function applyPaymentToInvoice(input: ApplyPaymentInput): ApplyPaymentRes
   // Money arrived: stop chasing it. Without this a member who settles at the
   // desk still gets next week's reminder, because the dunning worker only
   // learns about the payment when it next reaches the step.
-  if (newState === 'paid') stopDunning(ctx.tenantId, invoiceId, 'recovered');
+  if (newPaidMinor >= invoice.totalMinor) stopDunning(ctx.tenantId, invoiceId, 'recovered');
 
   // Activation only when the invoice is fully settled — a partial payment
   // does not activate a membership someone is still paying off.
-  if (invoice.refType === 'membership' && newState === 'paid') {
+  if (invoice.refType === 'membership' && newPaidMinor >= invoice.totalMinor) {
     const membership = db
       .select()
       .from(schema.memberships)

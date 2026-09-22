@@ -23,6 +23,7 @@ import {
 } from '../ui/console';
 import { ConfirmDialog as ConsoleConfirmDialog } from '../ui/overlay';
 import { useIdempotentAttempt } from '../lib/idempotent-attempt';
+import { AccountActivation } from '../ui/AccountActivation';
 
 interface Certification {
   name: string;
@@ -71,6 +72,7 @@ export default function StaffDetailScreen() {
   const { staffId } = useParams({ from: '/console/staff/$staffId' });
   const canView = usePermission('staff.view');
   const canManage = usePermission('staff.manage');
+  const isOwner = useAdmin((state) => state.viewer?.role === 'owner');
   const canCommission = usePermission('staff.commission');
   const online = useOnline();
   const queryClient = useQueryClient();
@@ -125,6 +127,7 @@ export default function StaffDetailScreen() {
       {notice ? <Panel tone="good" className="border-b border-line"><p className="px-3.5 py-2.5 text-[12px]">{notice}</p></Panel> : null}
       {actionError ? <Panel tone="bad" className="border-b border-line"><p className="px-3.5 py-2.5 text-[12px]">{actionError}</p></Panel> : null}
 
+      {isOwner ? <AccountActivation key={staffId} staffId={staffId} /> : null}
       <Seam className="border-b border-line">
         <div className="min-w-[150px] flex-1 px-3.5 py-3"><Label>Account</Label><div className="mt-1.5"><Chip tone={ACCOUNT_TONE[staff.accountState] ?? 'neutral'}>{staff.accountState}</Chip></div></div>
         <div className="min-w-[150px] flex-1 px-3.5 py-3"><Label>Employment</Label><div className="mt-1.5"><Chip tone={STATUS_TONE[staff.employmentStatus] ?? 'neutral'}>{staff.employmentStatus.replace(/_/g, ' ')}</Chip></div></div>

@@ -181,8 +181,10 @@ export function verifyOtp(args: { challengeId: string; code: string; ip: string;
     throw invalid('That code is not right. Check it and try again.');
   }
 
-  const emailN = normalizeEmail(challenge.identifier);
-  const phoneN = normalizePhone(challenge.identifier);
+  // An identifier has one meaning. Treating an email as a phone as well lets
+  // its incidental digits match the suffix of another user's phone number.
+  const emailN = challenge.identifier.includes('@') ? normalizeEmail(challenge.identifier) : null;
+  const phoneN = emailN ? null : normalizePhone(challenge.identifier);
   const user = db
     .select()
     .from(schema.users)
@@ -299,6 +301,12 @@ export function resolveSession(rawToken: string): RequestContext | null {
     .from(schema.sessions)
     .where(eq(schema.sessions.tokenHash, hashToken(rawToken)))
     .get();
+
+  return session ? resolveSessionById(session.id) : null;
+}
+
+export function resolveSessionById(sessionId: string): RequestContext | null {
+  const session = db.select().from(schema.sessions).where(eq(schema.sessions.id, sessionId)).get();
 
   if (!session || session.revokedAt || session.expiresAt < now()) return null;
   if (session.impersonationExpiresAt && session.impersonationExpiresAt < now()) return null;

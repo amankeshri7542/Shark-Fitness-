@@ -170,12 +170,12 @@ function archiveFacts(tenantId: string, atMs = now()): {
     // customer tenant operational forever. Return the actual balance in the
     // refusal details so offboarding can resolve it deliberately.
     unpaidMinor: one(
-      db.select({ n: sql<number>`coalesce(sum(${schema.invoices.totalMinor} - ${schema.invoices.paidMinor} - ${schema.invoices.refundedMinor}), 0)` })
+      db.select({ n: sql<number>`coalesce(sum(${schema.invoices.totalMinor} - ${schema.invoices.paidMinor}), 0)` })
         .from(schema.invoices)
         .where(and(
           eq(schema.invoices.tenantId, tenantId),
           eq(schema.invoices.voided, false),
-          inArray(schema.invoices.state, ['open', 'partially_paid', 'overdue']),
+          sql`${schema.invoices.voided} = 0 and ${schema.invoices.totalMinor} > ${schema.invoices.paidMinor}`,
         )).get()?.n,
     ),
   };

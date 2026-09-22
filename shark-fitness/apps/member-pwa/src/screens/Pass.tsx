@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useCopy } from '../lib/store';
 import { useOnline } from '../lib/realtime';
 import {
-  Bar,
   Button,
   Chip,
   Display,
@@ -17,25 +16,12 @@ import {
   Seam,
   SeamCell,
   Skeleton,
-  SonarSweep,
   cx,
 } from '../ui/primitives';
-
-interface SignedPass {
-  token: string;
-  window: number;
-  validFrom: number;
-  expiresAt: number;
-}
 
 interface PassPayload {
   member: { name: string; memberNo: string; initials: string };
   branch: { id: string; name: string; timezone: string };
-  code: {
-    rotateSec: number;
-    serverEpoch: number;
-    passes: SignedPass[];
-  };
   membership: { state: string; productName: string; endsOn: string | null; graceEndsOn: string | null } | null;
   outstandingMinor: number;
   willBeAdmitted: boolean;
@@ -49,7 +35,6 @@ export default function PassScreen() {
   const queryClient = useQueryClient();
   const copy = useCopy();
   const online = useOnline();
-  const [tick, setTick] = useState(0);
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['pass'],
@@ -58,11 +43,6 @@ export default function PassScreen() {
     refetchInterval: online ? 4 * 60_000 : false,
   });
 
-  useEffect(() => {
-    const timer = window.setInterval(() => setTick((value) => value + 1), 1_000);
-    return () => window.clearInterval(timer);
-  }, []);
-
   const checkOut = useMutation({
     mutationFn: () => api<{ minutesInside: number }>('/member/pass/check-out', { method: 'POST' }),
     onSuccess: () => {
@@ -70,15 +50,6 @@ export default function PassScreen() {
       void queryClient.invalidateQueries({ queryKey: ['home'] });
     },
   });
-
-  const epoch = (data?.code.serverEpoch ?? 0) + tick;
-  const activePass = useMemo(
-    () => data?.code.passes.find((pass) => epoch >= pass.validFrom && epoch < pass.expiresAt) ?? null,
-    [data?.code.passes, epoch],
-  );
-  const remaining = activePass ? Math.max(0, activePass.expiresAt - epoch) : 0;
-  const lastPassExpiry = data?.code.passes.at(-1)?.expiresAt ?? 0;
-  const batchExpired = Boolean(data && epoch >= lastPassExpiry);
 
   if (isLoading) return <PassSkeleton />;
 
@@ -105,54 +76,16 @@ export default function PassScreen() {
           {data.willBeAdmitted ? <Chip tone="good">Eligible</Chip> : <Chip tone="warn">Needs attention</Chip>}
         </div>
 
-        <Panel tone="accent" className="relative overflow-hidden p-4">
-          <SonarSweep durationSec={2.8} />
-          {activePass ? (
-            <SignedPassBlock token={activePass.token} />
-          ) : (
-            <div className="grid aspect-square w-full place-items-center border border-line bg-abyss/70 p-6 text-center">
-              <div>
-                <Display size="sm" as="h2">Pass expired</Display>
-                <p className="mt-2 text-[12px] leading-relaxed text-foam-50">
-                  Reconnect once to load a fresh signed pass batch.
-                </p>
-              </div>
-            </div>
-          )}
-
-          <div className="mt-3.5 flex items-end justify-between gap-3">
-            <div className="min-w-0">
-              <div className="truncate font-utility text-[16px] font-semibold">
-                {data.member.name} · {data.member.memberNo}
-              </div>
-              <div className="mt-0.5 text-[11px] text-foam-50">
-                {online ? 'Signed pass' : 'Offline batch'} · {activePass ? `rotates in ${remaining}s` : 'refresh required'}
-              </div>
-            </div>
-            <div className="text-right font-display text-[13px] tracking-[0.1em] text-sonar">
-              {activePass ? shortCode(activePass.token) : '—'}
-            </div>
-          </div>
-
-          <Bar className="mt-2" value={remaining} max={data.code.rotateSec} height="h-[3px]" />
+        <Panel tone="accent" className="p-4">
+          <Label>Reception check-in</Label>
+          <Display size="sm" as="h2">{data.member.memberNo}</Display>
+          <p className="mt-2 text-[16px]">{data.member.name}</p>
+          <p className="mt-3 text-[13px] text-foam-65">
+            Show your member number to reception. Staff verify your membership and record attendance.
+            This card is not a QR code or door credential.
+          </p>
+          {!online ? <p role="status" className="mt-3 text-[13px] text-flare">Offline: this information may be out of date. Reception must verify access.</p> : null}
         </Panel>
-
-        {batchExpired ? (
-          <Panel tone="warn" className="p-3">
-            <p className="text-[12px] leading-relaxed text-foam-80">
-              The offline pass batch has expired. Connect briefly and refresh before using the door.
-            </p>
-            <Button className="mt-3" variant="outline" size="sm" onClick={() => void refetch()} disabled={!online}>
-              Refresh passes
-            </Button>
-          </Panel>
-        ) : !online ? (
-          <Panel tone="warn" className="p-3">
-            <p className="text-[12px] leading-relaxed text-foam-80">
-              You are offline. The signed passes already stored on this device continue rotating until the batch expires.
-            </p>
-          </Panel>
-        ) : null}
 
         {data.openSession ? (
           <>
@@ -184,7 +117,7 @@ export default function PassScreen() {
           <Panel className="p-3.5">
             <Label>At the door</Label>
             <p className="mt-1.5 text-[13px] leading-relaxed text-foam-65">
-              Show this signed pass to the gym reader. The reader verifies the signature and records the check-in; this phone cannot approve its own entry.
+              Ask reception to check you in. Door scanning is not available in this offering.
             </p>
           </Panel>
         )}
@@ -230,78 +163,6 @@ export default function PassScreen() {
         </div>
       </div>
     </FullScreen>
-  );
-}
-
-function shortCode(token: string): string {
-  let hash = 0;
-  for (let index = 0; index < token.length; index += 1) {
-    hash = (Math.imul(hash, 31) + token.charCodeAt(index)) >>> 0;
-  }
-  return hash.toString(36).toUpperCase().padStart(7, '0').slice(0, 7);
-}
-
-const PASS_GRID_SIZE = 25;
-
-function isFinderCell(row: number, col: number, row0: number, col0: number): boolean {
-  const y = row - row0;
-  const x = col - col0;
-  if (x < 0 || y < 0 || x > 6 || y > 6) return false;
-  return x === 0 || y === 0 || x === 6 || y === 6 || (x >= 2 && x <= 4 && y >= 2 && y <= 4);
-}
-
-/**
- * Deterministic fill for the pass grid: the same token always draws the same
- * block, so the visual is stable across re-renders without being random.
- *
- * This lives outside the component because the xorshift step reassigns `state`
- * while mapping, which is not something a render pass may do. Same arithmetic,
- * same output — only the scope changed.
- */
-export function passCells(token: string, size: number = PASS_GRID_SIZE): boolean[] {
-  let state = 2166136261;
-  for (let index = 0; index < token.length; index += 1) {
-    state ^= token.charCodeAt(index);
-    state = Math.imul(state, 16777619) >>> 0;
-  }
-
-  return Array.from({ length: size * size }, (_, index) => {
-    const row = Math.floor(index / size);
-    const col = index % size;
-    if (
-      isFinderCell(row, col, 1, 1) ||
-      isFinderCell(row, col, 1, size - 8) ||
-      isFinderCell(row, col, size - 8, 1)
-    ) {
-      return true;
-    }
-    state ^= state << 13;
-    state ^= state >>> 17;
-    state ^= state << 5;
-    return (state >>> 0) % 2 === 0;
-  });
-}
-
-/**
- * Visual transport for the signed token. It deliberately does not pretend to
- * be a standards-compliant QR encoder; native reader integration can replace
- * this component without changing the signed-token protocol.
- */
-function SignedPassBlock({ token }: { token: string }) {
-  const size = PASS_GRID_SIZE;
-  const cells = useMemo(() => passCells(token, size), [token, size]);
-
-  return (
-    <div
-      className="grid aspect-square w-full border-[10px] border-foam bg-foam"
-      style={{ gridTemplateColumns: `repeat(${size}, minmax(0, 1fr))` }}
-      role="img"
-      aria-label={`Rotating signed entry pass ${shortCode(token)}`}
-    >
-      {cells.map((filled, index) => (
-        <span key={index} className={filled ? 'bg-abyss' : 'bg-foam'} />
-      ))}
-    </div>
   );
 }
 

@@ -99,6 +99,13 @@
       "when": 1787839616588,
       "tag": "0013_scheduler_execution_details",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1789900000000,
+      "tag": "0014_membership_freeze_end",
+      "breakpoints": true
     }
   ]
 }

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError, api } from '../lib/api';
+import { ApiError, api, API_ORIGIN } from '../lib/api';
 import { usePermission } from '../lib/store';
 import { Page } from '../ui/shell';
 import { Button, Checkbox, Chip, EmptyState, ErrorState, Field, Label, Metric, Panel, PermissionState, RowOpen, Seam, SelectField, Skeleton, Table, TableScroll, type Tone } from '../ui/console';
@@ -47,6 +47,7 @@ interface InvoiceDetail {
     totalLabel: string;
     paidLabel: string;
     refundedLabel: string;
+    dueMinor: number;
     dueLabel: string;
     voided: boolean;
     voidReason: string | null;
@@ -328,7 +329,7 @@ function InvoiceDetailPanel({
                 </ul>
               </Panel>
 
-              {!data.invoice.voided && data.invoice.state !== 'paid' && data.invoice.state !== 'refunded' ? (
+              {!data.invoice.voided && data.invoice.dueMinor > 0 ? (
                 <div className="flex flex-wrap gap-2">
                   {canRecordPayment ? (
                     <Button variant="cta" onClick={() => setSheet('payment')}>
@@ -359,6 +360,11 @@ function InvoiceDetailPanel({
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="font-display">{p.amountLabel}</span>
+                          {p.state === 'succeeded' ? (
+                            <a className="text-sonar underline" href={`${API_ORIGIN}/v1/admin/billing/payments/${p.id}/receipt`} download>
+                              Download receipt
+                            </a>
+                          ) : null}
                           {canRefund && p.state === 'succeeded' ? (
                             <Button variant="outline" onClick={() => setSheet({ refundPaymentId: p.id })}>
                               Refund
@@ -410,6 +416,7 @@ function RecordPaymentSheet({ invoiceId, dueLabel, onClose, onDone }: { invoiceI
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('cash');
   const [reference, setReference] = useState('');
+  const [fundsVerified, setFundsVerified] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   /* Money in. This endpoint takes its key in the body, so the fingerprint is
@@ -418,7 +425,7 @@ function RecordPaymentSheet({ invoiceId, dueLabel, onClose, onDone }: { invoiceI
   const attempt = useIdempotentAttempt('billing-payment', invoiceId);
   const record = useMutation({
     mutationFn: () => {
-      const payload = { amountMinor: Math.round(Number(amount) * 100), method, reference: reference || undefined };
+      const payload = { amountMinor: Math.round(Number(amount) * 100), method, reference: reference.trim() || undefined };
       return api(`/admin/billing/invoices/${invoiceId}/payments`, {
         method: 'POST',
         // The key is scoped to the invoice and fingerprinted on the payment,
@@ -444,7 +451,7 @@ function RecordPaymentSheet({ invoiceId, dueLabel, onClose, onDone }: { invoiceI
           <Button
             variant="cta"
             size="md"
-            disabled={!amount || Number(amount) <= 0}
+            disabled={!amount || Number(amount) <= 0 || !fundsVerified || (method === 'upi' && !reference.trim())}
             pending={record.isPending}
             pendingLabel="Recording…"
             onClick={() => record.mutate()}
@@ -455,17 +462,22 @@ function RecordPaymentSheet({ invoiceId, dueLabel, onClose, onDone }: { invoiceI
       }
     >
       <div className="flex flex-col gap-3.5 p-4">
-        <Field label="Amount (₹)" type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} hint={`Outstanding: ${dueLabel}`} />
+        <Field label="Amount (₹)" type="number" min={0} value={amount} onChange={(e) => { setAmount(e.target.value); setFundsVerified(false); }} hint={`Outstanding: ${dueLabel}`} />
         <SelectField
-          label="Method"
+          label="Method (already received)"
           value={method}
-          onChange={(e) => setMethod(e.target.value)}
+          onChange={(e) => { setMethod(e.target.value); setFundsVerified(false); }}
           options={['cash', 'card', 'bank_transfer', 'upi', 'wallet', 'voucher'].map((m) => ({
             value: m,
             label: m.replace(/_/g, ' '),
           }))}
         />
-        <Field label="Reference" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Optional — receipt or transaction id" />
+        <Field label={method === 'upi' ? 'UPI transaction reference (required)' : 'Reference'} value={reference} onChange={(e) => { setReference(e.target.value); setFundsVerified(false); }} placeholder={method === 'upi' ? 'Verified UPI transaction ID' : 'Optional receipt or transaction ID'} />
+        <p className="text-[12px] text-foam-45">Manual ledger entry. This does not collect money or verify settlement with a payment provider.</p>
+        <label className="flex items-start gap-2 text-[12px]">
+          <input type="checkbox" checked={fundsVerified} onChange={(e) => setFundsVerified(e.target.checked)} />
+          I independently verified that these funds have been received.
+        </label>
         {error ? (
           <Panel tone="bad">
             <p className="px-3 py-2.5 text-[12px] leading-relaxed">{error}</p>
@@ -508,9 +520,14 @@ function RefundSheet({ paymentId, onClose, onDone }: { paymentId: string; onClos
   const [entitlementReversed, setEntitlementReversed] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const attempt = useIdempotentAttempt('billing-refund', paymentId);
   const run = useMutation({
-    mutationFn: () => api(`/admin/billing/payments/${paymentId}/refund`, { method: 'POST', body: { amountMinor: Math.round(Number(amount) * 100), reason, entitlementReversed } }),
-    onSuccess: onDone,
+    mutationFn: () => {
+      const body = { amountMinor: Math.round(Number(amount) * 100), reason, entitlementReversed };
+      return api(`/admin/billing/payments/${paymentId}/refund`, { method: 'POST', body,
+        idempotencyKey: attempt.keyFor(body) });
+    },
+    onSuccess: () => { attempt.retire(); onDone(); },
     onError: (e) => setError(e instanceof ApiError ? e.message : 'That did not work.'),
   });
 

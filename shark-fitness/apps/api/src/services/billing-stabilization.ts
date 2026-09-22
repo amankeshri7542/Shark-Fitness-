@@ -325,7 +325,8 @@ export function createMembershipPurchase(input: {
       state: 'pending_payment',
       startedOn,
       endsOn: product.durationDays ? isoDate(now() + product.durationDays * DAY, tz) : null,
-      autoRenew: product.cadence !== 'one_time',
+      // Recurring collection is not enabled for the staffed-gym pilot.
+      autoRenew: false,
       priceMinor: product.priceMinor,
       currency: product.currency,
       freezeDaysUsed: 0,

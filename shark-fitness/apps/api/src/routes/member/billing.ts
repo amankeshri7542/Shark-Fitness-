@@ -1,3 +1,4 @@
+import { reconcileMembershipDates } from '../../services/membership-dates.js';
 import { Hono } from 'hono';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
@@ -18,6 +19,7 @@ const INTENT_TTL_MS = 10 * MINUTE;
 billingRoutes.get('/', (c) => {
   const ctx = ctxOf(c);
   const memberId = ctx.memberId!;
+  reconcileMembershipDates(memberId);
 
   const membership = db
     .select()
@@ -28,7 +30,13 @@ billingRoutes.get('/', (c) => {
 
   const invoices = db.select().from(schema.invoices).where(eq(schema.invoices.memberId, memberId)).orderBy(desc(schema.invoices.issuedOn)).limit(24).all();
 
+  const outstanding = db.select({ total: sql<number>`coalesce(sum(${schema.invoices.totalMinor} - ${schema.invoices.paidMinor}), 0)` })
+    .from(schema.invoices).where(and(eq(schema.invoices.memberId, memberId),
+      sql`${schema.invoices.voided} = 0 and ${schema.invoices.totalMinor} > ${schema.invoices.paidMinor}`,
+    )).get()?.total ?? 0;
   return c.json({
+    outstandingMinor: outstanding,
+    outstandingLabel: formatMoney(outstanding, 'INR'),
     membership: membership
       ? {
           id: membership.id,
@@ -46,9 +54,9 @@ billingRoutes.get('/', (c) => {
       issuedOn: i.issuedOn,
       dueOn: i.dueOn,
       totalLabel: formatMoney(i.totalMinor, i.currency),
-      dueMinor: Math.max(0, i.totalMinor - i.paidMinor),
-      dueLabel: formatMoney(Math.max(0, i.totalMinor - i.paidMinor), i.currency),
-      payable: !i.voided && i.totalMinor - i.paidMinor > 0 && i.state !== 'refunded',
+      dueMinor: i.voided ? 0 : Math.max(0, i.totalMinor - i.paidMinor),
+      dueLabel: formatMoney(i.voided ? 0 : Math.max(0, i.totalMinor - i.paidMinor), i.currency),
+      payable: !i.voided && i.totalMinor - i.paidMinor > 0,
     })),
   });
 });
@@ -56,6 +64,7 @@ billingRoutes.get('/', (c) => {
 billingRoutes.get('/invoices/:invoiceId', (c) => {
   const ctx = ctxOf(c);
   const memberId = ctx.memberId!;
+  reconcileMembershipDates(memberId);
   const invoiceId = c.req.param('invoiceId');
 
   const invoice = db.select().from(schema.invoices).where(and(eq(schema.invoices.id, invoiceId), eq(schema.invoices.memberId, memberId))).get();
@@ -73,7 +82,7 @@ billingRoutes.get('/invoices/:invoiceId', (c) => {
       dueOn: invoice.dueOn,
       totalLabel: formatMoney(invoice.totalMinor, invoice.currency),
       paidLabel: formatMoney(invoice.paidMinor, invoice.currency),
-      dueLabel: formatMoney(Math.max(0, invoice.totalMinor - invoice.paidMinor), invoice.currency),
+      dueLabel: formatMoney(invoice.voided ? 0 : Math.max(0, invoice.totalMinor - invoice.paidMinor), invoice.currency),
       payable: !invoice.voided && invoice.totalMinor - invoice.paidMinor > 0,
     },
     lines: lines.map((l) => ({ id: l.id, description: l.description, unitLabel: formatMoney(l.unitMinor, invoice.currency), taxLabel: formatMoney(l.taxMinor, invoice.currency), totalLabel: formatMoney(l.totalMinor, invoice.currency) })),
@@ -91,6 +100,7 @@ const CheckoutIntentBody = z.object({ invoiceId: z.string() });
 billingRoutes.post('/checkout-intent', validate('json', CheckoutIntentBody), (c) => {
   const ctx = ctxOf(c);
   const memberId = ctx.memberId!;
+  reconcileMembershipDates(memberId);
   const { invoiceId } = c.req.valid('json');
   const response = runIdempotently(
     ctx,
@@ -104,7 +114,7 @@ billingRoutes.post('/checkout-intent', validate('json', CheckoutIntentBody), (c)
         .where(and(eq(schema.invoices.id, invoiceId), eq(schema.invoices.memberId, memberId)))
         .get();
       if (!invoice) throw notFound('That invoice');
-      if (invoice.voided || ['paid', 'refunded'].includes(invoice.state)) {
+      if (invoice.voided || invoice.totalMinor <= invoice.paidMinor) {
         throw conflict('This invoice is not payable.');
       }
 
@@ -164,6 +174,7 @@ billingRoutes.post('/checkout-intent', validate('json', CheckoutIntentBody), (c)
 billingRoutes.post('/checkout-intent/:intentId/confirm', (c) => {
   const ctx = ctxOf(c);
   const memberId = ctx.memberId!;
+  reconcileMembershipDates(memberId);
   const intentId = c.req.param('intentId');
 
   const payment = db.select().from(schema.payments).where(and(eq(schema.payments.id, intentId), eq(schema.payments.tenantId, ctx.tenantId), eq(schema.payments.memberId, memberId))).get();

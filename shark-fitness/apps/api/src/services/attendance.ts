@@ -1,3 +1,4 @@
+import { reconcileMembershipDates } from './membership-dates.js';
 import { and, desc, eq, gt, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { channels } from '@shark/contracts';
 import type { AccessDecision, BranchState } from '@shark/contracts';
@@ -218,6 +219,7 @@ function decideForDesk(
   atMs: number,
   opts: { ignoreAntiPassback?: boolean } = {},
 ): DeskDecision {
+  reconcileMembershipDates(member.id);
   const membership = db
     .select()
     .from(schema.memberships)
@@ -238,7 +240,7 @@ function decideForDesk(
       and(
         eq(schema.invoices.tenantId, tenantId),
         eq(schema.invoices.memberId, member.id),
-        sql`${schema.invoices.state} in ('open','partially_paid','overdue')`,
+        sql`${schema.invoices.voided} = 0 and ${schema.invoices.totalMinor} > ${schema.invoices.paidMinor}`,
       ),
     )
     .get();

@@ -1,3 +1,4 @@
+import { reconcileMembershipDates } from '../../services/membership-dates.js';
 import { Hono } from 'hono';
 import { and, desc, eq, gt, gte, isNull, lt, sql } from 'drizzle-orm';
 import { computeStreak, isEntitled, levelFor, occupancyLabel } from '@shark/domain';
@@ -31,6 +32,7 @@ homeRoutes.get('/', (c) => {
 
   /* — Membership and access ————————————————————————————————— */
 
+  reconcileMembershipDates(memberId);
   const membership = db
     .select()
     .from(schema.memberships)
@@ -48,7 +50,7 @@ homeRoutes.get('/', (c) => {
     .where(
       and(
         eq(schema.invoices.memberId, memberId),
-        sql`${schema.invoices.state} in ('open','partially_paid','overdue')`,
+        sql`${schema.invoices.voided} = 0 and ${schema.invoices.totalMinor} > ${schema.invoices.paidMinor}`,
       ),
     )
     .get();

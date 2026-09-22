@@ -1,3 +1,6 @@
+// Waitlists stay unavailable until offers reserve capacity and expiry advances the queue.
+export const WAITLIST_AVAILABLE = false;
+import { reconcileMembershipDates } from './membership-dates.js';
 import { and, desc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { channels, type BranchState } from '@shark/contracts';
 import { branchTrades, evaluateEligibility, holdIsLive, isEntitled } from '@shark/domain';
@@ -119,6 +122,7 @@ export interface MembershipStanding {
 
 /** Money and access always speak plainly — never the predator register. */
 export function membershipStanding(memberId: string): MembershipStanding {
+  reconcileMembershipDates(memberId);
   const membership = db
     .select()
     .from(schema.memberships)
@@ -301,7 +305,7 @@ export function eligibilityFor(
     alreadyBooked: mine.booked,
     onWaitlist: mine.waitlisted,
     conflictsWithSessionId: overlapWith(session, scope.otherBookings),
-    waitlistEnabled: session.waitlistEnabled,
+    waitlistEnabled: WAITLIST_AVAILABLE && session.waitlistEnabled,
   });
 }
 

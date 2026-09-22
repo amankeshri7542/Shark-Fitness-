@@ -7,6 +7,7 @@ import { Page } from '../ui/shell';
 import { Bar, Button, Checkbox, Chip, ErrorState, Field, Label, Metric, Panel, Seam, SelectField as ConsoleSelectField, Skeleton, Table, TableScroll, cx, type Tone } from '../ui/console';
 import { Modal } from '../ui/overlay';
 import { useIdempotentAttempt } from '../lib/idempotent-attempt';
+import { AccountActivation } from '../ui/AccountActivation';
 
 interface Detail {
   member: {
@@ -85,6 +86,7 @@ export default function MemberDetailScreen() {
   const { memberId } = useParams({ from: '/console/members/$memberId' });
   const queryClient = useQueryClient();
   const canManage = usePermission('membership.manage');
+  const canEdit = usePermission('member.edit');
   const canTraining = usePermission('training.assign');
   const [sheet, setSheet] = useState<Sheet>(null);
 
@@ -147,6 +149,7 @@ export default function MemberDetailScreen() {
       }
     >
       {/* Identity strip */}
+      {canEdit ? <AccountActivation key={memberId} memberId={memberId} /> : null}
       <Seam className="border-b border-line">
         <div className="min-w-[190px] flex-1 px-3.5 py-3">
           <Label>Status</Label>
@@ -225,10 +228,10 @@ export default function MemberDetailScreen() {
                     <div className="mt-1 font-display text-[15px]">{data.membership.priceLabel}</div>
                   </div>
                   <div>
-                    <Label>Auto-renew</Label>
+                    <Label>Renewal</Label>
                     <div className="mt-1">
-                      <Chip tone={data.membership.autoRenew ? 'good' : 'warn'}>
-                        {data.membership.autoRenew ? 'on' : 'off'}
+                      <Chip tone="warn">
+                        Manual at reception
                       </Chip>
                     </div>
                   </div>

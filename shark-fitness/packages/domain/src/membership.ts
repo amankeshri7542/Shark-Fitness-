@@ -10,9 +10,9 @@ import type { MembershipState } from '@shark/contracts';
 const TRANSITIONS: Record<MembershipState, MembershipState[]> = {
   draft: ['pending_payment', 'active', 'cancelled'],
   pending_payment: ['active', 'cancelled', 'expired'],
-  active: ['frozen', 'grace', 'cancel_scheduled', 'suspended', 'expired'],
-  frozen: ['active', 'suspended', 'cancel_scheduled', 'expired'],
-  grace: ['active', 'expired', 'suspended', 'cancel_scheduled'],
+  active: ['cancelled', 'frozen', 'grace', 'cancel_scheduled', 'suspended', 'expired'],
+  frozen: ['cancelled', 'active', 'suspended', 'cancel_scheduled', 'expired'],
+  grace: ['cancelled', 'active', 'expired', 'suspended', 'cancel_scheduled'],
   cancel_scheduled: ['cancelled', 'active'],
   suspended: ['active', 'frozen', 'grace', 'cancelled', 'expired'],
   // Terminal. Rejoining creates a NEW membership linked to this one; it is not
@@ -60,7 +60,7 @@ export const TERMINAL_STATES: MembershipState[] = ['cancelled', 'expired'];
 /** States that let a member through the door, before outstanding-balance and
  *  branch checks run. `grace` is included on purpose — grace exists so a failed
  *  payment does not lock someone out on day one. */
-export const ENTITLED_STATES: MembershipState[] = ['active', 'grace'];
+export const ENTITLED_STATES: MembershipState[] = ['active', 'grace', 'cancel_scheduled'];
 
 export function isEntitled(state: MembershipState): boolean {
   return ENTITLED_STATES.includes(state);
@@ -153,10 +153,17 @@ export function deriveState(args: {
   today: string;
   graceDays: number;
   hasOutstandingBalance: boolean;
+  cancelEffectiveOn?: string | null;
+  freezeEndsOn?: string | null;
 }): MembershipState {
-  const { current, endsOn, today, graceDays, hasOutstandingBalance } = args;
+  const { endsOn, today, graceDays, hasOutstandingBalance } = args;
+  let { current } = args;
   if (TERMINAL_STATES.includes(current)) return current;
-  if (current === 'frozen' || current === 'suspended') return current;
+  if (current === 'cancel_scheduled') {
+    return args.cancelEffectiveOn && today >= args.cancelEffectiveOn ? 'cancelled' : current;
+  }
+  if (current === 'frozen' && args.freezeEndsOn && today >= args.freezeEndsOn) current = 'active';
+  if (current === 'frozen' || current === 'suspended' || current === 'pending_payment' || current === 'draft') return current;
   if (!endsOn) return current;
 
   const overdueBy = daysBetween(endsOn, today);

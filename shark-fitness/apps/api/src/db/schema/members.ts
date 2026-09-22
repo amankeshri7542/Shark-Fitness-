@@ -112,6 +112,7 @@ export const memberships = sqliteTable(
     currency: text('currency').notNull().default('INR'),
     freezeDaysUsed: integer('freeze_days_used').notNull().default(0),
     freezeStartedOn: text('freeze_started_on'),
+    freezeEndsOn: text('freeze_ends_on'),
     graceEndsOn: text('grace_ends_on'),
     cancelEffectiveOn: text('cancel_effective_on'),
     previousMembershipId: text('previous_membership_id'),

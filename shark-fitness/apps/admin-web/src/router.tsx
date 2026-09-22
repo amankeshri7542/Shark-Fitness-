@@ -90,6 +90,7 @@ const leadDetailRoute = createRoute({ getParentRoute: () => consoleRoute, path: 
 const MEMBER_LIFECYCLES = ['all', 'engaged', 'active', 'trial', 'frozen', 'grace', 'expired', 'former'] as const;
 const MEMBER_RISKS = ['any', 'high', 'watch'] as const;
 type MembersSearch = {
+  offset?: number;
   q?: string;
   lifecycle?: (typeof MEMBER_LIFECYCLES)[number];
   risk?: (typeof MEMBER_RISKS)[number];
@@ -101,6 +102,8 @@ const membersRoute = createRoute({
   path: '/members',
   component: MembersScreen,
   validateSearch: (search: Record<string, unknown>): MembersSearch => ({
+    ...(Number.isSafeInteger(Number(search.offset)) && Number(search.offset) >= 0
+      ? { offset: Number(search.offset) } : {}),
     ...(typeof search.q === 'string' && search.q.trim() ? { q: search.q } : {}),
     lifecycle: MEMBER_LIFECYCLES.includes(search.lifecycle as never)
       ? (search.lifecycle as MembersSearch['lifecycle'])

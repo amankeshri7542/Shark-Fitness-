@@ -299,7 +299,7 @@ billingRoutes.get('/summary', (c) => {
   const outstanding = db
     .select({ total: sql<number>`coalesce(sum(${schema.invoices.totalMinor} - ${schema.invoices.paidMinor}), 0)`, count: sql<number>`count(*)` })
     .from(schema.invoices)
-    .where(and(eq(schema.invoices.tenantId, ctx.tenantId), inArray(schema.invoices.branchId, scope), sql`${schema.invoices.state} in ('open','partially_paid','overdue')`))
+    .where(and(eq(schema.invoices.tenantId, ctx.tenantId), inArray(schema.invoices.branchId, scope), sql`${schema.invoices.voided} = 0 and ${schema.invoices.totalMinor} > ${schema.invoices.paidMinor}`))
     .get();
 
   const overdueCount = db
@@ -340,7 +340,7 @@ billingRoutes.get('/invoices', validate('query', InvoiceListQuery), (c) => {
   const scope = branchScope(ctx);
 
   const filters = [eq(schema.invoices.tenantId, ctx.tenantId), inArray(schema.invoices.branchId, scope)];
-  if (q.state === 'outstanding') filters.push(inArray(schema.invoices.state, ['open', 'partially_paid', 'overdue']));
+  if (q.state === 'outstanding') filters.push(sql`${schema.invoices.voided} = 0 and ${schema.invoices.totalMinor} > ${schema.invoices.paidMinor}`);
   else if (q.state) filters.push(eq(schema.invoices.state, q.state));
   if (q.memberId) filters.push(eq(schema.invoices.memberId, q.memberId));
 
@@ -384,8 +384,8 @@ billingRoutes.get('/invoices', validate('query', InvoiceListQuery), (c) => {
     memberName: `${r.firstName} ${r.lastName}`,
     memberNo: r.memberNo,
     totalLabel: formatMoney(r.totalMinor, r.currency),
-    dueMinor: r.totalMinor - r.paidMinor - r.refundedMinor,
-    dueLabel: formatMoney(Math.max(0, r.totalMinor - r.paidMinor), r.currency),
+    dueMinor: r.state === 'void' ? 0 : Math.max(0, r.totalMinor - r.paidMinor),
+    dueLabel: formatMoney(r.state === 'void' ? 0 : Math.max(0, r.totalMinor - r.paidMinor), r.currency),
   }));
 
   return c.json({ total, items, hasMore: q.offset + items.length < total, limit: q.limit, offset: q.offset });
@@ -417,7 +417,8 @@ billingRoutes.get('/invoices/:invoiceId', (c) => {
       totalLabel: formatMoney(invoice.totalMinor, invoice.currency),
       paidLabel: formatMoney(invoice.paidMinor, invoice.currency),
       refundedLabel: formatMoney(invoice.refundedMinor, invoice.currency),
-      dueLabel: formatMoney(Math.max(0, invoice.totalMinor - invoice.paidMinor), invoice.currency),
+      dueMinor: invoice.voided ? 0 : Math.max(0, invoice.totalMinor - invoice.paidMinor),
+      dueLabel: formatMoney(invoice.voided ? 0 : Math.max(0, invoice.totalMinor - invoice.paidMinor), invoice.currency),
       voided: invoice.voided,
       voidReason: invoice.voidReason,
       memberId: invoice.memberId,
@@ -436,6 +437,7 @@ billingRoutes.post('/invoices/:invoiceId/payments', validate('json', RecordPayme
   requirePermission(ctx, 'billing.record_payment');
   const invoiceId = c.req.param('invoiceId');
   const body = c.req.valid('json');
+  if (body.method === 'upi' && !body.reference?.trim()) throw invalid('A verified UPI transaction reference is required.');
 
   loadInvoiceInScope(ctx, invoiceId);
 
@@ -623,7 +625,7 @@ billingRoutes.post('/members/:memberId/assign-plan', validate('json', AssignPlan
         state: 'pending_payment',
         startedOn,
         endsOn: product.durationDays ? addDays(startedOn, product.durationDays) : null,
-        autoRenew: true,
+        autoRenew: false,
         priceMinor: product.priceMinor,
         currency: product.currency,
         freezeDaysUsed: 0,

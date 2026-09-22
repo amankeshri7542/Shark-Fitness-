@@ -234,7 +234,7 @@ function advanceStep(step: DunningAttempt, atMs: number, result: DunningRunResul
     return;
   }
 
-  const outstandingMinor = invoice.totalMinor - invoice.paidMinor - invoice.refundedMinor;
+  const outstandingMinor = invoice.totalMinor - invoice.paidMinor;
   if (outstandingMinor <= 0) {
     // Recovered. Checked before the send so somebody who paid this morning is
     // not chased this afternoon.
@@ -510,7 +510,7 @@ export function dunningForInvoice(ctx: RequestContext, invoiceId: string) {
 
   return {
     invoiceId,
-    outstandingMinor: invoice.totalMinor - invoice.paidMinor - invoice.refundedMinor,
+    outstandingMinor: invoice.totalMinor - invoice.paidMinor,
     currency: invoice.currency,
     totalSteps: DUNNING_OFFSETS_DAYS.length,
     attempts: attempts.map((row) => ({

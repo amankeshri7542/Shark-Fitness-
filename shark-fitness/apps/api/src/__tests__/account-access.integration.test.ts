@@ -21,11 +21,12 @@ function sharkTenantId(): string {
 function makeAccount(options: {
   accountState?: string;
   deletedAt?: number | null;
+  email?: string;
   staff?: boolean;
 } = {}): { userId: string; email: string; staffId: string | null } {
   const userId = id('usr');
   const staffId = options.staff ? id('stf') : null;
-  const email = `${userId}@account-access.test`;
+  const email = options.email ?? `${userId}@account-access.test`;
   const atMs = now();
   const tenantId = sharkTenantId();
 
@@ -133,6 +134,18 @@ describe('account authentication boundaries', () => {
     const deleted = makeAccount({ deletedAt: now() });
     const response = await verifyOtpFor(deleted.userId, deleted.email);
     expect(response.status).not.toBe(200);
+  });
+
+  it('does not interpret digits in an email address as another account phone number', async () => {
+    const account = makeAccount({
+      accountState: 'disabled',
+      // The owner fixture has a phone ending in 54795. An email must never
+      // enter the phone lookup branch and authenticate that earlier row.
+      email: 'blocked9842454795@account-access.test',
+    });
+
+    const response = await verifyOtpFor(account.userId, account.email);
+    expect(response.status).toBe(403);
   });
 
   it('ends existing sessions as soon as an account stops being authenticatable', async () => {

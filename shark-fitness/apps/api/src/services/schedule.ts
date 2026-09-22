@@ -1,3 +1,4 @@
+import { WAITLIST_AVAILABLE } from './booking.js';
 import { and, asc, eq, gt, inArray, lt, ne, sql } from 'drizzle-orm';
 import { channels } from '@shark/contracts';
 import { classifyCancellation, planPromotion, type WaitlistCandidate } from '@shark/domain';
@@ -872,6 +873,7 @@ export function promoteFromWaitlist(
   session: { id: string; branchId: string; creditsRequired: number },
   atMs: number,
 ): { memberId: string; offerExpiresAt: string } | null {
+  if (!WAITLIST_AVAILABLE) return null;
   const queue = db
     .select()
     .from(schema.waitlistEntries)

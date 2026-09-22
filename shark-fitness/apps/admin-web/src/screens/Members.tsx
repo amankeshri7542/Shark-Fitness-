@@ -77,15 +77,17 @@ export default function MembersScreen() {
   const search = filters.q ?? '';
   const lifecycle = filters.lifecycle ?? 'all';
   const risk = filters.risk ?? 'any';
+  const offset = filters.offset ?? 0;
 
   const setFilters = (next: Partial<typeof filters>): void => {
     void navigate({
-      search: (current) => ({ ...current, ...next }),
+      search: (current) => ({ ...current, offset: 0, ...next }),
       replace: true,
     });
   };
 
   const params = new URLSearchParams();
+  params.set('offset', String(offset));
   if (search.trim()) params.set('q', search.trim());
   if (lifecycle !== 'all') params.set('lifecycle', lifecycle);
   if (risk !== 'any') params.set('risk', risk);
@@ -93,7 +95,7 @@ export default function MembersScreen() {
   if (filters.expiring) params.set('expiring', String(filters.expiring));
 
   const { data, isLoading, error, refetch, isFetching } = useQuery({
-    queryKey: ['members', branchId, search, lifecycle, risk, filters.joined, filters.expiring],
+    queryKey: ['members', branchId, search, lifecycle, risk, filters.joined, filters.expiring, offset],
     queryFn: () => api<MembersPayload>(`/admin/members?${params}`, { branchId }),
     placeholderData: keepPreviousData,
     enabled: canView,
@@ -142,14 +144,14 @@ export default function MembersScreen() {
           </div>
         </div>
         <div className="min-w-[150px] flex-1 px-3.5 py-3">
-          <Label>High risk</Label>
+            <Label>High risk on this page</Label>
           <div className="mt-1.5">
             <Metric value={atRisk} size="md" tone={atRisk > 0 ? 'warn' : 'default'} />
           </div>
         </div>
         {data.columns.balanceVisible ? (
           <div className="min-w-[150px] flex-1 px-3.5 py-3">
-            <Label>With a balance</Label>
+            <Label>With a balance on this page</Label>
             <div className="mt-1.5">
               <Metric value={owing} size="md" tone={owing > 0 ? 'bad' : 'default'} />
             </div>
@@ -307,6 +309,16 @@ export default function MembersScreen() {
           </tbody>
         </Table></TableScroll>
       )}
+
+      <nav aria-label="Member directory pages" className="flex items-center justify-between gap-3 border-t border-line p-3.5">
+        <Button variant="outline" disabled={isFetching || offset === 0}
+          onClick={() => setFilters({ offset: Math.max(0, offset - data.limit) })}>Previous page</Button>
+        <span className="text-[12px] text-foam-65">
+          {data.items.length ? data.offset + 1 : 0}–{data.offset + data.items.length} of {data.total}
+        </span>
+        <Button variant="outline" disabled={isFetching || offset + data.limit >= data.total}
+          onClick={() => setFilters({ offset: offset + data.limit })}>Next page</Button>
+      </nav>
 
       {!data.columns.balanceVisible ? (
         <Panel className="border-t border-line">

@@ -90,7 +90,9 @@ export async function flush(): Promise<void> {
     const db = await database();
     const queue = (await db.getAllFromIndex(STORE, 'ownerKey', ownerAtStart)) as OutboxEntry[];
     const due = queue
-      .filter((entry) => (entry.status === 'queued' || entry.status === 'failed') && entry.nextAttemptAt <= Date.now())
+      // A closed tab can leave a write marked sending. The original key makes
+      // replay safe even when the server committed before the tab disappeared.
+      .filter((entry) => (entry.status === 'queued' || entry.status === 'failed' || entry.status === 'sending') && entry.nextAttemptAt <= Date.now())
       .sort((a, b) => a.createdAt - b.createdAt);
 
     for (const entry of due) {

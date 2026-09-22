@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ErrorEnvelope } from '@shark/contracts';
 import { ApiError, OfflineError } from '../../lib/api';
@@ -27,6 +27,7 @@ describe('member sign-in', () => {
   beforeEach(() => {
     apiMock.mockReset();
     navigate.mockReset();
+    window.history.replaceState(null, '', '/sign-in');
   });
 
   it('asks for a code on the identifier step', () => {
@@ -34,6 +35,28 @@ describe('member sign-in', () => {
 
     expect(screen.getByLabelText('Email or phone')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Request a code' })).toBeEnabled();
+  });
+
+  it('uses the selected gym instead of the seeded gym', async () => {
+    const user = userEvent.setup();
+    apiMock.mockRejectedValueOnce(new OfflineError());
+    render(<SignInScreen />);
+    await user.clear(screen.getByLabelText('Gym code'));
+    await user.type(screen.getByLabelText('Gym code'), 'fresh-gym');
+    await user.click(screen.getByRole('button', { name: 'Request a code' }));
+    expect(apiMock).toHaveBeenCalledWith('/auth/otp/start', { method: 'POST', body: { identifier: 'aman@sharkfitness.in', tenantSlug: 'fresh-gym' } });
+  });
+
+  it('redeems a fragment activation link with a new password', async () => {
+    window.history.replaceState(null, '', '/sign-in#activationId=one&activationToken=secret&gym=fresh-gym');
+    const user = userEvent.setup();
+    apiMock.mockRejectedValueOnce(new OfflineError());
+    render(<SignInScreen />);
+    expect(screen.queryByLabelText('Email or phone')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Activate account' })).toBeDisabled();
+    await user.type(screen.getByLabelText('Password'), 'fresh-password-123');
+    await user.click(screen.getByRole('button', { name: 'Activate account' }));
+    expect(apiMock).toHaveBeenCalledWith('/auth/activation/redeem', { method: 'POST', body: { activationId: 'one', token: 'secret', password: 'fresh-password-123' } });
   });
 
   it('explains that sign-in is the one thing needing a connection', async () => {
@@ -122,4 +145,21 @@ describe('member sign-in', () => {
     expect(screen.getByLabelText('Password')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
   });
+});
+
+it('updates activation credentials when a link changes the mounted page fragment', async () => {
+  window.history.replaceState(null, '', '/sign-in');
+  apiMock.mockReset().mockRejectedValue(new Error('offline'));
+  render(<SignInScreen />);
+  window.history.replaceState(null, '', '/sign-in#activationId=next&activationToken=secret&gym=other-gym');
+  fireEvent(window, new HashChangeEvent('hashchange'));
+  fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'fresh-password-123' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Activate account' }));
+  await screen.findByText('That did not work. Try again.');
+  expect(apiMock).toHaveBeenCalledWith('/auth/activation/redeem', { method: 'POST', body: { activationId: 'next', token: 'secret', password: 'fresh-password-123' } });
+  window.history.replaceState(null, '', '/sign-in');
+  fireEvent(window, new HashChangeEvent('hashchange'));
+  expect(screen.getByLabelText('Email')).toBeInTheDocument();
+  expect(screen.getByLabelText('Gym code')).toHaveValue('other-gym');
+  expect(screen.queryByRole('button', { name: 'Activate account' })).not.toBeInTheDocument();
 });

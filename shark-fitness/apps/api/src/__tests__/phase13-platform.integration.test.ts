@@ -504,7 +504,8 @@ describe('PF-PLAT-001 — tenant lifecycle', () => {
         error: { message: string; details?: { legalHolds: number; liveClassesNow: number; unpaidMinor: number } };
       };
       expect(body.error.message).toMatch(/class is still running/);
-      expect(body.error.details).toEqual({ legalHolds: 0, liveClassesNow: 1, unpaidMinor: 7_000 });
+      // Refunding 500 of received cash does not pay the remaining principal.
+      expect(body.error.details).toEqual({ legalHolds: 0, liveClassesNow: 1, unpaidMinor: 7_500 });
       expect(statusOf(tenantId)).toBe('active');
     } finally {
       db.delete(schema.classSessions).where(eq(schema.classSessions.id, liveSessionId)).run();

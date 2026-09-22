@@ -517,14 +517,14 @@ function memberContext(ctx: RequestContext, memberId: string): TicketMemberConte
   const due = canSeeBalance
     ? (db
         .select({
-          total: sql<number>`coalesce(sum(${schema.invoices.totalMinor} - ${schema.invoices.paidMinor} - ${schema.invoices.refundedMinor}), 0)`,
+          total: sql<number>`coalesce(sum(${schema.invoices.totalMinor} - ${schema.invoices.paidMinor}), 0)`,
         })
         .from(schema.invoices)
         .where(
           and(
             eq(schema.invoices.tenantId, ctx.tenantId),
             eq(schema.invoices.memberId, memberId),
-            eq(schema.invoices.state, 'open'),
+            sql`${schema.invoices.voided} = 0 and ${schema.invoices.totalMinor} > ${schema.invoices.paidMinor}`,
           ),
         )
         .get()?.total ?? 0)

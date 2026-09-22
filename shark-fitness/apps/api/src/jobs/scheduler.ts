@@ -1,6 +1,7 @@
+import { reconcileMembershipDates } from '../services/membership-dates.js';
 import { and, eq, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import { channels } from '@shark/contracts';
-import { DAY_KEYS, deriveState, hoursFor } from '@shark/domain';
+import { DAY_KEYS, hoursFor } from '@shark/domain';
 import { db, schema, transact } from '../db/client.js';
 import { runtimeConfig } from '../lib/config.js';
 import { emit } from '../lib/events.js';
@@ -29,80 +30,7 @@ type JobSummary = Record<string, string | number | boolean | null>;
 /** Memberships move to grace, then expire, on their dates rather than whenever
  *  someone next opens a screen. */
 function expireMemberships(): JobSummary {
-  const tenants = db.select().from(schema.tenants).all();
-  let membershipsTransitioned = 0;
-
-  for (const tenant of tenants) {
-    const today = isoDate(now(), tenant.timezone);
-    const graceDays = Number((tenant.policy as Record<string, unknown>)?.graceDays ?? 7);
-
-    const rows = db
-      .select()
-      .from(schema.memberships)
-      .where(
-        and(
-          eq(schema.memberships.tenantId, tenant.id),
-          sql`${schema.memberships.state} in ('active','grace')`,
-          isNotNull(schema.memberships.endsOn),
-        ),
-      )
-      .all();
-
-    for (const membership of rows) {
-      const outstanding = db
-        .select({ n: sql<number>`count(*)` })
-        .from(schema.invoices)
-        .where(
-          and(
-            eq(schema.invoices.memberId, membership.memberId),
-            sql`${schema.invoices.state} in ('open','partially_paid','overdue')`,
-          ),
-        )
-        .get();
-
-      const next = deriveState({
-        current: membership.state as 'active' | 'grace',
-        endsOn: membership.endsOn,
-        today,
-        graceDays,
-        hasOutstandingBalance: (outstanding?.n ?? 0) > 0,
-      });
-
-      if (next === membership.state) continue;
-
-      transact(() => {
-        db.update(schema.memberships)
-          .set({ state: next, updatedAt: now(), version: membership.version + 1 })
-          .where(eq(schema.memberships.id, membership.id))
-          .run();
-
-        db.insert(schema.membershipEvents)
-          .values({
-            id: `mev_${membership.id}_${next}_${today}`,
-            tenantId: tenant.id,
-            membershipId: membership.id,
-            fromState: membership.state,
-            toState: next,
-            reason: next === 'grace' ? 'Term ended with a balance outstanding' : 'Term ended',
-            actorId: null,
-            actorName: 'System',
-            source: 'system',
-            effectiveAt: now(),
-          })
-          .onConflictDoNothing()
-          .run();
-      });
-
-      emit({
-        tenantId: tenant.id,
-        channel: channels.member(membership.memberId),
-        topic: 'membership.state_changed',
-        payload: { membershipId: membership.id, from: membership.state, to: next },
-      });
-      membershipsTransitioned += 1;
-    }
-  }
-  return { membershipsTransitioned };
+  return { membershipsTransitioned: reconcileMembershipDates() };
 }
 
 /** Nobody stays "inside" overnight. Sessions still open past closing are

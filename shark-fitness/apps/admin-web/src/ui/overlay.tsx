@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
 import { Button, Display, Label, cx } from './console';
 
 /* ============================================================================
@@ -78,7 +78,11 @@ const openerBeforeOverlay = (): HTMLElement | null =>
  * from — the exact failure the trap exists to prevent, in the one path nobody
  * had watched because focus *did* move correctly on the way in.
  */
-function useFocusTrap(open: boolean, onClose: () => void) {
+export function useFocusTrap(
+  open: boolean,
+  onClose: () => void,
+  initialFocusRef?: RefObject<HTMLElement | null>,
+) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const restoreTo = useRef<HTMLElement | null>(null);
 
@@ -99,7 +103,7 @@ function useFocusTrap(open: boolean, onClose: () => void) {
     // the dialog and its name before anything inside it, and Tab walks the
     // content in document order rather than starting at the close button that
     // happens to sit first in the header.
-    panelRef.current?.focus();
+    (initialFocusRef?.current ?? panelRef.current)?.focus();
 
     return () => {
       const target = restoreTo.current;
@@ -109,7 +113,7 @@ function useFocusTrap(open: boolean, onClose: () => void) {
       // drops the caret on `<body>`, so check rather than hope.
       if (target?.isConnected) target.focus();
     };
-  }, [open]);
+  }, [initialFocusRef, open]);
 
   useEffect(() => {
     if (!open) return;
