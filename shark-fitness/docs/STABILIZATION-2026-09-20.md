@@ -132,4 +132,18 @@ Assumptions: one capable engineer familiar with this tree, supported Node/runtim
 
 ### Release handoff
 
-Commit and exact-SHA CI results are appended after the authorized push. Until those results are recorded, local success alone is not a green remote release check.
+Candidate branch: `codex/production-hardening-p0`; [PR #15](https://github.com/amankeshri7542/Shark-Fitness-/pull/15), targeting `main`. Remote reconciliation was a fast-forward from `c9211b7`; no merge, force-push, branch deletion or live deployment was performed.
+
+| Commit | Purpose |
+| --- | --- |
+| `7085299` | Staffed-gym onboarding, account/privacy, membership, money and reception regressions/fixes. |
+| `f932d2b` | Release configuration, recovery/deployment checks, browser rehearsal and operator reports. |
+| `35c46fe82cb0721b2632903474282ea4a1298dcc` | CI-discovered recovery process cleanup and unique restored-server identity check. |
+
+[Exact-SHA push CI for `35c46fe`](https://github.com/amankeshri7542/Shark-Fitness-/actions/runs/35764043769) passed both **verify** and **image** on 22 September. It covers fresh migration/seed, backup/restore/authenticated boot, deployment guards, lint, typecheck, all tests, builds, browser smoke, non-root production image without build tooling, and database preservation across replacement containers using a named volume. This is container evidence, not hosted persistence evidence.
+
+The first run on `f932d2b` was cancelled after recovery assertions completed but pnpm's server descendant kept the process alive on Linux. The fix launches the rehearsal API directly under Node. Local retesting exited successfully; a deliberately occupied port returning a different release was rejected. A preliminary local run had reached the leftover browser server, so it is superseded by the unique-release recovery proof. The disposable browser server, Chrome profile process and collision stub were stopped.
+
+The PR-event run on `35c46fe` found two inherited trailing blank lines (`Branches.tsx` and `branch-scope.integration.test.ts`); these were removed in the final handoff change. The complete candidate diff against `origin/main` then passed whitespace checks. The final documentation/whitespace commit must also have green exact-SHA push and PR checks; its SHA and run results are supplied in the task handoff rather than embedding a commit's own hash in its contents.
+
+Local final application evidence remains **1,259 passing tests in 96 files** (API 714, admin 262, member 28, domain 255), successful lint/typecheck/build, and desktop/mobile activation-fragment navigation, existing-account login, pagination and PWA smoke. Activation-password submission remains a **human-only pending acceptance step** because automatic approval review rejected the browser credential action. Do not bypass or count that step as passed. Follow the linked manual QA guide. Readiness scores and real-member NO-GO gates above remain unchanged.

@@ -298,4 +298,3 @@ function CreateBranchDialog({
     </Modal>
   );
 }
-
