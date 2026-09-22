@@ -1,8 +1,7 @@
-import { useEffect, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError, api, idempotencyKey } from '../lib/api';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '../lib/api';
 import { ScreenBody, Stack } from '../ui/shell';
-import { Button, Chip, Display, EmptyState, ErrorState, Label, Metric, Panel, Seam, SeamCell, SectionRule, Skeleton, type Tone } from '../ui/primitives';
+import { Chip, Display, EmptyState, ErrorState, Label, Metric, Panel, Seam, SeamCell, SectionRule, Skeleton, type Tone } from '../ui/primitives';
 
 interface BillingPayload {
   outstandingMinor: number;
@@ -48,11 +47,9 @@ const MEMBERSHIP_TONE: Record<string, Tone> = {
 };
 
 export default function BillingScreen() {
-  const queryClient = useQueryClient();
-  const [payingInvoiceId, setPayingInvoiceId] = useState<string | null>(null);
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['member-billing'],
+    queryKey: ['billing'],
     queryFn: () => api<BillingPayload>('/member/billing'),
   });
 
@@ -112,7 +109,7 @@ export default function BillingScreen() {
               </div>
               {data.membership.state === 'pending_payment' ? (
                 <p className="text-[12px] leading-relaxed text-flare">
-                  This plan is not active yet. Settle the invoice below to activate it.
+                  This plan is not active yet. Pay at reception; it activates after staff record the full payment.
                 </p>
               ) : null}
               <p className="text-[12px] text-foam-45">Renew at reception. Automatic renewal and collection are not available.</p>
@@ -142,102 +139,15 @@ export default function BillingScreen() {
                   </div>
                 </div>
                 {inv.payable ? (
-                  <Button variant="cta" full className="mt-2.5" onClick={() => setPayingInvoiceId(inv.id)}>
-                    Pay {inv.dueLabel}
-                  </Button>
+                  <p className="mt-2.5 text-[13px] text-foam-65">
+                    Pay {inv.dueLabel} at reception. Online payment is unavailable.
+                  </p>
                 ) : null}
               </SeamCell>
             ))}
           </Seam>
         )}
       </Stack>
-
-      {payingInvoiceId ? (
-        <CheckoutSheet
-          invoiceId={payingInvoiceId}
-          onClose={() => setPayingInvoiceId(null)}
-          onDone={() => {
-            setPayingInvoiceId(null);
-            void queryClient.invalidateQueries({ queryKey: ['member-billing'] });
-            void queryClient.invalidateQueries({ queryKey: ['home'] });
-          }}
-        />
-      ) : null}
     </ScreenBody>
-  );
-}
-
-type Stage = 'confirming' | 'succeeded' | 'failed';
-
-/** Demo checkout — there is no live payment gateway behind this. The screen
- *  says so honestly rather than performing a fake "processing…" spinner that
- *  implies a real card network is being contacted. */
-function CheckoutSheet({ invoiceId, onClose, onDone }: { invoiceId: string; onClose: () => void; onDone: () => void }) {
-  const [stage, setStage] = useState<Stage>('confirming');
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [attemptKey, setAttemptKey] = useState(() => idempotencyKey('member-checkout', invoiceId));
-
-  const intent = useMutation({
-    mutationFn: () => api<{ intentId: string; amountMinor: number; clientToken: string }>('/member/billing/checkout-intent', {
-      method: 'POST',
-      body: { invoiceId },
-      idempotencyKey: attemptKey,
-    }),
-    onError: (e) => {
-      setStage('failed');
-      setErrorMessage(e instanceof ApiError ? e.message : 'Could not start checkout.');
-    },
-    onSuccess: (data) => confirm.mutate(data.intentId),
-  });
-
-  const confirm = useMutation({
-    mutationFn: (intentId: string) => api<{ invoiceState: string }>(`/member/billing/checkout-intent/${intentId}/confirm`, { method: 'POST' }),
-    onSuccess: () => setStage('succeeded'),
-    onError: (e) => {
-      setStage('failed');
-      setErrorMessage(e instanceof ApiError ? e.message : 'The payment could not be confirmed.');
-    },
-  });
-  const intentIsIdle = intent.isIdle;
-  const startIntent = intent.mutate;
-
-  useEffect(() => {
-    if (stage === 'confirming' && intentIsIdle) startIntent();
-  }, [attemptKey, intentIsIdle, stage, startIntent]);
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-scrim sm:items-center" onClick={stage !== 'confirming' ? onClose : undefined} role="presentation">
-      <div className="w-full max-w-[420px] border border-line-strong bg-overlay p-5" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Checkout">
-        <Display size="sm" as="h2">
-          {stage === 'succeeded' ? 'Payment received' : stage === 'failed' ? 'Payment did not go through' : 'Confirming payment'}
-        </Display>
-
-        <p className="mt-3 text-[13px] leading-relaxed text-foam-65">
-          {stage === 'confirming' ? 'This is a demo checkout — there is no live card network behind it. Confirming now.' : null}
-          {stage === 'succeeded' ? 'Your invoice is settled. If this activated a plan, it is active now.' : null}
-          {stage === 'failed' ? (errorMessage ?? 'Something went wrong. Nothing was charged.') : null}
-        </p>
-
-        <div className="mt-5 flex justify-end gap-2">
-          {stage === 'failed' ? (
-            <Button
-              variant="cta"
-              onClick={() => {
-                setStage('confirming');
-                setErrorMessage(null);
-                setAttemptKey(idempotencyKey('member-checkout', invoiceId));
-                intent.reset();
-                confirm.reset();
-              }}
-            >
-              Try again
-            </Button>
-          ) : null}
-          <Button variant={stage === 'succeeded' ? 'cta' : 'outline'} onClick={stage === 'succeeded' ? onDone : onClose}>
-            {stage === 'succeeded' ? 'Done' : 'Close'}
-          </Button>
-        </div>
-      </div>
-    </div>
   );
 }

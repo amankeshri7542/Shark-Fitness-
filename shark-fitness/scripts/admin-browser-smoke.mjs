@@ -1,5 +1,13 @@
+import { readFileSync } from 'node:fs';
+
 const chromeDebugUrl = process.env.CHROME_DEBUG_URL ?? 'http://127.0.0.1:9222';
 const baseUrl = process.env.SHARK_BASE_URL ?? 'http://localhost:8787';
+const credentials = process.env.SHARK_BROWSER_CREDENTIALS_FILE
+  ? JSON.parse(readFileSync(process.env.SHARK_BROWSER_CREDENTIALS_FILE, 'utf8'))
+  : { tenantSlug: 'shark', email: 'owner@sharkfitness.in', password: 'shark1234' };
+for (const field of ['tenantSlug', 'email', 'password']) {
+  if (typeof credentials[field] !== 'string' || !credentials[field]) throw new Error(`Missing browser credential field: ${field}`);
+}
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function retry(fn, label, timeoutMs = 20_000) {
@@ -213,7 +221,7 @@ console.log('[browser-smoke] desktop staff activation fragment navigation OK (no
 
 // Production has no demo selectors or prefilled credentials.
 const filled = await evaluate(`(() => {
-  const values = { 'Gym code': 'shark', 'Work email': 'owner@sharkfitness.in', 'Password': 'shark1234' };
+  const values = ${JSON.stringify({ 'Gym code': credentials.tenantSlug, 'Work email': credentials.email, Password: credentials.password })};
   const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
   for (const [label, value] of Object.entries(values)) {
     const labelNode = [...document.querySelectorAll('label')].find((node) => node.textContent?.trim() === label);

@@ -1,6 +1,7 @@
 import type { Server } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { channels } from '@shark/contracts';
+import { channels, type EventTopic } from '@shark/contracts';
+import { can, type Permission } from '@shark/domain';
 import { replay, subscribe, type OutboxEvent } from '../lib/events.js';
 import { log } from '../lib/observability.js';
 import { consumeRealtimeTicket } from '../lib/realtime-ticket.js';
@@ -10,12 +11,47 @@ import type { RequestContext } from '../lib/context.js';
 interface Client {
   socket: WebSocket;
   sessionId: string;
-  tenantId: string;
+  ctx: RequestContext;
   allowed: Set<string>;
   subscribed: Set<string>;
 }
 
 const clients = new Set<Client>();
+
+// Staff clients use events only to refetch their permission-scoped HTTP views.
+// Never send row payloads: a branch includes other trainers' members and private
+// support records. Unknown topics/kinds stay private until explicitly reviewed.
+const STAFF_TOPICS: Partial<Record<EventTopic, Permission>> = {
+  'attendance.checked_in': 'attendance.view',
+  'attendance.checked_out': 'attendance.view',
+  'attendance.denied': 'attendance.view',
+  'occupancy.changed': 'attendance.view',
+  'booking.confirmed': 'schedule.view',
+  'booking.cancelled': 'schedule.view',
+  'booking.seat_changed': 'schedule.view',
+  'waitlist.offered': 'schedule.view',
+  'waitlist.promoted': 'schedule.view',
+  'session.updated': 'schedule.view',
+  'session.cancelled': 'schedule.view',
+  'lead.stage_changed': 'lead.view',
+  'pos.sale_completed': 'inventory.view',
+  'pos.return_completed': 'inventory.view',
+  'pos.order_voided': 'inventory.view',
+  'stock.changed': 'inventory.view',
+  'stock.low': 'inventory.view',
+  'transfer.updated': 'inventory.view',
+  'ticket.updated': 'support.manage',
+};
+const STAFF_ALERTS: Record<string, Permission> = {
+  ticket: 'support.manage',
+  message_safety: 'support.manage',
+  safety_check_in: 'support.manage',
+  equipment_updated: 'facility.view',
+  equipment_returned_to_service: 'facility.view',
+  equipment_down: 'facility.view',
+  work_order_created: 'facility.view',
+  work_order_updated: 'facility.view',
+};
 
 function allowedChannels(ctx: RequestContext): Set<string> {
   // Branch/tenant events contain reception and staff records, not public feeds.
@@ -31,6 +67,7 @@ function allowedChannels(ctx: RequestContext): Set<string> {
 function refreshAccess(client: Client): boolean {
   const ctx = resolveSessionById(client.sessionId);
   if (!ctx) { client.socket.close(4401, 'unauthenticated'); return false; }
+  client.ctx = ctx;
   client.allowed = allowedChannels(ctx);
   for (const channel of client.subscribed) {
     if (!client.allowed.has(channel)) client.subscribed.delete(channel);
@@ -53,7 +90,7 @@ export function attachRealtime(server: Server): void {
 
     const allowed = allowedChannels(ctx);
 
-    const client: Client = { socket, sessionId: ctx.sessionId, tenantId: ctx.tenantId, allowed, subscribed: new Set() };
+    const client: Client = { socket, sessionId: ctx.sessionId, ctx, allowed, subscribed: new Set() };
     clients.add(client);
 
     socket.on('message', (raw) => {
@@ -71,7 +108,7 @@ export function attachRealtime(server: Server): void {
           if (!client.allowed.has(channel)) continue;
           client.subscribed.add(channel);
           if (typeof msg.since === 'number') {
-            for (const event of replay(channel, msg.since)) send(socket, event);
+            for (const event of replay(channel, msg.since)) send(client, event);
           }
         }
         socket.send(JSON.stringify({ type: 'subscribed', channels: [...client.subscribed] }));
@@ -87,10 +124,9 @@ export function attachRealtime(server: Server): void {
 
   const unsubscribe = subscribe((event) => {
     for (const client of clients) {
-      if (client.tenantId !== event.tenantId) continue;
       if (!refreshAccess(client)) continue;
       if (!client.subscribed.has(event.channel)) continue;
-      send(client.socket, event);
+      send(client, event);
     }
   });
   wss.on('close', unsubscribe);
@@ -98,8 +134,17 @@ export function attachRealtime(server: Server): void {
   log('info', 'realtime_listening', { route: '/v1/realtime' });
 }
 
-function send(socket: WebSocket, event: OutboxEvent): void {
+function send(client: Client, event: OutboxEvent): void {
+  const { socket, ctx } = client;
   if (socket.readyState !== socket.OPEN) return;
+  if (ctx.tenantId !== event.tenantId) return;
+  if (ctx.role !== 'member') {
+    if (event.branchId && !ctx.branchIds.includes(event.branchId)) return;
+    const permission = event.topic === 'alert.raised'
+      ? STAFF_ALERTS[String(event.payload.kind)]
+      : STAFF_TOPICS[event.topic];
+    if (!permission || !can(ctx.role, permission)) return;
+  }
   socket.send(
     JSON.stringify({
       type: 'event',
@@ -111,7 +156,7 @@ function send(socket: WebSocket, event: OutboxEvent): void {
       channel: event.channel,
       at: new Date(event.at).toISOString(),
       version: 1,
-      payload: event.payload,
+      payload: ctx.role === 'member' ? event.payload : {},
     }),
   );
 }

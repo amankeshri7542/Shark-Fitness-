@@ -89,7 +89,10 @@ export async function createBackup(source, destination) {
   if (existsSync(destination) || existsSync(sidecar) || existsSync(manifestTemporary)) {
     fail(`Refusing to overwrite backup: ${destination}`);
   }
-  mkdirSync(dirname(destination), { recursive: true });
+  mkdirSync(dirname(destination), { recursive: true, mode: 0o700 });
+  // SQLite otherwise creates an archive readable by other local users under a
+  // typical umask. Reserve it privately before writing any customer records.
+  writeFileSync(destination, '', { flag: 'wx', mode: 0o600 });
   try {
     const db = new Database(source, { readonly: true, fileMustExist: true });
     try {
@@ -139,9 +142,10 @@ export async function restoreBackup(source, target, { replace = false } = {}) {
   if (targets.some(existsSync) && !replace) {
     fail(`Refusing to overwrite existing restore target: ${targetPath}. Supply --replace --yes-replace only after validating the target.`);
   }
-  mkdirSync(dirname(targetPath), { recursive: true });
+  mkdirSync(dirname(targetPath), { recursive: true, mode: 0o700 });
   const temporary = resolve(dirname(targetPath), `.${basename(targetPath)}.restore-${process.pid}-${Date.now()}.tmp`);
   if (existsSync(temporary)) fail(`Temporary restore target already exists: ${temporary}`);
+  writeFileSync(temporary, '', { flag: 'wx', mode: 0o600 });
 
   try {
     const db = new Database(sourcePath, { readonly: true, fileMustExist: true });

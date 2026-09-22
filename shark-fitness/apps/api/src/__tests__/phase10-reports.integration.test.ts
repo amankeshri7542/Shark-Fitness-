@@ -348,11 +348,27 @@ describe('PF-RPT edge case — a currency change inside the range', () => {
   });
 
   it('states a single total when the range holds one currency', async () => {
-    const res = await get(owner, `/v1/admin/reports/revenue?${range('2026-08-01', '2026-08-18')}`);
-    const body = (await res.json()) as { mixedCurrency: boolean; totals: unknown; byCurrency: unknown[] };
-    expect(body.mixedCurrency).toBe(false);
-    expect(body.totals).not.toBeNull();
-    expect(body.byCurrency).toHaveLength(1);
+    const branch = branches()[0]!;
+    const day = '2018-06-12';
+    const at = startOfLocalDay(day, branch.timezone) + 10 * 3_600_000;
+    const invoiceId = id('inv');
+    db.insert(schema.invoices).values({
+      id: invoiceId, tenantId: tenantId(), branchId: branch.id, memberId: memberAt(branch.id),
+      number: `INR-${invoiceId}`, state: 'paid', issuedOn: day, dueOn: day, currency: 'INR',
+      subtotalMinor: 12_500, discountMinor: 0, taxMinor: 0, totalMinor: 12_500,
+      paidMinor: 12_500, refundedMinor: 0, voided: false, createdAt: at, updatedAt: at,
+    }).run();
+    try {
+      const res = await get(owner, `/v1/admin/reports/revenue?${range(day, day)}&branchId=${branch.id}`);
+      const body = (await res.json()) as { mixedCurrency: boolean; totals: unknown; byCurrency: unknown[] };
+      expect(res.status).toBe(200);
+      expect(body.mixedCurrency).toBe(false);
+      expect(body.totals).toMatchObject({ grossMinor: { value: 12_500 }, netMinor: { value: 12_500 } });
+      expect(body.byCurrency).toEqual([expect.objectContaining({ currency: 'INR', grossMinor: 12_500, netMinor: 12_500, invoices: 1 })]);
+    } finally {
+      db.delete(schema.invoices).where(eq(schema.invoices.id, invoiceId)).run();
+      db.delete(schema.metricRollups).where(and(eq(schema.metricRollups.tenantId, tenantId()), eq(schema.metricRollups.onDate, day))).run();
+    }
   });
 });
 

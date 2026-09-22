@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-import { Button, Segmented, Tabs } from '../console';
+import { Button, Field, Segmented, SelectField, Tabs, TextAreaField } from '../console';
 
 /* ============================================================================
    The controls every screen is built from.
@@ -149,4 +149,27 @@ describe('Button — the busy contract', () => {
     render(<Button disabled>Save</Button>);
     expect(screen.getByRole('button')).toBeDisabled();
   });
+});
+
+it('keeps repeated field labels and help text linked to unique stable controls', () => {
+  const form = <>
+    {[0, 1].map((key) => <div key={key}>
+      <Field label="Name" hint="Full name" />
+      <SelectField label="Role" options={[{ value: 'reception', label: 'Reception' }]} hint="Assigned role" />
+      <TextAreaField label="Notes" error="Give a reason" />
+    </div>)}
+    <Field label="Explicit" id="operator-reference" />
+  </>;
+  const { container, rerender } = render(form);
+  const controls = [...container.querySelectorAll('input, select, textarea')];
+  const ids = controls.map((control) => control.id);
+  expect(new Set(ids).size).toBe(controls.length);
+  for (const control of controls) {
+    expect(control).toHaveAccessibleName(control.tagName === 'SELECT' ? 'Role' : control.tagName === 'TEXTAREA' ? 'Notes' : control.id === 'operator-reference' ? 'Explicit' : 'Name');
+    const description = control.getAttribute('aria-describedby');
+    if (description) expect(document.getElementById(description)).not.toBeNull();
+  }
+  expect(screen.getByLabelText('Explicit')).toHaveAttribute('id', 'operator-reference');
+  rerender(form);
+  expect([...container.querySelectorAll('input, select, textarea')].map((control) => control.id)).toEqual(ids);
 });

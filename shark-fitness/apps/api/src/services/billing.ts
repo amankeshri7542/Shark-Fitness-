@@ -5,11 +5,11 @@ import { canTransition, invoiceStateFor, totalsFor } from '@shark/domain';
 import { stopDunning } from './dunning.js';
 import { db, schema } from '../db/client.js';
 import { audit } from '../lib/audit.js';
-import { conflict, invalid, notFound } from '../lib/errors.js';
+import { conflict, invalid, notFound, precondition } from '../lib/errors.js';
 import { emit } from '../lib/events.js';
 import { id } from '../lib/ids.js';
 import { addDays, isoDate, now } from '../lib/time.js';
-import { branchScope, type RequestContext } from '../lib/context.js';
+import { branchScope, requirePermission, type RequestContext } from '../lib/context.js';
 import { branchTimeZone } from '../lib/branch-time.js';
 
 /** Must be called inside the transaction that inserts the invoice it numbers
@@ -112,10 +112,6 @@ export interface ApplyPaymentInput {
   idempotencyKey: string;
   recordedByName: string | null;
   note?: string;
-  /** Set only by the member checkout-intent confirm flow, whose payment row
-   *  already exists in `created` state — this updates it in place instead of
-   *  inserting a second row for the same attempt. */
-  existingPaymentId?: string;
 }
 
 export interface ApplyPaymentResult {
@@ -125,15 +121,7 @@ export interface ApplyPaymentResult {
   alreadyProcessed: boolean;
 }
 
-/**
- * Looked up before every payment write — a repeated idempotency key for an
- * already-*succeeded* payment returns the original outcome rather than
- * erroring or double-writing. Deliberately scoped to `state: 'succeeded'`:
- * the member checkout flow reuses its own payment row's id as its
- * idempotency key across the `created` → `succeeded` transition (see
- * `existingPaymentId` below), so a `created` row must NOT be treated as
- * "already processed" — that would make the very first confirm a no-op.
- */
+/** Only succeeded, independently recorded payments qualify for a retry. */
 export function findIdempotentPayment(tenantId: string, idempotencyKey: string) {
   return db
     .select()
@@ -142,33 +130,29 @@ export function findIdempotentPayment(tenantId: string, idempotencyKey: string) 
     .get();
 }
 
-/**
- * The one place a payment becomes money-on-the-invoice and, if that clears
- * the balance, activates a pending membership. Called from three places only:
- * admin manual recording, the member checkout confirm, and the demo webhook
- * simulator's "succeeded" branch — never from anywhere that hasn't itself
- * already verified the payment succeeded.
- */
+/** Shared money boundary: authorized staff record independently received funds.
+ * No simulated provider or member confirmation may settle an invoice. */
 export function applyPaymentToInvoice(input: ApplyPaymentInput): ApplyPaymentResult {
-  const { ctx, invoiceId, amountMinor, method, provider, providerRef, idempotencyKey, recordedByName, note, existingPaymentId } = input;
+  const { ctx, invoiceId, amountMinor, method, provider, providerRef, idempotencyKey, recordedByName, note } = input;
 
+  requirePermission(ctx, 'billing.record_payment');
+  if (provider !== null) throw precondition('Provider settlement is unavailable. Record independently received funds.');
+  if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) throw invalid('Enter a positive whole amount in minor units.');
+  if (method === 'upi' && !providerRef?.trim()) throw invalid('A verified UPI transaction reference is required.');
+  const invoice = loadInvoiceInScope(ctx, invoiceId);
   const existing = findIdempotentPayment(ctx.tenantId, idempotencyKey);
   if (existing) {
-    const existingInvoice = db.select().from(schema.invoices).where(eq(schema.invoices.id, existing.invoiceId!)).get()!;
-    return { paymentId: existing.id, invoiceState: existingInvoice.state, membershipActivated: false, alreadyProcessed: true };
+    if (existing.invoiceId !== invoiceId || existing.amountMinor !== amountMinor || existing.method !== method || existing.provider !== provider || existing.providerRef !== providerRef || existing.note !== (note ?? null)) {
+      throw conflict('This idempotency key was already used for a different payment request.');
+    }
+    return { paymentId: existing.id, invoiceState: invoice.state, membershipActivated: false, alreadyProcessed: true };
   }
 
-  const invoice = db
-    .select()
-    .from(schema.invoices)
-    .where(and(eq(schema.invoices.id, invoiceId), eq(schema.invoices.tenantId, ctx.tenantId)))
-    .get();
-  if (!invoice) throw notFound('That invoice');
   if (invoice.voided || invoice.totalMinor <= invoice.paidMinor) throw conflict('This invoice is already settled.');
   const dueMinor = invoice.totalMinor - invoice.paidMinor;
   if (amountMinor > dueMinor) throw invalid(`That is more than the amount outstanding (${dueMinor}).`);
 
-  const paymentId = existingPaymentId ?? id('pay');
+  const paymentId = id('pay');
   const newPaidMinor = invoice.paidMinor + amountMinor;
   const newState = invoiceStateFor({
     totalMinor: invoice.totalMinor,
@@ -183,35 +167,28 @@ export function applyPaymentToInvoice(input: ApplyPaymentInput): ApplyPaymentRes
 
   let membershipActivated = false;
 
-  if (existingPaymentId) {
-    db.update(schema.payments)
-      .set({ state: 'succeeded', settledAt: now(), providerRef })
-      .where(and(eq(schema.payments.id, existingPaymentId), eq(schema.payments.tenantId, ctx.tenantId)))
-      .run();
-  } else {
-    db.insert(schema.payments)
-      .values({
-        id: paymentId,
-        tenantId: ctx.tenantId,
-        branchId: invoice.branchId,
-        invoiceId,
-        memberId: invoice.memberId,
-        method,
-        state: 'succeeded',
-        amountMinor,
-        currency: invoice.currency,
-        provider,
-        providerRef,
-        idempotencyKey,
-        recordedById: ctx.role === 'member' ? null : ctx.userId,
-        recordedByName,
-        failureReason: null,
-        note: note ?? null,
-        createdAt: now(),
-        settledAt: now(),
-      })
-      .run();
-  }
+  db.insert(schema.payments)
+    .values({
+      id: paymentId,
+      tenantId: ctx.tenantId,
+      branchId: invoice.branchId,
+      invoiceId,
+      memberId: invoice.memberId,
+      method,
+      state: 'succeeded',
+      amountMinor,
+      currency: invoice.currency,
+      provider,
+      providerRef,
+      idempotencyKey,
+      recordedById: ctx.userId,
+      recordedByName,
+      failureReason: null,
+      note: note ?? null,
+      createdAt: now(),
+      settledAt: now(),
+    })
+    .run();
 
   db.update(schema.invoices).set({ paidMinor: newPaidMinor, state: newState, updatedAt: now() }).where(eq(schema.invoices.id, invoiceId)).run();
 
@@ -233,7 +210,7 @@ export function applyPaymentToInvoice(input: ApplyPaymentInput): ApplyPaymentRes
         from: 'pending_payment',
         to: 'active',
         reason: 'Payment received',
-        actorRole: ctx.role === 'member' ? 'member' : 'staff',
+        actorRole: 'staff',
       });
       if (transition.ok) {
         db.update(schema.memberships)
@@ -248,9 +225,9 @@ export function applyPaymentToInvoice(input: ApplyPaymentInput): ApplyPaymentRes
             fromState: 'pending_payment',
             toState: 'active',
             reason: 'Payment received',
-            actorId: ctx.role === 'member' ? null : ctx.userId,
-            actorName: recordedByName ?? 'Member',
-            source: ctx.role === 'member' ? 'member' : 'staff',
+            actorId: ctx.userId,
+            actorName: recordedByName ?? ctx.name,
+            source: 'staff',
             effectiveAt: now(),
           })
           .run();

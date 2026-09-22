@@ -337,9 +337,6 @@ function FieldShell({
 /** The one control height on this console. Compact by default; it is a desk. */
 const CONTROL = 'sf-field !min-h-9 !py-1.5 !text-[13px]';
 
-const slug = (label: string, id?: string): string =>
-  id ?? `f_${label.replace(/\W+/g, '_').toLowerCase()}`;
-
 export function Field({
   label,
   hint,
@@ -352,7 +349,8 @@ export function Field({
   hint?: string;
   error?: string;
 } & React.InputHTMLAttributes<HTMLInputElement>) {
-  const inputId = slug(label, id);
+  const generatedId = useId();
+  const inputId = id ?? generatedId;
   return (
     <FieldShell id={inputId} label={label} hint={hint} error={error} className={className}>
       <input
@@ -382,7 +380,8 @@ export function SelectField({
   /** Convenience for the common case; pass `children` for grouped options. */
   options?: Array<{ value: string; label: string; disabled?: boolean }>;
 } & React.SelectHTMLAttributes<HTMLSelectElement>) {
-  const inputId = slug(label, id);
+  const generatedId = useId();
+  const inputId = id ?? generatedId;
   return (
     <FieldShell id={inputId} label={label} hint={hint} error={error} className={className}>
       <select
@@ -417,7 +416,8 @@ export function TextAreaField({
   hint?: string;
   error?: string;
 } & React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  const inputId = slug(label, id);
+  const generatedId = useId();
+  const inputId = id ?? generatedId;
   return (
     <FieldShell id={inputId} label={label} hint={hint} error={error} className={className}>
       <textarea

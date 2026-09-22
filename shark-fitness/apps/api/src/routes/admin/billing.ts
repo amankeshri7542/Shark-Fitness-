@@ -3,7 +3,7 @@ import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { validate } from '../../middleware/validate.js';
 import { BillingCadence, ProductKind, RecordPaymentInput, type Product } from '@shark/contracts';
-import { formatMoney } from '@shark/domain';
+import { can, formatMoney } from '@shark/domain';
 import { db, schema, transact } from '../../db/client.js';
 import { ctxOf } from '../../middleware/index.js';
 import type { RequestContext } from '../../lib/context.js';
@@ -14,7 +14,7 @@ import { id } from '../../lib/ids.js';
 import { DAY, addDays, isoDate, now } from '../../lib/time.js';
 import { branchTimeZone } from '../../lib/branch-time.js';
 import { applyPaymentToInvoice, applyRefund, createInvoiceForProduct, loadInvoiceInScope } from '../../services/billing.js';
-import { dunningForInvoice, openDunning } from '../../services/dunning.js';
+import { dunningForInvoice } from '../../services/dunning.js';
 
 export const billingRoutes = new Hono();
 
@@ -124,8 +124,15 @@ function catalogueBranchAccess(
 
 billingRoutes.get('/products', (c) => {
   const ctx = ctxOf(c);
-  requirePermission(ctx, 'product.manage');
-  const rows = db.select().from(schema.products).where(eq(schema.products.tenantId, ctx.tenantId)).orderBy(desc(schema.products.updatedAt)).all();
+  const canManage = can(ctx.role, 'product.manage');
+  if (!canManage) requirePermission(ctx, 'membership.manage');
+  const scope = branchScope(ctx);
+  const rows = db.select().from(schema.products).where(and(
+    eq(schema.products.tenantId, ctx.tenantId),
+    canManage ? undefined : eq(schema.products.status, 'active'),
+  )).orderBy(desc(schema.products.updatedAt)).all().filter((p) =>
+    canManage || (scope.length > 0 && (p.access.allBranches || p.access.branchIds.some((branchId) => scope.includes(branchId)))),
+  );
   return c.json({
     items: rows.map((p) => ({
       id: p.id,
@@ -488,52 +495,9 @@ billingRoutes.post('/payments/:paymentId/refund', validate('json', RefundBody), 
   return c.json(result);
 });
 
-/**
- * Staff-only simulation tool. There is no live payment gateway behind this —
- * it lets support/QA produce a "succeeded" or "failed" outcome for a demo or
- * test invoice the way a real provider's sandbox dashboard would, so the
- * dunning flow is demonstrable without a real integration. Never reachable
- * by a member or an unauthenticated caller.
- */
-const DemoWebhookBody = z.object({ invoiceId: z.string(), outcome: z.enum(['succeeded', 'failed']), reason: z.string().optional() });
-
-billingRoutes.post('/webhooks/demo', validate('json', DemoWebhookBody), (c) => {
-  const ctx = ctxOf(c);
-  requirePermission(ctx, 'billing.record_payment');
-  const { invoiceId, outcome, reason } = c.req.valid('json');
-
-  const invoice = loadInvoiceInScope(ctx, invoiceId);
-
-  const eventId = id('devt');
-  db.insert(schema.providerEvents)
-    .values({ id: id('pev'), tenantId: ctx.tenantId, provider: 'demo', providerEventId: eventId, type: `payment.${outcome}`, payload: { invoiceId, outcome, reason: reason ?? null }, signatureOk: true, receivedAt: now(), processedAt: null, processingError: null })
-    .run();
-
-  if (outcome === 'succeeded') {
-    const dueMinor = invoice.totalMinor - invoice.paidMinor;
-    if (dueMinor <= 0) throw conflict('This invoice has nothing outstanding to simulate a payment against.');
-    const result = transact(() =>
-      applyPaymentToInvoice({ ctx, invoiceId, amountMinor: dueMinor, method: 'upi', provider: 'demo', providerRef: eventId, idempotencyKey: `demo:${eventId}`, recordedByName: `${ctx.name} (demo webhook)` }),
-    );
-    db.update(schema.providerEvents).set({ processedAt: now() }).where(eq(schema.providerEvents.providerEventId, eventId)).run();
-    return c.json(result);
-  }
-
-  transact(() => {
-    db.insert(schema.payments)
-      .values({ id: id('pay'), tenantId: ctx.tenantId, branchId: invoice.branchId, invoiceId, memberId: invoice.memberId, method: 'upi', state: 'failed', amountMinor: invoice.totalMinor - invoice.paidMinor, currency: invoice.currency, provider: 'demo', providerRef: eventId, idempotencyKey: `demo:${eventId}`, recordedById: null, recordedByName: null, failureReason: reason ?? 'Simulated failure', note: null, createdAt: now(), settledAt: null })
-      .run();
-
-    // Through the state machine rather than by writing one row: opening a case
-    // has to be idempotent, has to pick the tenant's own channels, and has to
-    // leave something the worker will actually advance.
-    openDunning(ctx, { invoiceId, reason: reason ?? 'Simulated failure' });
-
-    audit(ctx, { action: 'payment.failed', entityType: 'invoice', entityId: invoiceId, entityLabel: invoice.number, reason: reason ?? 'Simulated failure' });
-  });
-
-  db.update(schema.providerEvents).set({ processedAt: now() }).where(eq(schema.providerEvents.providerEventId, eventId)).run();
-  return c.json({ ok: true, invoiceState: invoice.state });
+// Historical provider/payment rows remain readable; simulation cannot mutate them.
+billingRoutes.post('/webhooks/demo', () => {
+  throw precondition('Payment simulation is unavailable. Record only independently received funds at reception.');
 });
 
 /** The dunning state of one invoice, including — stated rather than implied —
