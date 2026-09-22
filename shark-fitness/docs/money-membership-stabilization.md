@@ -1,5 +1,17 @@
 # Money and membership stabilization — 20 September 2026
 
+## Payment boundary closeout — 23 September 2026
+
+This section supersedes earlier descriptions of demo checkout as safe or “server-authoritative.” In production, six new refusal regressions failed against `2a59a1f`: member intent creation/confirmation (including succeeded-history replay), staff demo success/failure callbacks, and direct shared-service settlement all accepted simulation. The fact that the server manufactured the success was not evidence of received funds.
+
+The member intent/confirm and admin demo webhook endpoints now unconditionally return 412 before any ledger, membership, audit or provider-event write. There is no environment switch enabling simulation. The shared payment service requires `billing.record_payment`, a scoped invoice, no provider, positive safe-integer amount, verified UPI reference where relevant, and exact retry content. The old created-intent upgrade path was removed. Both manual route definitions converge on this boundary. Existing demo payment/provider history is preserved; it must never be represented as independently received money during a pilot migration.
+
+Member Billing now says “Pay at reception” and makes no collection request. A second regression reproduced stale balances because Billing used `member-billing` while realtime invalidated `billing`; the screen now uses the existing realtime key and refetches after staff settlement.
+
+Production-mode refusal checks compare complete persisted payment/invoice/membership/member/audit/provider/outbox records. Added explicit expired-intent coverage after the initial six failing-before/passing-after cases. The same checks pass without NODE_ENV configuration. Focused production checks also preserved manual full/partial payments, retry identity, UPI validation, partial refunds, principal accounting, membership activation, receipts, effective dates, and reception attendance. Independent post-implementation review traced both manual routes, zero-price staff-authorized plans, historical intents and all succeeded-payment writes; no blocking payment defect found. Final suite evidence is recorded in STABILIZATION-2026-09-20.md.
+
+PF-BILL-002 online/provider collection and PF-BILL-004 payment links, gateway reconciliation, credit notes and chargebacks remain deferred. Manual acknowledgement receipts do not establish PF-BILL-001 fiscal/GST compliance. Refunds still reduce retained money separately from unpaid principal; no financial policy was changed.
+
 Scope: existing money and membership correctness for one staffed gym. Cash and independently verified UPI are ledger records; no automatic renewal or integrated collection is claimed. Investigate-first and surgical-patch skills guided reproduction before changes; existing integer money, append-only refunds, transactions, authorization and idempotency infrastructure were retained.
 
 ## Reproduced failures and fixes

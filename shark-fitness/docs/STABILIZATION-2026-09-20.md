@@ -1,6 +1,68 @@
 # Staffed-gym stabilization — 20 September 2026
 
-Resumed and verified on **22 September 2026**. This report supersedes older README claims that every module is complete. Scope remains one staffed gym, not completion of the full product.
+## Phase 2/3 implementation handoff — 23 September 2026
+
+**This dated section supersedes the historical 85% scores and conditional completion language below.** The user authorized local rehearsal only; hosted work remains blocked, and human/physical-device checks remain pending. No live environment, real member records, paid resource, external alert destination or production database was changed. Phase 4 has not started.
+
+### Confirmed fixes and preserved behavior
+
+- **Money safety:** six production-mode regressions failed before the fix. Member intent creation/confirmation and the staff demo callback accepted simulated money, including succeeded-history replay. All three endpoints now fail closed with 412 regardless of configuration. Shared settlement requires authorized manual staff recording and rejects every provider, validates amount/reference/scope and exact retries; the created-intent upgrade path is removed. Tests compare stored financial, membership, provider, audit and event records. Added an explicit expired-intent case. Historical demo records remain unchanged.
+- **Member truthfulness:** Billing offers reception instructions, no simulated collection. A failing regression found its query key did not match realtime invalidation; balances now refetch after reception records payment.
+- **Staff privacy:** independent review reproduced private attendance/support payloads reaching roles denied the corresponding REST data. Four role regressions failed before the fix. Staff events now carry only permission-filtered refresh signals with empty payloads; replay/live share tenant/branch/session checks. Member-owned payloads and session revocation remain covered. This covers the reviewed topic allowlist, not future event types automatically.
+- **Form accessibility:** repeated labels generated duplicate IDs in staff invitation and other shared fields. A regression failed before using existing React `useId()` defaults; explicit caller IDs remain supported.
+- **Reception enrollment:** reception could assign a membership through the API but could not read the plan catalogue. The read endpoint now allows membership managers to see only active, branch-eligible products; product editing still requires its existing permission. The before/after regression verifies catalogue → assignment, saved unpaid invoice/pending membership, scope exclusions and denied edits. Walk-ins without a plan now say **Awaiting plan**, unpaid memberships say **Pending payment**, and failed catalogue requests expose retry instead of claiming no products exist.
+- **Recovery:** backup and restore artifacts are now created privately (`0600`, new directories `0700`). The populated local rehearsal records a ₹100 manual payment and ₹25 refund with retries, preserves exact identities/content across process restart and copied-source application replacement, destroys the synthetic source, restores the checksummed archive, and completes authenticated invoice/receipt/dashboard reads. Twelve populated tables are fingerprinted; append-only audit/stock constraints, corruption and overwrite refusals are verified.
+
+Retained: empty-gym bootstrap; hashed one-time activation and gym-code login; member/staff separation; effective cancellation/freeze dates; integer-money principal/refund policy; manual UPI reference validation and acknowledgement; retry-safe payments/refunds/attendance; receipts; walk-in conversion; pagination; interrupted-outbox recovery; opt-in seeding; configured-database migrations/backups. Independent post-implementation payment review found no blocking defect in either manual route, historical intents, or staff-authorized zero-price plans. No dependency, schema, native-app or provider integration was added.
+
+### Evidence boundary
+
+Production-mode and unconfigured-environment refusal tests passed locally, along with the focused financial/date/reception tests. Full release results and final candidate identity are recorded in the final verification entry below. The first full run found three date-dependent test assumptions (UTC today versus Kolkata business date; a hardcoded August seed window); fixes preserve exact financial assertions and use the correct branch day / an explicit currency fixture.
+
+Local recovery evidence: `docs/evidence/phase23-local-recovery.json`; original log `/tmp/shark-local-recovery-2026-09-23.log`. Archive SHA-256 `3ba361c26e2fe8f524379996f9e7d78a7258cd9ffee8295d766c46de6f2faf41`, 10,190,848 bytes. Copied API replacement shares installed dependencies and local retained directories share this computer. These are **local source/process and recovery checks**, not independently retained off-instance storage, Docker replacement, or hosted evidence. The existing CI image gate is reported separately by exact SHA.
+
+Browser evidence, exact setup, roles, screen/saved expectations, failure/reset cases and the 10–15 minute script are in [PILOT-TEST-AND-DEMO.md](PILOT-TEST-AND-DEMO.md). Fresh owner bootstrap/sign-in and invited-account form checks are separate from prepared synthetic-account exercises. Private activation submission was previously rejected by automatic approval review and was not bypassed. No physical phone or uncoached staff sign-off is claimed.
+
+Completed local browser proof at source `54877ac`: prepared reception assignment, unpaid denial, acknowledged payment and exact retry, receipt, check-in/retry/checkout, 55-member pagination and permission/offline states. A **separate** prepared member passed 390×844 Billing/Pass, matching multi-invoice debt and denied staff-data requests. Fresh-owner production smoke passed; both local APIs (`http://localhost:8896` fresh gym and `http://localhost:8897` prepared fixture) report the exact source SHA after restart. [Browser evidence](evidence/browser-2026-09-23.json) records identities and [smoke output](evidence/browser-smoke-2026-09-23.log). This does not complete fresh private activation or the continuous human journey.
+
+### Strict readiness rubric
+
+Weights and denominator are unchanged. A partial or unexecuted row earns zero; previous API-only credit for a complete fresh browser journey is withdrawn. Optional exclusions receive no product-completion credit here.
+
+| Acceptance evidence | Demo weight | Demo earned | Pilot weight | Pilot earned | Reason |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Fresh empty gym, staff/member activation and normal sign-in | 15 | 0 | 15 | 0 | Private browser activation and human acceptance pending |
+| Enrollment → recorded payment → receipt → attendance persisted | 20 | 0 | 20 | 0 | API/prepared-fixture evidence does not complete fresh-account human journey |
+| Multiple invoices, partial payments/refunds, retries agree | 10 | 10 | 15 | 15 | Exact stored-ledger and multi-surface regressions; simulation denied |
+| Role/tenant privacy and revoked realtime access | 10 | 10 | 15 | 15 | REST and permission-filtered replay/live tests, independent review |
+| Effective cancellation/freeze/access and truthful renewal | 10 | 10 | 10 | 10 | Existing branch-date/access regressions retained |
+| Beyond-50 directory and complete desktop/phone journey | 10 | 0 | 5 | 0 | Full fresh critical journey and physical-phone acceptance incomplete |
+| Workout/offline/booking/waitlist handling | 5 | 0 | 5 | 0 | Excluded from staffed demonstration; no completed-feature credit |
+| Engineering gates and application boot | 10 | 10 | 5 | 5 | Typecheck, lint, 1,273 tests, production build and local production API/recovery boot passed |
+| Target-host persistence, replacement and off-instance recovery | 5 | 0 | 10 | 0 | Local evidence only; hosted work expressly blocked |
+| Operator guide, reset procedure and truthful demo | 5 | 5 | 0 | 0 | Updated manual guide; staff sign-off remains separate |
+| **Total / 100** | **100** | **45** | **100** | **45** | Hard blockers override percentages |
+
+### Separate decisions and next step
+
+- **Phase 2 closeout:** safety implementation and independent payment review delivered; complete fresh activation/human acceptance remains open.
+- **Phase 3 completion: INCOMPLETE.** Local rehearsal is executable and exercised. Hosted TLS/service identity, persistence/redeploy, independently retained restore, installed backup/retention/alert checks, actual-device and operator acceptance are blocked/pending.
+- **Supervised synthetic demonstration:** prepared-fixture technical walkthrough only, clearly labelled. **NO-GO for claiming the complete fresh staffed-gym demonstration** until private activation and an uncoached repetition succeed.
+- **Future real-member pilot: NO-GO.** Hosted recovery and human acceptance are hard blockers; safe account recovery and fiscal/GST receipt suitability also require operator decisions. Activation must not become a password-reset backdoor.
+
+The smallest next work is finishing the outstanding Phase 3 gates: approve a new isolated service/disk and recovery environment, off-instance archive, named backup/recovery owners and alert destination; then execute [the deployment runbook](deployment-stabilization.md) and human/device checklist. No spending is approved. Allow roughly 1–2 engineer days for hosted setup/recovery/alerts plus half a day with the operator, assuming accounts, budget, DNS/TLS and people are available; allow another 0.5–1 day for acceptance fixes. Account-recovery or fiscal requirements can add work and must be decided before a pilot. Do not merge main or start Phase 4 automatically.
+
+### Final verification entry
+
+Runtime/test/script source: `54877acf08ad99e966e8a17c18b9309d0acdf124` on `codex/production-hardening-p0`, normally pushed to [PR #15](https://github.com/amankeshri7542/Shark-Fitness-/pull/15). No merge to main. Subsequent handoff-only commits do not change this runtime artifact; the PR records the final candidate SHA and its exact push/PR CI results.
+
+Local final gates passed on Node 22.23.2 / pnpm 10.28.0: typecheck, lint, **1,273 tests across 99 files** (API 725, admin 264, member 29, domain 255), and production build. The seven refusal cases also pass against separate fresh synthetic databases in production mode and with `NODE_ENV` unset. An initial rerun omitted required production configuration, then used an unresolved temporary path; both stopped before collecting tests. The corrected runs supplied a verified path and valid production startup settings, without relaxing configuration guards.
+
+[Local verification manifest](evidence/phase23-local-verification.json) records source SHA, gate logs and SHA-256 identities of all 55 built assets. The first full suite's three failing date assumptions were independently reproduced and corrected without weakening business assertions; a later new UI-test TypeScript error was corrected before all final gates passed. Complete-diff whitespace and changed-file credential/conflict scans passed; no dependency or schema changes were introduced by this closeout.
+
+Recovery was exercised earlier in this working tree, before the reception catalogue/UI follow-up; its precise four runtime labels and archive identity remain in [recovery evidence](evidence/phase23-local-recovery.json). It must not be relabelled as hosted or final-image recovery. Source-commit CI reruns the populated recovery script against the committed source. Browser runtime labels and completed/pending checks are recorded in the demo guide. **No staging host or public deployment was created; no hosted release is running from this work.**
+
+Source commit **54877ac** passed both `verify` and `image` in [push CI](https://github.com/amankeshri7542/Shark-Fitness-/actions/runs/35773315871) and [PR CI](https://github.com/amankeshri7542/Shark-Fitness-/actions/runs/35773323761). These include populated recovery, production serving/browser smoke and a non-root runtime Docker image check on GitHub runners; they do not prove hosted persistence or off-instance storage. Final documentation-only head CI is recorded separately in the PR. See [resumable progress](PHASE-2-3-PROGRESS.md) for the final checkpoint. Historical release entries below identify earlier runs only.
 
 ## Scope and scoring fixed before implementation
 

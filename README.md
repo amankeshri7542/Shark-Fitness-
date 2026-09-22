@@ -1,5 +1,7 @@
 # Shark Fitness
 
+**23 September 2026:** the release scope is one staffed gym with reception-recorded, independently received payments. Simulated checkout is disabled. Local rehearsal evidence and incomplete hosted/human gates are tracked in [the stabilization report](shark-fitness/docs/STABILIZATION-2026-09-20.md) and [demo guide](shark-fitness/docs/PILOT-TEST-AND-DEMO.md). The historical feature inventory below is not a claim of PRD completion or real-member pilot approval.
+
 A high-performance gym management SaaS and member mobile platform engineered for multi-branch gym chains, independent clubs, and boutique fitness studios.
 
 ---

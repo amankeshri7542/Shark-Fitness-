@@ -1,5 +1,63 @@
 # Deployment and recovery evidence — 2026-09-20
 
+## Phase 3 local rehearsal — 2026-09-23
+
+**Phase 3 remains incomplete.** The user authorized local rehearsal only. Hosted deployment, durable off-instance recovery, alert delivery and physical-device/operator acceptance are **BLOCKED / pending** and receive no hosted-verification credit. Nothing was deployed, purchased, merged or changed in a live environment. This section supersedes earlier completion claims; older entries remain historical records.
+
+The tested candidate was the working tree based on `2a59a1fbda32fb8bd8f274adf49d34dbd1b1f5fd`. These are local API processes, not an immutable hosted release. `render.yaml` still selects `main`, names the existing demo service and requests a paid persistent disk; applying it is not an authorized staging deployment. Do not use it unchanged or merge `main` merely to make deployment convenient.
+
+Committed-source verification: `54877acf08ad99e966e8a17c18b9309d0acdf124` passed both verification/recovery and Docker image jobs in [push CI](https://github.com/amankeshri7542/Shark-Fitness-/actions/runs/35773315871) and [PR CI](https://github.com/amankeshri7542/Shark-Fitness-/actions/runs/35773323761). This is GitHub-runner container evidence, separate from the earlier local-process artifact below; no target host or off-instance archive was exercised.
+
+### Executed proof and its limits
+
+`pnpm db:backup:verify` now performs the following against unique temporary databases and OS-selected ports. It disables inherited external error reporting and checks a different exact `/ready.release` for each process, preventing an occupied port or older process from earning a pass.
+
+1. Migrate and explicitly seed an isolated synthetic corpus. Through the production API, record ₹100 cash, retry the same payment, refund ₹25 without entitlement reversal, and retry the refund. The result is one payment, one refund, ₹75 retained, and debt reduced by the ₹100 gross payment only. Seeder credentials are suppressed from evidence output.
+2. Save SHA-256 fingerprints of every row, ordered by identity, in 12 representative tables. Stop the API, restart against the same database, and compare exact records. Copy the API source into a separate application directory, replace the process, and compare again. The copied application shares installed dependencies: this is source/process replacement evidence, not a Docker image or hosted redeployment.
+3. Create a checksummed archive and sidecar in a separate retained directory; refuse corrupt artifacts, source overwrite and an unconfirmed occupied target. Backup and restored database files now start at mode `0600`, and newly created directories at `0700`, because the previous backup file was confirmed world-readable (`0644`). Existing operator directories are not modified.
+4. Add a post-backup sentinel, restore into another directory, delete the original synthetic database, migrate the restored copy and verify all fingerprints plus audit/stock append-only constraints. Boot the copied API against the restored database. Authenticated dashboard, invoice and receipt reads preserve payment/refund identities. All four processes report the expected release and `database/schema: ready`.
+
+The recovery corpus contains 41 synthetic members, 8 products, 39 memberships, 42 membership events, 107 invoices and invoice lines, 105 payments, 1 refund, 1,237 attendance rows, 7 tickets, 3 audit rows and 111 stock-ledger rows. It is separate from fresh-empty-gym browser acceptance and does not prove human activation. Counts accompany full record fingerprints; they do not substitute for identity or financial integrity.
+
+Measured commands (Node 22.23.2, pnpm 10.28.0):
+
+| Check | Result |
+| --- | --- |
+| `pnpm db:backup:verify` | PASS: restart, copied API replacement, checksum/overwrite/permissions guards, exact records, restored authenticated reads |
+| `node scripts/verify-deployment.mjs` | PASS: no implicit seed, no reseed, configured database is the backup source |
+| `pnpm exec eslint scripts/verify-backup-restore.mjs scripts/sqlite-backup.mjs scripts/verify-deployment.mjs --max-warnings=0` | PASS |
+| Docker runtime or hosted replacement | NOT RUN: Docker executable/daemon unavailable; no hosted work authorized |
+| Independent-host archive, scheduled backup delivery, alert receipt | NOT RUN: storage and destination unconfigured; separate local directories remain on this machine |
+| Physical phone and receptionist/owner acceptance | PENDING: browser viewport/API checks cannot substitute for human acceptance |
+
+Evidence: `/var/folders/y1/5qgpl44s7w5_6cx9hmsh969h0000gn/T/shark-recovery-proof-xxtXLo/evidence.json`. Log: `/tmp/shark-local-recovery-2026-09-23.log`. Retained archive: `/var/folders/y1/5qgpl44s7w5_6cx9hmsh969h0000gn/T/shark-retained-backup-XlDOP5/backup.db` and its `.manifest.json`. Recovery database: `/var/folders/y1/5qgpl44s7w5_6cx9hmsh969h0000gn/T/shark-restored-app-SkyK30/restored.db`. Archive: 10,190,848 bytes, SHA-256 `3ba361c26e2fe8f524379996f9e7d78a7258cd9ffee8295d766c46de6f2faf41`. Temporary folders can be removed by the operating system; these are retained local evidence, not durable backups. A rerun creates a new corpus/manifest and does not overwrite these artifacts.
+
+### Prepared operator procedure; not installed or executed remotely
+
+The proposed operating arrangement is one staging instance with one persistent SQLite volume, plus an independently owned archive and external monitor. Assign a named technical operator for restore/alerts and a gym owner as escalation contact before activating these controls.
+
+| Control | Concrete target and ownership | Evidence needed to close hosted gate |
+| --- | --- | --- |
+| Backup | Operator schedules the existing online backup hourly and before releases. Upload database **and** manifest independently; mark success only after remote checksum/read-back verification. Target RPO ≤1 hour. | Scheduler execution and remotely retrieved matching artifact/manifest; local success alone is insufficient. |
+| Retention/access | Retain 48 hourly, 30 daily and 12 monthly copies. Limit service credentials to upload; give recovery credentials and retention/deletion access to the owner or second operator. Require encrypted storage/transport. | Configured lifecycle/access rules and recovery-credential restore after instance replacement. |
+| Health | External `/ready` check every minute; alert after three consecutive failures, or immediately for a release mismatch after deployment. Include service, expected release, status and request time. | Safely interrupt staging and confirm failure/recovery notifications reach the operator. |
+| Errors | Configure existing HTTPS `SHARK_ERROR_REPORTING_ENDPOINT`; alert on unexpected errors and repeated 5xx responses. The reporter omits request bodies/cookies and redacts error/context fields. | A labelled synthetic staging error reaches the actual destination; remove the test condition afterwards. |
+| Backup failure | Alert immediately on backup/upload/checksum failure; independently alert after 90 minutes without a verified external copy. Target response ≤15 minutes and recovery ≤2 hours. | Deliberately fail a staging upload and exercise stale-backup monitoring; save delivery/acknowledgement. |
+| Recovery drill | Restore monthly into a separate instance with no real-member writes; compare exact ledger/attendance/audit identities, sign in and read receipt/balance. | Off-instance archive survives source loss; save authenticated reads and financial/audit reconciliation. |
+
+These are proposed requirements, not achieved service levels. No scheduler, retention rule, remote credential or alert subscription was installed. Hosted provider/cost selection, archive location, contacts, alert destination and approval remain operator decisions.
+
+To activate the hosted rehearsal later:
+
+1. Obtain approval for a **new isolated** staging service, disk/cost, recovery service and independent archive. Select the reviewed commit or immutable image digest explicitly; set `SHARK_RELEASE` to that identity. Keep the existing demo service/database untouched.
+2. Configure separate secrets, `NODE_ENV=production`, `SHARK_SEED_DEMO=false`, absolute persistent `SHARK_DB`, actual HTTPS `SHARK_PUBLIC_ORIGIN` / allowed origin, and validated proxy-hop count. Startup migrates that same database. Bootstrap the empty gym via stdin as documented below, keeping credentials outside logs/screenshots. Never run seed/reset on the service.
+3. Verify exact `/ready` release/schema state; app entrypoints, deep-route refresh and asset types; cookie/CSRF and realtime under HTTPS; member service-worker exclusion of admin/API/health/readiness. Complete the synthetic reception journey and save ledger/attendance/audit identities.
+4. Run `pnpm db:backup` with the service's configured `SHARK_DB`. Preserve database/manifest externally and verify the retrieved copy. Restart and replace the staging application on its retained volume; compare identities and authenticated reads.
+5. In a separate recovery instance, run `pnpm db:restore /absolute/archive/backup.db /absolute/recovery/shark.db` using the retrieved pair. Set `SHARK_DB` to recovery, run `pnpm db:migrate`, start the selected application and repeat authenticated identity, balance, refund and receipt checks. Do not use `--replace`. An archive on the original disk or an empty restored app does not pass.
+6. Install the schedule, access/retention rules and monitors above; safely test each actual destination. Save evidence and obtain operator/physical-device sign-off before changing the Phase 3 verdict.
+
+For rollback, stop staging writes, preserve a fresh external backup/manifest and record the failing release/schema. Reinstall the previous reviewed image against the existing database only after confirming backward-compatible schema. If compatibility is uncertain, restore the pre-release pair into a **new** path with the matching application, reconcile later writes, verify readiness/authenticated reads and obtain operator cutover approval. A path change is not migration: never silently start an empty database or restore over an active writer. Keep the failed instance/archive until verification completes.
+
 ## Final candidate recheck — 2026-09-22
 
 Rechecked the current working tree before the parent task's authorized commit/push. No commit, push, deployment, hosted write, or remote CI rerun was performed by this review.

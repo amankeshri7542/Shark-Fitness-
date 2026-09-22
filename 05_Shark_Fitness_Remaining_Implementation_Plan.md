@@ -1,6 +1,8 @@
 # Shark Fitness
 ## Remaining Implementation Plan
 
+**Acceptance correction — 23 September 2026:** the August inventory below is historical. Its “every module implemented” claim is withdrawn as a completion assessment: provider collection, safe waitlist reservation, full offline/device acceptance, account recovery, fiscal receipt requirements, hosted recovery and human acceptance remain deferred or unproven. The current assignment is Phase 2 safety closeout and a local Phase 3 rehearsal for one staffed gym, as recorded in [the stabilization report](shark-fitness/docs/STABILIZATION-2026-09-20.md). Scope exclusions are not completed PRD features.
+
 ## Document governance
 
 This document is subordinate to the four PRDs. Where it appears to relax a

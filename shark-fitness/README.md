@@ -1,5 +1,7 @@
 # Shark Fitness
 
+**Current acceptance scope (23 September 2026):** one staffed gym; manual verified settlement and reception attendance. Online checkout and demo provider callbacks are disabled. See [current evidence and gates](docs/STABILIZATION-2026-09-20.md), [local recovery/hosted blockers](docs/deployment-stabilization.md), and [the presentation guide](docs/PILOT-TEST-AND-DEMO.md). Historical module descriptions and test counts below do not establish complete PRD delivery or pilot readiness.
+
 A multi-tenant gym operating system: a member PWA and a staff operations console,
 built to the four PRDs in the parent directory.
 

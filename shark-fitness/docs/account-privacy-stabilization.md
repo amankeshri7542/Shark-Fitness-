@@ -1,5 +1,13 @@
 # Account access and realtime stabilization — 20 September 2026
 
+## Independent staff-feed review — 23 September 2026
+
+Member-channel separation alone did not complete realtime authorization. The independent reviewer traced live and replay delivery and reproduced private attendance/support payloads reaching unrelated trainers and accountants through branch feeds. Four role regressions failed before the fix.
+
+Staff feeds now deliver only permission-allowlisted topics and alert kinds, with empty payloads. The admin client uses these solely to invalidate permission-scoped REST queries; it does not need member IDs, safety categories, denial reasons or financial row data in the event. Unknown topics/kinds fail closed. Replay and live delivery share the same projector and recheck tenant/branch/session authority. Member-owned event payloads remain available; revocation still closes the connection. Seven real-socket regressions passed after the change, covering reception, trainer, accountant, manager, member isolation and revocation.
+
+This is evidence for the reviewed topic set, not permission to publish new topics without review. First-time activation remains distinct from account recovery: existing-password accounts cannot redeem activation as reset. Human/browser private activation and account-recovery policy acceptance remain pending for the real-member gate.
+
 ## Evidence before
 
 - Both sign-in screens submitted literal gym slug `shark`. Other operational gyms could sign in through the API, but could not choose their gym in either UI.
