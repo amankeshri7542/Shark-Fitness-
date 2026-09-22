@@ -1,9 +1,11 @@
+import { reconcileMembershipDates } from './membership-dates.js';
 import { and, desc, eq, gt, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { channels } from '@shark/contracts';
-import type { AccessDecision } from '@shark/contracts';
-import { DENIAL_COPY, decideAccess, occupancyLabel } from '@shark/domain';
+import type { AccessDecision, BranchState } from '@shark/contracts';
+import { DENIAL_COPY, branchTrades, decideAccess, occupancyLabel } from '@shark/domain';
 import { db, schema, transact } from '../db/client.js';
-import type { RequestContext } from '../lib/context.js';
+import { openWindow, policyValue } from '../lib/policy.js';
+import { branchScope, type RequestContext } from '../lib/context.js';
 import { audit } from '../lib/audit.js';
 import { emit } from '../lib/events.js';
 import { conflict, invalid, notFound, precondition } from '../lib/errors.js';
@@ -53,7 +55,7 @@ const CHECK_IN_REPLAY_WINDOW = 2 * 60_000;
  * the one refusal staff must never wave through — the fix is to open the app,
  * not to trust a screenshot (see `packages/domain/src/access.ts`).
  */
-const NON_OVERRIDABLE: readonly AccessDecision[] = ['denied_token_replayed'];
+const NON_OVERRIDABLE: readonly AccessDecision[] = ['denied_token_replayed', 'denied_branch_closed'];
 
 export function isOverridable(decision: string): boolean {
   return decision !== 'granted' && !NON_OVERRIDABLE.includes(decision as AccessDecision);
@@ -74,7 +76,7 @@ export function loadBranchInScope(
     .from(schema.branches)
     .where(and(eq(schema.branches.id, branchId), eq(schema.branches.tenantId, ctx.tenantId)))
     .get();
-  if (!branch || !ctx.branchIds.includes(branch.id)) throw notFound('That branch');
+  if (!branch || !branchScope(ctx).includes(branch.id)) throw notFound('That branch');
   return branch;
 }
 
@@ -87,7 +89,7 @@ export function loadCheckInInScope(
     .from(schema.checkIns)
     .where(and(eq(schema.checkIns.id, checkInId), eq(schema.checkIns.tenantId, ctx.tenantId)))
     .get();
-  if (!row || !ctx.branchIds.includes(row.branchId)) throw notFound('That check-in');
+  if (!row || !branchScope(ctx).includes(row.branchId)) throw notFound('That check-in');
   return row;
 }
 
@@ -217,6 +219,7 @@ function decideForDesk(
   atMs: number,
   opts: { ignoreAntiPassback?: boolean } = {},
 ): DeskDecision {
+  reconcileMembershipDates(member.id);
   const membership = db
     .select()
     .from(schema.memberships)
@@ -237,7 +240,7 @@ function decideForDesk(
       and(
         eq(schema.invoices.tenantId, tenantId),
         eq(schema.invoices.memberId, member.id),
-        sql`${schema.invoices.state} in ('open','partially_paid','overdue')`,
+        sql`${schema.invoices.voided} = 0 and ${schema.invoices.totalMinor} > ${schema.invoices.paidMinor}`,
       ),
     )
     .get();
@@ -269,20 +272,27 @@ function decideForDesk(
     .orderBy(desc(schema.checkIns.enteredAt))
     .get();
 
-  const policy = (db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId)).get()?.policy ??
-    {}) as Record<string, unknown>;
+  // Branch-resolved (PF-TEN-003), and the same values the door reads — a
+  // member let in at reception and refused at the turnstile is the kind of
+  // inconsistency nobody can explain at the desk.
+  const hours = openWindow(branch, atMs);
+  const graceAllowsEntry = policyValue(tenantId, branch.id, 'graceAllowsEntry', false);
+  const antiPassbackSeconds = policyValue(tenantId, branch.id, 'antiPassbackSeconds', 90);
 
   const outcome = decideAccess({
     membershipState: (membership?.state ?? 'expired') as 'active',
     permittedBranchIds: memberBranchIds(member),
     branchId: branch.id,
+    branchTrading: branchTrades(branch.state as BranchState),
     nowMinutes: localMinutes(atMs, branch.timezone),
-    opensMinutes: branch.opensMinutes,
-    closesMinutes: branch.closesMinutes,
+    // The day's own hours where the branch sets them, the branch's typical
+    // day otherwise, and a holiday closes the door outright (PF-TEN-002).
+    opensMinutes: hours.openMinutes,
+    closesMinutes: hours.closeMinutes,
     windowStartMin: membership?.productSnapshot.access.windowStartMin ?? null,
     windowEndMin: membership?.productSnapshot.access.windowEndMin ?? null,
     outstandingMinor: outstanding?.total ?? 0,
-    graceAllowsEntry: Boolean(policy.graceAllowsEntry),
+    graceAllowsEntry: Boolean(graceAllowsEntry),
     occupancy: inside,
     capacity: branch.capacity,
     // The desk is not presenting a token at all. Staff identity is the evidence,
@@ -291,7 +301,7 @@ function decideForDesk(
     tokenReplayed: false,
     secondsSinceLastCheckIn:
       opts.ignoreAntiPassback || !lastCheckIn ? null : Math.round((atMs - lastCheckIn.enteredAt) / 1000),
-    antiPassbackSeconds: Number(policy.antiPassbackSeconds ?? 90),
+    antiPassbackSeconds: Number(antiPassbackSeconds),
     alreadyInside: false,
   });
 

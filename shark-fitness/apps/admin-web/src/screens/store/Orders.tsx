@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { PosOrderDetail, PosOrderSummary } from '@shark/contracts';
-import { ApiError, api, idempotencyKey } from '../../lib/api';
+import { ApiError, api } from '../../lib/api';
 import {
   Button,
   Chip,
@@ -23,6 +23,7 @@ import {
 } from '../../ui/console';
 import { ConfirmDialog, Drawer } from '../../ui/overlay';
 import { Money, OrderStateChip, TENDER_LABEL, dateTime, money, time } from './shared';
+import { useIdempotentAttempt } from '../../lib/idempotent-attempt';
 
 /* ============================================================================
    Sales history, returns and voids (PF-POS-002).
@@ -200,18 +201,21 @@ function OrderDrawer({
     onChanged();
   };
 
+  const attempt = useIdempotentAttempt('pos-return', orderId);
   const refund = useMutation({
-    mutationFn: () =>
-      api<PosOrderDetail>(`/admin/store/orders/${orderId}/refund`, {
+    mutationFn: () => {
+      const payload = {
+        reason: reason.trim(),
+        lines: Object.entries(quantities)
+          .filter(([, q]) => q > 0)
+          .map(([lineId, quantity]) => ({ lineId, quantity })),
+      };
+      return api<PosOrderDetail>(`/admin/store/orders/${orderId}/refund`, {
         method: 'POST',
-        idempotencyKey: idempotencyKey('pos-return', orderId, JSON.stringify(quantities)),
-        body: {
-          reason: reason.trim(),
-          lines: Object.entries(quantities)
-            .filter(([, q]) => q > 0)
-            .map(([lineId, quantity]) => ({ lineId, quantity })),
-        },
-      }),
+        idempotencyKey: attempt.keyFor(payload),
+        body: payload,
+      });
+    },
     onSuccess: () => {
       // Only after the server says so. Until then nothing has been refunded.
       setReturning(false);

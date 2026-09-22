@@ -1,11 +1,9 @@
-import { useState } from 'react';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
-import { useAdmin } from '../lib/store';
+import { useAdmin, usePermission } from '../lib/store';
 import { Page } from '../ui/shell';
 import {
-  BulkBar,
   Button,
   Chip,
   EmptyState,
@@ -14,11 +12,15 @@ import {
   Label,
   Metric,
   Panel,
+  PermissionState,
   Seam,
+  Segmented,
   Skeleton,
   Toolbar,
   cx,
   type Tone,
+  Table,
+  TableScroll,
 } from '../ui/console';
 
 interface MemberRow {
@@ -55,7 +57,7 @@ interface MembersPayload {
   items: MemberRow[];
 }
 
-const LIFECYCLES = ['all', 'active', 'trial', 'frozen', 'grace', 'expired', 'former'] as const;
+const LIFECYCLES = ['all', 'engaged', 'active', 'trial', 'frozen', 'grace', 'expired', 'former'] as const;
 
 const STATE_TONE: Record<string, Tone> = {
   active: 'good',
@@ -68,31 +70,44 @@ const STATE_TONE: Record<string, Tone> = {
 };
 
 export default function MembersScreen() {
+  const canView = usePermission('member.view');
   const branchId = useAdmin((s) => s.activeBranchId);
-  const [search, setSearch] = useState('');
-  const [lifecycle, setLifecycle] = useState<string>('all');
-  const [risk, setRisk] = useState<'any' | 'high' | 'watch'>('any');
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const filters = useSearch({ from: '/console/members' });
+  const navigate = useNavigate({ from: '/members' });
+  const search = filters.q ?? '';
+  const lifecycle = filters.lifecycle ?? 'all';
+  const risk = filters.risk ?? 'any';
+  const offset = filters.offset ?? 0;
+
+  const setFilters = (next: Partial<typeof filters>): void => {
+    void navigate({
+      search: (current) => ({ ...current, offset: 0, ...next }),
+      replace: true,
+    });
+  };
 
   const params = new URLSearchParams();
+  params.set('offset', String(offset));
   if (search.trim()) params.set('q', search.trim());
   if (lifecycle !== 'all') params.set('lifecycle', lifecycle);
   if (risk !== 'any') params.set('risk', risk);
+  if (filters.joined) params.set('joined', filters.joined);
+  if (filters.expiring) params.set('expiring', String(filters.expiring));
 
   const { data, isLoading, error, refetch, isFetching } = useQuery({
-    queryKey: ['members', branchId, search, lifecycle, risk],
+    queryKey: ['members', branchId, search, lifecycle, risk, filters.joined, filters.expiring, offset],
     queryFn: () => api<MembersPayload>(`/admin/members?${params}`, { branchId }),
     placeholderData: keepPreviousData,
+    enabled: canView,
   });
 
-  const toggle = (id: string): void => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
+  if (!canView) {
+    return (
+      <Page title="Members">
+        <PermissionState what="Member records" />
+      </Page>
+    );
+  }
 
   if (isLoading) return <MembersSkeleton />;
 
@@ -129,14 +144,14 @@ export default function MembersScreen() {
           </div>
         </div>
         <div className="min-w-[150px] flex-1 px-3.5 py-3">
-          <Label>High risk</Label>
+            <Label>High risk on this page</Label>
           <div className="mt-1.5">
             <Metric value={atRisk} size="md" tone={atRisk > 0 ? 'warn' : 'default'} />
           </div>
         </div>
         {data.columns.balanceVisible ? (
           <div className="min-w-[150px] flex-1 px-3.5 py-3">
-            <Label>With a balance</Label>
+            <Label>With a balance on this page</Label>
             <div className="mt-1.5">
               <Metric value={owing} size="md" tone={owing > 0 ? 'bad' : 'default'} />
             </div>
@@ -149,77 +164,67 @@ export default function MembersScreen() {
           label="Search"
           placeholder="Name, member number, email or phone"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => setFilters({ q: e.target.value || undefined })}
           className="min-w-[260px]"
         />
 
-        <div className="flex flex-col gap-1">
+        {/* `Segmented`, not a hand-rolled row of bordered buttons. This screen
+            carried the console's only remaining copy of that shape, and it ate
+            seven tab stops where the shared control takes one and moves
+            between options with the arrow keys — plus it clipped its last two
+            filters off the side of a phone instead of scrolling. */}
+        <div className="flex min-w-0 flex-col gap-1">
           <Label>Lifecycle</Label>
-          <div className="flex">
-            {LIFECYCLES.map((l, i) => (
-              <button
-                key={l}
-                type="button"
-                onClick={() => setLifecycle(l)}
-                aria-pressed={lifecycle === l}
-                className={cx(
-                  'min-h-9 border border-line px-2.5 font-utility text-[10px] font-semibold uppercase tracking-[0.1em] transition-colors',
-                  i > 0 && '-ml-px',
-                  lifecycle === l ? 'z-10 border-sonar text-sonar' : 'text-foam-45 hover:text-foam',
-                )}
-              >
-                {l}
-              </button>
-            ))}
-          </div>
+          <Segmented
+            label="Lifecycle"
+            size="md"
+            value={lifecycle}
+            onChange={(value) => setFilters({ lifecycle: value })}
+            options={LIFECYCLES.map((value) => ({
+              value,
+              label: value === 'engaged' ? 'active + trial' : value,
+            }))}
+          />
         </div>
 
-        <div className="flex flex-col gap-1">
+        <div className="flex min-w-0 flex-col gap-1">
           <Label>Risk</Label>
-          <div className="flex">
-            {(['any', 'watch', 'high'] as const).map((r, i) => (
-              <button
-                key={r}
-                type="button"
-                onClick={() => setRisk(r)}
-                aria-pressed={risk === r}
-                className={cx(
-                  'min-h-9 border border-line px-2.5 font-utility text-[10px] font-semibold uppercase tracking-[0.1em] transition-colors',
-                  i > 0 && '-ml-px',
-                  risk === r ? 'z-10 border-sonar text-sonar' : 'text-foam-45 hover:text-foam',
-                )}
-              >
-                {r}
-              </button>
-            ))}
-          </div>
+          <Segmented
+            label="Risk"
+            size="md"
+            value={risk}
+            onChange={(value) => setFilters({ risk: value })}
+            options={[
+              { value: 'any', label: 'any' },
+              { value: 'watch', label: 'watch' },
+              { value: 'high', label: 'high' },
+            ]}
+          />
         </div>
-      </Toolbar>
 
-      {/* Bulk actions appear only after a selection (Design PRD §5.5). */}
-      <BulkBar count={selected.size} onClear={() => setSelected(new Set())}>
-        <Button variant="outline">Add tag</Button>
-        <Button variant="outline">Assign trainer</Button>
-        <Button variant="outline">Message</Button>
-        <Button variant="outline">Export</Button>
-      </BulkBar>
+        {filters.joined ? <Chip tone="accent">Joined this month</Chip> : null}
+        {filters.expiring ? <Chip tone="warn">Expiring in {filters.expiring} days</Chip> : null}
+        {filters.joined || filters.expiring ? (
+          <Button variant="outline" onClick={() => setFilters({ joined: undefined, expiring: undefined })}>
+            Clear drill-down
+          </Button>
+        ) : null}
+      </Toolbar>
 
       {data.items.length === 0 ? (
         <EmptyState
           title="No members match"
           body={
-            search || lifecycle !== 'all' || risk !== 'any'
+            search || lifecycle !== 'all' || risk !== 'any' || filters.joined || filters.expiring
               ? 'Nothing fits those filters. Widen them, or clear the search.'
               : 'This branch has no members yet. Convert a lead to get started.'
           }
           action={
-            search || lifecycle !== 'all' || risk !== 'any' ? (
+            search || lifecycle !== 'all' || risk !== 'any' || filters.joined || filters.expiring ? (
               <Button
                 variant="outline"
                 onClick={() => {
-                  setSearch('');
-                  setLifecycle('all');
-                  setRisk('any');
+                  void navigate({ search: () => ({ lifecycle: 'all', risk: 'any' }), replace: true });
                 }}
               >
                 Clear filters
@@ -232,12 +237,9 @@ export default function MembersScreen() {
           }
         />
       ) : (
-        <table className="console-table">
+        <TableScroll><Table>
           <thead>
             <tr>
-              <th className="w-8">
-                <span className="sr-only">Select</span>
-              </th>
               <th>Member</th>
               <th>Plan</th>
               <th>Last seen</th>
@@ -248,16 +250,7 @@ export default function MembersScreen() {
           </thead>
           <tbody>
             {data.items.map((m) => (
-              <tr key={m.id} data-selected={selected.has(m.id)}>
-                <td>
-                  <input
-                    type="checkbox"
-                    checked={selected.has(m.id)}
-                    onChange={() => toggle(m.id)}
-                    aria-label={`Select ${m.name}`}
-                    className="h-4 w-4 accent-[var(--sf-sonar)]"
-                  />
-                </td>
+              <tr key={m.id}>
                 <td>
                   <Link to="/members/$memberId" params={{ memberId: m.id }} className="flex items-center gap-2.5 hover:text-sonar">
                     <span className="grid h-7 w-7 flex-none place-items-center border border-line-strong font-utility text-[10px] font-semibold">
@@ -314,8 +307,18 @@ export default function MembersScreen() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table></TableScroll>
       )}
+
+      <nav aria-label="Member directory pages" className="flex items-center justify-between gap-3 border-t border-line p-3.5">
+        <Button variant="outline" disabled={isFetching || offset === 0}
+          onClick={() => setFilters({ offset: Math.max(0, offset - data.limit) })}>Previous page</Button>
+        <span className="text-[12px] text-foam-65">
+          {data.items.length ? data.offset + 1 : 0}–{data.offset + data.items.length} of {data.total}
+        </span>
+        <Button variant="outline" disabled={isFetching || offset + data.limit >= data.total}
+          onClick={() => setFilters({ offset: offset + data.limit })}>Next page</Button>
+      </nav>
 
       {!data.columns.balanceVisible ? (
         <Panel className="border-t border-line">

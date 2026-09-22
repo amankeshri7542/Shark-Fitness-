@@ -2,13 +2,10 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
+import { clientIp, rateLimit } from '../middleware/index.js';
+import { runtimeConfig, type ReaderConfig } from '../lib/config.js';
 import { AppError } from '../lib/errors.js';
 import { scanSignedPass } from '../services/access.js';
-
-interface ReaderConfig {
-  key: string;
-  branchSlugs: string[];
-}
 
 const ScanBody = z.object({
   token: z.string().min(20).max(4096),
@@ -20,12 +17,13 @@ export const doorRoutes = new Hono();
 /**
  * A door reader authenticates independently from the member. The browser app
  * never receives this credential. Configure production readers with:
- * SHARK_READER_KEYS_JSON='{"reader-1":{"key":"...","branchSlugs":["koramangala"]}}'
+ * SHARK_READER_KEYS_JSON='{"reader-1":{"key":"...","tenantSlug":"shark","branchSlugs":["koramangala"]}}'
  */
-doorRoutes.post('/scan', validate('json', ScanBody), (c) => {
+doorRoutes.post('/scan', rateLimit(120, 60_000, { bucket: 'door-scan' }), validate('json', ScanBody), (c) => {
   const readerId = c.req.header('x-reader-id')?.trim();
   const readerKey = c.req.header('x-reader-key') ?? '';
-  const reader = readerId ? readerConfig()[readerId] : undefined;
+  const configuredReaders = readerConfig();
+  const reader = readerId && Object.hasOwn(configuredReaders, readerId) ? configuredReaders[readerId] : undefined;
 
   if (!reader || !constantTimeKeyEqual(reader.key, readerKey)) {
     throw new AppError('UNAUTHENTICATED', 'Reader authentication failed.');
@@ -36,6 +34,7 @@ doorRoutes.post('/scan', validate('json', ScanBody), (c) => {
     scanSignedPass({
       rawToken: body.token,
       branchId: body.branchId,
+      allowedTenantSlug: reader.tenantSlug,
       allowedBranchSlugs: reader.branchSlugs,
       actor: {
         requestId: c.get('requestId') ?? 'unknown',
@@ -48,29 +47,13 @@ doorRoutes.post('/scan', validate('json', ScanBody), (c) => {
 });
 
 function readerConfig(): Record<string, ReaderConfig> {
-  const raw = process.env.SHARK_READER_KEYS_JSON?.trim();
-  if (raw) {
-    try {
-      const parsed = JSON.parse(raw) as Record<string, ReaderConfig>;
-      return Object.fromEntries(
-        Object.entries(parsed).filter(
-          ([, value]) =>
-            value &&
-            typeof value.key === 'string' &&
-            value.key.length >= 16 &&
-            Array.isArray(value.branchSlugs) &&
-            value.branchSlugs.every((slug) => typeof slug === 'string'),
-        ),
-      );
-    } catch {
-      throw new Error('SHARK_READER_KEYS_JSON must be valid JSON');
-    }
+  if (Object.keys(runtimeConfig.readerKeys).length > 0 || runtimeConfig.isProduction) {
+    return runtimeConfig.readerKeys;
   }
-
-  if (process.env.NODE_ENV === 'production') return {};
   return {
     'demo-reader': {
-      key: process.env.SHARK_DEMO_READER_KEY ?? 'demo-reader-secret-change-me',
+      key: runtimeConfig.demoReaderKey,
+      tenantSlug: '*',
       branchSlugs: ['*'],
     },
   };
@@ -80,8 +63,4 @@ function constantTimeKeyEqual(expected: string, supplied: string): boolean {
   const left = createHash('sha256').update(expected).digest();
   const right = createHash('sha256').update(supplied).digest();
   return timingSafeEqual(left, right);
-}
-
-function clientIp(c: { req: { header: (name: string) => string | undefined } }): string {
-  return c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ?? '127.0.0.1';
 }

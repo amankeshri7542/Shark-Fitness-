@@ -2,11 +2,12 @@ import { and, eq, gt, inArray, isNull, lt, ne, sql } from 'drizzle-orm';
 import type { Role } from '@shark/contracts';
 import { db, schema, transact } from '../db/client.js';
 import type { RequestContext } from '../lib/context.js';
-import { requireBranch } from '../lib/context.js';
+import { branchScope, requireBranch } from '../lib/context.js';
 import { audit } from '../lib/audit.js';
-import { conflict, invalid, notFound } from '../lib/errors.js';
+import { conflict, forbidden, invalid, notFound } from '../lib/errors.js';
 import { id, initialsOf, normalizeEmail, normalizePhone } from '../lib/ids.js';
 import { now } from '../lib/time.js';
+import { memberScopeCondition } from './members.js';
 
 /**
  * Staff directory, employment and availability (PF-STAFF).
@@ -59,9 +60,20 @@ function assertRoleGrant(ctx: RequestContext, currentRole: string, nextRole: str
   }
 }
 
+/** `staff.manage` is not authority over an equal or more privileged account.
+ * In particular, a regional manager must not be able to redirect an owner's
+ * OTP identity or disable the account while leaving its role unchanged. */
+function assertTargetManageable(ctx: RequestContext, targetRole: string): void {
+  if (ctx.role === 'owner' || ctx.role === 'platform_admin') return;
+  if (targetRole === 'owner' || targetRole === 'regional_manager') {
+    throw forbidden('Only an owner can manage an owner or regional manager account.');
+  }
+}
+
 function assertBranchesInScope(ctx: RequestContext, branchIds: string[]): void {
   if (branchIds.length === 0) throw invalid('A staff member needs at least one branch.');
-  if (!branchIds.every((branchId) => ctx.branchIds.includes(branchId))) {
+  const scope = branchScope(ctx);
+  if (!branchIds.every((branchId) => scope.includes(branchId))) {
     throw invalid('You cannot assign staff to a branch outside your own scope.');
   }
   const branches = db
@@ -86,12 +98,9 @@ export function loadStaffInScope(
     .from(schema.staff)
     .where(and(eq(schema.staff.id, staffId), eq(schema.staff.tenantId, ctx.tenantId)))
     .get();
-  if (!row || !row.branchIds.some((b) => ctx.branchIds.includes(b))) throw notFound('That staff member');
+  const scope = branchScope(ctx);
+  if (!row || !row.branchIds.some((b) => scope.includes(b))) throw notFound('That staff member');
   return row;
-}
-
-function scopeOf(ctx: { activeBranchId: string | null; branchIds: string[] }): string[] {
-  return ctx.activeBranchId ? [ctx.activeBranchId] : ctx.branchIds;
 }
 
 function assignedMemberCounts(tenantId: string, staffIds: string[]): Map<string, number> {
@@ -119,7 +128,7 @@ export interface StaffListQuery {
 
 export function listStaff(ctx: RequestContext, query: StaffListQuery) {
   if (query.branchId) requireBranch(ctx, query.branchId);
-  const scope = query.branchId ? [query.branchId] : scopeOf(ctx);
+  const scope = query.branchId ? [query.branchId] : branchScope(ctx);
   if (scope.length === 0) return {
     total: 0,
     page: Math.max(1, query.page ?? 1),
@@ -318,14 +327,11 @@ export function updateEmployment(ctx: RequestContext, staffId: string, patch: Em
     .get();
   if (!user) throw notFound('That staff member');
 
+  assertTargetManageable(ctx, user.role);
   const nextRole = patch.role ?? user.role;
   assertRoleGrant(ctx, user.role, nextRole);
-  if (patch.accountState === 'disabled' && user.id === ctx.userId) {
-    throw invalid('You cannot disable your own account.');
-  }
-
   const nextBranchIds = patch.branchIds ?? staff.branchIds;
-  assertBranchesInScope(ctx, nextBranchIds);
+  if (patch.branchIds) assertBranchesInScope(ctx, nextBranchIds);
   const nextEmail = patch.email === undefined ? user.email : normalizeEmail(patch.email);
   if (nextEmail && nextEmail !== user.email) {
     const duplicate = db
@@ -343,7 +349,19 @@ export function updateEmployment(ctx: RequestContext, staffId: string, patch: Em
     if (duplicate) throw conflict('Someone with that email already has an account.');
   }
 
-  const nextAccountState = patch.accountState ?? user.accountState;
+  const nextEmploymentStatus = patch.employmentStatus ?? staff.employmentStatus;
+  // A former employee cannot retain a live login. Restoring employment later
+  // remains an explicit two-part decision: employment and account state. A
+  // stronger retained state (legal hold, deletion request, anonymisation) is
+  // not erased by this roster transition.
+  const requestedAccountState = patch.accountState ?? user.accountState;
+  const nextAccountState = nextEmploymentStatus === 'former' &&
+      (requestedAccountState === 'active' || requestedAccountState === 'invited')
+    ? 'disabled'
+    : requestedAccountState;
+  if (nextAccountState === 'disabled' && user.id === ctx.userId) {
+    throw invalid('You cannot disable your own account.');
+  }
   assertCertificationDates(patch.certifications);
   const removingActiveOwner = user.role === 'owner' &&
     (nextRole !== 'owner' || nextAccountState !== 'active') &&
@@ -384,7 +402,7 @@ export function updateEmployment(ctx: RequestContext, staffId: string, patch: Em
 
     db.update(schema.staff)
       .set({
-        employmentStatus: patch.employmentStatus ?? staff.employmentStatus,
+        employmentStatus: nextEmploymentStatus,
         branchIds: nextBranchIds,
         specialties: patch.specialties ?? staff.specialties,
         certifications: patch.certifications ?? staff.certifications,
@@ -395,6 +413,19 @@ export function updateEmployment(ctx: RequestContext, staffId: string, patch: Em
       .where(and(eq(schema.staff.id, staffId), eq(schema.staff.tenantId, ctx.tenantId)))
       .run();
 
+    if (nextAccountState !== 'active') {
+      db.update(schema.sessions)
+        .set({ revokedAt: atMs })
+        .where(
+          and(
+            eq(schema.sessions.userId, user.id),
+            eq(schema.sessions.tenantId, ctx.tenantId),
+            isNull(schema.sessions.revokedAt),
+          ),
+        )
+        .run();
+    }
+
     audit(ctx, {
       action: 'staff.updated',
       entityType: 'staff',
@@ -402,7 +433,7 @@ export function updateEmployment(ctx: RequestContext, staffId: string, patch: Em
       branchId: staff.branchIds[0] ?? '',
       before,
       after: {
-        employmentStatus: patch.employmentStatus ?? staff.employmentStatus,
+        employmentStatus: nextEmploymentStatus,
         branchIds: nextBranchIds,
         commissionRules: patch.commissionRules ?? staff.commissionRules,
         hourlyRateMinor: patch.hourlyRateMinor !== undefined ? patch.hourlyRateMinor : staff.hourlyRateMinor,
@@ -434,7 +465,7 @@ export function listShifts(
 ) {
   if (query.branchId) requireBranch(ctx, query.branchId);
   if (query.staffId) loadStaffInScope(ctx, query.staffId);
-  const scope = query.branchId ? [query.branchId] : scopeOf(ctx);
+  const scope = query.branchId ? [query.branchId] : branchScope(ctx);
   if (scope.length === 0) return [];
 
   const filters = [
@@ -481,7 +512,7 @@ export function createShift(ctx: RequestContext, input: CreateShiftInput) {
   requireBranch(ctx, input.branchId);
   const staff = loadStaffInScope(ctx, input.staffId);
   if (!staff.branchIds.includes(input.branchId)) throw invalid('That staff member is not assigned to this branch.');
-  if (!ctx.branchIds.includes(input.branchId)) throw notFound('That branch');
+  if (!branchScope(ctx).includes(input.branchId)) throw notFound('That branch');
 
   // Half-open overlap against every other shift this person already holds,
   // regardless of branch — the same person cannot be rostered in two places.
@@ -542,7 +573,7 @@ export function updateShiftState(ctx: RequestContext, shiftId: string, patch: Sh
     .from(schema.shifts)
     .where(and(eq(schema.shifts.id, shiftId), eq(schema.shifts.tenantId, ctx.tenantId)))
     .get();
-  if (!shift || !ctx.branchIds.includes(shift.branchId)) throw notFound('That shift');
+  if (!shift || !branchScope(ctx).includes(shift.branchId)) throw notFound('That shift');
 
   if (patch.state === 'covered' && !patch.coveredByStaffId) {
     throw invalid('Covering a shift needs who is covering it.');
@@ -605,6 +636,7 @@ export function assignmentsForTrainer(ctx: { tenantId: string; branchIds: string
         eq(schema.assignments.trainerId, trainerId),
         eq(schema.assignments.state, 'active'),
         eq(schema.members.tenantId, ctx.tenantId),
+        memberScopeCondition(ctx),
         eq(schema.programs.tenantId, ctx.tenantId),
       ),
     )

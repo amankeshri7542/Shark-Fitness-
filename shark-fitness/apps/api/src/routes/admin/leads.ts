@@ -5,12 +5,13 @@ import { validate } from '../../middleware/validate.js';
 import { channels, LeadStage } from '@shark/contracts';
 import { db, schema, transact } from '../../db/client.js';
 import { ctxOf } from '../../middleware/index.js';
-import { requireBranch, requirePermission } from '../../lib/context.js';
+import { branchScope, requireBranch, requirePermission } from '../../lib/context.js';
 import { audit } from '../../lib/audit.js';
 import { emit } from '../../lib/events.js';
 import { AppError, conflict } from '../../lib/errors.js';
 import { id, initialsOf, normalizeEmail, normalizePhone } from '../../lib/ids.js';
-import { now } from '../../lib/time.js';
+import { isoDate, now } from '../../lib/time.js';
+import { branchTimeZone } from '../../lib/branch-time.js';
 import {
   LEAD_STAGE_TRANSITIONS,
   assertValidOwner,
@@ -45,7 +46,7 @@ leadsRoutes.get('/', validate('query', ListQuery), (c) => {
   requirePermission(ctx, 'lead.view');
   const q = c.req.valid('query');
 
-  const scope = ctx.activeBranchId ? [ctx.activeBranchId] : ctx.branchIds;
+  const scope = branchScope(ctx);
   const filters = [eq(schema.leads.tenantId, ctx.tenantId), inArray(schema.leads.branchId, scope)];
   if (q.stage) filters.push(eq(schema.leads.stage, q.stage));
   if (q.ownerId) filters.push(eq(schema.leads.ownerId, q.ownerId));
@@ -125,6 +126,7 @@ leadsRoutes.get('/owners', (c) => {
   const ctx = ctxOf(c);
   requirePermission(ctx, 'lead.view');
   const branchId = c.req.query('branchId');
+  const scope = branchScope(ctx, branchId);
 
   const rows = db
     .select({ id: schema.staff.id, name: schema.users.name, branchIds: schema.staff.branchIds })
@@ -139,7 +141,9 @@ leadsRoutes.get('/owners', (c) => {
     )
     .all();
 
-  const items = (branchId ? rows.filter((r) => r.branchIds.includes(branchId)) : rows).map((r) => ({ id: r.id, name: r.name }));
+  const items = rows
+    .filter((row) => row.branchIds.some((candidate) => scope.includes(candidate)))
+    .map((row) => ({ id: row.id, name: row.name }));
   return c.json({ items });
 });
 
@@ -465,10 +469,10 @@ leadsRoutes.post('/:leadId/convert', (c) => {
 
   const lead = loadLeadInScope(ctx, leadId);
   if (lead.convertedMemberId) throw conflict('This lead has already been converted.');
-  // The canonical pipeline only allows won as a side effect of this endpoint,
-  // and only from trial_completed — see LEAD_STAGE_TRANSITIONS.
-  if (lead.stage !== 'trial_completed') {
-    throw conflict(`This lead is in ${lead.stage.replace(/_/g, ' ')}. Move it to trial completed before converting.`);
+  // A qualified walk-in can enroll without claiming a trial happened.
+  // "Won" still requires this atomic conversion, never a bare stage change.
+  if (lead.stage !== 'qualified' && lead.stage !== 'trial_completed') {
+    throw conflict(`This lead is in ${lead.stage.replace(/_/g, ' ')}. Qualify the lead or complete its trial before converting.`);
   }
 
   // Block a duplicate person rather than let a unique-index collision surface
@@ -558,7 +562,7 @@ leadsRoutes.post('/:leadId/convert', (c) => {
         staffNotes: null,
         riskScore: null,
         riskReasons: null,
-        joinedOn: new Date(now()).toISOString().slice(0, 10),
+        joinedOn: isoDate(now(), branchTimeZone(ctx.tenantId, lead.branchId)),
         lastVisitAt: null,
         mergedIntoId: null,
         version: 1,

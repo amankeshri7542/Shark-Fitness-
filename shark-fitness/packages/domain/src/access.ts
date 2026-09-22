@@ -13,6 +13,8 @@ export interface AccessInput {
   membershipState: MembershipState;
   permittedBranchIds: string[];
   branchId: string;
+  /** Branch lifecycle permits new check-ins. */
+  branchTrading: boolean;
   /** Minutes past midnight, branch-local. */
   nowMinutes: number;
   opensMinutes: number;
@@ -47,6 +49,10 @@ export function decideAccess(i: AccessInput): AccessOutcome {
   // the app, not to wave a member through on a stale code.
   if (i.tokenReplayed) {
     return { decision: 'denied_token_replayed', granted: false, overridable: false };
+  }
+
+  if (!i.branchTrading) {
+    return { decision: 'denied_branch_closed', granted: false, overridable: false };
   }
 
   if (i.membershipState === 'suspended') {
@@ -96,6 +102,7 @@ export const DENIAL_COPY: Record<Exclude<AccessDecision, 'granted'>, string> = {
   denied_grace_outstanding:
     'There is an unpaid balance on your account. Settle it here or at reception to get back in.',
   denied_branch_not_permitted: 'Your plan does not include this branch yet.',
+  denied_branch_closed: 'This branch is closed right now. Check with your gym before travelling here.',
   denied_outside_hours: 'Your plan does not cover this time of day.',
   denied_capacity: 'The gym is at capacity right now. Try again shortly.',
   denied_suspended: 'Your access is on hold. Please speak to reception.',

@@ -204,8 +204,11 @@ export default function Register({
       void queryClient.invalidateQueries({ queryKey: ['store'] });
     },
     onError: (e) => {
-      if (e instanceof OfflineError) setError('No connection. Nothing was sold and nothing was charged.');
-      else setError(e instanceof ApiError ? e.message : 'The sale did not go through. Nothing was charged.');
+      // Not "nothing was charged" — from here that is unknowable, and the
+      // till is the worst place to state it wrongly.
+      if (e instanceof OfflineError)
+        setError('No connection. If the sale was recorded, retrying this same attempt will not record it twice.');
+      else setError(e instanceof ApiError ? e.message : 'The sale was not recorded.');
     },
   });
 
@@ -391,7 +394,7 @@ export default function Register({
               {basket.length === 0 ? (
                 <EmptyState
                   title="No sale in progress"
-                  body="Scan an item or pick one from the catalogue to start. Nothing is charged until you take payment."
+                  body="Scan an item or pick one from the catalogue to start. No sale is recorded until you complete payment."
                 />
               ) : (
                 <ul>
@@ -664,6 +667,10 @@ function TenderList({
         ) : null}
       </div>
 
+      <p className="border-t border-line-10 px-3 py-2 text-[11px] leading-relaxed text-foam-45">
+        Record the tender already taken at the desk. Card and UPI entries do not contact a payment provider.
+      </p>
+
       <ul>
         {tenders.map((tender, index) => (
           <li key={index} className="flex flex-wrap items-center gap-2 border-t border-line-10 px-3 py-2">
@@ -744,7 +751,7 @@ function Receipt({ detail, onNewSale }: { detail: PosOrderDetail; onNewSale: () 
           </Display>
         </div>
         <p className="mt-1 text-[13px] text-foam-80">
-          Receipt {detail.order.reference} · {money(detail.order.totalMinor)} taken.
+          Receipt {detail.order.reference} · {money(detail.order.totalMinor)} recorded.
         </p>
         {detail.order.invoiceId ? (
           <p className="mt-1 text-[12px] text-foam-65">

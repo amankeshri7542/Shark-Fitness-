@@ -1,8 +1,9 @@
+import { WAITLIST_AVAILABLE } from './booking.js';
 import { and, asc, eq, gt, inArray, lt, ne, sql } from 'drizzle-orm';
 import { channels } from '@shark/contracts';
 import { classifyCancellation, planPromotion, type WaitlistCandidate } from '@shark/domain';
 import { db, schema, transact } from '../db/client.js';
-import type { RequestContext } from '../lib/context.js';
+import { branchScope, type RequestContext } from '../lib/context.js';
 import { audit } from '../lib/audit.js';
 import { emit } from '../lib/events.js';
 import { conflict, invalid, notFound, precondition, staleVersion } from '../lib/errors.js';
@@ -10,6 +11,7 @@ import { id } from '../lib/ids.js';
 import { MINUTE, isoDate, localTime, now } from '../lib/time.js';
 import { LIVE_BOOKING_STATES, LIVE_WAITLIST_STATES, claimSeat, claimSeatOverride, runClaim, sessionById } from './booking.js';
 import { loadMemberInScope } from './members.js';
+import { branchTimeZone } from '../lib/branch-time.js';
 
 /**
  * Class operations from the console (PF-SCH, UX-A09).
@@ -61,7 +63,7 @@ export function loadSessionInScope(
     .from(schema.classSessions)
     .where(and(eq(schema.classSessions.id, sessionId), eq(schema.classSessions.tenantId, ctx.tenantId)))
     .get();
-  if (!session || !ctx.branchIds.includes(session.branchId)) throw notFound('That class');
+  if (!session || !branchScope(ctx).includes(session.branchId)) throw notFound('That class');
   return session;
 }
 
@@ -433,8 +435,7 @@ export function updateSession(ctx: RequestContext, sessionId: string, patch: Ses
   const moved = startsAt !== session.startsAt || endsAt !== session.endsAt;
   const roomChanged = roomId !== session.roomId;
 
-  const branch = db.select().from(schema.branches).where(eq(schema.branches.id, session.branchId)).get();
-  const tz = branch?.timezone ?? 'Asia/Kolkata';
+  const tz = branchTimeZone(ctx.tenantId, session.branchId);
 
   transact(() => {
     db.update(schema.classSessions)
@@ -625,7 +626,7 @@ export function cancelSessions(
             ),
           )
           .all()
-          .filter((row) => ctx.branchIds.includes(row.branchId))
+          .filter((row) => branchScope(ctx).includes(row.branchId))
       : [anchor];
 
   const result: CancelResult = { cancelled: [], bookingsReleased: 0, creditsReturned: 0, notified: 0 };
@@ -742,10 +743,9 @@ export function bookMemberOntoSession(
   const atMs = now();
   const member = loadMemberInScope(ctx, input.memberId);
   const session = sessionById(ctx.tenantId, input.sessionId);
-  if (!session || !ctx.branchIds.includes(session.branchId)) throw notFound('That class');
+  if (!session || !branchScope(ctx).includes(session.branchId)) throw notFound('That class');
 
-  const branch = db.select().from(schema.branches).where(eq(schema.branches.id, session.branchId)).get();
-  const tz = branch?.timezone ?? 'Asia/Kolkata';
+  const tz = branchTimeZone(ctx.tenantId, session.branchId);
   const today = isoDate(atMs, tz);
 
   return runClaim(() =>
@@ -775,7 +775,7 @@ export function bookMemberOntoSessionOverride(
   const atMs = now();
   const member = loadMemberInScope(ctx, input.memberId);
   const session = sessionById(ctx.tenantId, input.sessionId);
-  if (!session || !ctx.branchIds.includes(session.branchId)) throw notFound('That class');
+  if (!session || !branchScope(ctx).includes(session.branchId)) throw notFound('That class');
 
   return runClaim(() =>
     claimSeatOverride(ctx, {
@@ -873,6 +873,7 @@ export function promoteFromWaitlist(
   session: { id: string; branchId: string; creditsRequired: number },
   atMs: number,
 ): { memberId: string; offerExpiresAt: string } | null {
+  if (!WAITLIST_AVAILABLE) return null;
   const queue = db
     .select()
     .from(schema.waitlistEntries)

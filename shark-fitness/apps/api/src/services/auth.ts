@@ -1,7 +1,8 @@
-import { and, eq, gt, isNull, or, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { Role, Viewer } from '@shark/contracts';
-import { permissionsFor } from '@shark/domain';
+import { TENANT_STATUSES, containImpersonatedPermissions, permissionsFor, type TenantStatus } from '@shark/domain';
 import { db, schema } from '../db/client.js';
+import { runtimeConfig } from '../lib/config.js';
 import { hashPassword, hashToken, verifyPassword } from '../lib/crypto.js';
 import { id, initialsOf, normalizeEmail, normalizePhone, otpCode, token } from '../lib/ids.js';
 import { DAY, MINUTE, now } from '../lib/time.js';
@@ -11,7 +12,6 @@ import type { RequestContext } from '../lib/context.js';
 const OTP_TTL = 10 * MINUTE;
 const OTP_MAX_ATTEMPTS = 5;
 const SESSION_TTL = 30 * DAY;
-const ECHO_OTP = process.env.NODE_ENV !== 'production' && process.env.SHARK_ECHO_OTP === 'true';
 
 function maskIdentifier(value: string): string {
   if (value.includes('@')) {
@@ -21,42 +21,107 @@ function maskIdentifier(value: string): string {
   return `${'•'.repeat(Math.max(0, value.length - 4))}${value.slice(-4)}`;
 }
 
+/**
+ * The gym somebody is signing in to.
+ *
+ * Two corrections to what this used to do, both found by seeding a second
+ * tenant — with one tenant in the database neither could be observed.
+ *
+ * **A trial is a working product.** This matched only `status = 'active'`, so
+ * every customer on trial was locked out of the product they were evaluating.
+ * The status rules in `@shark/domain` already say which states are
+ * operational; this reads them rather than keeping a second opinion.
+ *
+ * **A suspended gym is told it is suspended.** "That gym could not be found"
+ * sends a member who typed their own gym's name correctly off to check their
+ * spelling. They are a legitimate user of a real gym that has been switched
+ * off, and the useful answer says so. The slug is already public — it is what
+ * they typed — so naming the state leaks nothing they could not infer.
+ */
 function tenantFor(slug?: string) {
   if (slug) {
-    const tenant = db
-      .select()
-      .from(schema.tenants)
-      .where(and(eq(schema.tenants.slug, slug), eq(schema.tenants.status, 'active')))
-      .get();
+    const tenant = db.select().from(schema.tenants).where(eq(schema.tenants.slug, slug)).get();
     if (!tenant) throw invalid('That gym could not be found.');
+    if (!TENANT_STATUSES[tenant.status as TenantStatus]?.operational) {
+      throw invalid(
+        tenant.status === 'suspended'
+          ? 'This gym is suspended. Its administrator can tell you more.'
+          : 'This gym is no longer active.',
+      );
+    }
     return tenant;
   }
 
-  const tenants = db.select().from(schema.tenants).where(eq(schema.tenants.status, 'active')).limit(2).all();
+  // Only customers, and only operational ones: the platform's own tenant is
+  // not a gym anybody signs in to by omission.
+  const tenants = db
+    .select()
+    .from(schema.tenants)
+    .where(and(eq(schema.tenants.kind, 'customer'), inArray(schema.tenants.status, OPERATIONAL_TENANT_STATUSES)))
+    .limit(2)
+    .all();
   if (tenants.length !== 1) throw invalid('Choose your gym before signing in.');
   return tenants[0]!;
 }
 
+export const OPERATIONAL_TENANT_STATUSES = (Object.keys(TENANT_STATUSES) as TenantStatus[]).filter(
+  (status) => TENANT_STATUSES[status].operational,
+);
+
+type AccountAccess = { accountState: string; deletedAt: number | null };
+type TenantAccess = { status: string };
+
+function isAuthenticatableAccount(account: AccountAccess): boolean {
+  return account.deletedAt === null && account.accountState === 'active';
+}
+
+function assertAuthenticatableAccount(account: AccountAccess | undefined): void {
+  if (!account || account.deletedAt !== null) throw unauthenticated();
+  if (account.accountState === 'disabled') {
+    throw new AppError('FORBIDDEN', 'This account has been disabled. Contact your gym.');
+  }
+  if (account.accountState === 'legal_hold') {
+    throw new AppError('LEGAL_HOLD', 'This account is locked pending a legal review.');
+  }
+  if (!isAuthenticatableAccount(account)) throw unauthenticated();
+}
+
+function isOperationalTenant(tenant: TenantAccess | undefined): boolean {
+  return Boolean(
+    tenant &&
+      tenant.status in TENANT_STATUSES &&
+      TENANT_STATUSES[tenant.status as TenantStatus].operational,
+  );
+}
+
+function tenantAccess(tenantId: string): TenantAccess | undefined {
+  return db
+    .select({ status: schema.tenants.status })
+    .from(schema.tenants)
+    .where(eq(schema.tenants.id, tenantId))
+    .get();
+}
+
+function assertOperationalTenant(tenantId: string): void {
+  if (!isOperationalTenant(tenantAccess(tenantId))) {
+    throw new AppError('FORBIDDEN', 'This gym is not accepting sign-ins right now.');
+  }
+}
+
 export function startOtp(args: { identifier: string; tenantSlug?: string; ip: string }) {
   const identifier = args.identifier.trim();
-  const emailN = normalizeEmail(identifier);
-  const phoneN = normalizePhone(identifier);
   const tenant = tenantFor(args.tenantSlug);
 
-  const user = db
-    .select()
-    .from(schema.users)
-    .where(
-      and(
-        eq(schema.users.tenantId, tenant.id),
-        isNull(schema.users.deletedAt),
-        or(
-          emailN ? eq(schema.users.email, emailN) : sql`0`,
-          phoneN ? sql`replace(replace(replace(${schema.users.phone}, ' ', ''), '-', ''), '+', '') like ${'%' + phoneN}` : sql`0`,
-        ),
-      ),
-    )
-    .get();
+  // Creating a challenge is not delivery. Until an email/SMS adapter actually
+  // submits the code, production must fail truthfully and leave no unusable
+  // challenge behind. Local development can opt into an explicit echo mode;
+  // that mode says exactly what happened and never calls the code "sent".
+  if (!runtimeConfig.echoOtp) {
+    throw new AppError(
+      'PROVIDER_UNAVAILABLE',
+      'No sign-in code provider is configured. Use password sign-in or ask your gym to enable email or SMS sign-in.',
+    );
+  }
 
   const recent = db
     .select({ n: sql<number>`count(*)` })
@@ -86,17 +151,12 @@ export function startOtp(args: { identifier: string; tenantSlug?: string; ip: st
     })
     .run();
 
-  if (!user) {
-    console.log(`[auth] OTP requested for unknown identifier ${maskIdentifier(identifier)}`);
-  } else if (ECHO_OTP) {
-    console.log(`[auth] development OTP for ${user.name} <${identifier}>: ${code}`);
-  }
-
   return {
+    delivery: 'development_echo' as const,
     challengeId,
-    sentTo: maskIdentifier(identifier),
+    destination: maskIdentifier(identifier),
     expiresInSec: Math.floor(OTP_TTL / 1000),
-    ...(ECHO_OTP && user ? { devCode: code } : {}),
+    devCode: code,
   };
 }
 
@@ -121,8 +181,10 @@ export function verifyOtp(args: { challengeId: string; code: string; ip: string;
     throw invalid('That code is not right. Check it and try again.');
   }
 
-  const emailN = normalizeEmail(challenge.identifier);
-  const phoneN = normalizePhone(challenge.identifier);
+  // An identifier has one meaning. Treating an email as a phone as well lets
+  // its incidental digits match the suffix of another user's phone number.
+  const emailN = challenge.identifier.includes('@') ? normalizeEmail(challenge.identifier) : null;
+  const phoneN = emailN ? null : normalizePhone(challenge.identifier);
   const user = db
     .select()
     .from(schema.users)
@@ -140,10 +202,24 @@ export function verifyOtp(args: { challengeId: string; code: string; ip: string;
 
   if (!user) throw invalid('That code is not right. Check it and try again.');
 
+  // The challenge may have been issued just before a platform suspension.
+  // Re-check at verification so it cannot mint a fresh long-lived session.
+  assertOperationalTenant(user.tenantId);
+
   db.update(schema.otpChallenges)
     .set({ consumedAt: now() })
     .where(eq(schema.otpChallenges.id, challenge.id))
     .run();
+
+  // A verified invitation proves ownership of the invited address. Promote it
+  // before the shared session boundary checks that only active accounts may
+  // receive a session.
+  if (user.accountState === 'invited') {
+    db.update(schema.users)
+      .set({ accountState: 'active', updatedAt: now() })
+      .where(and(eq(schema.users.id, user.id), eq(schema.users.accountState, 'invited')))
+      .run();
+  }
 
   return createSession(user.id, user.tenantId, args.ip, args.userAgent);
 }
@@ -175,12 +251,6 @@ export function signInWithPassword(args: {
   if (!user || !ok || !user.passwordHash) {
     throw new AppError('UNAUTHENTICATED', 'That email and password do not match.');
   }
-  if (user.accountState === 'disabled') {
-    throw new AppError('FORBIDDEN', 'This account has been disabled. Contact your gym.');
-  }
-  if (user.accountState === 'legal_hold') {
-    throw new AppError('LEGAL_HOLD', 'This account is locked pending a legal review.');
-  }
 
   return createSession(user.id, user.tenantId, args.ip, args.userAgent);
 }
@@ -192,6 +262,14 @@ export function createSession(
   userAgent: string,
   impersonatorId?: string,
 ) {
+  const account = db
+    .select({ accountState: schema.users.accountState, deletedAt: schema.users.deletedAt })
+    .from(schema.users)
+    .where(and(eq(schema.users.id, userId), eq(schema.users.tenantId, tenantId)))
+    .get();
+  assertAuthenticatableAccount(account);
+  assertOperationalTenant(tenantId);
+
   const raw = token();
   const sessionId = id('ses');
   db.insert(schema.sessions)
@@ -224,6 +302,12 @@ export function resolveSession(rawToken: string): RequestContext | null {
     .where(eq(schema.sessions.tokenHash, hashToken(rawToken)))
     .get();
 
+  return session ? resolveSessionById(session.id) : null;
+}
+
+export function resolveSessionById(sessionId: string): RequestContext | null {
+  const session = db.select().from(schema.sessions).where(eq(schema.sessions.id, sessionId)).get();
+
   if (!session || session.revokedAt || session.expiresAt < now()) return null;
   if (session.impersonationExpiresAt && session.impersonationExpiresAt < now()) return null;
 
@@ -232,7 +316,8 @@ export function resolveSession(rawToken: string): RequestContext | null {
     .from(schema.users)
     .where(and(eq(schema.users.id, session.userId), eq(schema.users.tenantId, session.tenantId)))
     .get();
-  if (!user || user.deletedAt) return null;
+  if (!user || !isAuthenticatableAccount(user)) return null;
+  if (!isOperationalTenant(tenantAccess(session.tenantId))) return null;
 
   if (now() - session.lastSeenAt > MINUTE) {
     db.update(schema.sessions).set({ lastSeenAt: now() }).where(eq(schema.sessions.id, session.id)).run();
@@ -279,8 +364,18 @@ export function resolveSession(rawToken: string): RequestContext | null {
     role: user.role as Role,
     name: user.name,
     branchIds: [...new Set(branchIds)],
-    activeBranchId: member?.homeBranchId ?? branchIds[0] ?? null,
-    permissions: permissionsFor(user.role as Role),
+    // No branch is selected until a client selects one. Seeding this with the
+    // caller's first permitted branch is what made the console's "All
+    // branches" cover exactly one of them; see `RequestContext.activeBranchId`.
+    activeBranchId: null,
+    // Support access is borrowed authority (PF-PLAT-004). An impersonated
+    // session carries the target's permissions and never the operator's, so
+    // platform capability is stripped from the session itself — not only
+    // refused at the door. The transport guard in `platformOnly` says no
+    // first; this makes a route that forgets the guard unreachable anyway.
+    permissions: session.impersonatorId
+      ? containImpersonatedPermissions(permissionsFor(user.role as Role))
+      : permissionsFor(user.role as Role),
     ip: session.ip,
     userAgent: session.userAgent,
     impersonatorId: session.impersonatorId,

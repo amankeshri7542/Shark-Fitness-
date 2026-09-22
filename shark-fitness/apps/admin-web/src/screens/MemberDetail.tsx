@@ -1,24 +1,13 @@
 import { useState } from 'react';
 import { Link, useParams } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError, api, idempotencyKey } from '../lib/api';
+import { ApiError, api } from '../lib/api';
 import { usePermission } from '../lib/store';
 import { Page } from '../ui/shell';
-import {
-  Bar,
-  Button,
-  Chip,
-  Display,
-  ErrorState,
-  Field,
-  Label,
-  Metric,
-  Panel,
-  Seam,
-  Skeleton,
-  cx,
-  type Tone,
-} from '../ui/console';
+import { Bar, Button, Checkbox, Chip, ErrorState, Field, Label, Metric, Panel, Seam, SelectField as ConsoleSelectField, Skeleton, Table, TableScroll, cx, type Tone } from '../ui/console';
+import { Modal } from '../ui/overlay';
+import { useIdempotentAttempt } from '../lib/idempotent-attempt';
+import { AccountActivation } from '../ui/AccountActivation';
 
 interface Detail {
   member: {
@@ -97,6 +86,7 @@ export default function MemberDetailScreen() {
   const { memberId } = useParams({ from: '/console/members/$memberId' });
   const queryClient = useQueryClient();
   const canManage = usePermission('membership.manage');
+  const canEdit = usePermission('member.edit');
   const canTraining = usePermission('training.assign');
   const [sheet, setSheet] = useState<Sheet>(null);
 
@@ -124,6 +114,8 @@ export default function MemberDetailScreen() {
   }
 
   const m = data.member;
+  const status = data.membership?.state === 'pending_payment' ? 'pending_payment'
+    : m.lifecycle === 'trial' && !data.membership ? 'awaiting_plan' : m.lifecycle;
 
   return (
     <Page
@@ -159,11 +151,12 @@ export default function MemberDetailScreen() {
       }
     >
       {/* Identity strip */}
+      {canEdit ? <AccountActivation key={memberId} memberId={memberId} /> : null}
       <Seam className="border-b border-line">
         <div className="min-w-[190px] flex-1 px-3.5 py-3">
           <Label>Status</Label>
           <div className="mt-1.5 flex items-center gap-2">
-            <Chip tone={STATE_TONE[m.lifecycle] ?? 'neutral'}>{m.lifecycle}</Chip>
+            <Chip tone={STATE_TONE[status] ?? 'neutral'}>{status.replace(/_/g, ' ')}</Chip>
             {data.membership ? <span className="text-[12px] text-foam-65">{data.membership.productName}</span> : null}
           </div>
           <p className="mt-1.5 text-[11px] text-foam-45">Joined {m.joinedOn}</p>
@@ -237,10 +230,10 @@ export default function MemberDetailScreen() {
                     <div className="mt-1 font-display text-[15px]">{data.membership.priceLabel}</div>
                   </div>
                   <div>
-                    <Label>Auto-renew</Label>
+                    <Label>Renewal</Label>
                     <div className="mt-1">
-                      <Chip tone={data.membership.autoRenew ? 'good' : 'warn'}>
-                        {data.membership.autoRenew ? 'on' : 'off'}
+                      <Chip tone="warn">
+                        Manual at reception
                       </Chip>
                     </div>
                   </div>
@@ -271,7 +264,7 @@ export default function MemberDetailScreen() {
             {data.workouts.length === 0 ? (
               <p className="px-3.5 py-3 text-[13px] text-foam-45">Nothing logged yet.</p>
             ) : (
-              <table className="console-table">
+              <TableScroll><Table>
                 <thead>
                   <tr>
                     <th>Session</th>
@@ -292,7 +285,7 @@ export default function MemberDetailScreen() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </Table></TableScroll>
             )}
           </Panel>
 
@@ -308,7 +301,7 @@ export default function MemberDetailScreen() {
               {data.billing.invoices.length === 0 ? (
                 <p className="px-3.5 py-3 text-[13px] text-foam-45">No invoices raised.</p>
               ) : (
-                <table className="console-table">
+                <TableScroll><Table>
                   <thead>
                     <tr>
                       <th>Number</th>
@@ -339,7 +332,7 @@ export default function MemberDetailScreen() {
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </Table></TableScroll>
               )}
             </Panel>
           ) : null}
@@ -545,23 +538,37 @@ function AssignTrainingSheet({ memberId, memberBranchName, currentTrainerId, has
     queryKey: ['training', 'programs', 'published'],
     queryFn: () => api<{ items: ProgramOption[] }>('/admin/training/programs?state=published'),
   });
+  const attempt = useIdempotentAttempt('training-assignment', memberId);
   const assign = useMutation({
     mutationFn: async () => {
       if (!trainerId) throw new Error('Choose a trainer before assigning a program.');
       if (!programId) throw new Error('Choose a published program.');
-      return api('/admin/training/assign-program', { method: 'POST', idempotencyKey: idempotencyKey('training-assignment', memberId, programId, startsOn), body: { memberId, programId, startsOn, trainerId, replaceActive } });
+      const payload = { memberId, programId, startsOn, trainerId, replaceActive };
+      return api('/admin/training/assign-program', { method: 'POST', idempotencyKey: attempt.keyFor(payload), body: payload });
     },
-    onSuccess: onDone,
+    onSuccess: () => {
+      attempt.retire();
+      onDone();
+    },
     onError: (reason) => setError(reason instanceof ApiError ? reason.message : reason instanceof Error ? reason.message : 'That program could not be assigned.'),
   });
 
   const branchTrainers = (trainers.data?.items ?? []).filter((trainer) => trainer.employmentStatus === 'active');
   const busy = assign.isPending;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-6" onClick={onClose} role="presentation">
-      <div className="w-[min(560px,100%)] border border-line-strong bg-overlay" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="Assign training program">
-        <header className="border-b border-line px-4 py-3"><Display size="sm" as="h2">Assign training program</Display><p className="mt-1 text-[12px] text-foam-45">Only active trainers visible to this branch can receive the member.</p></header>
-        <div className="flex flex-col gap-3.5 p-4">
+    <Modal
+      open
+      onClose={onClose}
+      title="Assign training program"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="cta" disabled={!trainerId || !programId || (hasActiveAssignment && !replaceActive)} pending={busy} pendingLabel="Assigning…" onClick={() => assign.mutate()}>Assign program</Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3.5 p-4">
+          <p className="text-[12px] text-foam-45">Only active trainers visible to this branch can receive the member.</p>
           {trainers.isLoading || programs.isLoading ? <Skeleton className="h-24" /> : null}
           {trainers.error || programs.error ? <Panel tone="bad"><p className="px-3 py-2.5 text-[12px]">Could not load trainers or published programs. Nothing has changed.</p></Panel> : null}
           {!trainers.isLoading && !programs.isLoading && !trainers.error && !programs.error ? <>
@@ -570,13 +577,11 @@ function AssignTrainingSheet({ memberId, memberBranchName, currentTrainerId, has
               <SelectField label="Published program" value={programId} onChange={setProgramId} options={[['', 'Choose program'], ...(programs.data?.items ?? []).map((program) => [program.id, `${program.name} · v${program.version}`] as [string, string])]} />
             </div>
             <Field label="Starts on" type="date" value={startsOn} onChange={(event) => setStartsOn(event.target.value)} />
-            {hasActiveAssignment ? <label className="flex items-start gap-2 border border-line-strong px-3 py-2.5 text-[12px]"><input type="checkbox" checked={replaceActive} onChange={(event) => setReplaceActive(event.target.checked)} className="mt-0.5 h-4 w-4 accent-[var(--sf-sonar)]" /><span><span className="block">Replace the current active plan</span><span className="text-foam-45">The old assignment is retained as replaced history.</span></span></label> : null}
+            {hasActiveAssignment ? <div className="border border-line-strong px-3 py-2.5"><Checkbox checked={replaceActive} onChange={(event) => setReplaceActive(event.target.checked)} label="Replace the current active plan" hint="The old assignment is retained as replaced history." /></div> : null}
           </> : null}
           {error ? <Panel tone="bad"><p className="px-3 py-2.5 text-[12px]">{error}</p></Panel> : null}
-        </div>
-        <footer className="flex justify-end gap-2 border-t border-line px-4 py-3"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="cta" disabled={busy || !trainerId || !programId || (hasActiveAssignment && !replaceActive)} onClick={() => assign.mutate()}>{busy ? 'Assigning…' : 'Assign program'}</Button></footer>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -610,17 +615,29 @@ function AssignPlanSheet({ memberId, onClose, onDone }: { memberId: string; onCl
   const publishedProducts = (products.data?.items ?? []).filter((p) => p.status === 'active');
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-6" onClick={onClose} role="presentation">
-      <div className="w-[min(480px,100%)] border border-line-strong bg-overlay" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Assign plan">
-        <header className="border-b border-line px-4 py-3">
-          <Display size="sm" as="h2">
-            Assign a plan
-          </Display>
-        </header>
-
-        <div className="flex flex-col gap-3.5 p-4">
+    <Modal
+      open
+      onClose={onClose}
+      title="Assign a plan"
+      width="w-[min(480px,100%)]"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="cta" size="md" disabled={!productId} pending={assign.isPending} pendingLabel="Assigning…" onClick={() => assign.mutate()}>
+            Assign plan
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3.5 p-4">
           {products.isLoading ? (
             <Skeleton className="h-24" />
+          ) : products.error ? (
+            <ErrorState title="Could not load plans"
+              body={products.error instanceof ApiError ? products.error.message : 'The API did not answer. Reconnect and retry; nothing has changed.'}
+              onRetry={() => void products.refetch()} />
           ) : publishedProducts.length === 0 ? (
             <Panel tone="warn">
               <p className="px-3 py-2.5 text-[12px] leading-relaxed">No published products yet. Publish one from Plans first.</p>
@@ -646,18 +663,8 @@ function AssignPlanSheet({ memberId, onClose, onDone }: { memberId: string; onCl
               <p className="px-3 py-2.5 text-[12px] leading-relaxed">{error}</p>
             </Panel>
           ) : null}
-        </div>
-
-        <footer className="flex justify-end gap-2 border-t border-line px-4 py-3">
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button variant="cta" size="md" disabled={!productId || assign.isPending} onClick={() => assign.mutate()}>
-            {assign.isPending ? 'Assigning…' : 'Assign plan'}
-          </Button>
-        </footer>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -693,21 +700,30 @@ function ActionSheet({ kind, detail, onClose, onDone }: {
     kind === 'freeze' ? (frozen ? 'Unfreeze this membership' : 'Freeze this membership') : 'Cancel this membership';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-6" onClick={onClose} role="presentation">
-      <div
-        className="w-[min(520px,100%)] border border-line-strong bg-overlay"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-      >
-        <header className="border-b border-line px-4 py-3">
-          <Display size="sm" as="h2">
-            {title}
-          </Display>
-        </header>
-
-        <div className="flex flex-col gap-3.5 p-4">
+    <Modal
+      open
+      onClose={onClose}
+      title={title}
+      width="w-[min(520px,100%)]"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Never mind
+          </Button>
+          <Button
+            variant={kind === 'cancel' ? 'danger' : 'cta'}
+            size="md"
+            disabled={reason.trim().length < 4}
+            pending={run.isPending}
+            pendingLabel="Working…"
+            onClick={() => run.mutate()}
+          >
+            {kind === 'cancel' ? 'Cancel membership' : frozen ? 'Unfreeze' : 'Freeze'}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3.5 p-4">
           {kind === 'freeze' && !frozen ? (
             <>
               <Field
@@ -736,20 +752,16 @@ function ActionSheet({ kind, detail, onClose, onDone }: {
                   {detail.membership?.cancellation.description}
                 </p>
               </Panel>
-              <label className="flex items-center gap-2.5 text-[13px]">
-                <input
-                  type="checkbox"
-                  checked={immediate}
-                  onChange={(e) => setImmediate(e.target.checked)}
-                  className="h-4 w-4 accent-[var(--sf-sonar)]"
-                />
-                Cancel immediately, waiving the {detail.membership?.cancellation.noticeDays}-day notice
-              </label>
-              <p className="text-[12px] leading-relaxed text-foam-45">
-                {immediate
-                  ? 'Access ends now. This cannot be undone — a new membership would have to be created.'
-                  : `Access continues through the notice period. The member keeps their bookings until then.`}
-              </p>
+              <Checkbox
+                checked={immediate}
+                onChange={(e) => setImmediate(e.target.checked)}
+                label={`Cancel immediately, waiving the ${detail.membership?.cancellation.noticeDays}-day notice`}
+                hint={
+                  immediate
+                    ? 'Access ends now. This cannot be undone — a new membership would have to be created.'
+                    : 'Access continues through the notice period. The member keeps their bookings until then.'
+                }
+              />
             </>
           ) : null}
 
@@ -766,23 +778,8 @@ function ActionSheet({ kind, detail, onClose, onDone }: {
               <p className="px-3 py-2.5 text-[12px] leading-relaxed">{error}</p>
             </Panel>
           ) : null}
-        </div>
-
-        <footer className="flex justify-end gap-2 border-t border-line px-4 py-3">
-          <Button variant="ghost" onClick={onClose}>
-            Never mind
-          </Button>
-          <Button
-            variant={kind === 'cancel' ? 'danger' : 'cta'}
-            size="md"
-            disabled={reason.trim().length < 4 || run.isPending}
-            onClick={() => run.mutate()}
-          >
-            {run.isPending ? 'Working…' : kind === 'cancel' ? 'Cancel membership' : frozen ? 'Unfreeze' : 'Freeze'}
-          </Button>
-        </footer>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -802,13 +799,16 @@ function DetailSkeleton() {
   );
 }
 
+/* Tuple-shaped call sites, the shared control underneath. This screen carried
+   its own label-and-select pair, which is how the gap under a label and the
+   height of a control came to differ from the rest of the console. */
 function SelectField({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: Array<[string, string]> }) {
   return (
-    <label className="flex flex-col gap-1">
-      <Label>{label}</Label>
-      <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} className="sf-field !min-h-9 !py-2 !text-[13px]">
-        {options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}
-      </select>
-    </label>
+    <ConsoleSelectField
+      label={label}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      options={options.map(([optionValue, optionLabel]) => ({ value: optionValue, label: optionLabel }))}
+    />
   );
 }

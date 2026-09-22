@@ -1,6 +1,8 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { authenticate, errorHandler, logger, memberOnly, requestId, staffOnly } from './middleware/index.js';
+import { runtimeConfig } from './lib/config.js';
+import { readinessCheck } from './lib/readiness.js';
+import { authenticate, errorHandler, logger, memberOnly, rateLimit, requestId, staffOnly } from './middleware/index.js';
 import { allowedOrigins, csrfProtection, securityHeaders } from './lib/security.js';
 
 import { authRoutes } from './routes/auth.js';
@@ -15,6 +17,9 @@ import { trainingRoutes as memberTrainingRoutes } from './routes/member/training
 import { progressRoutes } from './routes/member/progress.js';
 import { habitsRoutes } from './routes/member/habits.js';
 import { engagementRoutes } from './routes/member/engagement.js';
+import { adminEngagementRoutes } from './routes/admin/engagement.js';
+import { commissionRoutes } from './routes/admin/commission.js';
+import { privacyRoutes } from './routes/admin/privacy.js';
 import { messagesRoutes } from './routes/member/messages.js';
 import { billingRoutes as memberBillingRoutes } from './routes/member/billing.js';
 import { mediaRoutes } from './routes/member/media.js';
@@ -32,9 +37,24 @@ import { storeRoutes } from './routes/admin/store.js';
 import { facilityRoutes } from './routes/admin/facility.js';
 import { reportsRoutes } from './routes/admin/reports.js';
 import { settingsRoutes } from './routes/admin/settings.js';
+import { automationRoutes } from './routes/admin/automations.js';
+import { platformRoutes } from './routes/platform.js';
 import { supportRoutes } from './routes/admin/support.js';
 
 export const app = new Hono();
+export const PROTECTED_API_IP_MAX = 2_000;
+const protectedApiIpLimit = rateLimit(PROTECTED_API_IP_MAX, 60_000, {
+  identity: 'ip',
+  bucket: 'protected-api-edge',
+});
+const authenticatedTenantLimit = rateLimit(5_000, 60_000, {
+  identity: 'tenant',
+  bucket: 'authenticated-tenant-api',
+});
+const authenticatedApiLimit = rateLimit(600, 60_000, {
+  identity: 'actor',
+  bucket: 'authenticated-api',
+});
 
 app.use('*', requestId);
 app.use('*', logger);
@@ -68,16 +88,27 @@ app.notFound((c) =>
   ),
 );
 
-app.get('/health', (c) => c.json({ ok: true, at: new Date().toISOString() }));
+app.get('/health', (c) => c.json({ ok: true, status: 'alive', at: new Date().toISOString() }));
+app.get('/ready', (c) => {
+  const readiness = readinessCheck();
+  const body = {
+    ...readiness,
+    status: readiness.ok ? 'ready' : 'not_ready',
+    release: runtimeConfig.release,
+    configuration: 'ready' as const,
+    scheduler: runtimeConfig.disableJobs ? 'disabled' as const : 'enabled' as const,
+  };
+  return readiness.ok ? c.json(body) : c.json(body, 503);
+});
 
 app.route('/v1/auth', authStabilizationRoutes);
 app.route('/v1/auth', authRoutes);
 app.route('/v1/door', doorRoutes);
 
-app.use('/v1/me/*', authenticate);
+app.use('/v1/me/*', protectedApiIpLimit, authenticate, authenticatedTenantLimit, authenticatedApiLimit);
 app.route('/v1/me', meRoutes);
 
-app.use('/v1/member/*', authenticate, memberOnly);
+app.use('/v1/member/*', protectedApiIpLimit, authenticate, authenticatedTenantLimit, authenticatedApiLimit, memberOnly);
 app.route('/v1/member/home', homeRoutes);
 app.route('/v1/member/pass', passRoutes);
 app.route('/v1/member/schedule', memberScheduleRoutes);
@@ -89,7 +120,7 @@ app.route('/v1/member/messages', messagesRoutes);
 app.route('/v1/member/billing', memberBillingRoutes);
 app.route('/v1/member/media', mediaRoutes);
 
-app.use('/v1/admin/*', authenticate, staffOnly);
+app.use('/v1/admin/*', protectedApiIpLimit, authenticate, authenticatedTenantLimit, authenticatedApiLimit, staffOnly);
 app.route('/v1/admin/dashboard', dashboardRoutes);
 app.route('/v1/admin/members', membersRoutes);
 app.route('/v1/admin/leads', leadsRoutes);
@@ -98,9 +129,23 @@ app.route('/v1/admin/billing', adminBillingRoutes);
 app.route('/v1/admin/attendance', attendanceRoutes);
 app.route('/v1/admin/schedule', adminScheduleRoutes);
 app.route('/v1/admin/training', adminTrainingRoutes);
+// Before `/v1/admin/staff`: the staff detail route is `GET /:staffId`, which
+// would otherwise match `/commission` and answer "that member of staff was not
+// found" for every commission read.
+app.route('/v1/admin/staff/commission', commissionRoutes);
 app.route('/v1/admin/staff', staffRoutes);
 app.route('/v1/admin/store', storeRoutes);
 app.route('/v1/admin/facility', facilityRoutes);
 app.route('/v1/admin/reports', reportsRoutes);
 app.route('/v1/admin/settings', settingsRoutes);
 app.route('/v1/admin/support', supportRoutes);
+app.route('/v1/admin/automations', automationRoutes);
+app.route('/v1/admin/engagement', adminEngagementRoutes);
+app.route('/v1/admin/privacy', privacyRoutes);
+
+/* Platform administration (PF-PLAT). `staffOnly` is not enough here and is not
+   used: each route carries `platformOnly`, which refuses an impersonated
+   session before it refuses a wrong role. This is the only mount in the app
+   whose handlers read across tenants. */
+app.use('/v1/platform/*', protectedApiIpLimit, authenticate, authenticatedTenantLimit, authenticatedApiLimit);
+app.route('/v1/platform', platformRoutes);

@@ -15,6 +15,8 @@ import {
   Seam,
   Skeleton,
   cx,
+  Table,
+  TableScroll,
 } from '../ui/console';
 import { Page } from '../ui/shell';
 
@@ -177,7 +179,7 @@ export default function CommandCenterScreen() {
           {data.classes.length === 0 ? (
             <p className="p-4 text-[13px] text-foam-45">Nothing else scheduled today.</p>
           ) : (
-            <table className="console-table">
+            <TableScroll><Table>
               <thead>
                 <tr>
                   <th>Time</th>
@@ -220,7 +222,7 @@ export default function CommandCenterScreen() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </Table></TableScroll>
           )}
         </Panel>
 

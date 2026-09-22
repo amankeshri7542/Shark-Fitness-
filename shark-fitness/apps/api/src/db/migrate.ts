@@ -29,6 +29,36 @@ const extras = [
      WHEN NEW.booked < 0
      BEGIN SELECT RAISE(ABORT, 'NEGATIVE_BOOKED'); END`,
 
+  // One occurrence per series per branch-local date. This is what makes series
+  // generation idempotent: a second generator run, or two of them at once,
+  // loses at the index rather than producing a second Tuesday. Partial,
+  // because legacy sessions carry a free-text `series_id` and no
+  // `occurrence_date`, and NULLs must not collide with each other.
+  `CREATE UNIQUE INDEX IF NOT EXISTS class_sessions_series_occurrence_uq
+     ON class_sessions (series_id, occurrence_date)
+     WHERE series_id IS NOT NULL AND occurrence_date IS NOT NULL`,
+
+  // One commission accrual per source transaction per member of staff. The
+  // partial clause is what lets a correction exist: a compensating entry
+  // carries `correction_of_line_id` and is therefore outside the index, so a
+  // reversal can cite the same sale without colliding with it.
+  `CREATE UNIQUE INDEX IF NOT EXISTS commission_lines_source_uq
+     ON commission_lines (tenant_id, staff_id, kind, ref_type, ref_id)
+     WHERE correction_of_line_id IS NULL AND ref_id IS NOT NULL`,
+
+  // One row per dunning step per invoice. The sequence is resumable and the
+  // worker is re-entrant, so "schedule the next attempt" has to be safe to
+  // execute twice — this is what makes it so.
+  `CREATE UNIQUE INDEX IF NOT EXISTS dunning_attempt_uq
+     ON dunning_attempts (tenant_id, invoice_id, attempt)`,
+
+  // One send per automation per logical event, enforced by the database rather
+  // than by the service remembering to check (PF-COMM-004). Partial, so a
+  // failed run leaves the key free to retry and a dry run never consumes it.
+  `CREATE UNIQUE INDEX IF NOT EXISTS automation_runs_sent_uq
+     ON automation_runs (automation_id, event_key)
+     WHERE outcome = 'sent'`,
+
   // The audit log is append-only. Enforce it where it cannot be argued with.
   `CREATE TRIGGER IF NOT EXISTS audit_log_no_update
      BEFORE UPDATE ON audit_log
@@ -50,6 +80,10 @@ const extras = [
   // And the stock ledger — stock on hand is a sum, never a stored counter.
   `CREATE TRIGGER IF NOT EXISTS stock_ledger_no_update
      BEFORE UPDATE ON stock_ledger
+     BEGIN SELECT RAISE(ABORT, 'stock_ledger is append-only'); END`,
+
+  `CREATE TRIGGER IF NOT EXISTS stock_ledger_no_delete
+     BEFORE DELETE ON stock_ledger
      BEGIN SELECT RAISE(ABORT, 'stock_ledger is append-only'); END`,
 
   // And the ticket timeline — PF-SUP-006 asks for immutable records for

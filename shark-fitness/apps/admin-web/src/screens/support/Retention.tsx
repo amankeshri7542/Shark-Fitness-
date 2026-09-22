@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { AtRiskMember, InterventionAction, RetentionView } from '@shark/contracts';
-import { ApiError, api } from '../../lib/api';
+import { ApiError, OfflineError, api } from '../../lib/api';
 import { useIdempotentAttempt } from '../../lib/idempotent-attempt';
 import {
   Button,
@@ -306,7 +306,14 @@ function PlanIntervention({
       void queryClient.invalidateQueries({ queryKey: ['support'] });
       onSaved();
     },
-    onError: (e) => setError(e instanceof ApiError ? e.message : 'That did not save.'),
+    onError: (e) =>
+      setError(
+        e instanceof OfflineError
+          ? 'No connection. If it was assigned, pressing again will not assign it twice.'
+          : e instanceof ApiError
+            ? e.message
+            : 'That did not save.',
+      ),
   });
 
   return (

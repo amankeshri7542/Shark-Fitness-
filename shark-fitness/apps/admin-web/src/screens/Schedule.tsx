@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError, api, idempotencyKey } from '../lib/api';
+import { useNavigate, useSearch } from '@tanstack/react-router';
+import { ApiError, api } from '../lib/api';
 import { useBranchScope, usePermission } from '../lib/store';
 import { Page } from '../ui/shell';
 import {
@@ -16,9 +17,12 @@ import {
   Panel,
   PermissionState,
   Skeleton,
+  Tabs,
   Toolbar,
   cx,
 } from '../ui/console';
+import { useIdempotentAttempt } from '../lib/idempotent-attempt';
+import SeriesSurface from './schedule/Series';
 
 /**
  * Calendar and class operations — UX-A09.
@@ -109,7 +113,43 @@ const ROSTER_TONE: Record<string, 'neutral' | 'accent' | 'good' | 'warn' | 'bad'
   held: 'warn',
 };
 
+const SCHEDULE_TABS = [
+  { key: 'day', label: 'Day' },
+  { key: 'series', label: 'Recurring' },
+] as const;
+
+/**
+ * The screen shell, and the choice of surface.
+ *
+ * `DayGrid` is the original screen unchanged. `Recurring` is the rules behind
+ * it — kept a sibling rather than a panel inside the grid, because the two
+ * answer different questions: "what is on today" and "what is on every
+ * Tuesday", and a manager is only ever asking one of them.
+ */
 export default function ScheduleScreen() {
+  const { tab } = useSearch({ from: '/console/schedule' });
+  const navigate = useNavigate({ from: '/schedule' });
+
+  return (
+    <>
+      <Tabs
+        label="Schedule"
+        active={tab}
+        items={SCHEDULE_TABS.map((t) => ({ key: t.key, label: t.label }))}
+        onChange={(key) => void navigate({ search: () => ({ tab: key as 'day' | 'series' }), replace: true })}
+      />
+      {tab === 'series' ? (
+        <Page title="Schedule" kicker="Recurring classes">
+          <SeriesSurface />
+        </Page>
+      ) : (
+        <DayGrid />
+      )}
+    </>
+  );
+}
+
+function DayGrid() {
   const canView = usePermission('schedule.view');
   const canManage = usePermission('schedule.manage');
   const canBookOthers = usePermission('booking.manage_others');
@@ -189,18 +229,30 @@ export default function ScheduleScreen() {
     onError: fail,
   });
 
+  /* This endpoint takes its key in the body rather than the header, so the
+     fingerprint is the booking's identity — session, member, and whether a
+     drop-in charge was consented to — and the key it mints is then placed
+     inside the body that gets sent. */
+  const bookAttempt = useIdempotentAttempt('admin-book');
   const bookMember = useMutation({
-    mutationFn: (input: { sessionId: string; memberId: string; acceptDropInCharge?: boolean }) =>
-      api<{ replayed: boolean }>(`/admin/schedule/session/${input.sessionId}/book`, {
+    mutationFn: (input: { sessionId: string; memberId: string; acceptDropInCharge?: boolean }) => {
+      const identity = {
+        sessionId: input.sessionId,
+        memberId: input.memberId,
+        acceptDropInCharge: input.acceptDropInCharge ?? false,
+      };
+      return api<{ replayed: boolean }>(`/admin/schedule/session/${input.sessionId}/book`, {
         method: 'POST',
         body: {
           memberId: input.memberId,
-          idempotencyKey: idempotencyKey('admin-book', input.sessionId, input.memberId),
+          idempotencyKey: bookAttempt.keyFor(identity),
           acceptDropInCharge: input.acceptDropInCharge ?? false,
         },
         branchId,
-      }),
+      });
+    },
     onSuccess: (r) => {
+      bookAttempt.retire();
       setActionError(null);
       setPendingCharge(null);
       setNotice(r.replayed ? 'That member already had a seat.' : 'Seat booked.');
@@ -222,18 +274,22 @@ export default function ScheduleScreen() {
     },
   });
 
+  const overrideAttempt = useIdempotentAttempt('admin-book-override');
   const bookMemberOverride = useMutation({
-    mutationFn: (input: { sessionId: string; memberId: string; reason: string }) =>
-      api<{ replayed: boolean }>(`/admin/schedule/session/${input.sessionId}/book-override`, {
+    mutationFn: (input: { sessionId: string; memberId: string; reason: string }) => {
+      const identity = { sessionId: input.sessionId, memberId: input.memberId, reason: input.reason };
+      return api<{ replayed: boolean }>(`/admin/schedule/session/${input.sessionId}/book-override`, {
         method: 'POST',
         body: {
           memberId: input.memberId,
-          idempotencyKey: idempotencyKey('admin-book-override', input.sessionId, input.memberId),
+          idempotencyKey: overrideAttempt.keyFor(identity),
           reason: input.reason,
         },
         branchId,
-      }),
+      });
+    },
     onSuccess: (r) => {
+      overrideAttempt.retire();
       setActionError(null);
       setNotice(r.replayed ? 'That member already had a seat.' : 'Seat booked as an override.');
       setBookMemberId('');

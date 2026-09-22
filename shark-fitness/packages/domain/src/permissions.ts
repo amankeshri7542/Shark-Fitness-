@@ -30,6 +30,11 @@ export const PERMISSIONS = [
   'staff.view',
   'staff.manage',
   'staff.commission',
+  /** Separated from viewing on purpose: whoever calculates and reads a
+   *  commission run must not also be the person who signs it off. Owner and
+   *  platform admin hold it; a regional manager who can see the figures
+   *  deliberately cannot approve or pay them. */
+  'staff.commission.approve',
   'training.view',
   'training.assign',
   'training.program.manage',
@@ -159,6 +164,25 @@ export const ADMIN_NAV: NavModule[] = [
   { key: 'platform', label: 'Platform', to: '/platform', permission: 'platform.admin' },
 ];
 
+/** Roles that operate the product rather than use it. They have no gym. */
+const PLATFORM_ROLES: Role[] = ['platform_admin', 'platform_support'];
+
+/**
+ * The modules a role sees.
+ *
+ * Permission-driven, with one carve-out. A platform operator holds every
+ * permission — `platform_admin` is `ALL` — but their tenant contains no gym,
+ * so fifteen of the sixteen modules would open on an empty screen for a
+ * building that does not exist. They get the platform console and reach a
+ * customer's own modules by entering that customer's account, which is what
+ * support access is for and what the audit trail is written against.
+ *
+ * `platform_support` reaches the same console with less in it: they may find
+ * an account and enter it, and may not administer anybody.
+ */
 export function navFor(role: Role): NavModule[] {
+  if (PLATFORM_ROLES.includes(role)) {
+    return [{ key: 'platform', label: 'Platform', to: '/platform', permission: 'platform.impersonate' }];
+  }
   return ADMIN_NAV.filter((m) => can(role, m.permission));
 }

@@ -1,7 +1,7 @@
-import { and, asc, desc, eq, inArray, like, notInArray, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, like, notInArray, or, sql } from 'drizzle-orm';
 import { channels, type EquipmentStatus } from '@shark/contracts';
 import { db, schema, transact } from '../db/client.js';
-import { requireBranch, type RequestContext } from '../lib/context.js';
+import { branchScope, isAllBranches, requireBranch, type RequestContext } from '../lib/context.js';
 import { audit } from '../lib/audit.js';
 import { emit } from '../lib/events.js';
 import { forbidden, invalid, notFound } from '../lib/errors.js';
@@ -44,19 +44,45 @@ const MANAGEMENT_ROLES = ['owner', 'regional_manager', 'branch_manager', 'platfo
 
 /* ------------------------------------------------------------------ scope */
 
+/**
+ * Which branches a facility read covers.
+ *
+ * `branchScope` is the shared rule — no selection means every branch the
+ * caller may see. Facility keeps its own 404 for an unheld branch named in the
+ * query rather than the shared 403: an equipment filter names a branch the
+ * operator picked off their own list, and a "not found" is the honest answer
+ * for a board that does not exist for them.
+ */
 export function scopeFor(ctx: RequestContext, branchId?: string): string[] {
   if (branchId && !ctx.branchIds.includes(branchId)) throw notFound('That branch');
-  return branchId ? [branchId] : ctx.activeBranchId ? [ctx.activeBranchId] : ctx.branchIds;
+  return branchScope(ctx, branchId ?? null);
 }
 
 function assertActiveBranch(ctx: RequestContext, branchId: string): void {
   requireBranch(ctx, branchId);
+  if (!branchScope(ctx).includes(branchId)) throw invalid('Choose a branch in the current scope.');
   const branch = db
     .select({ id: schema.branches.id, state: schema.branches.state })
     .from(schema.branches)
     .where(and(eq(schema.branches.id, branchId), eq(schema.branches.tenantId, ctx.tenantId)))
     .get();
   if (!branch || branch.state === 'archived') throw invalid('Choose an active branch in this gym.');
+}
+
+function assertLinkedExercise(ctx: RequestContext, exerciseId: string | null | undefined): void {
+  if (!exerciseId) return;
+  const exercise = db
+    .select({ id: schema.exercises.id })
+    .from(schema.exercises)
+    .where(
+      and(
+        eq(schema.exercises.id, exerciseId),
+        or(isNull(schema.exercises.tenantId), eq(schema.exercises.tenantId, ctx.tenantId)),
+        eq(schema.exercises.archived, false),
+      ),
+    )
+    .get();
+  if (!exercise) throw invalid('Choose an active exercise from this gym\'s library.');
 }
 
 function canViewRestricted(ctx: RequestContext): boolean {
@@ -88,30 +114,33 @@ function isOverdue(date: string | null, atMs = now()): boolean {
 /* ------------------------------------------------------------------ loads */
 
 export function loadEquipmentInScope(ctx: RequestContext, equipmentId: string): EquipmentRow {
+  const scope = branchScope(ctx);
   const row = db
     .select()
     .from(schema.equipment)
-    .where(and(eq(schema.equipment.id, equipmentId), eq(schema.equipment.tenantId, ctx.tenantId), inArray(schema.equipment.branchId, ctx.branchIds)))
+    .where(and(eq(schema.equipment.id, equipmentId), eq(schema.equipment.tenantId, ctx.tenantId), inArray(schema.equipment.branchId, scope)))
     .get();
   if (!row) throw notFound('That equipment');
   return row;
 }
 
 export function loadWorkOrderInScope(ctx: RequestContext, workOrderId: string): WorkOrderRow {
+  const scope = branchScope(ctx);
   const row = db
     .select()
     .from(schema.workOrders)
-    .where(and(eq(schema.workOrders.id, workOrderId), eq(schema.workOrders.tenantId, ctx.tenantId), inArray(schema.workOrders.branchId, ctx.branchIds)))
+    .where(and(eq(schema.workOrders.id, workOrderId), eq(schema.workOrders.tenantId, ctx.tenantId), inArray(schema.workOrders.branchId, scope)))
     .get();
   if (!row) throw notFound('That work order');
   return row;
 }
 
 export function loadTaskInScope(ctx: RequestContext, taskId: string): FacilityTaskRow {
+  const scope = branchScope(ctx);
   const row = db
     .select()
     .from(schema.facilityTasks)
-    .where(and(eq(schema.facilityTasks.id, taskId), eq(schema.facilityTasks.tenantId, ctx.tenantId), inArray(schema.facilityTasks.branchId, ctx.branchIds)))
+    .where(and(eq(schema.facilityTasks.id, taskId), eq(schema.facilityTasks.tenantId, ctx.tenantId), inArray(schema.facilityTasks.branchId, scope)))
     .get();
   if (!row) throw notFound('That facility task');
   return row;
@@ -456,7 +485,7 @@ export function facilityView(ctx: RequestContext, query: FacilityListQuery) {
   const equipmentById = new Map(allEquipment.map((row) => [row.id, row]));
 
   return {
-    scope: { branchIds: scope, branchNames: scope.map((branchId) => branches.get(branchId) ?? branchId), allBranches: !ctx.activeBranchId && !query.branchId },
+    scope: { branchIds: scope, branchNames: scope.map((branchId) => branches.get(branchId) ?? branchId), allBranches: isAllBranches(ctx, query.branchId) },
     metrics: computeMetrics(allEquipment, allWorkOrders, allTasks),
     equipment: equipmentRows.map((row) => toEquipment(row, allWorkOrders, branches.get(row.branchId) ?? row.branchId)),
     workOrders: workOrderRows.map((row) => toWorkOrder(ctx, row, equipmentById, branches.get(row.branchId) ?? row.branchId, names)),
@@ -483,7 +512,13 @@ export function equipmentDetail(ctx: RequestContext, equipmentId: string) {
   const orders = db
     .select()
     .from(schema.workOrders)
-    .where(and(eq(schema.workOrders.tenantId, ctx.tenantId), eq(schema.workOrders.equipmentId, equipment.id), inArray(schema.workOrders.branchId, ctx.branchIds)))
+    .where(
+      and(
+        eq(schema.workOrders.tenantId, ctx.tenantId),
+        eq(schema.workOrders.equipmentId, equipment.id),
+        inArray(schema.workOrders.branchId, branchScope(ctx)),
+      ),
+    )
     .orderBy(desc(schema.workOrders.openedAt))
     .all();
   const names = staffNames(ctx, orders.map((row) => row.assigneeId).filter((value): value is string => Boolean(value)));
@@ -528,6 +563,7 @@ export interface CreateEquipmentInput {
 
 export function createEquipment(ctx: RequestContext, input: CreateEquipmentInput) {
   assertActiveBranch(ctx, input.branchId);
+  assertLinkedExercise(ctx, input.linkedExerciseId);
   const equipmentId = id('eqp');
   transact(() => {
     db.insert(schema.equipment)
@@ -592,6 +628,7 @@ function clearInvalidAssignees(ctx: RequestContext, orders: WorkOrderRow[], from
 export function updateEquipment(ctx: RequestContext, equipmentId: string, patch: EquipmentPatchInput) {
   const equipment = loadEquipmentInScope(ctx, equipmentId);
   if (patch.branchId) assertActiveBranch(ctx, patch.branchId);
+  if (patch.linkedExerciseId !== undefined) assertLinkedExercise(ctx, patch.linkedExerciseId);
   const nextBranchId = patch.branchId ?? equipment.branchId;
 
   // Lifting a safety hold is an explicit, authorised act — it may not ride in on
@@ -625,7 +662,7 @@ export function updateEquipment(ctx: RequestContext, equipmentId: string, patch:
     }
   });
 
-  const updated = db.select().from(schema.equipment).where(and(eq(schema.equipment.id, equipmentId), eq(schema.equipment.tenantId, ctx.tenantId), inArray(schema.equipment.branchId, ctx.branchIds))).get();
+  const updated = db.select().from(schema.equipment).where(and(eq(schema.equipment.id, equipmentId), eq(schema.equipment.tenantId, ctx.tenantId), inArray(schema.equipment.branchId, branchScope(ctx)))).get();
   if (!updated) throw notFound('That equipment');
   return { equipment: { id: updated.id, branchId: updated.branchId, status: updated.status, nextServiceDue: nextServiceDue(updated) }, movedWorkOrders, unassignedWorkOrders };
 }

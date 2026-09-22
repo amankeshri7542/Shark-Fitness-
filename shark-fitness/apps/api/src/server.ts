@@ -3,14 +3,23 @@ import { serveStatic } from '@hono/node-server/serve-static';
 import type { Context } from 'hono';
 import { readFile } from 'node:fs/promises';
 import { relative, resolve } from 'node:path';
-import { app } from './app.js';
-import { attachRealtime } from './realtime/hub.js';
-import { startScheduler } from './jobs/scheduler.js';
+import { runtimeConfig } from './lib/config.js';
+import { initializeErrorReporting } from './lib/error-reporting.js';
+import { log } from './lib/observability.js';
 
-if (process.env.SHARK_SERVE_STATIC === 'true') {
+// Configuration must fail before importing the application graph: those
+// modules open the database and register static/runtime integrations.
+const errorReportingProvider = initializeErrorReporting();
+const [{ app }, { attachRealtime }, { startScheduler }] = await Promise.all([
+  import('./app.js'),
+  import('./realtime/hub.js'),
+  import('./jobs/scheduler.js'),
+]);
+
+if (runtimeConfig.serveStatic) {
   const memberDist = resolve(import.meta.dirname, '../../member-pwa/dist');
   const adminDist = resolve(import.meta.dirname, '../../admin-web/dist');
-  const release = process.env.RENDER_GIT_COMMIT ?? process.env.GITHUB_SHA ?? 'local';
+  const release = runtimeConfig.release;
 
   // @hono/node-server 1.13.x does not support absolute serveStatic roots.
   // Resolve from this module for correctness, then convert back to a path
@@ -78,9 +87,13 @@ if (process.env.SHARK_SERVE_STATIC === 'true') {
   });
 }
 
-const port = Number(process.env.PORT ?? 8787);
-const server = serve({ fetch: app.fetch, port, hostname: '0.0.0.0' }, (info) => {
-  console.log(`[api] listening on 0.0.0.0:${info.port}`);
+const server = serve({ fetch: app.fetch, port: runtimeConfig.port, hostname: '0.0.0.0' }, (info) => {
+  log('info', 'api_listening', {
+    host: '0.0.0.0',
+    port: info.port,
+    errorReportingProvider,
+    jobs: runtimeConfig.disableJobs ? 'disabled' : 'enabled',
+  });
 });
 
 attachRealtime(server as unknown as import('node:http').Server);
@@ -88,7 +101,7 @@ startScheduler();
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
-    console.log(`\n[api] ${signal} — shutting down`);
+    log('info', 'api_shutdown_requested', { signal });
     server.close(() => process.exit(0));
   });
 }

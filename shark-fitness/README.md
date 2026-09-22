@@ -1,16 +1,18 @@
 # Shark Fitness
 
+**Current acceptance scope (23 September 2026):** one staffed gym; manual verified settlement and reception attendance. Online checkout and demo provider callbacks are disabled. See [current evidence and gates](docs/STABILIZATION-2026-09-20.md), [local recovery/hosted blockers](docs/deployment-stabilization.md), and [the presentation guide](docs/PILOT-TEST-AND-DEMO.md). Historical module descriptions and test counts below do not establish complete PRD delivery or pilot readiness.
+
 A multi-tenant gym operating system: a member PWA and a staff operations console,
 built to the four PRDs in the parent directory.
 
 ```
 apps/
-  api/            Hono + SQLite (D1-compatible) + Drizzle. 93 tables, migrations, seed.
+  api/            Hono + SQLite (D1-compatible) + Drizzle. 94 tables, migrations, seed.
   member-pwa/     React + Vite PWA, mobile-first, offline-capable.
   admin-web/      React + Vite operations console, desktop-first.
 packages/
   contracts/      Zod schemas, enums, error + event envelopes. One source of truth.
-  domain/         Pure business rules. 101 tests. No I/O, no framework.
+  domain/         Pure business rules. 252 tests. No I/O, no framework.
   design-tokens/  The Sonar design system + the copy register.
 infrastructure/
   migrations/     Generated SQL, checked in.
@@ -25,6 +27,7 @@ docs/
 ```bash
 pnpm install
 pnpm db:reset      # migrate + seed. Deterministic — same gym every time.
+pnpm db:backup:verify # isolated backup → mutate → restore proof
 pnpm dev           # api :8787 · member :5173 · admin :5174
 ```
 
@@ -57,14 +60,23 @@ reception and then as owner to see it.
 ```bash
 pnpm lint                   # ESLint across the workspace, --max-warnings=0
 pnpm typecheck              # all six packages, zero errors
-pnpm test                   # 572 tests: 130 domain, 253 API, 24 member, 165 console
+pnpm test                   # 1,215 tests: 252 domain, 681 API, 26 member, 256 console
 pnpm build                  # both apps
 ```
+
+Do not pipe `pnpm test` through `tail`. The four packages interleave and the
+tail shows one of them; a package can fail while the visible summary is green.
 
 A green suite is not a smoke test. On anything that touches money, also run the
 production single-origin server and work the screen by hand — the last two
 rounds of Store defects were both invisible to the suite and obvious in a
 browser within a minute. `docs/BUILD-PLAN.md` has the commands.
+
+And one width is not a browser pass. Work 1440×900, 1024×768, 768×1024 and
+375×812 in both themes, open a dialog, and press Escape. The phone layout put
+sign-out outside a clipping grid column with no scrollbar, and every dialog
+with an autofocused field returned focus to `<body>` instead of to the control
+that opened it — neither is visible from a desktop window.
 
 ## The parts worth knowing about
 
@@ -81,6 +93,22 @@ being written inside a handler, it is in the wrong place.
 and D1 have no row-level security, so every query filters on `tenantId` and every
 branch-scoped query checks `ctx.branchIds`. There is no code path that reads a business
 table without a tenant.
+
+**This is beta software.** The business logic and the authorisation model are
+production-grade and tested from the outside. The infrastructure around them is
+a demo — one SQLite file with no backup, one instance, `console.log`, and no way
+to take money. `docs/PRODUCTION-READINESS.md` says exactly what is missing and
+what each gap costs to close; read it before deploying this anywhere real.
+
+**Branch scope has one answer, and it lives in `branchScope(ctx, branchId?)`.**
+No branch named and none selected means *every branch the caller may see* —
+that is what the console's switcher means by "All branches", and a server-side
+default to the caller's first branch makes the label a lie. An `x-branch-id`
+outside the caller's entitlement is refused, never quietly narrowed to what
+they do hold. And a detail endpoint is scoped exactly as hard as its list
+endpoint: load through the module's `load*InScope` helper, which answers 404
+rather than 403, because a 403 confirms the record exists somewhere the caller
+may not look.
 
 **Append-only ledgers are enforced by triggers.** `audit_log`, `xp_ledger`,
 `stock_ledger` and `ticket_events` have `BEFORE UPDATE`/`BEFORE DELETE` triggers that

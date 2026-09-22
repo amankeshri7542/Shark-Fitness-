@@ -16,6 +16,8 @@ import {
   loadInvoiceInScope,
   type ApplyPaymentInput,
 } from './billing.js';
+import { stopDunning } from './dunning.js';
+import { branchTimeZone } from '../lib/branch-time.js';
 
 type MemberRow = typeof schema.members.$inferSelect;
 type ProductRow = typeof schema.products.$inferSelect;
@@ -42,7 +44,7 @@ export function validateMembershipProduct(member: MemberRow, product: ProductRow
   }
   if (rules.minAge !== null || rules.maxAge !== null) {
     if (!member.dob) throw invalid('Add the member’s date of birth before assigning this age-restricted plan.');
-    const today = new Date(`${isoDate(now(), 'Asia/Kolkata')}T00:00:00Z`);
+    const today = new Date(`${isoDate(now(), branchTimeZone(member.tenantId, member.homeBranchId))}T00:00:00Z`);
     const birth = new Date(`${member.dob}T00:00:00Z`);
     let age = today.getUTCFullYear() - birth.getUTCFullYear();
     const md = today.getUTCMonth() - birth.getUTCMonth();
@@ -126,7 +128,10 @@ function reverseMembership(
     .set({
       state: target,
       autoRenew: false,
-      cancelEffectiveOn: target === 'cancelled' ? isoDate(now(), 'Asia/Kolkata') : membership.cancelEffectiveOn,
+      cancelEffectiveOn:
+        target === 'cancelled'
+          ? isoDate(now(), branchTimeZone(ctx.tenantId, invoice.branchId))
+          : membership.cancelEffectiveOn,
       updatedAt: now(),
       version: membership.version + 1,
     })
@@ -217,7 +222,7 @@ export function voidInvoiceSafely(ctx: RequestContext, invoiceId: string, reason
         .set({
           state: 'cancelled',
           autoRenew: false,
-          cancelEffectiveOn: isoDate(now(), 'Asia/Kolkata'),
+          cancelEffectiveOn: isoDate(now(), branchTimeZone(ctx.tenantId, invoice.branchId)),
           updatedAt: now(),
           version: membership.version + 1,
         })
@@ -263,10 +268,9 @@ export function voidInvoiceSafely(ctx: RequestContext, invoiceId: string, reason
     .set({ voided: true, voidReason: reason, state: 'void', updatedAt: now() })
     .where(eq(schema.invoices.id, invoiceId))
     .run();
-  db.update(schema.dunningAttempts)
-    .set({ state: 'stopped', stopReason: 'invoice_voided' })
-    .where(and(eq(schema.dunningAttempts.tenantId, ctx.tenantId), eq(schema.dunningAttempts.invoiceId, invoiceId)))
-    .run();
+  // Through the shared helper so "stop chasing this" means the same thing
+  // whether the debt was paid, written off or voided.
+  stopDunning(ctx.tenantId, invoiceId, 'invoice_voided');
   audit(ctx, {
     action: 'invoice.voided',
     entityType: 'invoice',
@@ -307,7 +311,9 @@ export function createMembershipPurchase(input: {
   if (current) throw conflict('This member already has a plan. Cancel or let it expire before assigning a new one.');
 
   const membershipId = id('msh');
-  const startedOn = isoDate(now(), 'Asia/Kolkata');
+  // The gym that sold it decides the day it started.
+  const tz = branchTimeZone(ctx.tenantId, member.homeBranchId);
+  const startedOn = isoDate(now(), tz);
   db.insert(schema.memberships)
     .values({
       id: membershipId,
@@ -318,8 +324,9 @@ export function createMembershipPurchase(input: {
       productSnapshot: product as unknown as Product,
       state: 'pending_payment',
       startedOn,
-      endsOn: product.durationDays ? isoDate(now() + product.durationDays * DAY, 'Asia/Kolkata') : null,
-      autoRenew: product.cadence !== 'one_time',
+      endsOn: product.durationDays ? isoDate(now() + product.durationDays * DAY, tz) : null,
+      // Recurring collection is not enabled for the staffed-gym pilot.
+      autoRenew: false,
       priceMinor: product.priceMinor,
       currency: product.currency,
       freezeDaysUsed: 0,

@@ -39,3 +39,28 @@ describe('role permissions', () => {
     expect(navFor('owner').length).toBeGreaterThan(nav.length);
   });
 });
+
+describe('what a platform operator sees in the rail', () => {
+  it('gives a platform operator the platform console and nothing else', () => {
+    // They hold every permission — `platform_admin` is ALL — but their tenant
+    // has no gym, so fifteen of the sixteen modules would open on an empty
+    // screen for a building that does not exist.
+    for (const role of ['platform_admin', 'platform_support'] as const) {
+      expect(navFor(role).map((m) => m.key)).toEqual(['platform']);
+    }
+  });
+
+  it('still gives an owner their whole gym and never the platform', () => {
+    const keys = navFor('owner').map((m) => m.key);
+    expect(keys).toContain('members');
+    expect(keys).toContain('settings');
+    expect(keys).not.toContain('platform');
+  });
+
+  it('keeps reception to the desk’s job', () => {
+    const keys = navFor('reception').map((m) => m.key);
+    expect(keys).not.toContain('settings');
+    expect(keys).not.toContain('platform');
+    expect(keys).not.toContain('reports');
+  });
+});

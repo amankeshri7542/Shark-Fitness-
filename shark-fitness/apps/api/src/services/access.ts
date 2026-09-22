@@ -1,7 +1,9 @@
+import { reconcileMembershipDates } from './membership-dates.js';
 import { and, desc, eq, gt, isNull, sql } from 'drizzle-orm';
-import { channels } from '@shark/contracts';
-import { DENIAL_COPY, decideAccess, occupancyLabel } from '@shark/domain';
+import { channels, type BranchState } from '@shark/contracts';
+import { DENIAL_COPY, branchTrades, decideAccess, occupancyLabel } from '@shark/domain';
 import { db, schema, transact } from '../db/client.js';
+import { openWindow, policyValue } from '../lib/policy.js';
 import type { RequestContext } from '../lib/context.js';
 import { audit } from '../lib/audit.js';
 import { emit } from '../lib/events.js';
@@ -36,6 +38,7 @@ export function scanSignedPass(input: {
   rawToken: string;
   branchId: string;
   actor: ScanActor;
+  allowedTenantSlug?: string;
   allowedBranchSlugs?: string[];
 }): ScanResult {
   const verified = verifyPassToken(input.rawToken);
@@ -58,6 +61,19 @@ export function scanSignedPass(input: {
     .get();
   if (!branch) throw notFound('That branch');
 
+  const tenant = db
+    .select({ slug: schema.tenants.slug })
+    .from(schema.tenants)
+    .where(eq(schema.tenants.id, tenantId))
+    .get();
+  if (
+    input.allowedTenantSlug &&
+    input.allowedTenantSlug !== '*' &&
+    input.allowedTenantSlug !== tenant?.slug
+  ) {
+    return deniedToken('denied_branch_not_permitted');
+  }
+
   if (
     input.allowedBranchSlugs &&
     !input.allowedBranchSlugs.includes('*') &&
@@ -74,6 +90,7 @@ export function scanSignedPass(input: {
     .map((row) => row.branchId);
   const permittedBranchIds = [...new Set([member.homeBranchId, ...extraBranches])];
 
+  reconcileMembershipDates(memberId);
   const membership = db
     .select()
     .from(schema.memberships)
@@ -97,7 +114,7 @@ export function scanSignedPass(input: {
       and(
         eq(schema.invoices.tenantId, tenantId),
         eq(schema.invoices.memberId, memberId),
-        sql`${schema.invoices.state} in ('open','partially_paid','overdue')`,
+        sql`${schema.invoices.voided} = 0 and ${schema.invoices.totalMinor} > ${schema.invoices.paidMinor}`,
       ),
     )
     .get();
@@ -143,8 +160,11 @@ export function scanSignedPass(input: {
     .orderBy(desc(schema.checkIns.enteredAt))
     .get();
 
-  const policy = (db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId)).get()?.policy ??
-    {}) as Record<string, unknown>;
+  // Branch-resolved, not tenant-wide. Door hardware differs by site, and the
+  // settings screen lets a branch override both of these (PF-TEN-003).
+  const hours = openWindow(branch, now());
+  const graceAllowsEntry = policyValue(tenantId, branch.id, 'graceAllowsEntry', false);
+  const antiPassbackSeconds = policyValue(tenantId, branch.id, 'antiPassbackSeconds', 90);
 
   const alreadyUsed = Boolean(
     db
@@ -164,19 +184,22 @@ export function scanSignedPass(input: {
     membershipState: (membership?.state ?? 'expired') as 'active',
     permittedBranchIds,
     branchId: branch.id,
+    branchTrading: branchTrades(branch.state as BranchState),
     nowMinutes: localMinutes(now(), branch.timezone),
-    opensMinutes: branch.opensMinutes,
-    closesMinutes: branch.closesMinutes,
+    // The day's own hours where the branch sets them, the branch's typical
+    // day otherwise, and a holiday closes the door outright (PF-TEN-002).
+    opensMinutes: hours.openMinutes,
+    closesMinutes: hours.closeMinutes,
     windowStartMin: membership?.productSnapshot.access.windowStartMin ?? null,
     windowEndMin: membership?.productSnapshot.access.windowEndMin ?? null,
     outstandingMinor: outstanding?.total ?? 0,
-    graceAllowsEntry: Boolean(policy.graceAllowsEntry),
+    graceAllowsEntry: Boolean(graceAllowsEntry),
     occupancy: inside,
     capacity: branch.capacity,
     tokenValid: true,
     tokenReplayed: alreadyUsed,
     secondsSinceLastCheckIn: lastCheckIn ? Math.round((now() - lastCheckIn.enteredAt) / 1000) : null,
-    antiPassbackSeconds: Number(policy.antiPassbackSeconds ?? 90),
+    antiPassbackSeconds: Number(antiPassbackSeconds),
     alreadyInside: Boolean(openSession),
   });
 

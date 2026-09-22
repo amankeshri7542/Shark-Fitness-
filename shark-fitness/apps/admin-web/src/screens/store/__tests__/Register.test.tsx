@@ -14,8 +14,8 @@ vi.mock('../../../lib/api', async (importOriginal) => {
 import Register from '../Register';
 import { product, renderPanel } from './harness';
 
-/* The till is where money is taken, so these assert the arithmetic and the
-   conditions under which the button is allowed to be pressed at all. */
+/* The till records money taken at the desk, so these assert the arithmetic and
+   the conditions under which the button is allowed to be pressed at all. */
 
 /** What the server sends back for a one-line cash sale. */
 const soldResponse = {
@@ -53,6 +53,13 @@ function open(overrides: Partial<Parameters<typeof Register>[0]> = {}) {
 }
 
 describe('Register — mixed tender', () => {
+  it('states that card and UPI tenders are recorded, not externally charged', async () => {
+    const user = userEvent.setup();
+    open();
+    await user.click(screen.getByRole('button', { name: /Add Shark Tee — M/ }));
+    expect(screen.getByText(/Card and UPI entries do not contact a payment provider/)).toBeInTheDocument();
+  });
+
   it('prices a line the way the server does: tax on the discounted amount', async () => {
     const user = userEvent.setup();
     open();
@@ -284,8 +291,8 @@ describe('Register — the receipt', () => {
 
    The failure these guard against is the worst one a till has: the server
    commits the sale, the response is lost on the way back, the cashier sees an
-   error and presses the button again. Whether that charges the customer twice
-   is decided entirely by whether the second request carries the same
+   error and presses the button again. Whether that records the sale twice is
+   decided entirely by whether the second request carries the same
    `Idempotency-Key` as the first.
 
    It did not. The key was built inside `mutationFn`, and `idempotencyKey()`

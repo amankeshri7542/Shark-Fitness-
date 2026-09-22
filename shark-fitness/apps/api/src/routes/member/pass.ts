@@ -1,7 +1,8 @@
+import { reconcileMembershipDates } from '../../services/membership-dates.js';
 import { Hono } from 'hono';
 import { and, desc, eq, gt, isNull, sql } from 'drizzle-orm';
-import { channels } from '@shark/contracts';
-import { decideAccess, occupancyLabel } from '@shark/domain';
+import { channels, type BranchState } from '@shark/contracts';
+import { branchTrades, decideAccess, occupancyLabel } from '@shark/domain';
 import { db, schema } from '../../db/client.js';
 import { ctxOf } from '../../middleware/index.js';
 import { emit } from '../../lib/events.js';
@@ -38,6 +39,7 @@ function occupancyOf(tenantId: string, branchId: string) {
 passRoutes.get('/', (c) => {
   const ctx = ctxOf(c);
   const memberId = ctx.memberId!;
+  reconcileMembershipDates(memberId);
   const member = db
     .select()
     .from(schema.members)
@@ -73,7 +75,7 @@ passRoutes.get('/', (c) => {
       and(
         eq(schema.invoices.tenantId, ctx.tenantId),
         eq(schema.invoices.memberId, memberId),
-        sql`${schema.invoices.state} in ('open','partially_paid','overdue')`,
+        sql`${schema.invoices.voided} = 0 and ${schema.invoices.totalMinor} > ${schema.invoices.paidMinor}`,
       ),
     )
     .get();
@@ -141,6 +143,7 @@ passRoutes.get('/', (c) => {
         membershipState: membership.state as 'active',
         permittedBranchIds: ctx.branchIds,
         branchId,
+        branchTrading: branchTrades(branch.state as BranchState),
         nowMinutes: localMinutes(now(), tz),
         opensMinutes: branch.opensMinutes,
         closesMinutes: branch.closesMinutes,
@@ -189,6 +192,7 @@ passRoutes.get('/', (c) => {
 passRoutes.post('/check-out', (c) => {
   const ctx = ctxOf(c);
   const memberId = ctx.memberId!;
+  reconcileMembershipDates(memberId);
   const open = db
     .select()
     .from(schema.checkIns)

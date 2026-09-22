@@ -71,12 +71,21 @@ export const StartOtpInput = z.object({
 });
 export type StartOtpInput = z.infer<typeof StartOtpInput>;
 
-export const StartOtpResult = z.object({
-  challengeId: Id,
-  sentTo: z.string(),
-  expiresInSec: z.number().int(),
-  devCode: z.string().optional(),
-});
+export const StartOtpResult = z.discriminatedUnion('delivery', [
+  z.object({
+    delivery: z.literal('submitted'),
+    challengeId: Id,
+    destination: z.string(),
+    expiresInSec: z.number().int(),
+  }),
+  z.object({
+    delivery: z.literal('development_echo'),
+    challengeId: Id,
+    destination: z.string(),
+    expiresInSec: z.number().int(),
+    devCode: z.string().length(6),
+  }),
+]);
 export type StartOtpResult = z.infer<typeof StartOtpResult>;
 
 export const VerifyOtpInput = z.object({

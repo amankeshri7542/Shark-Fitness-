@@ -24,8 +24,10 @@ import { hashPassword } from '../lib/crypto.js';
 import { id, initialsOf, normalizeEmail, normalizePhone, referralCode, token } from '../lib/ids.js';
 import { DAY, HOUR, MINUTE, addDays, daysBetween, isoDate, startOfWeek } from '../lib/time.js';
 import { RESPONSE_MINUTES as SUPPORT_RESPONSE_MINUTES } from '../services/support.js';
+import { backfillRollups } from '../services/reports.js';
 import { EXERCISES } from './seed/exercises.js';
 import { makeRandom } from './seed/random.js';
+import { wipeSeedTables } from './seed-tables.js';
 import {
   ACHIEVEMENTS_SEED,
   CLASS_TYPES,
@@ -43,40 +45,7 @@ const TODAY = isoDate(NOW, TZ);
 
 /** Wipe in reverse dependency order so a reseed is clean. */
 function wipe(): void {
-  const tables = [
-    'media_progress', 'media_assets', 'live_sessions', 'usage_meters',
-    'ticket_events', 'interventions', 'feedback',
-    'messages', 'conversations', 'tickets',
-    'reactions', 'comments', 'content_reports', 'blocks', 'posts',
-    'challenge_participants', 'challenges', 'referrals', 'member_achievements', 'achievements',
-    'streaks', 'xp_ledger',
-    'weekly_check_ins', 'nutrition_targets', 'daily_metrics', 'habit_logs', 'habits',
-    'progress_photos', 'assessments', 'goals', 'measurements',
-    'adaptive_decisions', 'personal_records', 'workout_sets', 'workouts',
-    'assignment_overrides', 'assignments', 'program_items', 'program_days', 'programs', 'exercises',
-    'facility_tasks', 'work_orders', 'equipment',
-    'pos_payments', 'pos_order_lines', 'pos_orders',
-    'stock_transfer_lines', 'stock_transfers',
-    'stock_ledger', 'retail_products', 'retail_product_groups', 'suppliers',
-    'appointments', 'waitlist_entries', 'bookings', 'class_sessions', 'rooms', 'class_types',
-    'used_access_windows', 'check_ins', 'access_tokens',
-    'dunning_attempts', 'provider_events', 'refunds', 'payments', 'invoice_lines', 'invoices',
-    'commission_lines', 'commission_rates', 'shifts', 'staff', 'lead_activities', 'leads',
-    'credits', 'membership_events', 'memberships', 'products',
-    'member_branches', 'members',
-    'metric_rollups', 'automations', 'message_templates', 'notifications',
-    'idempotency_keys', 'outbox_events', 'audit_log', 'consents', 'otp_challenges', 'sessions', 'users',
-    'branches', 'tenants',
-  ];
-  sqlite.exec('PRAGMA foreign_keys = OFF');
-  for (const t of tables) {
-    try {
-      sqlite.exec(`DELETE FROM ${t}`);
-    } catch {
-      /* table may not exist on a partial schema */
-    }
-  }
-  sqlite.exec('PRAGMA foreign_keys = ON');
+  wipeSeedTables(sqlite);
 }
 
 console.log('seeding…');
@@ -125,6 +94,19 @@ db.insert(schema.tenants)
        *  consented to selling stock it does not have. */
       allowNegativeStock: false,
     },
+    /* PF-TEN-001. A gym raising invoices has a registration number on them. */
+    taxProfile: {
+      registrationNumber: '29AABCS1429B1ZQ',
+      label: 'GST',
+      defaultRateBp: 1800,
+      pricesIncludeTax: true,
+    },
+    dataProcessing: {
+      privacyContact: 'privacy@sharkfitness.in',
+      retentionDays: 1095,
+      consentVersion: '2026-01',
+      jurisdiction: 'India — DPDP Act 2023',
+    },
     createdAt: NOW - 900 * DAY,
     updatedAt: NOW,
   })
@@ -153,6 +135,26 @@ for (const b of BRANCHES) {
       amenities: ['Showers', 'Lockers', 'Parking', 'Cafe', b.id === 'br_ind' ? 'Pool' : 'Sauna'],
       holidays: ['2026-08-15', '2026-10-02'],
       phone: '+91 80 4000 1000',
+      email: `${b.slug}@sharkfitness.in`,
+      /* Real gyms do not keep one set of hours all week. Weekends open later
+         and shut earlier, and the door reads these rather than the typical-day
+         pair above (PF-TEN-002). Kept wider than any seeded class or check-in
+         so the demo shows per-day hours without denying anybody at the door. */
+      hours: {
+        mon: { open: 5 * 60, close: 23 * 60, closed: false },
+        tue: { open: 5 * 60, close: 23 * 60, closed: false },
+        wed: { open: 5 * 60, close: 23 * 60, closed: false },
+        thu: { open: 5 * 60, close: 23 * 60, closed: false },
+        fri: { open: 5 * 60, close: 23 * 60, closed: false },
+        sat: { open: 6 * 60, close: 22 * 60, closed: false },
+        sun: { open: 6 * 60, close: 22 * 60, closed: false },
+      },
+      /* One override, so the console's inheritance indicator has something
+         true to show: HSR is a small floor with a single turnstile, and a
+         90-second anti-passback window queues people out of the door. */
+      policy: b.id === 'br_hsr' ? { antiPassbackSeconds: 30 } : {},
+      stateChangedAt: NOW - 900 * DAY,
+      stateNote: 'Opened',
       createdAt: NOW - 900 * DAY,
       updatedAt: NOW,
     })
@@ -1446,6 +1448,20 @@ const DAILY_GRID = [
 
 const sessionsSeeded: Array<{ id: string; branchId: string; startsAt: number; capacity: number; name: string }> = [];
 
+/** The recurrence rules behind the grid below.
+ *
+ *  The grid was always a series in spirit — same class, same room, same coach,
+ *  same time, every day — but `class_sessions.series_id` was a free-text key
+ *  with no row behind it. Collected here as real `class_series` rows so the
+ *  demo data matches the model: every seeded occurrence carries the
+ *  `occurrence_date` the generator dedupes on, and re-running the generator
+ *  over seeded data is the no-op it should be rather than a duplicate
+ *  timetable.
+ *
+ *  Deliberately takes no `rng` draws — this seed is one deterministic stream
+ *  and an extra draw here would silently re-roll every later fixture. */
+const seriesSeeded = new Map<string, typeof schema.classSeries.$inferInsert>();
+
 for (let dayOffset = -7; dayOffset <= 14; dayOffset++) {
   const date = addDays(TODAY, dayOffset);
   for (const b of BRANCHES) {
@@ -1461,6 +1477,44 @@ for (let dayOffset = -7; dayOffset <= 14; dayOffset++) {
       // Branch-local time expressed as UTC (IST is +5:30).
       const startsAt = Date.parse(`${date}T${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00+05:30`);
       const sessionId = id('ses');
+      const seriesId = `series_${b.id}_${ct.name.replace(/\s+/g, '_')}_${slot.time}`;
+      if (!seriesSeeded.has(seriesId)) {
+        seriesSeeded.set(seriesId, {
+          id: seriesId,
+          tenantId,
+          branchId: b.id,
+          classTypeId: classTypeIds.get(ct.name)!,
+          roomId: room.id,
+          trainerId: slot.trainer.staffId,
+          frequency: 'weekly',
+          interval: 1,
+          // Every day of the week — the grid runs daily so the date strip is
+          // never empty.
+          weekdays: [0, 1, 2, 3, 4, 5, 6],
+          startDate: addDays(TODAY, -7),
+          // Ends where the seeded occurrences end, so the horizon job finds
+          // nothing to do rather than extending demo data behind your back.
+          endDate: addDays(TODAY, 14),
+          occurrenceCount: null,
+          startTime: `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`,
+          durationMin: ct.duration,
+          capacity: room.capacity,
+          creditsRequired: ['Deep Mobility', 'Reef Yoga', 'Cage Boxing'].includes(ct.name) ? 1 : 0,
+          dropInPriceMinor: ['Deep Mobility', 'Reef Yoga', 'Cage Boxing'].includes(ct.name) ? 35_000 : null,
+          lateCancelFeeMinor: 0,
+          waitlistEnabled: true,
+          bookingOpensMinBefore: 14 * 24 * 60,
+          cancelDeadlineMinBefore: 120,
+          notes: null,
+          state: 'active',
+          generatedThrough: addDays(TODAY, 14),
+          supersedesSeriesId: null,
+          supersededBySeriesId: null,
+          version: 1,
+          createdAt: NOW - 30 * DAY,
+          updatedAt: NOW,
+        });
+      }
 
       sessionsSeeded.push({ id: sessionId, branchId: b.id, startsAt, capacity: room.capacity, name: ct.name });
 
@@ -1472,7 +1526,8 @@ for (let dayOffset = -7; dayOffset <= 14; dayOffset++) {
           classTypeId: classTypeIds.get(ct.name)!,
           roomId: room.id,
           trainerId: slot.trainer.staffId,
-          seriesId: `series_${b.id}_${ct.name.replace(/\s+/g, '_')}_${slot.time}`,
+          seriesId,
+          occurrenceDate: date,
           startsAt,
           endsAt: startsAt + ct.duration * MINUTE,
           capacity: room.capacity,
@@ -1497,6 +1552,10 @@ for (let dayOffset = -7; dayOffset <= 14; dayOffset++) {
         .run();
     }
   }
+}
+
+for (const series of seriesSeeded.values()) {
+  db.insert(schema.classSeries).values(series).run();
 }
 
 /** Fill seats. One evening class is deliberately full with a waitlist. */
@@ -3606,94 +3665,14 @@ db.insert(schema.notifications)
   ])
   .run();
 
-db.insert(schema.automations)
-  .values([
-    {
-      id: id('aut'),
-      tenantId,
-      name: 'Welcome sequence',
-      trigger: 'member.joined',
-      description: 'Three messages over the first two weeks, then stop.',
-      conditions: [{ field: 'lifecycle', op: 'eq', value: 'active' }],
-      actions: [
-        { kind: 'message', templateCode: 'welcome_day0', delayMin: 0 },
-        { kind: 'message', templateCode: 'welcome_day3', delayMin: 4320 },
-        { kind: 'task', templateCode: null, delayMin: 20160 },
-      ],
-      quietHours: { from: '21:00', to: '08:00' },
-      state: 'active',
-      dryRun: false,
-      runsLast30: 12,
-      lastRunAt: NOW - 2 * DAY,
-      createdAt: NOW - 200 * DAY,
-      updatedAt: NOW - 30 * DAY,
-    },
-    {
-      id: id('aut'),
-      tenantId,
-      name: 'Quiet member check-in',
-      trigger: 'member.absent_14d',
-      description: 'One message from their own coach. Never automated twice.',
-      conditions: [
-        { field: 'riskBand', op: 'in', value: 'watch,high' },
-        { field: 'hasOpenComplaint', op: 'eq', value: 'false' },
-      ],
-      actions: [{ kind: 'task', templateCode: null, delayMin: 0 }],
-      quietHours: { from: '21:00', to: '08:00' },
-      state: 'active',
-      dryRun: false,
-      runsLast30: 7,
-      lastRunAt: NOW - 20 * HOUR,
-      createdAt: NOW - 120 * DAY,
-      updatedAt: NOW - 12 * DAY,
-    },
-    {
-      id: id('aut'),
-      tenantId,
-      name: 'Renewal reminder',
-      trigger: 'membership.expiring_14d',
-      description: 'Draft — not sending yet.',
-      conditions: [{ field: 'autoRenew', op: 'eq', value: 'false' }],
-      actions: [{ kind: 'message', templateCode: 'renewal_14d', delayMin: 0 }],
-      quietHours: { from: '21:00', to: '08:00' },
-      state: 'draft',
-      dryRun: true,
-      runsLast30: 0,
-      lastRunAt: null,
-      createdAt: NOW - 10 * DAY,
-      updatedAt: NOW - 10 * DAY,
-    },
-  ])
-  .run();
+/* The automations and templates that used to sit here were placeholders for a
+   screen that did not exist: triggers like `member.absent_14d`, action kinds
+   like `task`, a condition operator `in`, and fields such as `riskBand` — none
+   of which the engine built in Phase 12 has. They were rules that could never
+   run, which is precisely the failure `validateConditions` exists to catch, so
+   leaving them in the demo would have taught the wrong thing about the module.
+   The real ones are seeded further down, next to the consent they depend on. */
 
-db.insert(schema.messageTemplates)
-  .values([
-    {
-      id: id('tpl'), tenantId, code: 'welcome_day0', channel: 'email', version: 1, locale: 'en',
-      subject: 'Welcome to Shark Fitness, {{firstName}}',
-      body: 'Your membership is live. Your entry code lives in the app — open it at the door and you are in.',
-      variables: ['firstName'], updatedAt: NOW - 200 * DAY,
-    },
-    {
-      id: id('tpl'), tenantId, code: 'welcome_day3', channel: 'in_app', version: 1, locale: 'en',
-      subject: null,
-      body: 'Three days in. Want a coach to put a plan together? Reply here and we will sort it.',
-      variables: [], updatedAt: NOW - 200 * DAY,
-    },
-    {
-      id: id('tpl'), tenantId, code: 'payment_failed', channel: 'email', version: 2, locale: 'en',
-      subject: 'A payment did not go through',
-      body: 'Your payment of {{amount}} on {{date}} did not go through. You can settle it in the app or at reception. Your bookings are kept until {{graceEnds}}.',
-      variables: ['amount', 'date', 'graceEnds'], updatedAt: NOW - 60 * DAY,
-    },
-    {
-      id: id('tpl'), tenantId, code: 'renewal_14d', channel: 'email', version: 1, locale: 'en',
-      subject: 'Your membership ends on {{endsOn}}',
-      body: 'Nothing to do if you want to carry on — auto-renew is off, so it will simply end. Renew in the app whenever suits.',
-      variables: ['endsOn'], updatedAt: NOW - 10 * DAY,
-    },
-  ])
-  .run();
 
 /* ============================================================================
    Derived risk scores
@@ -3761,6 +3740,374 @@ const benchBest = Math.max(
   0,
 );
 
+/* Report rollups (PF-RPT-006).
+
+   `metric_rollups` shipped empty, so every chart in Reports opened blank on a
+   database full of history — which reads as "this gym did nothing for four
+   months" rather than "this table was never populated". Reports also
+   materialise any day they need on demand, so this is not what makes them
+   correct; it is what makes the demo honest on first load, and it exercises
+   the same code path the nightly job uses. */
+const rollupRows = backfillRollups(tenantId, 180);
+
+/* ============================================================================
+   Automations, templates and consent (PF-COMM)
+
+   Three automations in three different states, because the interesting thing
+   about this module is not that it sends — it is everything that stops it.
+   One live, one rehearsing, one paused.
+
+   Consent is recorded for most members and withheld by a few, so the run log
+   shows real suppressions rather than a clean sheet. A gym collects consent at
+   the desk when somebody joins; a demo where everybody agreed to everything
+   teaches the wrong thing about the feature.
+   ========================================================================= */
+
+const TEMPLATES = [
+  {
+    code: 'membership.expiring',
+    channel: 'sms',
+    subject: null,
+    body: 'Hi {{firstName}}, your {{productName}} at {{branchName}} ends on {{endsOn}} — {{daysLeft}} days away. Renew at the desk or in the app.',
+  },
+  {
+    code: 'payment.failed',
+    channel: 'sms',
+    subject: null,
+    body: 'Hi {{firstName}}, we could not take {{amountDue}} for invoice {{invoiceNumber}}. Update your card before {{graceEndsOn}} to keep training at {{branchName}}.',
+  },
+  {
+    code: 'member.welcome',
+    channel: 'in_app',
+    subject: 'Welcome to {{gymName}}',
+    body: 'Welcome {{firstName}}. You joined {{branchName}} on {{joinedOn}} — your first session is on us, just ask at the desk.',
+  },
+  {
+    code: 'member.winback',
+    channel: 'email',
+    subject: 'We have missed you at {{branchName}}',
+    body: 'Hi {{firstName}}, it has been {{daysSinceVisit}} days since your last session at {{branchName}}. Reply to this and we will find you a slot that works.',
+  },
+  {
+    code: 'class.reminder',
+    channel: 'in_app',
+    subject: 'Tomorrow: {{className}}',
+    body: '{{firstName}}, you are booked into {{className}} at {{branchName}}. See you there.',
+  },
+];
+
+const TEMPLATE_IDS = new Map<string, string>();
+for (const template of TEMPLATES) {
+  const templateId = id('tpl');
+  TEMPLATE_IDS.set(template.code, templateId);
+  db.insert(schema.messageTemplates)
+    .values({
+      id: templateId,
+      tenantId,
+      code: template.code,
+      channel: template.channel,
+      version: 1,
+      locale: 'en',
+      subject: template.subject,
+      body: template.body,
+      variables: [...template.body.matchAll(/\{\{\s*([a-zA-Z][a-zA-Z0-9_.]*)\s*\}\}/g)].map((m) => m[1]!),
+      updatedAt: NOW,
+    })
+    .run();
+}
+
+const AUTOMATIONS = [
+  {
+    name: 'Renewal nudge',
+    trigger: 'membership.expiring',
+    description: 'Texts members a week before their plan ends.',
+    conditions: [{ field: 'daysLeft', op: 'lte', value: '7' }],
+    actions: [{ kind: 'sms', templateCode: 'membership.expiring', templateId: TEMPLATE_IDS.get('membership.expiring')!, templateVersion: 1, delayMin: 0 }],
+    state: 'active',
+    dryRun: false,
+  },
+  {
+    name: 'Failed payment recovery',
+    trigger: 'membership.payment_failed',
+    description: 'Texts a member whose card was refused, while the grace period runs.',
+    conditions: [],
+    actions: [{ kind: 'sms', templateCode: 'payment.failed', templateId: TEMPLATE_IDS.get('payment.failed')!, templateVersion: 1, delayMin: 0 }],
+    state: 'active',
+    dryRun: true,
+  },
+  {
+    name: 'Win back the lapsed',
+    trigger: 'member.inactive',
+    description: 'Emails members who have not trained for three weeks. Paused while the copy is rewritten.',
+    conditions: [{ field: 'daysSinceVisit', op: 'gte', value: '21' }],
+    actions: [{ kind: 'email', templateCode: 'member.winback', templateId: TEMPLATE_IDS.get('member.winback')!, templateVersion: 1, delayMin: 0 }],
+    state: 'paused',
+    dryRun: true,
+  },
+];
+
+for (const automation of AUTOMATIONS) {
+  db.insert(schema.automations)
+    .values({
+      id: id('atm'),
+      tenantId,
+      name: automation.name,
+      trigger: automation.trigger,
+      description: automation.description,
+      conditions: automation.conditions,
+      actions: automation.actions,
+      branchIds: null,
+      quietHours: null,
+      state: automation.state,
+      dryRun: automation.dryRun,
+      runsLast30: 0,
+      lastRunAt: null,
+      createdAt: NOW - 60 * DAY,
+      updatedAt: NOW,
+    })
+    .run();
+}
+
+/* Consent, as a desk would have collected it. Roughly four in five agreed to
+   marketing; the rest are why the run log has suppressions in it.
+
+   Derived from the member's position rather than drawn from `rng`. The
+   generator is one shared deterministic stream, and taking extra draws here
+   shifts every later one — which silently re-rolls unrelated seeded data and
+   broke an attendance test that had nothing to do with consent. A block added
+   to the end of the seed should not be able to change the beginning of it. */
+const CONSENT_PATTERN: Record<string, (index: number) => boolean> = {
+  marketing_sms: (index) => index % 5 !== 0,
+  marketing_email: (index) => index % 7 !== 0,
+  marketing_whatsapp: (index) => index % 2 === 0,
+};
+
+membersSeeded.forEach((seeded, index) => {
+  if (!seeded.userId) return;
+  for (const [purpose, granted] of Object.entries(CONSENT_PATTERN)) {
+    db.insert(schema.consents)
+      .values({
+        id: id('cns'),
+        tenantId,
+        userId: seeded.userId,
+        purpose,
+        granted: granted(index),
+        version: '2026-01',
+        updatedAt: NOW - ((index * 13) % 300) * DAY,
+        ip: null,
+      })
+      .onConflictDoNothing()
+      .run();
+  }
+});
+
+console.log('  automations, templates and consent');
+
+/* ============================================================================
+   The platform operator, and a second gym
+
+   Two things the product could not be tested against before Phase 13.
+
+   **Platform staff are not a customer's users.** They are above every tenant,
+   but `users.tenant_id` is not nullable and should not become so — so they get
+   their own tenant, marked `kind: 'platform'`, which the customer list
+   excludes. Their tenant holds no gyms, so a platform account that wanders
+   into an ordinary admin screen correctly sees nothing.
+
+   **A second customer proves isolation is real.** Every tenant-scoped query in
+   this product filters on `tenantId`, and with one tenant in the database that
+   filter is untestable — every row belongs to the only tenant there is. Reef
+   Athletic exists so a cross-tenant read has something to fail to reach.
+   ========================================================================= */
+
+const PLATFORM_TENANT = 'ten_platform';
+
+db.insert(schema.tenants)
+  .values({
+    id: PLATFORM_TENANT,
+    slug: 'platform',
+    kind: 'platform',
+    legalName: 'Shark Platform Operations',
+    displayName: 'Shark Platform',
+    plan: 'enterprise',
+    locale: 'en-IN',
+    currency: 'INR',
+    timezone: TZ,
+    unitSystem: 'metric',
+    status: 'active',
+    featureFlags: {},
+    quotas: {},
+    branding: {},
+    policy: {},
+    taxProfile: null,
+    dataProcessing: null,
+    createdAt: NOW - 1200 * DAY,
+    updatedAt: NOW,
+  })
+  .run();
+
+for (const operator of [
+  { name: 'Ira Sundaram', role: 'platform_admin', email: 'platform@sharkfitness.io' },
+  { name: 'Noel D’Souza', role: 'platform_support', email: 'support@sharkfitness.io' },
+]) {
+  db.insert(schema.users)
+    .values({
+      id: id('usr'),
+      tenantId: PLATFORM_TENANT,
+      email: operator.email,
+      phone: null,
+      name: operator.name,
+      initials: initialsOf(operator.name),
+      role: operator.role,
+      accountState: 'active',
+      passwordHash: hashPassword('shark1234'),
+      preferences: { register: 'plain', theme: 'dark', unitSystem: 'metric', haptics: false },
+      lastSeenAt: NOW - 20 * MINUTE,
+      createdAt: NOW - 1200 * DAY,
+      updatedAt: NOW,
+    })
+    .run();
+}
+
+const REEF_TENANT = 'ten_reef';
+const REEF_BRANCH = 'brn_reef_main';
+
+db.insert(schema.tenants)
+  .values({
+    id: REEF_TENANT,
+    slug: 'reef',
+    kind: 'customer',
+    legalName: 'Reef Athletic LLP',
+    displayName: 'Reef Athletic',
+    plan: 'starter',
+    locale: 'en-IN',
+    currency: 'INR',
+    timezone: 'Asia/Kolkata',
+    unitSystem: 'metric',
+    // On trial, so the platform console has something other than one row in
+    // one state to render.
+    status: 'trial',
+    featureFlags: { classes: true, pos: false, community: false },
+    quotas: { smsPerMonth: 500, videoMinutesPerMonth: 0, aiCallsPerMonth: 100, storageMb: 1000 },
+    branding: { accent: '#7fd1a8', wordmark: 'REEF' },
+    policy: { graceDays: 5 },
+    taxProfile: null,
+    dataProcessing: null,
+    createdAt: NOW - 40 * DAY,
+    updatedAt: NOW,
+  })
+  .run();
+
+db.insert(schema.branches)
+  .values({
+    id: REEF_BRANCH,
+    tenantId: REEF_TENANT,
+    name: 'Reef Athletic Jayanagar',
+    slug: 'jayanagar',
+    addressLine: '4th Block, Jayanagar',
+    city: 'Bengaluru',
+    timezone: 'Asia/Kolkata',
+    capacity: 40,
+    opensMinutes: 6 * 60,
+    closesMinutes: 22 * 60,
+    state: 'active',
+    amenities: ['Showers'],
+    holidays: [],
+    phone: '+91 80 4000 9000',
+    email: 'hello@reefathletic.in',
+    hours: null,
+    policy: {},
+    stateChangedAt: NOW - 40 * DAY,
+    stateNote: 'Opened',
+    createdAt: NOW - 40 * DAY,
+    updatedAt: NOW,
+  })
+  .run();
+
+const reefOwnerId = id('usr');
+db.insert(schema.users)
+  .values({
+    id: reefOwnerId,
+    tenantId: REEF_TENANT,
+    email: 'owner@reefathletic.in',
+    phone: null,
+    name: 'Farah Qureshi',
+    initials: initialsOf('Farah Qureshi'),
+    role: 'owner',
+    accountState: 'active',
+    passwordHash: hashPassword('shark1234'),
+    preferences: { register: 'plain', theme: 'dark', unitSystem: 'metric', haptics: false },
+    lastSeenAt: NOW - 3 * HOUR,
+    createdAt: NOW - 40 * DAY,
+    updatedAt: NOW,
+  })
+  .run();
+
+db.insert(schema.staff)
+  .values({
+    id: id('stf'),
+    tenantId: REEF_TENANT,
+    userId: reefOwnerId,
+    employmentStatus: 'active',
+    branchIds: [REEF_BRANCH],
+    specialties: [],
+    certifications: [],
+    commissionRules: [],
+    hourlyRateMinor: null,
+    joinedOn: addDays(TODAY, -40),
+    createdAt: NOW - 40 * DAY,
+    updatedAt: NOW,
+  })
+  .run();
+
+for (const [index, person] of [['Anaya', 'Pillai'], ['Rohan', 'Desai']].entries()) {
+  db.insert(schema.members)
+    .values({
+      id: id('mbr'),
+      tenantId: REEF_TENANT,
+      userId: null,
+      homeBranchId: REEF_BRANCH,
+      memberNo: `RF-100${index + 1}`,
+      firstName: person[0]!,
+      lastName: person[1]!,
+      initials: initialsOf(`${person[0]} ${person[1]}`),
+      email: `${person[0]!.toLowerCase()}@reefathletic.in`,
+      phone: `+91 90000000${index + 1}`,
+      phoneNormalized: `90000000${index + 1}`,
+      emailNormalized: `${person[0]!.toLowerCase()}@reefathletic.in`,
+      dob: null,
+      gender: null,
+      addressLine: null,
+      emergencyContact: null,
+      lifecycle: 'active',
+      tags: [],
+      trainerId: null,
+      guardianId: null,
+      corporateSponsorId: null,
+      memberNotes: null,
+      staffNotes: null,
+      riskScore: null,
+      riskReasons: [],
+      joinedOn: addDays(TODAY, -30 + index),
+      lastVisitAt: NOW - (index + 1) * DAY,
+      version: 1,
+      deletedAt: null,
+      mergedIntoId: null,
+      createdAt: NOW - 30 * DAY,
+      updatedAt: NOW,
+    })
+    .run();
+}
+
+db.insert(schema.usageMeters)
+  .values([
+    { id: id('usg'), tenantId: REEF_TENANT, meter: 'sms', period: TODAY.slice(0, 7), used: 486, limitValue: 500, updatedAt: NOW },
+    { id: id('usg'), tenantId: REEF_TENANT, meter: 'ai_calls', period: TODAY.slice(0, 7), used: 140, limitValue: 100, updatedAt: NOW },
+  ])
+  .run();
+
+console.log('  platform operator + second gym (Reef Athletic)');
+
 console.log('');
 console.log('seed complete');
 console.log(`  tenant       Shark Fitness (${BRANCHES.length} branches)`);
@@ -3772,6 +4119,9 @@ console.log(`  grace demo   ${graceMember.name} · rohit@sharkfitness.in (failed
 console.log(`  staff logins owner@ / manager@ / reception@ / rehan@ / nikhil@ / priya@ / accounts@ sharkfitness.in`);
 console.log(`  password     shark1234 (staff + demo members); everyone else is OTP-only`);
 console.log(`  rdl exercise ${rdlId}`);
+console.log(`  rollups      ${rollupRows} daily metric rows over 180 days`);
+console.log(`  platform     platform@sharkfitness.io (admin) / support@sharkfitness.io (support)`);
+console.log(`  second gym   owner@reefathletic.in — Reef Athletic, trial, for isolation tests`);
 console.log('');
 
 sqlite.close();

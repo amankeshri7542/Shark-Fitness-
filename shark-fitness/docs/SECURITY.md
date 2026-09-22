@@ -30,7 +30,7 @@ A physical reader calls `POST /v1/door/scan` with:
 - the signed member pass token
 - the reader's branch ID
 
-Reader keys are configured in `SHARK_READER_KEYS_JSON` and can be restricted to branch slugs. A successful token window is burned transactionally; a replay is denied even when two readers race.
+Reader keys are configured in `SHARK_READER_KEYS_JSON` and are bound to one tenant plus an allowlist of branch slugs. A successful token window is burned transactionally; a replay is denied even when two readers race.
 
 The current browser component is a token-derived visual transport, not a standards-compliant QR encoder. Before installing physical scanners, replace that view with a reviewed QR/Data Matrix encoder and provision reader credentials through a device-management process.
 

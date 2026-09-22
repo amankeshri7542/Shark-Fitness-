@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-DB_PATH="${SHARK_DB:-/tmp/shark-fitness/shark.db}"
+DB_PATH="${SHARK_DB:-/var/lib/shark-fitness/shark.db}"
 export SHARK_DB="$DB_PATH"
 mkdir -p "$(dirname "$DB_PATH")"
 
@@ -11,7 +11,7 @@ if [ ! -f "$DB_PATH" ]; then
 fi
 
 pnpm db:migrate
-if [ "$fresh" -eq 1 ]; then
+if [ "$fresh" -eq 1 ] && [ "${SHARK_SEED_DEMO:-false}" = "true" ]; then
   pnpm db:seed
 fi
 

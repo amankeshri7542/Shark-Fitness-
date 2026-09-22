@@ -37,11 +37,12 @@ import { db, schema, transact } from '../db/client.js';
 import { audit } from '../lib/audit.js';
 import { branchTimeZone } from '../lib/branch-time.js';
 import type { RequestContext } from '../lib/context.js';
-import { requireBranch, requirePermission } from '../lib/context.js';
+import { branchScope, requireBranch, requirePermission } from '../lib/context.js';
 import { conflict, invalid, notFound, precondition } from '../lib/errors.js';
 import { emit } from '../lib/events.js';
 import { id } from '../lib/ids.js';
 import { isoDate, localMinutes, now } from '../lib/time.js';
+import { loadMemberInScope, memberBranchIds } from './members.js';
 
 /**
  * Support, feedback and retention (PF-SUP-001…006).
@@ -116,7 +117,7 @@ function ticketInScope(ctx: RequestContext, ticketId: string): TicketRow {
     .where(and(eq(schema.tickets.id, ticketId), eq(schema.tickets.tenantId, ctx.tenantId)))
     .get();
   if (!ticket) throw notFound('That ticket');
-  if (ticket.branchId !== null && !ctx.branchIds.includes(ticket.branchId)) throw notFound('That ticket');
+  if (ticket.branchId !== null && !branchScope(ctx).includes(ticket.branchId)) throw notFound('That ticket');
   return ticket;
 }
 
@@ -133,13 +134,7 @@ function ticketInScope(ctx: RequestContext, ticketId: string): TicketRow {
  * A ticket is also visible when it names no branch at all — see the `isNull`
  * arm at each call site.
  */
-function scopeFor(ctx: RequestContext, branchId?: string | null): string[] {
-  if (branchId) {
-    requireBranch(ctx, branchId);
-    return [branchId];
-  }
-  return ctx.branchIds;
-}
+const scopeFor = (ctx: RequestContext, branchId?: string | null): string[] => branchScope(ctx, branchId);
 
 /* ——— Names ————————————————————————————————————————————————— */
 
@@ -522,14 +517,14 @@ function memberContext(ctx: RequestContext, memberId: string): TicketMemberConte
   const due = canSeeBalance
     ? (db
         .select({
-          total: sql<number>`coalesce(sum(${schema.invoices.totalMinor} - ${schema.invoices.paidMinor} - ${schema.invoices.refundedMinor}), 0)`,
+          total: sql<number>`coalesce(sum(${schema.invoices.totalMinor} - ${schema.invoices.paidMinor}), 0)`,
         })
         .from(schema.invoices)
         .where(
           and(
             eq(schema.invoices.tenantId, ctx.tenantId),
             eq(schema.invoices.memberId, memberId),
-            eq(schema.invoices.state, 'open'),
+            sql`${schema.invoices.voided} = 0 and ${schema.invoices.totalMinor} > ${schema.invoices.paidMinor}`,
           ),
         )
         .get()?.total ?? 0)
@@ -691,15 +686,18 @@ export function createTicket(ctx: RequestContext, input: TicketCreateInput) {
 
   let member: typeof schema.members.$inferSelect | undefined;
   if (input.memberId) {
-    member = db
+    const deletedMember = db
       .select()
       .from(schema.members)
       .where(and(eq(schema.members.id, input.memberId), eq(schema.members.tenantId, ctx.tenantId)))
       .get();
-    if (!member) throw notFound('That member');
-    if (member.deletedAt !== null) {
+    if (deletedMember && deletedMember.deletedAt !== null) {
+      if (!memberBranchIds(deletedMember).some((candidate) => branchScope(ctx).includes(candidate))) {
+        throw notFound('That member');
+      }
       throw precondition('That member record has been deleted. Raise the ticket without a member instead.');
     }
+    member = loadMemberInScope(ctx, input.memberId);
     // A ticket belongs where the member trains unless the desk said otherwise.
     branchId = branchId ?? member.homeBranchId;
   }
@@ -1330,12 +1328,7 @@ export function recordFeedback(ctx: RequestContext, input: FeedbackCreateInput) 
 
   let memberId: string | null = null;
   if (input.memberId && !anonymous) {
-    const member = db
-      .select({ id: schema.members.id, homeBranchId: schema.members.homeBranchId })
-      .from(schema.members)
-      .where(and(eq(schema.members.id, input.memberId), eq(schema.members.tenantId, ctx.tenantId)))
-      .get();
-    if (!member) throw notFound('That member');
+    const member = loadMemberInScope(ctx, input.memberId);
     memberId = member.id;
     branchId = branchId ?? member.homeBranchId;
   }
@@ -1825,7 +1818,7 @@ export function closeIntervention(ctx: RequestContext, interventionId: string, i
     .where(and(eq(schema.interventions.id, interventionId), eq(schema.interventions.tenantId, ctx.tenantId)))
     .get();
   if (!row) throw notFound('That intervention');
-  if (!ctx.branchIds.includes(row.branchId)) throw notFound('That intervention');
+  if (!branchScope(ctx).includes(row.branchId)) throw notFound('That intervention');
   if (row.state !== 'open') throw conflict('That intervention is already closed.');
 
   const at = now();

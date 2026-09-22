@@ -8,7 +8,7 @@ import {
   TicketPriority,
   TicketState,
 } from '@shark/contracts';
-import { ctxOf } from '../../middleware/index.js';
+import { ctxOf, rateLimit } from '../../middleware/index.js';
 import { validate } from '../../middleware/validate.js';
 import { runIdempotently } from '../../lib/idempotency.js';
 import {
@@ -35,6 +35,10 @@ import {
  * Mounted by `app.ts` at `/v1/admin/support`.
  */
 export const supportRoutes = new Hono();
+const supportWriteTenantLimit = rateLimit(300, 60_000, { identity: 'tenant', bucket: 'support-write-tenant' });
+const supportWriteActorLimit = rateLimit(40, 60_000, { identity: 'actor', bucket: 'support-write-actor' });
+const retentionTenantLimit = rateLimit(300, 60_000, { identity: 'tenant', bucket: 'retention-computation-tenant' });
+const retentionActorLimit = rateLimit(30, 60_000, { identity: 'actor', bucket: 'retention-computation-actor' });
 
 const Flag = z.enum(['breached', 'unassigned', 'escalated', 'mine']);
 
@@ -147,7 +151,7 @@ supportRoutes.get('/feedback', validate('query', FeedbackQuery), (c) => {
   );
 });
 
-supportRoutes.get('/retention', validate('query', RetentionQuery), (c) => {
+supportRoutes.get('/retention', retentionTenantLimit, retentionActorLimit, validate('query', RetentionQuery), (c) => {
   const q = c.req.valid('query');
   return c.json(retentionView(ctxOf(c), { branchId: q.branchId ?? null, band: q.band ?? null, limit: q.limit }));
 });
@@ -155,7 +159,7 @@ supportRoutes.get('/retention', validate('query', RetentionQuery), (c) => {
 /* ----------------------------------------------------------------- writes */
 
 // A ticket raised from a phone with one bar must not become two tickets.
-supportRoutes.post('/tickets', validate('json', TicketBody), (c) => {
+supportRoutes.post('/tickets', supportWriteTenantLimit, supportWriteActorLimit, validate('json', TicketBody), (c) => {
   const ctx = ctxOf(c);
   const body = c.req.valid('json');
   const result = runIdempotently(ctx, 'support.ticket.create', c.req.header('idempotency-key'), body, () =>
@@ -166,7 +170,7 @@ supportRoutes.post('/tickets', validate('json', TicketBody), (c) => {
 
 // Likewise a reply. The desk retries on a flaky connection, and the member must
 // not be sent the same answer twice — a duplicate reply is visible to them.
-supportRoutes.post('/tickets/:ticketId/reply', validate('json', ReplyBody), (c) => {
+supportRoutes.post('/tickets/:ticketId/reply', supportWriteTenantLimit, supportWriteActorLimit, validate('json', ReplyBody), (c) => {
   const ctx = ctxOf(c);
   const ticketId = c.req.param('ticketId');
   const body = c.req.valid('json');

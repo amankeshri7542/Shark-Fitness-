@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
 import { navFor } from '@shark/domain';
 import { Button, Chip, LiveDot, cx } from './console';
-import { useAdmin, useBranchScope, useViewer } from '../lib/store';
+import { useFocusTrap } from './overlay';
+import { useAdmin, useViewer } from '../lib/store';
 import { useConnection, useOnline } from '../lib/realtime';
 
 /* Each module gets a mark rather than an icon font — a clip-path shape in the
@@ -36,17 +37,25 @@ export function Rail() {
       aria-label="Modules"
       className="bridge-rail row-span-2 flex flex-col overflow-y-auto border-r border-line bg-hull"
     >
-      <div className="flex flex-none items-center gap-2 border-b border-line px-3.5 py-3">
-        <span className="font-display text-[18px] uppercase leading-none tracking-[0.06em]">Shark</span>
+      {/* Below 1100px the rail is 60px of icons. The wordmark is wider than
+          that and was being clipped mid-word — "SHAR" with the K under the
+          border. Collapsed, the sonar dashes stand for the brand on their own,
+          which is the mark the design doc names anyway; the name stays in the
+          accessibility tree so the landmark is still called something. */}
+      <div className="bridge-rail-brand flex flex-none items-center gap-2 border-b border-line px-3.5 py-3">
+        <span className="bridge-rail-label font-display text-[18px] uppercase leading-none tracking-[0.06em]">
+          Shark
+        </span>
+        <span className="sr-only">Shark Ops</span>
         <span
           aria-hidden="true"
-          className="h-1 w-4"
+          className="h-1 w-4 flex-none"
           style={{ background: 'repeating-linear-gradient(90deg, var(--sf-sonar) 0 2px, transparent 2px 6px)' }}
         />
         <span className="bridge-rail-label font-utility text-[9px] uppercase tracking-[0.16em] text-foam-35">Ops</span>
       </div>
 
-      <div className="flex flex-1 flex-col">
+      <div className="bridge-rail-modules flex flex-1 flex-col">
         {modules.map((module) => {
           const active = module.to === '/' ? pathname === '/' : pathname.startsWith(module.to);
           const colour = active ? 'var(--sf-sonar)' : 'var(--sf-foam-45)';
@@ -54,15 +63,16 @@ export function Rail() {
             <Link
               key={module.key}
               to={module.to}
+              aria-label={module.label}
               aria-current={active ? 'page' : undefined}
               className={cx(
-                'relative flex min-h-11 items-center gap-2.5 border-b border-line-10 px-3.5 py-2.5 transition-colors',
+                'bridge-rail-item relative flex min-h-11 flex-none items-center gap-2.5 border-b border-line-10 px-3.5 py-2.5 transition-colors',
                 active ? 'bg-wash-sonar text-sonar' : 'text-foam-65 hover:bg-wash-sonar-soft hover:text-foam',
               )}
             >
               <span
                 aria-hidden="true"
-                className={cx('absolute inset-y-0 left-0 w-0.5', active ? 'bg-sonar' : 'bg-transparent')}
+                className={cx('bridge-rail-mark absolute inset-y-0 left-0 w-0.5', active ? 'bg-sonar' : 'bg-transparent')}
               />
               <span
                 aria-hidden="true"
@@ -87,7 +97,6 @@ export function Rail() {
  */
 export function StatusStrip({ alertCount = 0 }: { alertCount?: number }) {
   const viewer = useViewer();
-  const { branchName } = useBranchScope();
   const branches = useAdmin((s) => s.branches);
   const activeBranchId = useAdmin((s) => s.activeBranchId);
   const setActiveBranch = useAdmin((s) => s.setActiveBranch);
@@ -100,26 +109,42 @@ export function StatusStrip({ alertCount = 0 }: { alertCount?: number }) {
   const navigate = useNavigate();
 
   return (
-    <header className="col-start-2 flex flex-none items-center gap-3 border-b border-line bg-hull px-3.5 py-2">
-      <label className="flex items-center gap-2">
-        <span className="font-utility text-[9px] uppercase tracking-[0.16em] text-foam-35">Branch</span>
-        <select
-          aria-label="Active branch"
-          className="min-h-8 border border-line bg-panel px-2 py-1 font-utility text-[11px] font-semibold uppercase tracking-[0.1em] text-foam"
-          value={activeBranchId ?? ''}
-          onChange={(e) => setActiveBranch(e.target.value || null)}
-        >
-          <option value="">All branches ({branches.length})</option>
-          {branches.map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.name}
-            </option>
-          ))}
-        </select>
-      </label>
+    <header className="bridge-strip col-start-2 flex flex-none flex-wrap items-center gap-x-3 gap-y-2 border-b border-line bg-hull px-3.5 py-2">
+      {/* One branch is not a choice. Offering "All branches (1)" beside the
+          branch itself put two options with the same meaning in front of every
+          single-site operator, and a control that cannot change anything reads
+          as one that is broken. They get the name; the switcher is for people
+          who have somewhere to switch to. */}
+      {/* A platform operator has no gym, so "All branches (0)" is a control
+          that cannot do anything and reads as broken. Say nothing instead. */}
+      {branches.length === 0 ? null : branches.length === 1 ? (
+        <span className="flex items-center gap-2">
+          <span className="font-utility text-[9px] uppercase tracking-[0.16em] text-foam-35">Branch</span>
+          <span className="font-utility text-[11px] font-semibold uppercase tracking-[0.1em] text-foam">
+            {branches[0]?.name}
+          </span>
+        </span>
+      ) : (
+        <label className="flex items-center gap-2">
+          <span className="font-utility text-[9px] uppercase tracking-[0.16em] text-foam-35">Branch</span>
+          <select
+            aria-label="Active branch"
+            className="min-h-8 border border-line bg-panel px-2 py-1 font-utility text-[11px] font-semibold uppercase tracking-[0.1em] text-foam"
+            value={activeBranchId ?? ''}
+            onChange={(e) => setActiveBranch(e.target.value || null)}
+          >
+            <option value="">All branches ({branches.length})</option>
+            {branches.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
 
-      <span className="font-utility text-[10px] uppercase tracking-[0.12em] text-foam-45">{branchName}</span>
-
+      {/* The select already shows the scope. Printing `branchName` beside it
+          repeated "All branches (3)" twice in a row across every screen. */}
       <span className="flex-1" />
 
       <Button variant="outline" onClick={() => togglePalette(true)} aria-keyshortcuts="Meta+K">
@@ -233,7 +258,15 @@ export function Page({ title, kicker, actions, children }: {
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex min-h-0 flex-col overflow-hidden">
+    // `h-full` is load-bearing, not decoration. This div is a *block* child of
+    // the console's main pane, and a block box sizes to its content, not to its
+    // parent — so without a height it grew to 4,576px on Billing inside an
+    // 847px pane that clips. Its own `overflow-hidden` never fired (the box was
+    // as tall as its content), the `overflow-auto` pane below never became a
+    // scroller, and nothing on the screen scrolled at all: 96 of 107 invoices
+    // were rendered, below the fold, with no way to reach them. Every one of
+    // the twenty screens behind `Page` had this.
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <div className="flex flex-none items-end gap-3 border-b border-line px-4 py-3">
         <div>
           {kicker ? (
@@ -267,6 +300,9 @@ export function CommandPalette() {
   const viewer = useViewer();
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const closePalette = () => togglePalette(false);
+  const panelRef = useFocusTrap(open, closePalette, inputRef);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -293,6 +329,9 @@ export function CommandPalette() {
       role="presentation"
     >
       <div
+        ref={panelRef}
+        tabIndex={-1}
+        data-overlay-panel=""
         className="w-[min(560px,92vw)] border border-line-strong bg-overlay"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
@@ -300,6 +339,7 @@ export function CommandPalette() {
         aria-label="Search and commands"
       >
         <input
+          ref={inputRef}
           autoFocus
           value={query}
           onChange={(e) => setQuery(e.target.value)}

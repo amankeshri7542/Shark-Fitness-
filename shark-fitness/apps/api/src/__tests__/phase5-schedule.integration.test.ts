@@ -395,7 +395,7 @@ describe('Phase 5 — classes, schedule and waitlists', () => {
     expect(row?.attendedAt).toBeNull();
   });
 
-  it('releases a seat from the desk and promotes the waitlist', async () => {
+  it('releases a seat without promising an unreserved waitlist offer', async () => {
     const manager = await signIn('manager@sharkfitness.in');
     const created = await createSession(manager, { capacity: 1 });
     const seated = idleMember('br_kor');
@@ -426,14 +426,14 @@ describe('Phase 5 — classes, schedule and waitlists', () => {
     expect(response.status).toBe(200);
 
     const body = (await response.json()) as { promoted: { memberId: string } | null };
-    expect(body.promoted?.memberId).toBe(waiting.id);
+    expect(body.promoted).toBeNull();
 
     const entry = db
       .select()
       .from(schema.waitlistEntries)
       .where(eq(schema.waitlistEntries.id, `wtl_test_${created.id}`))
       .get();
-    expect(entry?.state).toBe('offered');
+    expect(entry?.state).toBe('waiting');
 
     const session = db.select().from(schema.classSessions).where(eq(schema.classSessions.id, created.id)).get();
     expect(session?.booked).toBe(0);

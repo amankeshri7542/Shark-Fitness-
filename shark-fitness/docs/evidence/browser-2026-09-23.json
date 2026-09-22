@@ -1,0 +1,189 @@
+{
+  "observedOn": "2026-09-23 Asia/Kolkata",
+  "runtimeSource": "54877acf08ad99e966e8a17c18b9309d0acdf124",
+  "scope": {
+    "localOnly": true,
+    "hosted": false,
+    "humanAcceptance": false,
+    "physicalPhone": false,
+    "realPayments": false
+  },
+  "readyAfterRestart": {
+    "8896": {
+      "ok": true,
+      "database": "ready",
+      "schema": "ready",
+      "status": "ready",
+      "release": "54877acf08ad99e966e8a17c18b9309d0acdf124",
+      "configuration": "ready",
+      "scheduler": "disabled"
+    },
+    "8897": {
+      "ok": true,
+      "database": "ready",
+      "schema": "ready",
+      "status": "ready",
+      "release": "54877acf08ad99e966e8a17c18b9309d0acdf124",
+      "configuration": "ready",
+      "scheduler": "disabled"
+    }
+  },
+  "freshGym": {
+    "origin": "http://localhost:8896",
+    "seeded": false,
+    "ownerBootstrapAndOrdinaryLogin": "passed",
+    "initialMemberCount": 0,
+    "staffInvitationAndSeparateProfileActivationForm": "passed; no password submitted",
+    "walkinConversionAndSeparatePhoneActivationForm": "passed; no password submitted",
+    "freshActivationAndSubsequentLogin": "pending human private step",
+    "continuousFreshReceptionMemberJourney": "pending"
+  },
+  "preparedReception": {
+    "origin": "http://localhost:8897",
+    "fixture": "explicit disposable seed; existing receptionist password; separate from fresh gym",
+    "newWalkin": {
+      "name": "Synthetic Desk",
+      "memberNo": "SF-40258",
+      "memberId": "mbr_0mud1o5o17fnsjd",
+      "activation": "not performed"
+    },
+    "assignment": {
+      "ok": true,
+      "membershipId": "msh_0mud261mwx8y0im",
+      "invoiceId": "inv_0mud261mxqm8c2s",
+      "activated": false,
+      "totalMinor": 353882
+    },
+    "unpaidEntry": {
+      "granted": false,
+      "decision": "denied_membership_inactive",
+      "outstandingMinor": 353882
+    },
+    "payment": {
+      "invoiceId": "inv_0mud261mxqm8c2s",
+      "paymentRows": 1,
+      "dueMinor": 0,
+      "receipt": true,
+      "retryResponse": {
+        "paymentId": "pay_0mud2ajf5q2exna",
+        "invoiceState": "paid",
+        "membershipActivated": false,
+        "alreadyProcessed": true
+      }
+    },
+    "attendance": {
+      "checkInId": "chk_0mud2g2d77v6qb3",
+      "granted": true,
+      "retryId": "chk_0mud2g2d77v6qb3",
+      "replayed": true,
+      "checkout": {
+        "checkInId": "chk_0mud2g2d77v6qb3",
+        "replayed": false,
+        "exitedAt": "2026-09-22T19:27:29.338Z",
+        "durationMin": 0,
+        "member": {
+          "id": "mbr_0mud1o5o17fnsjd",
+          "memberNo": "SF-40258",
+          "name": "Synthetic Desk"
+        },
+        "occupancy": {
+          "branchId": "br_kor",
+          "branchName": "Koramangala Depot",
+          "inside": 12,
+          "capacity": 120,
+          "label": "quiet"
+        }
+      }
+    },
+    "persistedVisitCounts": [
+      {
+        "decision": "denied_membership_inactive",
+        "rows": 1,
+        "closed": 0
+      },
+      {
+        "decision": "denied_outside_hours",
+        "rows": 1,
+        "closed": 0
+      },
+      {
+        "decision": "granted",
+        "rows": 1,
+        "closed": 1
+      }
+    ],
+    "fixtureHours": "paid entry initially refused outside the seeded daily hours; isolated branch hours then explicitly set 00:00\u201324:00 for the rehearsal; no rule bypass or manager override",
+    "directory": {
+      "branchMembers": 55,
+      "additionalFixtures": "31 synthetic invited accounts without passwords",
+      "firstPageRows": 50,
+      "secondPageRows": 5,
+      "memberNumberSearchResetsPage": true,
+      "fullNameSearchLimitation": "matches first/last columns separately; use a name part or member number"
+    },
+    "offline": "global OFFLINE badge with last loaded rows; new lookup waits for reconnect",
+    "directStaffNavigation": "permission refused"
+  },
+  "separatePreparedPhoneMember": {
+    "name": "Aman Mehra",
+    "memberNo": "SF-40219",
+    "memberId": "mbr_0mud1l69zp9wv1y",
+    "distinctFromNewWalkin": true,
+    "fixture": "existing seeded password; two inserted unpaid invoice fixtures; no payment/password rewrite",
+    "viewport": "390x844 emulation",
+    "ordinaryLogin": "passed",
+    "outstandingMinor": 35000,
+    "invoices": [
+      {
+        "id": "inv_phone_fixture_1",
+        "number": "SYN-PHONE-001",
+        "dueMinor": 10000
+      },
+      {
+        "id": "inv_phone_fixture_2",
+        "number": "SYN-PHONE-002",
+        "dueMinor": 25000
+      }
+    ],
+    "membership": {
+      "id": "msh_0mud1l6amulqmy3",
+      "productName": "Elite Annual",
+      "state": "active",
+      "endsOn": "2027-07-30",
+      "autoRenew": true,
+      "priceLabel": "\u20b92,499"
+    },
+    "adminMemberDetailOutstandingLabel": "\u20b9350",
+    "noPayButton": true,
+    "receptionSettlementInstructions": true,
+    "receptionId": "SF-40219",
+    "billingAndPassFitViewport": true,
+    "adminDataStatus": 403,
+    "staffReceiptStatus": 403,
+    "offlineNotice": "Offline: this information may be out of date. Reception must verify access."
+  },
+  "authenticatedAfterRestart": {
+    "paidInvoice": "inv_0mud261mxqm8c2s",
+    "successfulPaymentRows": 1,
+    "outstandingMinor": 0,
+    "walkinMembership": "active",
+    "separatePhoneMember": "mbr_0mud1l69zp9wv1y",
+    "separatePhoneMemberOutstandingLabel": "\u20b9350"
+  },
+  "productionBrowserSmoke": {
+    "result": "passed",
+    "credentials": "fresh bootstrapped owner, private credential file",
+    "browser": "new isolated Chrome profile; CDP9237",
+    "log": "browser-smoke-2026-09-23.log",
+    "adminAsset": "/admin/assets/index-916U5Rmf.js",
+    "memberWorkerControlledAdmin": true,
+    "activationFormNavigationOnly": true
+  },
+  "pending": [
+    "Private fresh receptionist/member activation and normal login",
+    "Human reused/expired/replaced activation-link checks",
+    "Uncoached receptionist acceptance",
+    "Physical phone acceptance",
+    "Hosted deployment/recovery and hosted alert delivery"
+  ]
+}

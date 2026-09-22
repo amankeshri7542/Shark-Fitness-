@@ -4,7 +4,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, api } from '../lib/api';
 import { useAdmin, usePermission } from '../lib/store';
 import { Page } from '../ui/shell';
-import { Button, Chip, Display, EmptyState, ErrorState, Field, Panel, PermissionState, Skeleton } from '../ui/console';
+import { Button, Chip, EmptyState, ErrorState, Field, Panel, PermissionState, SelectField, Skeleton } from '../ui/console';
+import { Modal } from '../ui/overlay';
 
 interface LeadRow {
   id: string;
@@ -265,31 +266,31 @@ function CreateLeadSheet({ onClose }: { onClose: () => void }) {
   // before dismissing it, rather than closing and losing the warning.
   if (create.isSuccess && create.data.duplicateOfId) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-6" role="presentation">
-        <div className="w-[min(480px,100%)] border border-line-strong bg-overlay" role="dialog" aria-modal="true" aria-label="Lead created">
-          <header className="border-b border-line px-4 py-3">
-            <Display size="sm" as="h2">
-              Lead created
-            </Display>
-          </header>
-          <div className="p-4">
-            <Panel tone="warn">
-              <p className="px-3 py-2.5 text-[12px] leading-relaxed text-foam-80">
-                {name.trim()} was created, but it looks like it may be the same person as an existing lead. Both records exist
-                separately — review them and merge manually if they're a match.
-              </p>
-            </Panel>
-          </div>
-          <footer className="flex justify-end gap-2 border-t border-line px-4 py-3">
+      <Modal
+        open
+        onClose={onClose}
+        title="Lead created"
+        width="w-[min(480px,100%)]"
+        footer={
+          <>
             <Link to="/leads/$leadId" params={{ leadId: create.data.duplicateOfId }} onClick={onClose}>
               <Button variant="outline">View the other lead</Button>
             </Link>
             <Link to="/leads/$leadId" params={{ leadId: create.data.id }} onClick={onClose}>
               <Button variant="cta">View this lead</Button>
             </Link>
-          </footer>
+          </>
+        }
+      >
+        <div className="p-4">
+          <Panel tone="warn">
+            <p className="px-3 py-2.5 text-[12px] leading-relaxed text-foam-80">
+              {name.trim()} was created, but may be the same person as an existing lead. Both records exist separately —
+              review them and merge if they match.
+            </p>
+          </Panel>
         </div>
-      </div>
+      </Modal>
     );
   }
 
@@ -299,21 +300,22 @@ function CreateLeadSheet({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-6" onClick={onClose} role="presentation">
-      <div
-        className="max-h-[85vh] w-[min(560px,100%)] overflow-auto border border-line-strong bg-overlay"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-label="New lead"
-      >
-        <header className="border-b border-line px-4 py-3">
-          <Display size="sm" as="h2">
-            New lead
-          </Display>
-        </header>
-
-        <div className="flex flex-col gap-3.5 p-4">
+    <Modal
+      open
+      onClose={onClose}
+      title="New lead"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="cta" size="md" pending={create.isPending} pendingLabel="Creating…" onClick={submit}>
+            Create lead
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3.5 p-4">
           <Field label="Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" autoFocus />
           <div className="grid grid-cols-2 gap-3">
             <Field label="Phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 …" />
@@ -321,54 +323,38 @@ function CreateLeadSheet({ onClose }: { onClose: () => void }) {
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1">
-              <label className="font-utility text-[10px] font-semibold uppercase tracking-[0.14em] text-foam-45">Source</label>
-              <select value={source} onChange={(e) => setSource(e.target.value)} className="sf-field !min-h-9 !py-2 !text-[13px]">
-                {SOURCES.map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <SelectField
+              label="Source"
+              value={source}
+              onChange={(e) => setSource(e.target.value)}
+              options={SOURCES.map((s) => ({ value: s.value, label: s.label }))}
+            />
             <Field label="Campaign" value={campaign} onChange={(e) => setCampaign(e.target.value)} placeholder="Optional" />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1">
-              <label className="font-utility text-[10px] font-semibold uppercase tracking-[0.14em] text-foam-45">Branch</label>
-              <select
-                value={branchId}
-                onChange={(e) => {
-                  setBranchId(e.target.value);
-                  setOwnerId('');
-                }}
-                className="sf-field !min-h-9 !py-2 !text-[13px]"
-              >
-                <option value="">Choose a branch</option>
-                {branches.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="font-utility text-[10px] font-semibold uppercase tracking-[0.14em] text-foam-45">Owner</label>
-              <select
-                value={ownerId}
-                onChange={(e) => setOwnerId(e.target.value)}
-                disabled={!branchId || owners.isLoading}
-                className="sf-field !min-h-9 !py-2 !text-[13px]"
-              >
-                <option value="">Unassigned (defaults to you)</option>
-                {(owners.data?.items ?? []).map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <SelectField
+              label="Branch"
+              value={branchId}
+              onChange={(e) => {
+                setBranchId(e.target.value);
+                setOwnerId('');
+              }}
+              options={[
+                { value: '', label: 'Choose a branch' },
+                ...branches.map((b) => ({ value: b.id, label: b.name })),
+              ]}
+            />
+            <SelectField
+              label="Owner"
+              value={ownerId}
+              onChange={(e) => setOwnerId(e.target.value)}
+              disabled={!branchId || owners.isLoading}
+              options={[
+                { value: '', label: 'Unassigned (defaults to you)' },
+                ...(owners.data?.items ?? []).map((o) => ({ value: o.id, label: o.name })),
+              ]}
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -400,17 +386,7 @@ function CreateLeadSheet({ onClose }: { onClose: () => void }) {
               <p className="px-3 py-2.5 text-[12px] leading-relaxed">{apiErrorMessage}</p>
             </Panel>
           ) : null}
-        </div>
-
-        <footer className="flex justify-end gap-2 border-t border-line px-4 py-3">
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button variant="cta" size="md" disabled={create.isPending} onClick={submit}>
-            {create.isPending ? 'Creating…' : 'Create lead'}
-          </Button>
-        </footer>
       </div>
-    </div>
+    </Modal>
   );
 }

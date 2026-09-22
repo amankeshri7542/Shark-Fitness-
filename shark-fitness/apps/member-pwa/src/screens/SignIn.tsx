@@ -1,37 +1,49 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import type { Viewer } from '@shark/contracts';
+import type { StartOtpResult, Viewer } from '@shark/contracts';
 import { ApiError, OfflineError, api } from '../lib/api';
 import { useSession } from '../lib/store';
 import { setMemberSessionHint } from '../lib/session-hint';
 import { Button, Display, Eyebrow, Field, Panel, Scanlines, SonarSweep } from '../ui/primitives';
-
-interface OtpStart {
-  challengeId: string;
-  sentTo: string;
-  expiresInSec: number;
-  devCode?: string;
-}
 
 interface SignInResult {
   viewer: Viewer;
   csrfToken: string;
 }
 
-const TENANT_SLUG = 'shark';
+
 
 export default function SignInScreen() {
   const navigate = useNavigate();
+  const [activation, setActivation] = useState(() => new URLSearchParams(window.location.hash.slice(1)));
+  const activationId = activation.get('activationId');
+  const activationToken = activation.get('activationToken');
+  const activating = Boolean(activationId && activationToken);
+  const [tenantSlug, setTenantSlug] = useState(activation.get('gym') ?? (import.meta.env.DEV ? 'shark' : ''));
+
   const bootstrap = useSession((state) => state.bootstrap);
 
-  const [mode, setMode] = useState<'otp' | 'password'>('otp');
+  const [mode, setMode] = useState<'otp' | 'password'>(activating || !import.meta.env.DEV ? 'password' : 'otp');
   const [step, setStep] = useState<'identify' | 'verify'>('identify');
-  const [identifier, setIdentifier] = useState('aman@sharkfitness.in');
+  const [identifier, setIdentifier] = useState(import.meta.env.DEV ? 'aman@sharkfitness.in' : '');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
-  const [challenge, setChallenge] = useState<OtpStart | null>(null);
+  const [challenge, setChallenge] = useState<StartOtpResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const readActivation = () => {
+      const params = new URLSearchParams(window.location.hash.slice(1));
+      setActivation(params);
+      if (params.get('gym')) setTenantSlug(params.get('gym')!);
+      setError(null);
+      if (params.get('activationId')) { setMode('password'); setStep('identify'); }
+    };
+    window.addEventListener('hashchange', readActivation);
+    return () => window.removeEventListener('hashchange', readActivation);
+  }, []);
+
 
   const run = async (fn: () => Promise<void>): Promise<void> => {
     setBusy(true);
@@ -53,16 +65,22 @@ export default function SignInScreen() {
 
   const startOtp = () =>
     run(async () => {
-      const result = await api<OtpStart>('/auth/otp/start', {
+      const result = await api<StartOtpResult>('/auth/otp/start', {
         method: 'POST',
-        body: { identifier, tenantSlug: TENANT_SLUG },
+        body: { identifier, tenantSlug: tenantSlug.trim() },
       });
       setChallenge(result);
-      setCode(result.devCode ?? '');
+      setCode(result.delivery === 'development_echo' ? result.devCode : '');
       setStep('verify');
     });
 
   const finish = async (result: SignInResult): Promise<void> => {
+    if (activating) window.history.replaceState(null, '', window.location.pathname);
+    if (result.viewer.role !== 'member') {
+      await api('/auth/sign-out', { method: 'POST' });
+      setError('That is a staff account. Use the gym dashboard to sign in.');
+      return;
+    }
     // This is only a non-sensitive browser hint. Authentication itself remains
     // in the HttpOnly cookie returned by the API.
     setMemberSessionHint(true);
@@ -86,9 +104,9 @@ export default function SignInScreen() {
 
   const signInWithPassword = () =>
     run(async () => {
-      const result = await api<SignInResult>('/auth/password', {
+      const result = await api<SignInResult>(activating ? '/auth/activation/redeem' : '/auth/password', {
         method: 'POST',
-        body: { tenantSlug: TENANT_SLUG, email: identifier, password },
+        body: activating ? { activationId, token: activationToken, password } : { tenantSlug: tenantSlug.trim(), email: identifier, password },
       });
       await finish(result);
     });
@@ -118,7 +136,7 @@ export default function SignInScreen() {
             <span className="text-sonar">where it counts</span>
           </Display>
           <p className="mt-3 max-w-[32ch] text-[13px] leading-relaxed text-foam-65">
-            Your membership, your plan and your entry pass. Koramangala, Indiranagar and HSR.
+            Your membership, your plan and your gym.
           </p>
         </div>
       </div>
@@ -126,21 +144,22 @@ export default function SignInScreen() {
       <div className="flex flex-1 flex-col gap-4 p-5">
         {step === 'identify' ? (
           <>
-            <Field
+            {activating ? <p>Create your password (at least 12 characters). This activation link works once.</p> : <Field label="Gym code" value={tenantSlug} onChange={(event) => setTenantSlug(event.target.value)} />}
+            {!activating ? <Field
               label={mode === 'otp' ? 'Email or phone' : 'Email'}
               type={mode === 'otp' ? 'text' : 'email'}
               inputMode={mode === 'otp' ? 'email' : undefined}
               autoComplete="username"
               value={identifier}
               onChange={(event) => setIdentifier(event.target.value)}
-              hint={mode === 'otp' ? 'We will send you a six-digit code.' : undefined}
-            />
+              hint={mode === 'otp' ? 'Request a six-digit sign-in code.' : undefined}
+            /> : null}
 
             {mode === 'password' ? (
               <Field
                 label="Password"
                 type="password"
-                autoComplete="current-password"
+                autoComplete={activating ? "new-password" : "current-password"}
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
               />
@@ -156,28 +175,30 @@ export default function SignInScreen() {
               variant="cta"
               size="lg"
               full
-              disabled={busy || identifier.length < 3}
+              disabled={busy || (activating ? password.length < 12 : identifier.length < 3 || !tenantSlug.trim())}
               onClick={() => void (mode === 'otp' ? startOtp() : signInWithPassword())}
             >
-              {busy ? 'Working…' : mode === 'otp' ? 'Send my code' : 'Sign in'}
+              {busy ? 'Working…' : activating ? 'Activate account' : mode === 'otp' ? 'Request a code' : 'Sign in'}
             </Button>
 
-            <Button
+            {!activating ? <Button
               variant="ghost"
               onClick={() => {
                 setMode(mode === 'otp' ? 'password' : 'otp');
                 setError(null);
               }}
             >
-              {mode === 'otp' ? 'Use a password instead' : 'Email me a code instead'}
-            </Button>
+              {mode === 'otp' ? 'Use a password instead' : 'Use a one-time code instead'}
+            </Button> : null}
           </>
         ) : (
           <>
             <div>
-              <Eyebrow>Check your messages</Eyebrow>
+              <Eyebrow>Enter your code</Eyebrow>
               <p className="mt-2 text-[13px] leading-relaxed text-foam-65">
-                We sent a six-digit code to {challenge?.sentTo}. It is good for ten minutes.
+                {challenge?.delivery === 'development_echo'
+                  ? `Local development mode exposed a code for ${challenge.destination}; no message was sent.`
+                  : `A sign-in code was submitted to ${challenge?.destination}. It is good for ten minutes.`}
               </p>
             </div>
 
@@ -191,10 +212,10 @@ export default function SignInScreen() {
               className="[&_input]:text-center [&_input]:font-display [&_input]:text-[30px] [&_input]:tracking-[0.4em]"
             />
 
-            {challenge?.devCode ? (
+            {challenge?.delivery === 'development_echo' ? (
               <Panel className="p-3">
                 <p className="text-[12px] leading-relaxed text-foam-50">
-                  Local demo mode is explicitly echoing the code. Production never returns it.
+                  The development code is shown in the field above. Production never returns it.
                 </p>
               </Panel>
             ) : null}
@@ -221,7 +242,7 @@ export default function SignInScreen() {
           </>
         )}
 
-        <Panel className="mt-auto p-3.5">
+        {import.meta.env.DEV && !activating ? <Panel className="mt-auto p-3.5">
           <span className="font-utility text-[10px] font-semibold uppercase tracking-[0.14em] text-foam-45">
             Demo accounts
           </span>
@@ -252,7 +273,7 @@ export default function SignInScreen() {
           <p className="mt-2 text-[11px] leading-relaxed text-foam-35">
             Password sign-in for both is <span className="text-foam-50">shark1234</span>. Staff use the dashboard.
           </p>
-        </Panel>
+        </Panel> : null}
       </div>
     </div>
   );

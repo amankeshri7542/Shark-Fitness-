@@ -1,6 +1,7 @@
 import { and, eq, isNull, ne, or, sql } from 'drizzle-orm';
 import type { LeadStage } from '@shark/contracts';
 import { db, schema } from '../db/client.js';
+import { branchScope } from '../lib/context.js';
 import { invalid, notFound } from '../lib/errors.js';
 import { DAY } from '../lib/time.js';
 
@@ -89,7 +90,7 @@ export function loadLeadInScope(
     .from(schema.leads)
     .where(and(eq(schema.leads.id, leadId), eq(schema.leads.tenantId, ctx.tenantId)))
     .get();
-  if (!lead || !ctx.branchIds.includes(lead.branchId)) throw notFound('That lead');
+  if (!lead || !branchScope(ctx).includes(lead.branchId)) throw notFound('That lead');
   return lead;
 }
 

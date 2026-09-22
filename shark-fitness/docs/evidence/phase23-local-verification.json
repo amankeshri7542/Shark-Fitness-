@@ -1,0 +1,340 @@
+{
+  "date": "2026-09-23",
+  "scope": "Local synthetic rehearsal only. No hosted, off-instance, physical-device, private activation or human acceptance credit.",
+  "sourceCommit": "54877acf08ad99e966e8a17c18b9309d0acdf124",
+  "runtime": {
+    "node": "22.23.2",
+    "pnpm": "10.28.0"
+  },
+  "checks": {
+    "typecheck": "passed",
+    "lint": "passed",
+    "tests": {
+      "passed": 1273,
+      "files": 99,
+      "domain": 255,
+      "member": 29,
+      "admin": 264,
+      "api": 725
+    },
+    "build": "passed",
+    "paymentBoundaryProduction": {
+      "passed": 7
+    },
+    "paymentBoundaryNodeEnvUnset": {
+      "passed": 7
+    },
+    "diffCheck": "passed",
+    "credentialSignatureAndConflictScan": {
+      "files": 28,
+      "findings": 0
+    }
+  },
+  "logs": [
+    "/tmp/shark-phase23-typecheck-final.log",
+    "/tmp/shark-phase23-lint-final.log",
+    "/tmp/shark-phase23-test-final.log",
+    "/tmp/shark-phase23-build-final.log",
+    "/tmp/shark-payment-production-final.log",
+    "/tmp/shark-payment-unconfigured-final.log"
+  ],
+  "builtAssets": [
+    {
+      "path": "apps/admin-web/dist/assets/AccountActivation-CoHImMdO.js",
+      "bytes": 1523,
+      "sha256": "95f95c73d899645cd6bc3ae9e6b1df6f20798c5baddc152b9189eb27c91ac385"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/Automations-CZhbrIQe.js",
+      "bytes": 23105,
+      "sha256": "aa2492c8e1e7660d45a87f84a360fb7307f056e92d0a8d1c8132d6048d004125"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/Billing-BULvZ-bo.js",
+      "bytes": 15706,
+      "sha256": "0263cc4b159b48e1cb3596e2fcde7276a8b1b93fcf1fa7af8a36d969f8b4190e"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/CommandCenter-Chd55RhJ.js",
+      "bytes": 9817,
+      "sha256": "99ab94bdd00ade821529333602d3ab95a3c73f0212f86f4f895eafe75148e7b1"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/Equipment-iUw_gSRj.js",
+      "bytes": 21211,
+      "sha256": "ba08c7266f1ef871fa4ece10c622578f0f527486dff2ccbe0e85ddfe2152659b"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/Floor-Bh-CENPx.js",
+      "bytes": 12997,
+      "sha256": "882c8991d4dc2e2488cbaf0c9adffeb38cd6c8a8cf573cd0dccbf66b4f9a4db7"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/LeadDetail-CkTNK_kz.js",
+      "bytes": 6398,
+      "sha256": "34701f6923eb7dc675f8eac8e6297bf912fb73f46e270c8a51bbe56195beccd6"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/Leads-Bx_FNifT.js",
+      "bytes": 7713,
+      "sha256": "ea39ad560ec5a70de11defc28ad71873b8e362de96e63d799cdf0b4a228004ba"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/MemberDetail-N27tEPkN.js",
+      "bytes": 21284,
+      "sha256": "104ff14ca40c58fb0dbe93244bb9afd8348554ee54553d7ea49e92a0ab15fa31"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/Members-CifZt2lm.js",
+      "bytes": 7214,
+      "sha256": "07c1156c8a3a121fd40cfc98609f6b22e38bd08f7c71ca09694430a379fbe99b"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/Plans-BFIoDXUG.js",
+      "bytes": 8069,
+      "sha256": "0b2fcc8d61c295c60ea479206ac8f12fae7dc53215863266bb4279ab6333300e"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/Platform-C0tC3cp-.js",
+      "bytes": 15567,
+      "sha256": "c37547674e27416225230aeb53e6f8816fc4c1785a57bbfb7e17defe7b693007"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/Reports-B2M97BOC.js",
+      "bytes": 23645,
+      "sha256": "1ab45345ec42b18d468ffd1b82d66c41ca759d37cbd220e6a3100b26949a9464"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/Schedule-CveaSwgi.js",
+      "bytes": 29049,
+      "sha256": "65c2ffcf4a432233f178cb6fe047b34adb1fb12ffab355a3a4513adc2cdcd9d7"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/Settings-Cx9epbgE.js",
+      "bytes": 38112,
+      "sha256": "eafede74d6fedd67aa7c4e883f4e019014cc8b357e99289d04df51d3c00e036f"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/Staff-ZuiZujkr.js",
+      "bytes": 17800,
+      "sha256": "6847678ed88e7f4a77cb635cdbe7c78e14a1be0090b61a0fb048f66d0829d7f9"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/StaffDetail-CRoosVZq.js",
+      "bytes": 19813,
+      "sha256": "dba85a78f3c285aa8552b702c087866ac3198969ce1f9b9413a4e7cc93f374a8"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/Store-DX6znmBf.js",
+      "bytes": 63792,
+      "sha256": "32df53dcf2fb05243d92e105901a334cccb70758cd6d266dbf0cf1166e84cc6d"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/Support-BABY5Rq-.js",
+      "bytes": 45689,
+      "sha256": "d77afaee6441589f6cc8de1a8f714702bf4a1c298a64d7eb331a7304f9c2eb36"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/Training-NG8GhJCZ.js",
+      "bytes": 9597,
+      "sha256": "cb7695cb8985d823609521625c19e8208a2d8c170691ab07d7558de124502c06"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/TrainingBuilder-CXkKboV-.js",
+      "bytes": 14803,
+      "sha256": "b9ffc6dfd5b1855449a5c88a18d6acc95eb895a71ec6284ce86fabafd8c38423"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/idempotent-attempt-DveZA039.js",
+      "bytes": 462,
+      "sha256": "15e660006efff90c20f5f3d9020e302d8cbc136618bcf255ce24927533443c44"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/index-916U5Rmf.js",
+      "bytes": 158407,
+      "sha256": "d554b637ff376c56e7b1693a3db9781c15cc240171b33a0639c6885013a39461"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/index-CBU-sIjU.css",
+      "bytes": 42551,
+      "sha256": "75b5dd24eebde04a4cd37e636b5e648e8930e13bc6c2a33de5505a37120063b7"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/react-vendor-COepQrKg.js",
+      "bytes": 185083,
+      "sha256": "be0addafdbbf3fb93d1663a60684a66f8306eb9c755dfb88f34610ecabac9d50"
+    },
+    {
+      "path": "apps/admin-web/dist/assets/tanstack-vendor-DLyHWCoI.js",
+      "bytes": 104813,
+      "sha256": "f04d7aa3343798a58dc07b0c0c3eb3cc111dbef2c4819514fb4ab08fcf5fab44"
+    },
+    {
+      "path": "apps/admin-web/dist/favicon.svg",
+      "bytes": 247,
+      "sha256": "41249d21e2dda27f90a6c7e3b21851907dc06e583c98be0445d3ca8cfef92416"
+    },
+    {
+      "path": "apps/admin-web/dist/index.html",
+      "bytes": 2362,
+      "sha256": "96aa15d03e53b58a18f8521b98b728d2c25c045cb81d7cc7fdaaf7a0dad2b6f4"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Billing-DtCM7PQF.js",
+      "bytes": 3206,
+      "sha256": "30a36d3f23fd5313cc9963d01b1ffbe16b792fc2492533e4c76511bced181f90"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Book-D7FZpnN8.js",
+      "bytes": 8309,
+      "sha256": "8188f7a8879777225da9b057230bf65c716a9db923867607040b7610d9ec591a"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Challenge-8y_eso7A.js",
+      "bytes": 5131,
+      "sha256": "cb8a476dac741d99b9326b15f60a3fe4439838fc659751e3f73ff92991b1b901"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Conversation-C5a-4KNz.js",
+      "bytes": 4943,
+      "sha256": "e2f59c9ea9468c79fe4ebd00525681dc049e177fba1f11701e7761152ddf9995"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Exercise-9i5KmtdX.js",
+      "bytes": 5028,
+      "sha256": "9df2bf35bc02c98b6a7a7b638f605d791e1b63ee6c474b76dd3696a35f3c7dea"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Habits-DG0T_703.js",
+      "bytes": 5595,
+      "sha256": "6a9002ec918d360103ce955fe705bbeef09d412fd5622bf998363873c15bfa69"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Home-BgnU2ACY.js",
+      "bytes": 10259,
+      "sha256": "331d4b9fb1493a4d6f3229d8cf11fbd983e1bfc8024edf0f507b1d382ffad945"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Library-AgES0cUy.js",
+      "bytes": 4577,
+      "sha256": "ff23aefcf29a118f52ab064ecd958062c2cbaeeef93ba1c797dd8496ed938376"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Messages-DOFo4lK0.js",
+      "bytes": 2663,
+      "sha256": "3b969e7b5affceb494e066dda98687ff25f055f209757a49e63fe2b94f7b390a"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Notifications-Bkh_ldbB.js",
+      "bytes": 2361,
+      "sha256": "0e71177eba68dcaedb58bccdc5d336f21fc4c8385908ef7c040606c85c78dfc5"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Pack-Bjyw6wbo.js",
+      "bytes": 11752,
+      "sha256": "61f27c05529dc6775ed564091fc4150a94d5697544efc7ea51716f69e04d1612"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Pass-DMfr3jOf.js",
+      "bytes": 4797,
+      "sha256": "8efc5d4f6cec289841a57356f233cd740fbe131d00a6116385d61bbc3322339d"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Profile-DrlM4coh.js",
+      "bytes": 6965,
+      "sha256": "562bd7f4f8a31f7f297c6d146ec35faf6a135f55052dcab145ed402e8aacb5f5"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Progress-YPt_DG4x.js",
+      "bytes": 9331,
+      "sha256": "1706664bddbc5e5758731ff5b6e2ac846798016fa4a3f739bb0a0f9013f6ae02"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Summary-W-s6QAyh.js",
+      "bytes": 5881,
+      "sha256": "70cd6dcce4a13ff81717ba33a5b7e453b66a36af3104ac94513b3225e596c803"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Train-BVogGF-o.js",
+      "bytes": 8323,
+      "sha256": "93fe74212ebe74a236b365f20d11adaeeef093b20c027925d4bce03108c60904"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/Workout-B3vu8xhd.js",
+      "bytes": 26762,
+      "sha256": "82f1097140fd3bc2d95095a4c4253b9487fdd932e1abd47a237cdda650fe6c00"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/index-CUedy_Ew.css",
+      "bytes": 33915,
+      "sha256": "58ae0f499de7d4b6b5fb7318cecf29802f7ee5c5af1e0ea58f7fcdfb93aba1ff"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/index-DUIV_WqI.js",
+      "bytes": 145084,
+      "sha256": "1143f9927659aa8bc35b895eab78ae1533a41d9bcf06c2870cab26ae771130bb"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/react-vendor-COepQrKg.js",
+      "bytes": 185083,
+      "sha256": "be0addafdbbf3fb93d1663a60684a66f8306eb9c755dfb88f34610ecabac9d50"
+    },
+    {
+      "path": "apps/member-pwa/dist/assets/tanstack-vendor-Dc-ntDnI.js",
+      "bytes": 104773,
+      "sha256": "d02785388a080d3ac2a4e55bc2a4b3d42200ff0a1bdc7d8bbe6e9b6bf84c280c"
+    },
+    {
+      "path": "apps/member-pwa/dist/favicon.svg",
+      "bytes": 247,
+      "sha256": "41249d21e2dda27f90a6c7e3b21851907dc06e583c98be0445d3ca8cfef92416"
+    },
+    {
+      "path": "apps/member-pwa/dist/index.html",
+      "bytes": 1491,
+      "sha256": "085e483cafafa02e05f36634aa72ee990d755f2e2828bd4b4a0b124499d56ffd"
+    },
+    {
+      "path": "apps/member-pwa/dist/manifest.webmanifest",
+      "bytes": 339,
+      "sha256": "4b1ae85cfa3cd28a2f0cc78d17a781a1a9d3c6a975cec1dcdf3284ee4d1efbe3"
+    },
+    {
+      "path": "apps/member-pwa/dist/registerSW.js",
+      "bytes": 134,
+      "sha256": "9742073ef7fc795e7673d98f272992843298426a0ffd8cb3507784df5143608b"
+    },
+    {
+      "path": "apps/member-pwa/dist/sw.js",
+      "bytes": 2413,
+      "sha256": "30e4e06a6201a7f73db7a7b68604eddf07afa3e66ebcf6353d9504aec0cb0351"
+    },
+    {
+      "path": "apps/member-pwa/dist/workbox-dcde9eb3.js",
+      "bytes": 21434,
+      "sha256": "046096e76e8c6584babb03f8d76fa963d0ccfa195f0b7de847276fa0eaf92eda"
+    }
+  ],
+  "sourceCI": [
+    {
+      "event": "push",
+      "url": "https://github.com/amankeshri7542/Shark-Fitness-/actions/runs/35773315871",
+      "verify": "success",
+      "image": "success"
+    },
+    {
+      "event": "pull_request",
+      "url": "https://github.com/amankeshri7542/Shark-Fitness-/actions/runs/35773323761",
+      "verify": "success",
+      "image": "success"
+    }
+  ],
+  "finalHandoffReview": {
+    "sessionFilesScanned": 30,
+    "credentialSignatureAndConflictFindings": 0,
+    "completeDiffAgainstOriginMain": "whitespace check passed",
+    "sourceUnchangedSinceCommit": true,
+    "browserEvidence": "browser-2026-09-23.json",
+    "productionBrowserSmoke": "browser-smoke-2026-09-23.log"
+  }
+}

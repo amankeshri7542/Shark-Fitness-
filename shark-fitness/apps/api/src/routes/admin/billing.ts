@@ -3,15 +3,18 @@ import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { validate } from '../../middleware/validate.js';
 import { BillingCadence, ProductKind, RecordPaymentInput, type Product } from '@shark/contracts';
-import { dunningPlan, formatMoney } from '@shark/domain';
+import { can, formatMoney } from '@shark/domain';
 import { db, schema, transact } from '../../db/client.js';
 import { ctxOf } from '../../middleware/index.js';
-import { requireBranch, requirePermission } from '../../lib/context.js';
+import type { RequestContext } from '../../lib/context.js';
+import { branchScope, requireBranch, requirePermission } from '../../lib/context.js';
 import { audit } from '../../lib/audit.js';
 import { conflict, invalid, notFound, precondition } from '../../lib/errors.js';
 import { id } from '../../lib/ids.js';
-import { DAY, now } from '../../lib/time.js';
+import { DAY, addDays, isoDate, now } from '../../lib/time.js';
+import { branchTimeZone } from '../../lib/branch-time.js';
 import { applyPaymentToInvoice, applyRefund, createInvoiceForProduct, loadInvoiceInScope } from '../../services/billing.js';
+import { dunningForInvoice } from '../../services/dunning.js';
 
 export const billingRoutes = new Hono();
 
@@ -19,7 +22,7 @@ export const billingRoutes = new Hono();
 
 const AccessRulesBody = z.object({
   allBranches: z.boolean(),
-  branchIds: z.array(z.string()),
+  branchIds: z.array(z.string().min(1)),
   windowStartMin: z.number().int().nullable(),
   windowEndMin: z.number().int().nullable(),
   visitsPerWeek: z.number().int().nullable(),
@@ -61,13 +64,75 @@ const ProductBody = z.object({
   eligibility: z
     .object({ minAge: z.number().int().nullable(), maxAge: z.number().int().nullable(), corporateOnly: z.boolean(), requiresApproval: z.boolean() })
     .default({ minAge: null, maxAge: null, corporateOnly: false, requiresApproval: false }),
-  branchIds: z.array(z.string()).default([]),
+  branchIds: z.array(z.string().min(1)).optional(),
 });
+
+type CatalogueAccess = z.infer<typeof AccessRulesBody>;
+
+function sameBranchIds(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((branchId) => right.includes(branchId));
+}
+
+/** Validate both copies of catalogue branch access and return one canonical
+ * representation. `products.branchIds` is retained for the frozen Product
+ * contract, but access rules are the source of truth used by eligibility. */
+function catalogueBranchAccess(
+  ctx: RequestContext,
+  access: CatalogueAccess,
+  suppliedBranchIds?: string[],
+): { access: CatalogueAccess; branchIds: string[] } {
+  const accessBranchIds = [...new Set(access.branchIds)];
+  if (accessBranchIds.length !== access.branchIds.length) {
+    throw invalid('Choose each catalogue branch once.');
+  }
+  if (access.allBranches && accessBranchIds.length > 0) {
+    throw invalid('An all-branches product must not also list individual branches.');
+  }
+
+  const canonicalBranchIds = access.allBranches ? [] : accessBranchIds;
+  if (suppliedBranchIds !== undefined) {
+    const uniqueSupplied = [...new Set(suppliedBranchIds)];
+    if (uniqueSupplied.length !== suppliedBranchIds.length || !sameBranchIds(uniqueSupplied, canonicalBranchIds)) {
+      throw invalid('Product branchIds must match its access rules.');
+    }
+  }
+
+  const tenantBranches = db
+    .select({ id: schema.branches.id, state: schema.branches.state })
+    .from(schema.branches)
+    .where(eq(schema.branches.tenantId, ctx.tenantId))
+    .all();
+  const activeTenantBranchIds = tenantBranches.filter((branch) => branch.state !== 'archived').map((branch) => branch.id);
+  const requestScope = branchScope(ctx);
+
+  if (access.allBranches) {
+    if (!activeTenantBranchIds.every((branchId) => requestScope.includes(branchId))) {
+      throw invalid('All-branches access is outside the branches in this request.');
+    }
+  } else {
+    const validTenantBranchIds = new Set(activeTenantBranchIds);
+    if (!canonicalBranchIds.every((branchId) => validTenantBranchIds.has(branchId))) {
+      throw invalid('Choose active branches from this tenant.');
+    }
+    if (!canonicalBranchIds.every((branchId) => requestScope.includes(branchId))) {
+      throw invalid('Choose branches within this request scope.');
+    }
+  }
+
+  return { access: { ...access, branchIds: canonicalBranchIds }, branchIds: canonicalBranchIds };
+}
 
 billingRoutes.get('/products', (c) => {
   const ctx = ctxOf(c);
-  requirePermission(ctx, 'product.manage');
-  const rows = db.select().from(schema.products).where(eq(schema.products.tenantId, ctx.tenantId)).orderBy(desc(schema.products.updatedAt)).all();
+  const canManage = can(ctx.role, 'product.manage');
+  if (!canManage) requirePermission(ctx, 'membership.manage');
+  const scope = branchScope(ctx);
+  const rows = db.select().from(schema.products).where(and(
+    eq(schema.products.tenantId, ctx.tenantId),
+    canManage ? undefined : eq(schema.products.status, 'active'),
+  )).orderBy(desc(schema.products.updatedAt)).all().filter((p) =>
+    canManage || (scope.length > 0 && (p.access.allBranches || p.access.branchIds.some((branchId) => scope.includes(branchId)))),
+  );
   return c.json({
     items: rows.map((p) => ({
       id: p.id,
@@ -97,6 +162,7 @@ billingRoutes.post('/products', validate('json', ProductBody), (c) => {
   requirePermission(ctx, 'product.manage');
   const body = c.req.valid('json');
   const productId = id('prd');
+  const normalizedAccess = catalogueBranchAccess(ctx, body.access, body.branchIds);
 
   db.insert(schema.products)
     .values({
@@ -113,11 +179,11 @@ billingRoutes.post('/products', validate('json', ProductBody), (c) => {
       durationDays: body.durationDays,
       credits: body.credits,
       creditsExpireDays: body.creditsExpireDays,
-      access: body.access,
+      access: normalizedAccess.access,
       freeze: body.freeze,
       cancellation: body.cancellation,
       eligibility: body.eligibility,
-      branchIds: body.branchIds,
+      branchIds: normalizedAccess.branchIds,
       status: 'draft',
       createdAt: now(),
       updatedAt: now(),
@@ -138,6 +204,10 @@ billingRoutes.patch('/products/:productId', validate('json', ProductEditBody), (
 
   const product = db.select().from(schema.products).where(and(eq(schema.products.id, productId), eq(schema.products.tenantId, ctx.tenantId))).get();
   if (!product) throw notFound('That product');
+  const normalizedAccess =
+    body.access !== undefined || body.branchIds !== undefined
+      ? catalogueBranchAccess(ctx, body.access ?? product.access, body.branchIds)
+      : null;
 
   // Editing published terms bumps the version — memberships already sold
   // keep their frozen productSnapshot regardless (PF-CAT-003); this only
@@ -147,10 +217,11 @@ billingRoutes.patch('/products/:productId', validate('json', ProductEditBody), (
   db.update(schema.products)
     .set({
       ...body,
+      ...(normalizedAccess ? { access: normalizedAccess.access, branchIds: normalizedAccess.branchIds } : {}),
       version: bumpsVersion ? product.version + 1 : product.version,
       updatedAt: now(),
     })
-    .where(eq(schema.products.id, productId))
+    .where(and(eq(schema.products.id, productId), eq(schema.products.tenantId, ctx.tenantId)))
     .run();
 
   audit(ctx, { action: 'product.updated', entityType: 'product', entityId: productId, entityLabel: product.name, before: { status: product.status }, after: { status: body.status ?? product.status } });
@@ -221,7 +292,7 @@ billingRoutes.post('/products/:productId/duplicate', (c) => {
 billingRoutes.get('/summary', (c) => {
   const ctx = ctxOf(c);
   requirePermission(ctx, 'billing.view');
-  const scope = ctx.activeBranchId ? [ctx.activeBranchId] : ctx.branchIds;
+  const scope = branchScope(ctx);
   const monthStart = new Date(now());
   monthStart.setUTCDate(1);
   monthStart.setUTCHours(0, 0, 0, 0);
@@ -235,7 +306,7 @@ billingRoutes.get('/summary', (c) => {
   const outstanding = db
     .select({ total: sql<number>`coalesce(sum(${schema.invoices.totalMinor} - ${schema.invoices.paidMinor}), 0)`, count: sql<number>`count(*)` })
     .from(schema.invoices)
-    .where(and(eq(schema.invoices.tenantId, ctx.tenantId), inArray(schema.invoices.branchId, scope), sql`${schema.invoices.state} in ('open','partially_paid','overdue')`))
+    .where(and(eq(schema.invoices.tenantId, ctx.tenantId), inArray(schema.invoices.branchId, scope), sql`${schema.invoices.voided} = 0 and ${schema.invoices.totalMinor} > ${schema.invoices.paidMinor}`))
     .get();
 
   const overdueCount = db
@@ -262,7 +333,7 @@ billingRoutes.get('/summary', (c) => {
 });
 
 const InvoiceListQuery = z.object({
-  state: z.string().optional(),
+  state: z.enum(['outstanding', 'open', 'partially_paid', 'overdue', 'paid', 'void', 'partially_refunded', 'refunded']).optional(),
   memberId: z.string().optional(),
   q: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(500).default(200),
@@ -273,10 +344,11 @@ billingRoutes.get('/invoices', validate('query', InvoiceListQuery), (c) => {
   const ctx = ctxOf(c);
   requirePermission(ctx, 'billing.view');
   const q = c.req.valid('query');
-  const scope = ctx.activeBranchId ? [ctx.activeBranchId] : ctx.branchIds;
+  const scope = branchScope(ctx);
 
   const filters = [eq(schema.invoices.tenantId, ctx.tenantId), inArray(schema.invoices.branchId, scope)];
-  if (q.state) filters.push(eq(schema.invoices.state, q.state));
+  if (q.state === 'outstanding') filters.push(sql`${schema.invoices.voided} = 0 and ${schema.invoices.totalMinor} > ${schema.invoices.paidMinor}`);
+  else if (q.state) filters.push(eq(schema.invoices.state, q.state));
   if (q.memberId) filters.push(eq(schema.invoices.memberId, q.memberId));
 
   const rows = db
@@ -319,8 +391,8 @@ billingRoutes.get('/invoices', validate('query', InvoiceListQuery), (c) => {
     memberName: `${r.firstName} ${r.lastName}`,
     memberNo: r.memberNo,
     totalLabel: formatMoney(r.totalMinor, r.currency),
-    dueMinor: r.totalMinor - r.paidMinor - r.refundedMinor,
-    dueLabel: formatMoney(Math.max(0, r.totalMinor - r.paidMinor), r.currency),
+    dueMinor: r.state === 'void' ? 0 : Math.max(0, r.totalMinor - r.paidMinor),
+    dueLabel: formatMoney(r.state === 'void' ? 0 : Math.max(0, r.totalMinor - r.paidMinor), r.currency),
   }));
 
   return c.json({ total, items, hasMore: q.offset + items.length < total, limit: q.limit, offset: q.offset });
@@ -352,7 +424,8 @@ billingRoutes.get('/invoices/:invoiceId', (c) => {
       totalLabel: formatMoney(invoice.totalMinor, invoice.currency),
       paidLabel: formatMoney(invoice.paidMinor, invoice.currency),
       refundedLabel: formatMoney(invoice.refundedMinor, invoice.currency),
-      dueLabel: formatMoney(Math.max(0, invoice.totalMinor - invoice.paidMinor), invoice.currency),
+      dueMinor: invoice.voided ? 0 : Math.max(0, invoice.totalMinor - invoice.paidMinor),
+      dueLabel: formatMoney(invoice.voided ? 0 : Math.max(0, invoice.totalMinor - invoice.paidMinor), invoice.currency),
       voided: invoice.voided,
       voidReason: invoice.voidReason,
       memberId: invoice.memberId,
@@ -371,6 +444,7 @@ billingRoutes.post('/invoices/:invoiceId/payments', validate('json', RecordPayme
   requirePermission(ctx, 'billing.record_payment');
   const invoiceId = c.req.param('invoiceId');
   const body = c.req.valid('json');
+  if (body.method === 'upi' && !body.reference?.trim()) throw invalid('A verified UPI transaction reference is required.');
 
   loadInvoiceInScope(ctx, invoiceId);
 
@@ -421,59 +495,21 @@ billingRoutes.post('/payments/:paymentId/refund', validate('json', RefundBody), 
   return c.json(result);
 });
 
-/**
- * Staff-only simulation tool. There is no live payment gateway behind this —
- * it lets support/QA produce a "succeeded" or "failed" outcome for a demo or
- * test invoice the way a real provider's sandbox dashboard would, so the
- * dunning flow is demonstrable without a real integration. Never reachable
- * by a member or an unauthenticated caller.
- */
-const DemoWebhookBody = z.object({ invoiceId: z.string(), outcome: z.enum(['succeeded', 'failed']), reason: z.string().optional() });
-
-billingRoutes.post('/webhooks/demo', validate('json', DemoWebhookBody), (c) => {
-  const ctx = ctxOf(c);
-  requirePermission(ctx, 'billing.record_payment');
-  const { invoiceId, outcome, reason } = c.req.valid('json');
-
-  const invoice = loadInvoiceInScope(ctx, invoiceId);
-
-  const eventId = id('devt');
-  db.insert(schema.providerEvents)
-    .values({ id: id('pev'), tenantId: ctx.tenantId, provider: 'demo', providerEventId: eventId, type: `payment.${outcome}`, payload: { invoiceId, outcome, reason: reason ?? null }, signatureOk: true, receivedAt: now(), processedAt: null, processingError: null })
-    .run();
-
-  if (outcome === 'succeeded') {
-    const dueMinor = invoice.totalMinor - invoice.paidMinor;
-    if (dueMinor <= 0) throw conflict('This invoice has nothing outstanding to simulate a payment against.');
-    const result = transact(() =>
-      applyPaymentToInvoice({ ctx, invoiceId, amountMinor: dueMinor, method: 'upi', provider: 'demo', providerRef: eventId, idempotencyKey: `demo:${eventId}`, recordedByName: `${ctx.name} (demo webhook)` }),
-    );
-    db.update(schema.providerEvents).set({ processedAt: now() }).where(eq(schema.providerEvents.providerEventId, eventId)).run();
-    return c.json(result);
-  }
-
-  transact(() => {
-    db.insert(schema.payments)
-      .values({ id: id('pay'), tenantId: ctx.tenantId, branchId: invoice.branchId, invoiceId, memberId: invoice.memberId, method: 'upi', state: 'failed', amountMinor: invoice.totalMinor - invoice.paidMinor, currency: invoice.currency, provider: 'demo', providerRef: eventId, idempotencyKey: `demo:${eventId}`, recordedById: null, recordedByName: null, failureReason: reason ?? 'Simulated failure', note: null, createdAt: now(), settledAt: null })
-      .run();
-
-    const plan = dunningPlan(['email', 'in_app']);
-    const first = plan[0]!;
-    db.insert(schema.dunningAttempts)
-      .values({ id: id('dun'), tenantId: ctx.tenantId, invoiceId, attempt: first.attempt, channel: first.channel, scheduledFor: now(), state: 'scheduled', sentAt: null, stopReason: null })
-      .run();
-
-    audit(ctx, { action: 'payment.failed', entityType: 'invoice', entityId: invoiceId, entityLabel: invoice.number, reason: reason ?? 'Simulated failure' });
-  });
-
-  db.update(schema.providerEvents).set({ processedAt: now() }).where(eq(schema.providerEvents.providerEventId, eventId)).run();
-  return c.json({ ok: true, invoiceState: invoice.state });
+// Historical provider/payment rows remain readable; simulation cannot mutate them.
+billingRoutes.post('/webhooks/demo', () => {
+  throw precondition('Payment simulation is unavailable. Record only independently received funds at reception.');
 });
+
+/** The dunning state of one invoice, including — stated rather than implied —
+ *  that no automatic retry is possible. */
+billingRoutes.get('/invoices/:invoiceId/dunning', (c) =>
+  c.json(dunningForInvoice(ctxOf(c), c.req.param('invoiceId'))),
+);
 
 billingRoutes.get('/dunning', (c) => {
   const ctx = ctxOf(c);
   requirePermission(ctx, 'billing.view');
-  const scope = ctx.activeBranchId ? [ctx.activeBranchId] : ctx.branchIds;
+  const scope = branchScope(ctx);
 
   const rows = db
     .select({
@@ -541,7 +577,7 @@ billingRoutes.post('/members/:memberId/assign-plan', validate('json', AssignPlan
   let activated = false;
 
   const result = transact(() => {
-    const startedOn = new Date(now()).toISOString().slice(0, 10);
+    const startedOn = isoDate(now(), branchTimeZone(ctx.tenantId, member.homeBranchId));
     db.insert(schema.memberships)
       .values({
         id: membershipId,
@@ -552,8 +588,8 @@ billingRoutes.post('/members/:memberId/assign-plan', validate('json', AssignPlan
         productSnapshot: product as unknown as Product,
         state: 'pending_payment',
         startedOn,
-        endsOn: product.durationDays ? new Date(now() + product.durationDays * DAY).toISOString().slice(0, 10) : null,
-        autoRenew: true,
+        endsOn: product.durationDays ? addDays(startedOn, product.durationDays) : null,
+        autoRenew: false,
         priceMinor: product.priceMinor,
         currency: product.currency,
         freezeDaysUsed: 0,
