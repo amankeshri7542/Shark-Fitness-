@@ -20,7 +20,7 @@ const baseEnvironment = {
   ...process.env,
   SHARK_PASS_SECRET: 'recovery-proof-pass-secret-with-at-least-48-bytes-long',
   SHARK_DEMO_READER_KEY: 'recovery-proof-reader-secret',
-  SHARK_RELEASE: 'recovery-proof',
+  SHARK_RELEASE: `recovery-proof-${proofSuffix}`,
   SHARK_ECHO_OTP: 'false',
   SHARK_ALLOW_BEARER_AUTH: 'false',
 };
@@ -126,9 +126,10 @@ async function waitForJson(url, attempts = 60) {
 async function proveBootAndRead() {
   const port = 8798;
   const origin = `http://127.0.0.1:${port}`;
-  const invocation = pnpmInvocation(['-F', '@shark/api', 'start']);
-  const child = spawn(invocation.command, invocation.args, {
-    cwd: repository,
+  // Own the server process directly: terminating pnpm can leave its server
+  // descendants holding the output pipes open on Linux.
+  const child = spawn(process.execPath, ['--import', 'tsx', 'src/server.ts'], {
+    cwd: resolve(repository, 'apps/api'),
     env: {
       ...baseEnvironment,
       NODE_ENV: 'production',
@@ -145,7 +146,9 @@ async function proveBootAndRead() {
   child.stderr.on('data', (chunk) => { logs = `${logs}${String(chunk)}`.slice(-12_000); });
   try {
     const { body: ready } = await waitForJson(`${origin}/ready`);
-    if (!ready.ok || ready.schema !== 'ready') throw new Error(`Restored API was not ready: ${JSON.stringify(ready)}`);
+    if (!ready.ok || ready.schema !== 'ready' || ready.release !== baseEnvironment.SHARK_RELEASE) {
+      throw new Error(`Restored API was not ready or belonged to another process: ${JSON.stringify(ready)}`);
+    }
     const signIn = await fetch(`${origin}/v1/auth/password`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', origin },
