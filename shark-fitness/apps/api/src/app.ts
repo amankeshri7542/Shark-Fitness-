@@ -5,6 +5,7 @@ import { readinessCheck } from './lib/readiness.js';
 import { authenticate, errorHandler, logger, memberOnly, rateLimit, requestId, staffOnly } from './middleware/index.js';
 import { allowedOrigins, csrfProtection, securityHeaders } from './lib/security.js';
 
+import { accountRecoveryRoutes } from './routes/account-recovery.js';
 import { authRoutes } from './routes/auth.js';
 import { authStabilizationRoutes } from './routes/auth-stabilization.js';
 import { meRoutes } from './routes/me.js';
@@ -25,6 +26,7 @@ import { billingRoutes as memberBillingRoutes } from './routes/member/billing.js
 import { mediaRoutes } from './routes/member/media.js';
 
 import { dashboardRoutes } from './routes/admin/dashboard.js';
+import { memberOperationsRoutes } from './routes/admin/member-operations.js';
 import { membersRoutes } from './routes/admin/members.js';
 import { leadsRoutes } from './routes/admin/leads.js';
 import { billingStabilizationRoutes } from './routes/admin/billing-stabilization.js';
@@ -102,6 +104,7 @@ app.get('/ready', (c) => {
 });
 
 app.route('/v1/auth', authStabilizationRoutes);
+app.route('/v1/auth', accountRecoveryRoutes);
 app.route('/v1/auth', authRoutes);
 app.route('/v1/door', doorRoutes);
 
@@ -122,6 +125,7 @@ app.route('/v1/member/media', mediaRoutes);
 
 app.use('/v1/admin/*', protectedApiIpLimit, authenticate, authenticatedTenantLimit, authenticatedApiLimit, staffOnly);
 app.route('/v1/admin/dashboard', dashboardRoutes);
+app.route('/v1/admin/members', memberOperationsRoutes);
 app.route('/v1/admin/members', membersRoutes);
 app.route('/v1/admin/leads', leadsRoutes);
 app.route('/v1/admin/billing', billingStabilizationRoutes);

@@ -1,5 +1,9 @@
 # Staffed-gym stabilization — 20 September 2026
 
+## Phase 4/5 follow-on — 23 September 2026
+
+The follow-on implementation is separate from PR #15: [Phase 4/5 progress and feature acceptance](PHASE-4-5-PROGRESS.md), [operating pack](PILOT-OPERATING-PACK.md), [verification manifest](evidence/phase45-local-verification.json). Final runtime source `b9da05ce7c6290ecac07b3f6437b1d3d64eb9a37` passed 1,326 tests in 106 files, typecheck, lint and production build; new additive migrations passed populated-baseline preservation and one local recovery proof. Phase 5 is partial because credit sale/allocation/refund policy is unresolved. Phase 4 preparation advanced; actual pilot NOT RUN. Phase 3's hosted/human/device gates remain pending. Strict demo and pilot scores stay **45/100**; the new feature matrix does not change those weights or erase historical evidence. Exact final-head CI is recorded in [stacked PR #16](https://github.com/amankeshri7542/Shark-Fitness-/pull/16) and handoff, not borrowed from the historical green runs below.
+
 ## Phase 2/3 implementation handoff — 23 September 2026
 
 **This dated section supersedes the historical 85% scores and conditional completion language below.** The user authorized local rehearsal only; hosted work remains blocked, and human/physical-device checks remain pending. No live environment, real member records, paid resource, external alert destination or production database was changed. Phase 4 has not started.
