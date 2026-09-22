@@ -1,3 +1,4 @@
+import { RosterImport } from './RosterImport';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
@@ -159,6 +160,7 @@ export default function MembersScreen() {
         ) : null}
       </Seam>
 
+      <RosterImport />
       <Toolbar>
         <Field
           label="Search"

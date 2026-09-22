@@ -66,7 +66,7 @@ function safeEqual(a: string, b: string): boolean {
  * session while browsers keep their cookies. The client also stores its token
  * in per-tab sessionStorage, so a second tab reaches the same dead end.
  */
-const SESSION_ENTRY_PATHS = new Set(['/v1/auth/password', '/v1/auth/otp/start', '/v1/auth/otp/verify', '/v1/auth/activation/redeem']);
+const SESSION_ENTRY_PATHS = new Set(['/v1/auth/password', '/v1/auth/otp/start', '/v1/auth/otp/verify', '/v1/auth/activation/redeem', '/v1/auth/recovery/redeem']);
 
 /**
  * Rejects cross-origin unsafe requests and requires a double-submit token for

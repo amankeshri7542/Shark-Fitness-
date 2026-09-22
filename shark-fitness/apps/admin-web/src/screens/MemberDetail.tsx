@@ -7,6 +7,9 @@ import { Page } from '../ui/shell';
 import { Bar, Button, Checkbox, Chip, ErrorState, Field, Label, Metric, Panel, Seam, SelectField as ConsoleSelectField, Skeleton, Table, TableScroll, cx, type Tone } from '../ui/console';
 import { Modal } from '../ui/overlay';
 import { useIdempotentAttempt } from '../lib/idempotent-attempt';
+import { MemberEditor } from './MemberEditor';
+import { MemberPurchases } from './MemberPurchases';
+import { AccountRecovery } from '../ui/AccountRecovery';
 import { AccountActivation } from '../ui/AccountActivation';
 
 interface Detail {
@@ -15,6 +18,10 @@ interface Detail {
     memberNo: string;
     name: string;
     initials: string;
+    firstName: string;
+    lastName: string;
+    addressLine: string | null;
+    importedContactOnly?: boolean;
     email: string | null;
     phone: string | null;
     dob: string | null;
@@ -152,6 +159,9 @@ export default function MemberDetailScreen() {
     >
       {/* Identity strip */}
       {canEdit ? <AccountActivation key={memberId} memberId={memberId} /> : null}
+      {canEdit ? <MemberEditor key={`${memberId}:${m.version}`} member={m} onSaved={() => { void queryClient.invalidateQueries({ queryKey: ['member', memberId] }); void queryClient.invalidateQueries({ queryKey: ['members'] }); }} /> : null}
+      <AccountRecovery key={`recovery:${memberId}`} memberId={memberId} />
+      {canManage ? <MemberPurchases key={`purchases:${memberId}`} memberId={memberId} /> : null}
       <Seam className="border-b border-line">
         <div className="min-w-[190px] flex-1 px-3.5 py-3">
           <Label>Status</Label>

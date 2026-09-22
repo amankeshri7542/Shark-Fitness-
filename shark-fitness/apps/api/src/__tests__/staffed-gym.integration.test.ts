@@ -22,7 +22,7 @@ async function success(response: Response, status = 200) {
   return body as Record<string, unknown>;
 }
 
-it('an empty gym completes reception enrollment, activation, payment, receipt and attendance without fixture accounts or DB edits', async () => {
+it('an empty gym completes enrollment, correction, activation, payment, receipt, attendance, recovery and renewal without DB edits', async () => {
   const slug = `pilot-${randomUUID()}`;
   const password = 'isolated-pilot-password';
   const gym = bootstrapGym({ slug, legalName: 'Pilot Test Gym', displayName: 'Pilot Test Gym', timezone: 'UTC',
@@ -41,7 +41,8 @@ it('an empty gym completes reception enrollment, activation, payment, receipt an
       activationId: issued.activationId, token: issued.token, password,
     }));
   };
-  const reception = await activate(owner, { staffId });
+  await activate(owner, { staffId });
+  const reception = await sessionFrom(await request('/auth/password', {}, { tenantSlug: slug, email: 'desk@pilot.test', password }));
   const lead = await success(await request('/admin/leads', reception, {
     name: 'Fresh Walkin', phone: '+919870001111', email: 'member@pilot.test', source: 'walk_in', branchId: gym.branchId,
   }), 201);
@@ -49,7 +50,8 @@ it('an empty gym completes reception enrollment, activation, payment, receipt an
   const enrolled = await success(await request(`/admin/leads/${lead.id}/convert`, reception, {}));
   const memberId = enrolled.memberId as string;
   expect((await request(`/admin/leads/${lead.id}/convert`, reception, {})).status).toBe(409);
-  const member = await activate(reception, { memberId });
+  await activate(reception, { memberId });
+  const member = await sessionFrom(await request('/auth/password', {}, { tenantSlug: slug, email: 'member@pilot.test', password }));
   expect((await request('/admin/members', member)).status).toBe(403);
   const product = await success(await request('/admin/billing/products', owner, {
     kind: 'membership', name: 'Monthly manual renewal', priceMinor: 10000, currency: 'INR', taxRateBp: 0,
@@ -85,6 +87,36 @@ it('an empty gym completes reception enrollment, activation, payment, receipt an
   expect(sqlite.prepare("select count(*) as n from check_ins where member_id = ? and decision = 'granted' and exited_at is null").get(memberId)).toEqual({ n: 1 });
   expect((await request('/member/home', member)).status).toBe(200);
   expect((await request(`/admin/billing/invoices/${invoiceId}`, member)).status).toBe(403);
+  // Correct an ordinary mistake through reception, then verify live account data
+  // changes while the already-issued acknowledgement retains its original facts.
+  const detail = await success(await request(`/admin/members/${memberId}`, reception));
+  const profile = detail.member as { version: number };
+  await success(await request(`/admin/members/${memberId}/profile`, reception, {
+    version: profile.version, firstName: 'Corrected', lastName: 'Walkin', dob: null, addressLine: '2 Test Street',
+    emergencyContact: { name: 'Test Contact', phone: '+919870002222', relationship: 'Sibling' }, reason: 'Corrected name and emergency contact in person',
+  }, 'PATCH'));
+  expect((await success(await request('/me', member))).viewer).toMatchObject({ name: 'Corrected Walkin' });
+  expect(await (await request(`/member/billing/payments/${payments[0]!.id}/receipt`, member)).text()).toContain('Fresh Walkin');
+  await success(await request(`/admin/billing/payments/${payments[0]!.id}/refund`, owner, { amountMinor: 2500, reason: 'Synthetic partial refund rehearsal' }));
+  expect(await (await request(`/admin/billing/payments/${payments[0]!.id}/receipt`, reception)).text()).toContain('Invoice net retained: ₹75');
+  expect((await success(await request('/member/billing', member))).outstandingMinor).toBe(0);
+  // Recipient-selected password is exercised through the permitted synthetic API
+  // path. Private browser activation/recovery still requires the human handoff.
+  const recovery = await success(await request('/auth/recovery/issue', owner, { memberId, currentPassword: password, identityVerified: true, reason: 'Owner verified synthetic lost-access member in person' }));
+  const replacementPassword = 'replacement-private-password';
+  await success(await request('/auth/recovery/redeem', {}, { recoveryId: recovery.recoveryId, token: recovery.token, password: replacementPassword }));
+  expect((await request('/me', member)).status).toBe(401);
+  const recoveredMember = await sessionFrom(await request('/auth/password', {}, { tenantSlug: slug, email: 'member@pilot.test', password: replacementPassword }));
+  expect((await request('/member/billing', recoveredMember)).status).toBe(200);
+  expect((await request(`/admin/billing/members/${memberId}/renewal-quote`, reception)).status).toBe(409);
+  await success(await request(`/admin/members/${memberId}/cancel`, reception, { reason: 'Synthetic immediate cancellation before renewal', immediate: true }));
+  const quote = await success(await request(`/admin/billing/members/${memberId}/renewal-quote`, reception));
+  const renewalInput = { productId: product.id, quoteToken: quote.quoteToken };
+  const retrySession = { ...reception, 'idempotency-key': randomUUID() };
+  const renewed = await success(await request(`/admin/billing/members/${memberId}/renew`, retrySession, renewalInput), 201);
+  expect(await success(await request(`/admin/billing/members/${memberId}/renew`, retrySession, renewalInput), 201)).toEqual(renewed);
+  expect((await success(await request('/member/billing', recoveredMember))).outstandingMinor).toBe(10000);
+  expect(sqlite.prepare('select count(*) as n from memberships where member_id = ?').get(memberId)).toEqual({ n: 2 });
 });
 
 it('browses a synthetic 51-member directory without missing or repeating tied records', async () => {

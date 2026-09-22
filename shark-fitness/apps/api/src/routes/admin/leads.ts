@@ -9,9 +9,9 @@ import { branchScope, requireBranch, requirePermission } from '../../lib/context
 import { audit } from '../../lib/audit.js';
 import { emit } from '../../lib/events.js';
 import { AppError, conflict } from '../../lib/errors.js';
-import { id, initialsOf, normalizeEmail, normalizePhone } from '../../lib/ids.js';
-import { isoDate, now } from '../../lib/time.js';
-import { branchTimeZone } from '../../lib/branch-time.js';
+import { id, normalizeEmail, normalizePhone } from '../../lib/ids.js';
+import { now } from '../../lib/time.js';
+import { enrollMember } from '../../services/member-enrollment.js';
 import {
   LEAD_STAGE_TRANSITIONS,
   assertValidOwner,
@@ -495,81 +495,8 @@ leadsRoutes.post('/:leadId/convert', (c) => {
     if (orphanUser) throw conflict('That email is already used by another account in this gym. Resolve the conflict before converting.');
   }
 
-  const nameParts = lead.name.trim().split(/\s+/);
-  const firstName = nameParts[0] ?? lead.name;
-  const lastName = nameParts.slice(1).join(' ') || '—';
-
-  const userId = id('usr');
-  const memberId = id('mbr');
-  let memberNo = '';
-
-  transact(() => {
-    // Computed inside the transaction, immediately before the insert that
-    // consumes it, so nothing else in this single-writer process can read a
-    // stale max between the two (see db/client.ts: transact is the sole
-    // concurrency authority here, same pattern as booking capacity).
-    const memberNoRow = db
-      .select({ max: sql<number>`max(cast(substr(${schema.members.memberNo}, 4) as integer))` })
-      .from(schema.members)
-      .where(eq(schema.members.tenantId, ctx.tenantId))
-      .get();
-    memberNo = `SF-${(memberNoRow?.max ?? 40000) + 1}`;
-
-    db.insert(schema.users)
-      .values({
-        id: userId,
-        tenantId: ctx.tenantId,
-        email: lead.emailNormalized,
-        phone: lead.phone,
-        name: lead.name,
-        initials: initialsOf(lead.name),
-        role: 'member',
-        // Invited, not active — identity is unverified until the person
-        // completes sign-in themselves (PF member account state machine).
-        accountState: 'invited',
-        passwordHash: null,
-        preferences: { register: 'predator', theme: 'dark', unitSystem: 'metric', haptics: true, reducedMotion: false },
-        lastSeenAt: null,
-        createdAt: now(),
-        updatedAt: now(),
-      })
-      .run();
-
-    db.insert(schema.members)
-      .values({
-        id: memberId,
-        tenantId: ctx.tenantId,
-        userId,
-        homeBranchId: lead.branchId,
-        memberNo,
-        firstName,
-        lastName,
-        initials: initialsOf(lead.name),
-        email: lead.emailNormalized,
-        phone: lead.phone,
-        phoneNormalized: lead.phoneNormalized,
-        emailNormalized: lead.emailNormalized,
-        dob: null,
-        gender: null,
-        addressLine: null,
-        emergencyContact: null,
-        lifecycle: 'trial',
-        tags: [],
-        trainerId: null,
-        guardianId: null,
-        corporateSponsorId: null,
-        memberNotes: null,
-        staffNotes: null,
-        riskScore: null,
-        riskReasons: null,
-        joinedOn: isoDate(now(), branchTimeZone(ctx.tenantId, lead.branchId)),
-        lastVisitAt: null,
-        mergedIntoId: null,
-        version: 1,
-        createdAt: now(),
-        updatedAt: now(),
-      })
-      .run();
+  const result = transact(() => {
+    const { memberId, memberNo } = enrollMember(ctx, { branchId: lead.branchId, name: lead.name, email: lead.emailNormalized, phone: lead.phone });
 
     db.update(schema.leads)
       .set({ stage: 'won', convertedMemberId: memberId, lastTouchedAt: now(), updatedAt: now() })
@@ -598,7 +525,9 @@ leadsRoutes.post('/:leadId/convert', (c) => {
       entityLabel: lead.name,
       after: { convertedMemberId: memberId, memberNo },
     });
+    return { memberId, memberNo };
   });
+  const { memberId, memberNo } = result;
 
   emit({
     tenantId: ctx.tenantId,

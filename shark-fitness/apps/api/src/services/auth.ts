@@ -295,6 +295,27 @@ export function revokeSession(sessionId: string): void {
   db.update(schema.sessions).set({ revokedAt: now() }).where(eq(schema.sessions.id, sessionId)).run();
 }
 
+/** Invalidate every outstanding sign-in handoff for the account's current identity.
+ * Call before changing contact identifiers, inside the caller's write transaction. */
+export function revokeAccountChallenges(user: { id: string; tenantId: string; email: string | null; phone: string | null }): void {
+  const at = now();
+  const email = normalizeEmail(user.email);
+  const phone = normalizePhone(user.phone);
+  const challenges = db.select().from(schema.otpChallenges).where(and(eq(schema.otpChallenges.tenantId, user.tenantId), isNull(schema.otpChallenges.consumedAt))).all();
+  for (const challenge of challenges) {
+    const identifier = challenge.identifier;
+    const phoneAlias = !identifier.includes('@') ? normalizePhone(identifier) : null;
+    const matches = identifier.startsWith('activation:')
+      ? identifier === `activation:${user.id}`
+      : identifier.includes('@')
+        ? email !== null && normalizeEmail(identifier) === email
+        // Password recovery must also invalidate short suffixes accepted by verifyOtp.
+        : phone !== null && phoneAlias !== null && phone.endsWith(phoneAlias);
+    if (matches) db.update(schema.otpChallenges).set({ consumedAt: at }).where(eq(schema.otpChallenges.id, challenge.id)).run();
+  }
+  db.update(schema.accountRecoveries).set({ consumedAt: at }).where(and(eq(schema.accountRecoveries.tenantId, user.tenantId), eq(schema.accountRecoveries.userId, user.id), isNull(schema.accountRecoveries.consumedAt))).run();
+}
+
 export function resolveSession(rawToken: string): RequestContext | null {
   const session = db
     .select()

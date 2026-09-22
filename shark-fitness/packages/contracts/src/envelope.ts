@@ -111,6 +111,7 @@ export const EVENT_TOPICS = [
   'waitlist.promoted',
   'session.updated',
   'session.cancelled',
+  'member.profile_updated',
   'membership.state_changed',
   'payment.succeeded',
   'payment.failed',

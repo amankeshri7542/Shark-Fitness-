@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { QueryClient } from '@tanstack/react-query';
-import type { EventTopic } from '@shark/contracts';
+import type { EventTopic, Viewer } from '@shark/contracts';
 import { API_ORIGIN, api } from './api';
+import { useSession } from './store';
 
 export type Connection = 'connecting' | 'open' | 'closed';
 
@@ -35,13 +36,14 @@ const INVALIDATES: Partial<Record<EventTopic, string[][]>> = {
   'attendance.checked_out': [['pass'], ['occupancy']],
   'attendance.denied': [['pass']],
   'occupancy.changed': [['occupancy'], ['home']],
-  'booking.confirmed': [['schedule'], ['home']],
-  'booking.cancelled': [['schedule'], ['home']],
+  'booking.confirmed': [['schedule'], ['home'], ['billing']],
+  'booking.cancelled': [['schedule'], ['home'], ['billing']],
   'booking.seat_changed': [['schedule']],
   'waitlist.offered': [['schedule'], ['notifications']],
-  'waitlist.promoted': [['schedule']],
+  'waitlist.promoted': [['schedule'], ['billing']],
   'session.updated': [['schedule']],
-  'session.cancelled': [['schedule'], ['home'], ['notifications']],
+  'session.cancelled': [['schedule'], ['home'], ['notifications'], ['billing']],
+  'member.profile_updated': [['home'], ['pass'], ['billing'], ['profile']],
   'membership.state_changed': [['home'], ['billing'], ['pass']],
   'payment.succeeded': [['billing'], ['home'], ['pass']],
   'payment.failed': [['billing'], ['notifications']],
@@ -101,6 +103,16 @@ async function open(): Promise<void> {
 
       const event = data as RealtimeEvent;
       lastSeq = Math.max(lastSeq, event.seq);
+      if (event.topic === 'member.profile_updated') {
+        const prior = useSession.getState().viewer;
+        void api<{ viewer: Viewer }>('/me').then(({ viewer }) => {
+          const current = useSession.getState();
+          if (socket === nextSocket && current.status === 'signed-in' && current.viewer === prior
+            && viewer.role === 'member' && viewer.userId === prior?.userId && viewer.tenantId === prior.tenantId) {
+            current.setViewer(viewer);
+          }
+        }).catch(() => { /* Existing connection/session handling covers a revoked or offline session. */ });
+      }
       for (const key of INVALIDATES[event.topic] ?? []) {
         void client?.invalidateQueries({ queryKey: key });
       }
