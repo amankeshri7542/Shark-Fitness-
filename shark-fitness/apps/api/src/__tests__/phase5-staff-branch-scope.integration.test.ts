@@ -121,3 +121,56 @@ describe('Phase 5 staff booking branch entitlement', () => {
     ).toBe(0);
   });
 });
+
+describe('All branches is the default scope for multi-branch staff', () => {
+  it('lists members from every branch when no x-branch-id is sent', async () => {
+    const owner = await signIn('owner@sharkfitness.in');
+    const response = await app.request('/v1/admin/members?limit=100', { headers: headers(owner) });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { total: number; scopeNote: string };
+    expect(body.scopeNote).toMatch(/^Showing all \d+ branches/);
+    const everyone = db
+      .select({ n: sql<number>`count(*)` })
+      .from(schema.members)
+      .where(isNull(schema.members.deletedAt))
+      .get()!;
+    const narrowed = await app.request('/v1/admin/members?limit=100', {
+      headers: { ...headers(owner), 'x-branch-id': 'br_kor' },
+    });
+    const kor = (await narrowed.json()) as { total: number };
+    expect(body.total).toBeGreaterThan(kor.total);
+    expect(body.total).toBeLessThanOrEqual(everyone.n);
+
+    const me = await app.request('/v1/me/branches', { headers: headers(owner) });
+    const branches = (await me.json()) as { activeBranchId: string | null };
+    expect(branches.activeBranchId).toBeNull();
+  });
+
+  it('still narrows to one branch when the console asks for it', async () => {
+    const owner = await signIn('owner@sharkfitness.in');
+    const response = await app.request('/v1/me/branches', { headers: { ...headers(owner), 'x-branch-id': 'br_ind' } });
+    const body = (await response.json()) as { activeBranchId: string | null };
+    expect(body.activeBranchId).toBe('br_ind');
+  });
+});
+
+describe('Member directory search', () => {
+  async function search(term: string): Promise<string[]> {
+    const owner = await signIn('owner@sharkfitness.in');
+    const response = await app.request(`/v1/admin/members?q=${encodeURIComponent(term)}`, { headers: headers(owner) });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { items: { name: string }[] };
+    return body.items.map((m) => m.name);
+  }
+
+  it('finds a member by their full name', async () => {
+    expect(await search('Aman Mehra')).toContain('Aman Mehra');
+  });
+
+  it('finds a member by a phone number typed with spaces', async () => {
+    const aman = db.select().from(schema.members).where(eq(schema.members.email, 'aman@sharkfitness.in')).get()!;
+    const digits = (aman.phoneNormalized ?? '').replace(/\D/g, '').slice(-10);
+    expect(digits).toHaveLength(10);
+    expect(await search(`${digits.slice(0, 5)} ${digits.slice(5)}`)).toContain('Aman Mehra');
+  });
+});

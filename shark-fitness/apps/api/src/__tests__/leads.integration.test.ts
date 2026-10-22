@@ -216,11 +216,23 @@ describe('admin leads', () => {
   });
 
   describe('conversion pipeline enforcement', () => {
-    it('rejects converting a lead that is not trial_completed', async () => {
+    it('converts a walk-in straight from new, without the trial stages', async () => {
       const session = await signIn();
-      const lead = await createLead(session);
+      const lead = await createLead(session, { phone: '+91 9000000098', name: 'Walk In Payer' });
+      const convert = await app.request(`/v1/admin/leads/${lead.id}/convert`, { method: 'POST', headers: headers(session, true) });
+      expect(convert.status).toBe(200);
+      const dbLead = db.select().from(schema.leads).where(eq(schema.leads.id, lead.id)).get();
+      expect(dbLead?.stage).toBe('won');
+    });
+
+    it('rejects converting a lost lead until it is reopened', async () => {
+      const session = await signIn();
+      const lead = await createLead(session, { phone: '+91 9000000097', name: 'Lost Prospect' });
+      expect((await moveStage(session, lead.id, 'lost', 'Went with a competitor')).status).toBe(200);
       const convert = await app.request(`/v1/admin/leads/${lead.id}/convert`, { method: 'POST', headers: headers(session, true) });
       expect(convert.status).toBe(409);
+      const body = (await convert.json()) as { error: { message: string } };
+      expect(body.error.message).toMatch(/reopen/i);
     });
 
     it('rejects a direct stage move to won — only /convert may reach won', async () => {
@@ -353,5 +365,16 @@ describe('admin leads', () => {
     const session = await signIn('rehan@sharkfitness.in');
     const response = await app.request('/v1/admin/leads', { headers: headers(session) });
     expect(response.status).toBe(403);
+  });
+});
+
+describe('Lead search', () => {
+  it('finds a lead by a phone number typed with spaces', async () => {
+    const session = await signIn();
+    await createLead(session, { phone: '+91 9000000096', name: 'Spaced Phone Lead' });
+    const response = await app.request(`/v1/admin/leads?q=${encodeURIComponent('90000 00096')}`, { headers: headers(session) });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { items: { name: string }[] };
+    expect(body.items.map((l) => l.name)).toContain('Spaced Phone Lead');
   });
 });

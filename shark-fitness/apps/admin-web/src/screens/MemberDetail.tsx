@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, api, idempotencyKey } from '../lib/api';
 import { usePermission } from '../lib/store';
 import { Page } from '../ui/shell';
+import { RecordPaymentSheet } from './Billing';
 import {
   Bar,
   Button,
@@ -89,6 +90,7 @@ const STATE_TONE: Record<string, Tone> = {
   suspended: 'bad',
   cancel_scheduled: 'warn',
   cancelled: 'bad',
+  pending_payment: 'warn',
 };
 
 type Sheet = 'freeze' | 'cancel' | 'assign-plan' | 'assign-training' | null;
@@ -98,6 +100,8 @@ export default function MemberDetailScreen() {
   const queryClient = useQueryClient();
   const canManage = usePermission('membership.manage');
   const canTraining = usePermission('training.assign');
+  const canRecordPayment = usePermission('billing.record_payment');
+  const [payingInvoice, setPayingInvoice] = useState<{ id: string; dueLabel: string; dueMinor: number } | null>(null);
   const [sheet, setSheet] = useState<Sheet>(null);
 
   const { data, isLoading, error, refetch } = useQuery({
@@ -226,6 +230,16 @@ export default function MemberDetailScreen() {
                     <Label>Plan</Label>
                     <div className="mt-1 font-utility text-[14px] font-semibold">{data.membership.productName}</div>
                   </div>
+                  {data.membership.state !== 'active' ? (
+                    <div>
+                      <Label>State</Label>
+                      <div className="mt-1">
+                        <Chip tone={STATE_TONE[data.membership.state] ?? 'neutral'}>
+                          {data.membership.state.replace(/_/g, ' ')}
+                        </Chip>
+                      </div>
+                    </div>
+                  ) : null}
                   <div>
                     <Label>Term</Label>
                     <div className="mt-1 text-[13px]">
@@ -317,6 +331,7 @@ export default function MemberDetailScreen() {
                       <th>State</th>
                       <th className="text-right">Total</th>
                       <th className="text-right">Outstanding</th>
+                      {canRecordPayment ? <th aria-label="Actions" /> : null}
                     </tr>
                   </thead>
                   <tbody>
@@ -336,6 +351,18 @@ export default function MemberDetailScreen() {
                         <td data-numeric className={i.dueMinor > 0 ? 'text-chum' : 'text-foam-25'}>
                           {i.dueMinor > 0 ? i.dueLabel : '—'}
                         </td>
+                        {canRecordPayment ? (
+                          <td className="text-right">
+                            {i.dueMinor > 0 && i.state !== 'void' ? (
+                              <Button
+                                variant="outline"
+                                onClick={() => setPayingInvoice({ id: i.id, dueLabel: i.dueLabel, dueMinor: i.dueMinor })}
+                              >
+                                Collect
+                              </Button>
+                            ) : null}
+                          </td>
+                        ) : null}
                       </tr>
                     ))}
                   </tbody>
@@ -485,6 +512,20 @@ export default function MemberDetailScreen() {
             setSheet(null);
             void queryClient.invalidateQueries({ queryKey: ['member', memberId] });
             void queryClient.invalidateQueries({ queryKey: ['members'] });
+          }}
+        />
+      ) : null}
+      {payingInvoice ? (
+        <RecordPaymentSheet
+          invoiceId={payingInvoice.id}
+          dueLabel={payingInvoice.dueLabel}
+          dueMinor={payingInvoice.dueMinor}
+          onClose={() => setPayingInvoice(null)}
+          onDone={() => {
+            setPayingInvoice(null);
+            void queryClient.invalidateQueries({ queryKey: ['member', memberId] });
+            void queryClient.invalidateQueries({ queryKey: ['members'] });
+            void queryClient.invalidateQueries({ queryKey: ['billing'] });
           }}
         />
       ) : null}

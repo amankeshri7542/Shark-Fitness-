@@ -131,7 +131,7 @@ export default function LeadDetailScreen() {
   }
 
   const { lead } = data;
-  const canConvert = lead.stage === 'trial_completed' && !lead.convertedMemberId;
+  const canConvert = !['won', 'lost', 'disqualified'].includes(lead.stage) && !lead.convertedMemberId;
   const moveableStages = data.availableStages.filter((s) => !['lost', 'disqualified'].includes(s));
 
   return (
@@ -211,9 +211,9 @@ export default function LeadDetailScreen() {
                 </Button>
               ) : null}
             </div>
-            {!canConvert && lead.stage !== 'trial_completed' && !lead.convertedMemberId ? (
+            {!canConvert && !lead.convertedMemberId ? (
               <p className="border-t border-line px-3.5 py-2.5 text-[12px] text-foam-45">
-                Converting to a member requires the trial completed stage.
+                Reopen this lead to convert it to a member.
               </p>
             ) : null}
             {convert.isSuccess ? (

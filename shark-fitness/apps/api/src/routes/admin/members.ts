@@ -59,14 +59,17 @@ membersRoutes.get('/', validate('query', ListQuery), (c) => {
   if (q.risk === 'watch') filters.push(sql`${schema.members.riskScore} >= 28`);
 
   if (q.q) {
-    const term = `%${q.q.toLowerCase()}%`;
+    const term = `%${q.q.trim().toLowerCase()}%`;
+    // Staff type a phone the way it is printed ("98123 45678") as often as
+    // they type it bare, so compare digits against the normalized number.
+    const digits = q.q.replace(/\D/g, '');
     filters.push(
       or(
-        like(sql`lower(${schema.members.firstName})`, term),
-        like(sql`lower(${schema.members.lastName})`, term),
+        like(sql`lower(${schema.members.firstName} || ' ' || ${schema.members.lastName})`, term),
         like(sql`lower(${schema.members.email})`, term),
         like(sql`lower(${schema.members.memberNo})`, term),
         like(schema.members.phone, term),
+        ...(digits.length >= 4 ? [like(sql`coalesce(${schema.members.phoneNormalized}, '')`, `%${digits}%`)] : []),
       )!,
     );
   }
