@@ -241,7 +241,9 @@ membersRoutes.post('/bulk/message', validate('json', BulkMessageBody), (c) => {
  *  of personal data should not sit in proxy logs or browser history. */
 membersRoutes.post('/bulk/export', validate('json', z.object({ memberIds: MemberIds })), (c) => {
   const ctx = ctxOf(c);
-  requirePermission(ctx, 'report.export');
+  // The desk exports the people it manages (member.edit); finance exports
+  // for reporting (report.export). Trainers have neither.
+  if (!ctx.permissions.includes('member.edit')) requirePermission(ctx, 'report.export');
   const { filename, csv } = exportMembersCsv(ctx, c.req.valid('json').memberIds);
   return c.body(csv, 200, {
     'content-type': 'text/csv; charset=utf-8',

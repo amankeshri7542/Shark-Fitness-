@@ -280,9 +280,17 @@ describe('members bulk: export', () => {
     expect(audit).toBeDefined();
   });
 
-  it('is refused to reception, whose role has no export permission', async () => {
+  it('lets reception export, with balances since their role can see them', async () => {
     const a = makeMember();
     const res = await post(await reception(), '/bulk/export', { memberIds: [a] });
+    expect(res.status).toBe(200);
+    const header = (await res.text()).split('\r\n')[0]!;
+    expect(header).toContain('Member no');
+    expect(header).toContain('Balance due');
+  });
+
+  it('is refused to a trainer', async () => {
+    const res = await post(await trainerAccount(), '/bulk/export', { memberIds: [makeMember()] });
     expect(res.status).toBe(403);
   });
 

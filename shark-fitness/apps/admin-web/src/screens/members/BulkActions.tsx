@@ -46,7 +46,8 @@ export function MembersBulkActions({
 }) {
   const queryClient = useQueryClient();
   const canEdit = usePermission('member.edit');
-  const canExport = usePermission('report.export');
+  const canReport = usePermission('report.export');
+  const canExport = canEdit || canReport;
 
   const [panel, setPanel] = useState<Panel>(null);
   const [status, setStatus] = useState<{ tone: 'good' | 'bad'; text: string } | null>(null);

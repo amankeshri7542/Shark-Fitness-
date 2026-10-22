@@ -223,13 +223,13 @@ describe('members bulk actions', () => {
   });
 
   it('hides actions the role cannot use', async () => {
-    permissionMock.mockImplementation((p: string) => p !== 'report.export');
+    permissionMock.mockImplementation((p: string) => p === 'member.view');
     routeApi({ '/admin/members?': () => DIRECTORY });
     const user = userEvent.setup();
     renderScreen();
 
     await user.click(await screen.findByLabelText('Select Asha Iyer'));
-    expect(screen.getByRole('button', { name: 'Add tag' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add tag' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Export CSV' })).not.toBeInTheDocument();
   });
 });
