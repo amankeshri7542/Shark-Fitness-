@@ -153,3 +153,24 @@ describe('All branches is the default scope for multi-branch staff', () => {
     expect(body.activeBranchId).toBe('br_ind');
   });
 });
+
+describe('Member directory search', () => {
+  async function search(term: string): Promise<string[]> {
+    const owner = await signIn('owner@sharkfitness.in');
+    const response = await app.request(`/v1/admin/members?q=${encodeURIComponent(term)}`, { headers: headers(owner) });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { items: { name: string }[] };
+    return body.items.map((m) => m.name);
+  }
+
+  it('finds a member by their full name', async () => {
+    expect(await search('Aman Mehra')).toContain('Aman Mehra');
+  });
+
+  it('finds a member by a phone number typed with spaces', async () => {
+    const aman = db.select().from(schema.members).where(eq(schema.members.email, 'aman@sharkfitness.in')).get()!;
+    const digits = (aman.phoneNormalized ?? '').replace(/\D/g, '').slice(-10);
+    expect(digits).toHaveLength(10);
+    expect(await search(`${digits.slice(0, 5)} ${digits.slice(5)}`)).toContain('Aman Mehra');
+  });
+});

@@ -52,6 +52,31 @@ describe('admin session bootstrap', () => {
     expect(useAdmin.getState().activeBranchId).toBeNull();
   });
 
+  it('restores the branch a multi-branch viewer last picked', async () => {
+    useAdmin.getState().setActiveBranch('brn_2');
+    useAdmin.setState({ activeBranchId: null });
+    apiMock
+      .mockResolvedValueOnce({ viewer: staff('owner') })
+      .mockResolvedValueOnce({ items: [branch('brn_1', 'Koramangala'), branch('brn_2', 'HSR')], activeBranchId: null });
+
+    await useAdmin.getState().bootstrap();
+
+    expect(useAdmin.getState().activeBranchId).toBe('brn_2');
+    useAdmin.getState().setActiveBranch(null);
+  });
+
+  it('ignores a remembered branch the viewer can no longer see', async () => {
+    localStorage.setItem('shark.branch', 'brn_gone');
+    apiMock
+      .mockResolvedValueOnce({ viewer: staff('owner') })
+      .mockResolvedValueOnce({ items: [branch('brn_1', 'Koramangala'), branch('brn_2', 'HSR')], activeBranchId: null });
+
+    await useAdmin.getState().bootstrap();
+
+    expect(useAdmin.getState().activeBranchId).toBeNull();
+    localStorage.removeItem('shark.branch');
+  });
+
   it('selects the only branch a single-branch viewer can see', async () => {
     apiMock
       .mockResolvedValueOnce({ viewer: staff('reception') })

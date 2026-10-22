@@ -176,17 +176,31 @@ export default function FloorScreen() {
 
   const checkIn = useMutation({
     mutationFn: (input: { memberId: string; branchId: string }) =>
-      api<{ granted: boolean; message: string | null; member: { name: string }; replayed: boolean }>(
-        '/admin/attendance/check-in',
-        { method: 'POST', body: { ...input, method: 'staff' }, branchId },
-      ),
+      api<{
+        granted: boolean;
+        decision: string;
+        checkInId: string;
+        canOverride: boolean;
+        member: { name: string };
+        replayed: boolean;
+      }>('/admin/attendance/check-in', { method: 'POST', body: { ...input, method: 'staff' }, branchId }),
     onSuccess: (result) => {
       setActionError(null);
+      // `message` on a refusal is written for the member ("your plan…"), so the
+      // desk gets the reason label and, where allowed, the override opened.
+      const allowOverride = !result.granted && result.canOverride && canOverride;
       setNotice(
         result.granted
           ? `${result.member.name} is in.${result.replayed ? ' (Already recorded.)' : ''}`
-          : (result.message ?? 'Entry refused.'),
+          : `${result.member.name} was refused: ${DECISION_LABEL[result.decision] ?? 'entry refused'}.${
+              allowOverride ? ' Add a reason in the door feed below to let them in.' : ''
+            }`,
       );
+      if (allowOverride) {
+        setOverrideReason('');
+        setOverrideFor(result.checkInId);
+        if (filter === 'granted' || filter === 'overridden') setFilter('all');
+      }
       setSearch('');
       refreshFloor();
     },
