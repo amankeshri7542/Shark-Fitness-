@@ -121,3 +121,35 @@ describe('Phase 5 staff booking branch entitlement', () => {
     ).toBe(0);
   });
 });
+
+describe('All branches is the default scope for multi-branch staff', () => {
+  it('lists members from every branch when no x-branch-id is sent', async () => {
+    const owner = await signIn('owner@sharkfitness.in');
+    const response = await app.request('/v1/admin/members?limit=100', { headers: headers(owner) });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { total: number; scopeNote: string };
+    expect(body.scopeNote).toMatch(/^Showing all \d+ branches/);
+    const everyone = db
+      .select({ n: sql<number>`count(*)` })
+      .from(schema.members)
+      .where(isNull(schema.members.deletedAt))
+      .get()!;
+    const narrowed = await app.request('/v1/admin/members?limit=100', {
+      headers: { ...headers(owner), 'x-branch-id': 'br_kor' },
+    });
+    const kor = (await narrowed.json()) as { total: number };
+    expect(body.total).toBeGreaterThan(kor.total);
+    expect(body.total).toBeLessThanOrEqual(everyone.n);
+
+    const me = await app.request('/v1/me/branches', { headers: headers(owner) });
+    const branches = (await me.json()) as { activeBranchId: string | null };
+    expect(branches.activeBranchId).toBeNull();
+  });
+
+  it('still narrows to one branch when the console asks for it', async () => {
+    const owner = await signIn('owner@sharkfitness.in');
+    const response = await app.request('/v1/me/branches', { headers: { ...headers(owner), 'x-branch-id': 'br_ind' } });
+    const body = (await response.json()) as { activeBranchId: string | null };
+    expect(body.activeBranchId).toBe('br_ind');
+  });
+});

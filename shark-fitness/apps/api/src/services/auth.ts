@@ -306,7 +306,15 @@ export function resolveSession(rawToken: string): RequestContext | null {
     role: user.role as Role,
     name: user.name,
     branchIds: [...new Set(branchIds)],
-    activeBranchId: member?.homeBranchId ?? branchIds[0] ?? null,
+    // Staff who can see several branches start on "All branches" (null), which
+    // is what every admin read treats as its full scope. Defaulting to the
+    // first branch made the console's "All branches" silently show one branch
+    // until a client sent `x-branch-id`.
+    activeBranchId: member
+      ? member.homeBranchId
+      : new Set(branchIds).size === 1
+        ? (branchIds[0] ?? null)
+        : null,
     permissions: permissionsFor(user.role as Role),
     ip: session.ip,
     userAgent: session.userAgent,
