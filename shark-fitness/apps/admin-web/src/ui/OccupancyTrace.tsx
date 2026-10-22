@@ -46,6 +46,8 @@ export function OccupancyTrace({
   const height = 132;
   const padY = 14;
   const peak = Math.max(1, ...hourly);
+  const busiest = Math.max(0, ...hourly);
+  const busiestLabel = busiest > 0 ? `${hourly.indexOf(busiest)}:00` : '—';
   const step = width / 24;
 
   // A stepped trace, not a smooth curve: occupancy is counted per hour and a
@@ -77,9 +79,11 @@ export function OccupancyTrace({
           </div>
         </div>
         <div className="pb-1">
-          <Label>Peak today</Label>
+          {/* `hourly` counts arrivals per hour, not people inside, so this is
+              the busiest hour for entries rather than peak occupancy. */}
+          <Label>Busiest hour</Label>
           <div className="mt-1 font-display text-[15px] leading-none tabular-nums">
-            {peak} <span className="text-[11px] text-foam-45">at {hourly.indexOf(peak)}:00</span>
+            {busiestLabel} <span className="text-[11px] text-foam-45">{busiest} arrivals</span>
           </div>
         </div>
       </div>
@@ -89,7 +93,7 @@ export function OccupancyTrace({
         className="w-full"
         preserveAspectRatio="none"
         role="img"
-        aria-label={`Occupancy through the day. ${inside} of ${capacity} inside now, ${label}. Peak of ${peak} at ${hourly.indexOf(peak)}:00.`}
+        aria-label={`Occupancy through the day. ${inside} of ${capacity} inside now, ${label}. Busiest hour ${busiestLabel} with ${busiest} arrivals.`}
       >
         {/* Hours the branch is shut are dimmed rather than hidden, so a gap in
             the trace reads as "closed" and not as "no data". */}
