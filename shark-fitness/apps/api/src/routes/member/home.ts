@@ -3,7 +3,7 @@ import { and, desc, eq, gt, gte, isNull, lt, sql } from 'drizzle-orm';
 import { computeStreak, isEntitled, levelFor, occupancyLabel } from '@shark/domain';
 import { db, schema } from '../../db/client.js';
 import { ctxOf } from '../../middleware/index.js';
-import { DAY, HOUR, isoDate, localTime, now, relativeTime } from '../../lib/time.js';
+import { DAY, HOUR, isoDate, localDayIndex, localTime, now, relativeTime } from '../../lib/time.js';
 import { notFound } from '../../lib/errors.js';
 
 export const homeRoutes = new Hono();
@@ -82,7 +82,10 @@ homeRoutes.get('/', (c) => {
     .where(and(eq(schema.assignments.memberId, memberId), eq(schema.assignments.state, 'active')))
     .get();
 
-  const dayIndex = (new Date(now()).getUTCDay() + 6) % 7;
+  // Monday-first weekday of the branch-local date. `getUTCDay()` on the clock
+  // put members on yesterday's programme day between midnight and 05:30 IST,
+  // so Home offered a session the workout screen then called a rest day.
+  const dayIndex = localDayIndex(now(), tz);
 
   const programDay = assignment
     ? db
