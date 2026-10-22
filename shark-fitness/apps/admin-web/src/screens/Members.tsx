@@ -4,8 +4,8 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useAdmin } from '../lib/store';
 import { Page } from '../ui/shell';
+import { MembersBulkActions } from './members/BulkActions';
 import {
-  BulkBar,
   Button,
   Chip,
   EmptyState,
@@ -108,6 +108,12 @@ export default function MembersScreen() {
     );
   }
 
+  // Act only on rows that are on screen. A selection made before the filters
+  // changed must not quietly carry members the operator can no longer see.
+  const selectedRows = data.items.filter((m) => selected.has(m.id));
+  const allSelected = data.items.length > 0 && selectedRows.length === data.items.length;
+  const toggleAll = (): void => setSelected(allSelected ? new Set() : new Set(data.items.map((m) => m.id)));
+
   const atRisk = data.items.filter((m) => m.riskBand === 'high').length;
   const owing = data.items.filter((m) => (m.balanceMinor ?? 0) > 0).length;
 
@@ -197,12 +203,7 @@ export default function MembersScreen() {
       </Toolbar>
 
       {/* Bulk actions appear only after a selection (Design PRD §5.5). */}
-      <BulkBar count={selected.size} onClear={() => setSelected(new Set())}>
-        <Button variant="outline">Add tag</Button>
-        <Button variant="outline">Assign trainer</Button>
-        <Button variant="outline">Message</Button>
-        <Button variant="outline">Export</Button>
-      </BulkBar>
+      <MembersBulkActions members={selectedRows} branchId={branchId} onClear={() => setSelected(new Set())} />
 
       {data.items.length === 0 ? (
         <EmptyState
@@ -236,7 +237,16 @@ export default function MembersScreen() {
           <thead>
             <tr>
               <th className="w-8">
-                <span className="sr-only">Select</span>
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  ref={(el) => {
+                    if (el) el.indeterminate = selectedRows.length > 0 && !allSelected;
+                  }}
+                  onChange={toggleAll}
+                  aria-label={allSelected ? 'Clear selection' : 'Select all shown'}
+                  className="h-4 w-4 accent-[var(--sf-sonar)]"
+                />
               </th>
               <th>Member</th>
               <th>Plan</th>

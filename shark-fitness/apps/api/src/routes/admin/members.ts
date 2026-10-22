@@ -13,6 +13,13 @@ import { conflict, notFound, precondition } from '../../lib/errors.js';
 import { id } from '../../lib/ids.js';
 import { DAY, addDays, isoDate, now, relativeTime } from '../../lib/time.js';
 import { memberTrainingSummary } from '../../services/training-admin.js';
+import {
+  assignableTrainers,
+  bulkAssignTrainer,
+  bulkMessage,
+  bulkTag,
+  exportMembersCsv,
+} from '../../services/member-bulk.js';
 
 export const membersRoutes = new Hono();
 
@@ -181,6 +188,65 @@ membersRoutes.get('/', validate('query', ListQuery), (c) => {
         tags: m.tags,
       };
     }),
+  });
+});
+
+/* — Bulk actions (Design PRD §5.5) ———————————————————————————————
+   Registered before `/:memberId` so "trainers" and "bulk" are never read as
+   a member id. */
+
+const MemberIds = z.array(z.string().min(1)).min(1).max(500);
+
+membersRoutes.get('/trainers', (c) => {
+  const ctx = ctxOf(c);
+  requirePermission(ctx, 'member.edit');
+  return c.json(assignableTrainers(ctx));
+});
+
+const BulkTagBody = z.object({
+  memberIds: MemberIds,
+  tag: z.string().min(1).max(64),
+  mode: z.enum(['add', 'remove']).default('add'),
+});
+
+membersRoutes.post('/bulk/tag', validate('json', BulkTagBody), (c) => {
+  const ctx = ctxOf(c);
+  requirePermission(ctx, 'member.edit');
+  return c.json(bulkTag(ctx, c.req.valid('json')));
+});
+
+const BulkTrainerBody = z.object({
+  memberIds: MemberIds,
+  trainerId: z.string().min(1).nullable(),
+});
+
+membersRoutes.post('/bulk/trainer', validate('json', BulkTrainerBody), (c) => {
+  const ctx = ctxOf(c);
+  requirePermission(ctx, 'member.edit');
+  return c.json(bulkAssignTrainer(ctx, c.req.valid('json')));
+});
+
+const BulkMessageBody = z.object({
+  memberIds: MemberIds,
+  body: z.string().min(1).max(1000),
+});
+
+membersRoutes.post('/bulk/message', validate('json', BulkMessageBody), (c) => {
+  const ctx = ctxOf(c);
+  requirePermission(ctx, 'member.edit');
+  return c.json(bulkMessage(ctx, c.req.valid('json')));
+});
+
+/** POST rather than GET: a few hundred ids do not fit in a URL, and an export
+ *  of personal data should not sit in proxy logs or browser history. */
+membersRoutes.post('/bulk/export', validate('json', z.object({ memberIds: MemberIds })), (c) => {
+  const ctx = ctxOf(c);
+  requirePermission(ctx, 'report.export');
+  const { filename, csv } = exportMembersCsv(ctx, c.req.valid('json').memberIds);
+  return c.body(csv, 200, {
+    'content-type': 'text/csv; charset=utf-8',
+    'content-disposition': `attachment; filename="${filename}"`,
+    'cache-control': 'no-store',
   });
 });
 
