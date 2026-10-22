@@ -222,6 +222,17 @@ describe('members bulk actions', () => {
     expect(await within(drawer).findByText('One of the selected members could not be found.')).toBeInTheDocument();
   });
 
+  it('shows tags on the row and filters by one in a click', async () => {
+    routeApi({ '/admin/members?': () => DIRECTORY });
+    const user = userEvent.setup();
+    renderScreen();
+
+    await user.click(await screen.findByRole('button', { name: 'vip' }));
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith(expect.stringContaining('tag=vip'), expect.anything()));
+    await user.click(screen.getByLabelText('Clear tag filter vip'));
+    expect(screen.queryByLabelText('Clear tag filter vip')).not.toBeInTheDocument();
+  });
+
   it('hides actions the role cannot use', async () => {
     permissionMock.mockImplementation((p: string) => p === 'member.view');
     routeApi({ '/admin/members?': () => DIRECTORY });

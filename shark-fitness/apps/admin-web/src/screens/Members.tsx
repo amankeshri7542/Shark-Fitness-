@@ -72,15 +72,17 @@ export default function MembersScreen() {
   const [search, setSearch] = useState('');
   const [lifecycle, setLifecycle] = useState<string>('all');
   const [risk, setRisk] = useState<'any' | 'high' | 'watch'>('any');
+  const [tag, setTag] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const params = new URLSearchParams();
   if (search.trim()) params.set('q', search.trim());
   if (lifecycle !== 'all') params.set('lifecycle', lifecycle);
   if (risk !== 'any') params.set('risk', risk);
+  if (tag) params.set('tag', tag);
 
   const { data, isLoading, error, refetch, isFetching } = useQuery({
-    queryKey: ['members', branchId, search, lifecycle, risk],
+    queryKey: ['members', branchId, search, lifecycle, risk, tag],
     queryFn: () => api<MembersPayload>(`/admin/members?${params}`, { branchId }),
     placeholderData: keepPreviousData,
   });
@@ -200,6 +202,20 @@ export default function MembersScreen() {
             ))}
           </div>
         </div>
+
+        {tag ? (
+          <div className="flex flex-col gap-1">
+            <Label>Tag</Label>
+            <button
+              type="button"
+              onClick={() => setTag(null)}
+              aria-label={`Clear tag filter ${tag}`}
+              className="min-h-9 border border-sonar px-2.5 font-utility text-[10px] font-semibold uppercase tracking-[0.1em] text-sonar"
+            >
+              {tag} ×
+            </button>
+          </div>
+        ) : null}
       </Toolbar>
 
       {/* Bulk actions appear only after a selection (Design PRD §5.5). */}
@@ -209,18 +225,19 @@ export default function MembersScreen() {
         <EmptyState
           title="No members match"
           body={
-            search || lifecycle !== 'all' || risk !== 'any'
+            search || lifecycle !== 'all' || risk !== 'any' || tag
               ? 'Nothing fits those filters. Widen them, or clear the search.'
               : 'This branch has no members yet. Convert a lead to get started.'
           }
           action={
-            search || lifecycle !== 'all' || risk !== 'any' ? (
+            search || lifecycle !== 'all' || risk !== 'any' || tag ? (
               <Button
                 variant="outline"
                 onClick={() => {
                   setSearch('');
                   setLifecycle('all');
                   setRisk('any');
+                  setTag(null);
                 }}
               >
                 Clear filters
@@ -280,6 +297,22 @@ export default function MembersScreen() {
                       </span>
                     </span>
                   </Link>
+                  {m.tags.length > 0 ? (
+                    <div className="mt-1 flex flex-wrap gap-1 pl-[38px]">
+                      {/* A tag is also a filter: one click shows everyone who has it. */}
+                      {m.tags.map((t) => (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => setTag(t)}
+                          title={`Show members tagged ${t}`}
+                          className="border border-line px-1.5 font-utility text-[9px] uppercase tracking-[0.1em] text-foam-45 hover:border-sonar hover:text-sonar"
+                        >
+                          {t}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                 </td>
                 <td>
                   <div className="flex items-center gap-1.5">

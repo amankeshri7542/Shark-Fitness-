@@ -130,6 +130,14 @@ describe('members bulk: tag', () => {
     expect(audits).toHaveLength(1);
   });
 
+  it('makes the tag a directory filter', async () => {
+    const a = makeMember();
+    await post(await reception(), '/bulk/tag', { memberIds: [a], tag: 'filter-me' });
+    const res = await get(await reception(), '?tag=filter-me');
+    const body = (await res.json()) as { items: Array<{ id: string; tags: string[] }> };
+    expect(body.items.map((m) => m.id)).toEqual([a]);
+  });
+
   it('removes a tag', async () => {
     const a = makeMember({ tags: ['corporate', 'early-bird'] });
     const res = await post(await reception(), '/bulk/tag', { memberIds: [a], tag: 'corporate', mode: 'remove' });

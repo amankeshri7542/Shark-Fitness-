@@ -29,6 +29,7 @@ const ListQuery = z.object({
   risk: z.enum(['high', 'watch', 'any']).optional(),
   expiring: z.coerce.number().int().optional(),
   trainerId: z.string().optional(),
+  tag: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 });
@@ -52,6 +53,7 @@ membersRoutes.get('/', validate('query', ListQuery), (c) => {
     filters.push(eq(schema.members.trainerId, ctx.staffId));
   }
   if (q.trainerId) filters.push(eq(schema.members.trainerId, q.trainerId));
+  if (q.tag) filters.push(sql`exists (select 1 from json_each(${schema.members.tags}) where value = ${q.tag})`);
   if (q.lifecycle && q.lifecycle !== 'all') filters.push(eq(schema.members.lifecycle, q.lifecycle));
   if (q.risk === 'high') filters.push(sql`${schema.members.riskScore} >= 55`);
   if (q.risk === 'watch') filters.push(sql`${schema.members.riskScore} >= 28`);
