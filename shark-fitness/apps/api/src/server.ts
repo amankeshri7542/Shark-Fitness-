@@ -6,6 +6,7 @@ import { relative, resolve } from 'node:path';
 import { app } from './app.js';
 import { attachRealtime } from './realtime/hub.js';
 import { startScheduler } from './jobs/scheduler.js';
+import { otpSenders } from './services/otp-delivery.js';
 
 if (process.env.SHARK_SERVE_STATIC === 'true') {
   const memberDist = resolve(import.meta.dirname, '../../member-pwa/dist');
@@ -79,6 +80,10 @@ if (process.env.SHARK_SERVE_STATIC === 'true') {
 }
 
 const port = Number(process.env.PORT ?? 8787);
+// Fail at boot, not on the first member sign-in, if OTP delivery is misconfigured.
+const senders = otpSenders();
+console.log(`[otp] delivering codes via sms=${senders.sms.name} email=${senders.email.name}`);
+
 const server = serve({ fetch: app.fetch, port, hostname: '0.0.0.0' }, (info) => {
   console.log(`[api] listening on 0.0.0.0:${info.port}`);
 });

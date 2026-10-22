@@ -7,6 +7,8 @@ import { id, initialsOf, normalizeEmail, normalizePhone, otpCode, token } from '
 import { DAY, MINUTE, now } from '../lib/time.js';
 import { AppError, invalid, rateLimited, unauthenticated } from '../lib/errors.js';
 import type { RequestContext } from '../lib/context.js';
+import { takeDestinationSend, takeIpSend } from '../lib/otp-limits.js';
+import { deliveryFailed, otpSenders, toE164, type OtpChannel } from './otp-delivery.js';
 
 const OTP_TTL = 10 * MINUTE;
 const OTP_MAX_ATTEMPTS = 5;
@@ -37,7 +39,8 @@ function tenantFor(slug?: string) {
   return tenants[0]!;
 }
 
-export function startOtp(args: { identifier: string; tenantSlug?: string; ip: string }) {
+export async function startOtp(args: { identifier: string; tenantSlug?: string; ip: string }) {
+  takeIpSend(args.ip);
   const identifier = args.identifier.trim();
   const emailN = normalizeEmail(identifier);
   const phoneN = normalizePhone(identifier);
@@ -71,6 +74,17 @@ export function startOtp(args: { identifier: string; tenantSlug?: string; ip: st
     .get();
   if ((recent?.n ?? 0) >= 4) throw rateLimited(300);
 
+  // Codes go to the address on file, never to whatever the caller typed.
+  const channel: OtpChannel = identifier.includes('@') ? 'email' : 'sms';
+  const destination = !user
+    ? null
+    : channel === 'email'
+      ? user.email
+      : user.phone
+        ? toE164(user.phone)
+        : null;
+  if (destination) takeDestinationSend(destination);
+
   const code = otpCode();
   const challengeId = id('otp');
   db.insert(schema.otpChallenges)
@@ -88,8 +102,21 @@ export function startOtp(args: { identifier: string; tenantSlug?: string; ip: st
 
   if (!user) {
     console.log(`[auth] OTP requested for unknown identifier ${maskIdentifier(identifier)}`);
-  } else if (ECHO_OTP) {
-    console.log(`[auth] development OTP for ${user.name} <${identifier}>: ${code}`);
+  } else if (!destination) {
+    console.warn(`[auth] OTP requested for ${user.id} but no usable ${channel} is on file`);
+  } else {
+    try {
+      await otpSenders()[channel].send({
+        channel,
+        to: destination,
+        code,
+        gymName: tenant.displayName,
+        expiresInMin: Math.floor(OTP_TTL / MINUTE),
+      });
+    } catch (error) {
+      db.update(schema.otpChallenges).set({ consumedAt: now() }).where(eq(schema.otpChallenges.id, challengeId)).run();
+      throw error instanceof AppError ? error : deliveryFailed();
+    }
   }
 
   return {
