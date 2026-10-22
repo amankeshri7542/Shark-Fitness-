@@ -22,6 +22,8 @@ interface AdminState {
   signOut: () => Promise<void>;
 }
 
+const BRANCH_KEY = 'shark.branch';
+
 export const useAdmin = create<AdminState>((set, get) => ({
   viewer: null,
   branches: [],
@@ -33,7 +35,13 @@ export const useAdmin = create<AdminState>((set, get) => ({
 
   setViewer: (viewer) => set({ viewer, status: viewer ? 'signed-in' : 'signed-out' }),
 
-  setActiveBranch: (activeBranchId) => set({ activeBranchId }),
+  setActiveBranch: (activeBranchId) => {
+    // Remembered so a desk that reloads the console stays on its own branch
+    // instead of falling back to "All branches" (where the till is closed).
+    if (activeBranchId) localStorage.setItem(BRANCH_KEY, activeBranchId);
+    else localStorage.removeItem(BRANCH_KEY);
+    set({ activeBranchId });
+  },
 
   setDensity: (density) => {
     localStorage.setItem('shark.density', density);
@@ -73,7 +81,10 @@ export const useAdmin = create<AdminState>((set, get) => ({
         branches: branches.items,
         // Null means "all branches I can see" — a regional view, not a default
         // to one location that quietly hides the rest.
-        activeBranchId: branches.items.length === 1 ? (branches.items[0]?.id ?? null) : null,
+        activeBranchId:
+          branches.items.length === 1
+            ? (branches.items[0]?.id ?? null)
+            : (branches.items.find((b) => b.id === localStorage.getItem(BRANCH_KEY))?.id ?? null),
       });
     } catch {
       auth.clear();
@@ -88,6 +99,7 @@ export const useAdmin = create<AdminState>((set, get) => ({
       /* local sign-out matters more than the round trip */
     }
     auth.clear();
+    localStorage.removeItem(BRANCH_KEY);
     set({ viewer: null, branches: [], activeBranchId: null, status: 'signed-out' });
   },
 }));
