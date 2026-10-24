@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { taxDocumentKind } from '../../services/tax-invoice.js';
 import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { validate } from '../../middleware/validate.js';
@@ -431,6 +432,8 @@ billingRoutes.get('/invoices/:invoiceId', (c) => {
       memberId: invoice.memberId,
       memberName: member ? `${member.firstName} ${member.lastName}` : '',
       memberNo: member?.memberNo ?? '',
+      /** Whether the printable document is a GST tax invoice or a plain invoice. */
+      document: taxDocumentKind(ctx.tenantId, invoice),
     },
     lines: lines.map((l) => ({ id: l.id, description: l.description, quantity: l.quantity, unitLabel: formatMoney(l.unitMinor, invoice.currency), taxLabel: formatMoney(l.taxMinor, invoice.currency), totalLabel: formatMoney(l.totalMinor, invoice.currency) })),
     payments: payments.map((p) => ({ id: p.id, method: p.method, state: p.state, amountLabel: formatMoney(p.amountMinor, p.currency), provider: p.provider, failureReason: p.failureReason, recordedByName: p.recordedByName, createdAt: new Date(p.createdAt).toISOString() })),
