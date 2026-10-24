@@ -336,8 +336,16 @@ function summariseChallenge(ctx: RequestContext, challenge: ChallengeRow, scope:
   };
 }
 
+/**
+ * The challenges a member may see in their feed.
+ *
+ * Private challenges are excluded wholesale and then added back one by one for
+ * the member holding a live invitation or already taking part — the inverse of
+ * filtering by visibility alone, which either leaked every private challenge
+ * or hid the one the member had just accepted.
+ */
 function activeChallenges(ctx: RequestContext, scope: Scope): ChallengeRow[] {
-  return db
+  const open = db
     .select()
     .from(schema.challenges)
     .where(
@@ -353,6 +361,35 @@ function activeChallenges(ctx: RequestContext, scope: Scope): ChallengeRow[] {
     )
     .orderBy(schema.challenges.endsOn)
     .all();
+
+  if (!ctx.memberId) return open;
+
+  const atMs = now();
+  const invited = db
+    .select({ challenge: schema.challenges })
+    .from(schema.challenges)
+    .innerJoin(
+      schema.challengeInvitations,
+      eq(schema.challengeInvitations.challengeId, schema.challenges.id),
+    )
+    .where(
+      and(
+        eq(schema.challenges.tenantId, ctx.tenantId),
+        eq(schema.challenges.visibility, 'private'),
+        gte(schema.challenges.endsOn, scope.today),
+        eq(schema.challengeInvitations.memberId, ctx.memberId),
+        inArray(schema.challengeInvitations.state, ['pending', 'accepted']),
+      ),
+    )
+    .all()
+    .map((row) => row.challenge)
+    // The invitation may have lapsed since it was written; `mayReachChallenge`
+    // is the one place that decides, so the join above is only a narrowing.
+    .filter((row) => mayReachChallenge(ctx, row, atMs));
+
+  const seen = new Set(open.map((row) => row.id));
+  for (const row of invited) if (!seen.has(row.id)) { open.push(row); seen.add(row.id); }
+  return open.sort((a, b) => a.endsOn.localeCompare(b.endsOn));
 }
 
 /* — Referrals ————————————————————————————————————————————— */
@@ -638,6 +675,23 @@ function feedFor(ctx: RequestContext, scope: Scope, limit: number) {
   };
 }
 
+/** Apply the feed's visibility rule again on direct-id mutations. A hidden id
+ * must not become an alternate write API for private or other-branch posts. */
+function postForFeedInteraction(ctx: RequestContext, postId: string) {
+  const scope = scopeOf(ctx);
+  const post = db
+    .select()
+    .from(schema.posts)
+    .where(and(eq(schema.posts.id, postId), eq(schema.posts.tenantId, ctx.tenantId)))
+    .get();
+  const visible = post &&
+    post.visibility !== 'private' &&
+    (post.visibility === 'tenant' || post.branchId === scope.branchId);
+  const hidden = post?.memberId ? blockSet(ctx).hidden.has(post.memberId) : false;
+  if (!visible || hidden) throw notFound('That post');
+  return post;
+}
+
 /* ============================================================================
    GET /  — the Pack overview
    ========================================================================= */
@@ -876,6 +930,68 @@ engagementRoutes.get('/', (c) => {
    Challenge detail
    ========================================================================= */
 
+/** The live invitation a member holds for a challenge, if any.
+ *
+ *  "Live" excludes declined and revoked rows, and treats a lapsed `expiresAt`
+ *  as expired without needing a sweeper to have run — an invitation must not
+ *  become usable again simply because no job has touched it yet. */
+export function liveInvitation(
+  tenantId: string,
+  challengeId: string,
+  memberId: string,
+  atMs: number,
+): typeof schema.challengeInvitations.$inferSelect | null {
+  const invitation = db
+    .select()
+    .from(schema.challengeInvitations)
+    .where(
+      and(
+        eq(schema.challengeInvitations.tenantId, tenantId),
+        eq(schema.challengeInvitations.challengeId, challengeId),
+        eq(schema.challengeInvitations.memberId, memberId),
+      ),
+    )
+    .get();
+  if (!invitation) return null;
+  if (invitation.state !== 'pending' && invitation.state !== 'accepted') return null;
+  if (invitation.expiresAt !== null && invitation.expiresAt <= atMs) return null;
+  return invitation;
+}
+
+/** Whether a member may see a challenge at all.
+ *
+ *  A private challenge is reachable only by someone holding a live invitation
+ *  or already taking part; a branch challenge by anyone at that branch. The
+ *  participant clause matters because leaving an invitation to expire must not
+ *  hide a board a member is still on. */
+function mayReachChallenge(ctx: RequestContext, challenge: ChallengeRow, atMs: number): boolean {
+  if (challenge.branchId && !ctx.branchIds.includes(challenge.branchId)) return false;
+  if (challenge.visibility !== 'private') return true;
+  if (!ctx.memberId) return false;
+  if (liveInvitation(ctx.tenantId, challenge.id, ctx.memberId, atMs)) return true;
+  return Boolean(
+    db
+      .select({ id: schema.challengeParticipants.id })
+      .from(schema.challengeParticipants)
+      .where(
+        and(
+          eq(schema.challengeParticipants.challengeId, challenge.id),
+          eq(schema.challengeParticipants.memberId, ctx.memberId),
+        ),
+      )
+      .get(),
+  );
+}
+
+/**
+ * A challenge the caller may not reach is *not found*, never *forbidden*.
+ *
+ * The branch case keeps its 403 because a branch challenge is public knowledge
+ * inside the tenant — members talk about it — and a member who has moved
+ * branches deserves the honest reason. A private challenge gets no such
+ * confirmation: 403 would tell an uninvited member the id was real, which is
+ * exactly the enumeration this guards against.
+ */
 function loadChallenge(ctx: RequestContext, challengeId: string): ChallengeRow {
   const challenge = db
     .select()
@@ -883,6 +999,10 @@ function loadChallenge(ctx: RequestContext, challengeId: string): ChallengeRow {
     .where(and(eq(schema.challenges.id, challengeId), eq(schema.challenges.tenantId, ctx.tenantId)))
     .get();
   if (!challenge) throw notFound('That challenge');
+  if (challenge.visibility === 'private') {
+    if (!mayReachChallenge(ctx, challenge, now())) throw notFound('That challenge');
+    return challenge;
+  }
   if (challenge.branchId && !ctx.branchIds.includes(challenge.branchId)) {
     throw forbidden('That challenge belongs to a branch you are not a member of.');
   }
@@ -944,6 +1064,13 @@ engagementRoutes.post('/challenge/:id/join', (c) => {
     throw conflict('That challenge has already finished.');
   }
 
+  // `loadChallenge` has already refused an uninvited member with a 404, so
+  // reaching here on a private challenge means a live invitation or an
+  // existing seat. Joining is what accepts the invitation — a member should
+  // not have to press two buttons to take part.
+  const invitation =
+    challenge.visibility === 'private' ? liveInvitation(ctx.tenantId, challenge.id, ctx.memberId!, now()) : null;
+
   const existing = db
     .select()
     .from(schema.challengeParticipants)
@@ -988,6 +1115,13 @@ engagementRoutes.post('/challenge/:id/join', (c) => {
         flagged: false,
       })
       .run();
+
+    if (invitation && invitation.state !== 'accepted') {
+      db.update(schema.challengeInvitations)
+        .set({ state: 'accepted', respondedAt: now(), updatedAt: now() })
+        .where(eq(schema.challengeInvitations.id, invitation.id))
+        .run();
+    }
 
     audit(ctx, {
       action: 'challenge.joined',
@@ -1130,6 +1264,84 @@ engagementRoutes.patch(
 );
 
 /* ============================================================================
+   Private challenge invitations (PF-GAME-003)
+   ========================================================================= */
+
+/** The invitations waiting on this member. Only ever their own — there is no
+ *  parameter here to point at somebody else's. */
+engagementRoutes.get('/invitations', (c) => {
+  const ctx = ctxOf(c);
+  const atMs = now();
+
+  const rows = db
+    .select({ invitation: schema.challengeInvitations, challenge: schema.challenges })
+    .from(schema.challengeInvitations)
+    .innerJoin(schema.challenges, eq(schema.challenges.id, schema.challengeInvitations.challengeId))
+    .where(
+      and(
+        eq(schema.challengeInvitations.tenantId, ctx.tenantId),
+        eq(schema.challengeInvitations.memberId, ctx.memberId!),
+        eq(schema.challengeInvitations.state, 'pending'),
+      ),
+    )
+    .all()
+    .filter((row) => row.invitation.expiresAt === null || row.invitation.expiresAt > atMs)
+    .map((row) => ({
+      challengeId: row.challenge.id,
+      name: row.challenge.name,
+      description: row.challenge.description,
+      startsOn: row.challenge.startsOn,
+      endsOn: row.challenge.endsOn,
+      metricLabel: row.challenge.metricLabel,
+      rewardLabel: row.challenge.rewardLabel,
+      expiresAt: row.invitation.expiresAt,
+      invitedAt: row.invitation.createdAt,
+    }));
+
+  return c.json({ invitations: rows });
+});
+
+/** Declining is a decision worth keeping: the row moves to `declined` rather
+ *  than being deleted, so re-inviting somebody who said no is a visible act
+ *  rather than an accident. */
+engagementRoutes.post('/challenge/:id/invitation/decline', (c) => {
+  const ctx = ctxOf(c);
+  const atMs = now();
+  // A 404 for an id the member holds no invitation to, for the same reason as
+  // everywhere else in this file.
+  const invitation = liveInvitation(ctx.tenantId, c.req.param('id'), ctx.memberId!, atMs);
+  if (!invitation) throw notFound('That invitation');
+  if (invitation.state === 'accepted') {
+    throw conflict('You have already joined this challenge. Leave it instead.');
+  }
+
+  const challenge = db
+    .select()
+    .from(schema.challenges)
+    .where(eq(schema.challenges.id, invitation.challengeId))
+    .get()!;
+
+  transact(() => {
+    db.update(schema.challengeInvitations)
+      .set({ state: 'declined', respondedAt: atMs, updatedAt: atMs })
+      .where(eq(schema.challengeInvitations.id, invitation.id))
+      .run();
+
+    audit(ctx, {
+      action: 'challenge.invitation_declined',
+      entityType: 'challenge_invitation',
+      entityId: invitation.id,
+      entityLabel: challenge.name,
+      branchId: challenge.branchId,
+      before: { state: invitation.state },
+      after: { state: 'declined' },
+    });
+  });
+
+  return c.json({ ok: true, message: 'Declined. You will not see this challenge again.' });
+});
+
+/* ============================================================================
    Community feed
    ========================================================================= */
 
@@ -1246,12 +1458,7 @@ engagementRoutes.post('/feed/:id/kudos', (c) => {
   const ctx = ctxOf(c);
   const postId = c.req.param('id');
 
-  const post = db
-    .select()
-    .from(schema.posts)
-    .where(and(eq(schema.posts.id, postId), eq(schema.posts.tenantId, ctx.tenantId)))
-    .get();
-  if (!post) throw notFound('That post');
+  const post = postForFeedInteraction(ctx, postId);
   if (post.state === 'removed' || post.deletedAt) throw conflict('That post is no longer available.');
 
   const already = db
@@ -1287,12 +1494,7 @@ engagementRoutes.delete('/feed/:id/kudos', (c) => {
   const ctx = ctxOf(c);
   const postId = c.req.param('id');
 
-  const post = db
-    .select()
-    .from(schema.posts)
-    .where(and(eq(schema.posts.id, postId), eq(schema.posts.tenantId, ctx.tenantId)))
-    .get();
-  if (!post) throw notFound('That post');
+  const post = postForFeedInteraction(ctx, postId);
 
   const existing = db
     .select()
@@ -1322,19 +1524,9 @@ engagementRoutes.post(
     const postId = c.req.param('id');
     const { body } = c.req.valid('json');
 
-    const post = db
-      .select()
-      .from(schema.posts)
-      .where(and(eq(schema.posts.id, postId), eq(schema.posts.tenantId, ctx.tenantId)))
-      .get();
-    if (!post) throw notFound('That post');
+    const post = postForFeedInteraction(ctx, postId);
     if (post.state === 'removed' || post.deletedAt) {
       throw conflict('That post was removed, so it can no longer be replied to.');
-    }
-
-    const { hidden } = blockSet(ctx);
-    if (post.memberId && hidden.has(post.memberId)) {
-      throw forbidden('You and this member have blocked each other, so you cannot reply here.');
     }
 
     const budget = commentBudget(ctx);

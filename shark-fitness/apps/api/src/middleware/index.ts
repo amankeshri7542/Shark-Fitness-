@@ -1,11 +1,15 @@
 import type { Context, MiddlewareHandler, Next } from 'hono';
 import { getCookie } from 'hono/cookie';
+import { getConnInfo } from '@hono/node-server/conninfo';
+import { isIP } from 'node:net';
 import { ZodError } from 'zod';
 import { can } from '@shark/domain';
 import { AppError } from '../lib/errors.js';
+import { runtimeConfig } from '../lib/config.js';
 import { id } from '../lib/ids.js';
 import { SESSION_COOKIE } from '../lib/security.js';
 import { resolveSession } from '../services/auth.js';
+import { log, reportException } from '../lib/observability.js';
 import type { RequestContext } from '../lib/context.js';
 
 declare module 'hono' {
@@ -20,7 +24,8 @@ export function ctxOf(c: Context): RequestContext {
 }
 
 export const requestId: MiddlewareHandler = async (c, next) => {
-  const rid = c.req.header('x-request-id') ?? id('req');
+  const supplied = c.req.header('x-request-id');
+  const rid = supplied && /^[A-Za-z0-9._:-]{1,128}$/.test(supplied) ? supplied : id('req');
   c.set('requestId', rid);
   c.header('x-request-id', rid);
   await next();
@@ -28,18 +33,34 @@ export const requestId: MiddlewareHandler = async (c, next) => {
 
 export const logger: MiddlewareHandler = async (c, next) => {
   const started = performance.now();
-  await next();
-  const ms = Math.round(performance.now() - started);
-  const line = `${c.req.method} ${c.req.path} ${c.res.status} ${ms}ms`;
-  if (c.res.status >= 500) console.error(`[api] ${line}`);
-  else if (ms > 400) console.warn(`[api] ${line} (slow)`);
-  else console.log(`[api] ${line}`);
+  try {
+    await next();
+  } finally {
+    const durationMs = Math.round(performance.now() - started);
+    const status = c.res.status;
+    const requestContext = c.get('ctx') as RequestContext | undefined;
+    log(status >= 500 ? 'error' : durationMs > 400 ? 'warn' : 'info', 'http_request', {
+      requestId: c.get('requestId') ?? 'unknown',
+      method: c.req.method,
+      route: c.req.routePath || 'unmatched',
+      status,
+      durationMs,
+      ...(requestContext
+        ? {
+            tenantId: requestContext.tenantId,
+            branchScope: requestContext.activeBranchId ? [requestContext.activeBranchId] : requestContext.branchIds,
+            actorId: requestContext.impersonatorId ?? requestContext.userId,
+          }
+        : {}),
+    });
+  }
 };
 
 export const errorHandler = (err: unknown, c: Context): Response => {
   const requestIdValue = c.get('requestId') ?? 'unknown';
 
   if (err instanceof AppError) {
+    if (err.retryAfterSec !== undefined) c.header('retry-after', String(err.retryAfterSec));
     return c.json(
       {
         error: {
@@ -83,7 +104,18 @@ export const errorHandler = (err: unknown, c: Context): Response => {
     );
   }
 
-  console.error(`[api] unhandled ${requestIdValue}`, err);
+  const requestContext = c.get('ctx') as RequestContext | undefined;
+  reportException(err, {
+    requestId: requestIdValue,
+    route: c.req.routePath || 'unmatched',
+    ...(requestContext
+      ? {
+          tenantId: requestContext.tenantId,
+          branchScope: requestContext.activeBranchId ? [requestContext.activeBranchId] : requestContext.branchIds,
+          actorId: requestContext.impersonatorId ?? requestContext.userId,
+        }
+      : {}),
+  });
   return c.json(
     { error: { code: 'INTERNAL', message: 'Something went wrong on our side. The team has been notified.', requestId: requestIdValue } },
     500,
@@ -92,7 +124,7 @@ export const errorHandler = (err: unknown, c: Context): Response => {
 
 export const authenticate: MiddlewareHandler = async (c, next) => {
   const bearer = c.req.header('authorization')?.replace(/^Bearer\s+/i, '');
-  if (bearer && process.env.NODE_ENV === 'production' && process.env.SHARK_ALLOW_BEARER_AUTH !== 'true') {
+  if (bearer && runtimeConfig.isProduction && !runtimeConfig.allowBearerAuth) {
     throw new AppError('UNAUTHENTICATED', 'Use the secure browser session to continue.');
   }
 
@@ -183,23 +215,135 @@ export const memberOnly: MiddlewareHandler = async (c, next) => {
   await next();
 };
 
-const buckets = new Map<string, { count: number; resetAt: number }>();
+interface RateLimitBucket {
+  count: number;
+  resetAt: number;
+}
 
-export function rateLimit(max: number, windowMs: number): MiddlewareHandler {
+interface RateLimitStore {
+  buckets: Map<string, RateLimitBucket>;
+  overflow: RateLimitBucket | null;
+  requestsSinceCleanup: number;
+}
+
+export interface RateLimitOptions {
+  /** IP for public boundaries; actor/tenant require `authenticate` first. */
+  identity?: 'ip' | 'actor' | 'tenant';
+  /** A stable bucket joins paths into one budget and avoids id-based bypasses. */
+  bucket?: string;
+  /** Override only for isolated middleware tests; runtime uses boot config. */
+  trustedProxyHops?: number;
+}
+
+/** One hostile header stream cannot grow a limiter Map without bound. */
+export const RATE_LIMIT_MAX_IDENTITIES = 2_048;
+const RATE_LIMIT_CLEANUP_INTERVAL = 128;
+const rateLimitStores = new Set<RateLimitStore>();
+
+function clearExpiredBuckets(store: RateLimitStore, atMs: number): void {
+  for (const [key, bucket] of store.buckets) {
+    if (bucket.resetAt <= atMs) store.buckets.delete(key);
+  }
+  if (store.overflow && store.overflow.resetAt <= atMs) store.overflow = null;
+}
+
+export function clientIpFromAddresses(
+  directAddress: string | undefined,
+  forwardedFor: string | undefined,
+  trustedProxyHops: number,
+): string {
+  const direct = directAddress && isIP(directAddress) ? directAddress : 'local';
+  if (trustedProxyHops === 0 || !forwardedFor) return direct;
+
+  const forwarded = forwardedFor.split(',').map((value) => value.trim()).filter(Boolean);
+  const candidate = forwarded[forwarded.length - trustedProxyHops];
+  return candidate && isIP(candidate) ? candidate : direct;
+}
+
+export function clientIp(c: Context, trustedProxyHops = runtimeConfig.trustedProxyHops): string {
+  let directAddress: string | undefined;
+  try {
+    directAddress = getConnInfo(c)?.remote.address;
+  } catch {
+    // `app.request()` has no Node socket. Production requests do; tests and
+    // non-Node adapters safely collapse to the local fallback.
+  }
+  return clientIpFromAddresses(directAddress, c.req.header('x-forwarded-for'), trustedProxyHops);
+}
+
+function identityFor(c: Context, identity: 'ip' | 'actor' | 'tenant', trustedProxyHops: number): string {
+  if (identity === 'actor' || identity === 'tenant') {
+    const ctx = c.get('ctx') as RequestContext | undefined;
+    if (!ctx) throw new Error('Authenticated rate limiting must run after authentication.');
+    return identity === 'tenant' ? ctx.tenantId : `${ctx.tenantId}:${ctx.impersonatorId ?? ctx.userId}`;
+  }
+  return clientIp(c, trustedProxyHops);
+}
+
+export function rateLimit(max: number, windowMs: number, options: RateLimitOptions = {}): MiddlewareHandler {
+  if (!Number.isInteger(max) || max < 1) throw new RangeError('Rate-limit max must be a positive integer.');
+  if (!Number.isFinite(windowMs) || windowMs < 1) throw new RangeError('Rate-limit window must be positive.');
+  const trustedProxyHops = options.trustedProxyHops ?? runtimeConfig.trustedProxyHops;
+  if (!Number.isInteger(trustedProxyHops) || trustedProxyHops < 0 || trustedProxyHops > 5) {
+    throw new RangeError('trustedProxyHops must be an integer from 0 to 5.');
+  }
+  const store: RateLimitStore = { buckets: new Map(), overflow: null, requestsSinceCleanup: 0 };
+  rateLimitStores.add(store);
+
   return async (c: Context, next: Next) => {
-    const key = `${c.req.path}:${c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ?? 'local'}`;
-    const bucket = buckets.get(key);
     const nowMs = Date.now();
+    store.requestsSinceCleanup += 1;
+    if (store.requestsSinceCleanup >= RATE_LIMIT_CLEANUP_INTERVAL) {
+      clearExpiredBuckets(store, nowMs);
+      store.requestsSinceCleanup = 0;
+    }
 
-    if (!bucket || bucket.resetAt < nowMs) {
-      buckets.set(key, { count: 1, resetAt: nowMs + windowMs });
-    } else if (bucket.count >= max) {
+    const identity = identityFor(c, options.identity ?? 'ip', trustedProxyHops);
+    const key = `${options.bucket ?? c.req.path}:${identity}`;
+    let bucket = store.buckets.get(key);
+    if (bucket && bucket.resetAt <= nowMs) {
+      store.buckets.delete(key);
+      bucket = undefined;
+    }
+
+    if (!bucket) {
+      if (store.buckets.size >= RATE_LIMIT_MAX_IDENTITIES) clearExpiredBuckets(store, nowMs);
+      if (store.buckets.size < RATE_LIMIT_MAX_IDENTITIES) {
+        bucket = { count: 0, resetAt: nowMs + windowMs };
+        store.buckets.set(key, bucket);
+      } else {
+        // Fail boundedly under high-cardinality input. New identities share a
+        // single fixed bucket instead of allocating attacker-controlled keys.
+        if (!store.overflow || store.overflow.resetAt <= nowMs) {
+          store.overflow = { count: 0, resetAt: nowMs + windowMs };
+        }
+        bucket = store.overflow;
+      }
+    }
+
+    if (bucket && bucket.count >= max) {
       throw new AppError('RATE_LIMITED', 'Too many attempts. Try again shortly.', {
         retryAfterSec: Math.ceil((bucket.resetAt - nowMs) / 1000),
       });
-    } else {
+    }
+    if (bucket) {
       bucket.count += 1;
     }
     await next();
   };
+}
+
+/** Reset/introspection for deterministic integration tests only. */
+export function resetRateLimitsForTest(): void {
+  for (const store of rateLimitStores) {
+    store.buckets.clear();
+    store.overflow = null;
+    store.requestsSinceCleanup = 0;
+  }
+}
+
+export function rateLimitBucketCountForTest(): number {
+  let count = 0;
+  for (const store of rateLimitStores) count += store.buckets.size;
+  return count;
 }

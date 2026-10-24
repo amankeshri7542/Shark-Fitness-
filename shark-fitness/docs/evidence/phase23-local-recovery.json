@@ -1,0 +1,162 @@
+{
+  "recoveryProof": "passed",
+  "restoreGuards": [
+    "source-target-separation",
+    "manifest-size-and-checksum",
+    "explicit-overwrite-confirmation",
+    "owner-only-artifacts"
+  ],
+  "evidenceScope": "Local production API processes; synthetic seeded fixtures; shared installed dependencies; no container, hosted, or off-instance-storage credit.",
+  "manifest": {
+    "version": 1,
+    "createdAt": "2026-09-22T19:02:29.425Z",
+    "databaseFile": "backup.db",
+    "databaseSizeBytes": 10190848,
+    "sha256": "3ba361c26e2fe8f524379996f9e7d78a7258cd9ffee8295d766c46de6f2faf41",
+    "sqlite": {
+      "pageCount": 2488,
+      "pageSizeBytes": 4096
+    }
+  },
+  "rowCounts": {
+    "members": 41,
+    "products": 8,
+    "memberships": 39,
+    "membership_events": 42,
+    "invoices": 107,
+    "invoice_lines": 107,
+    "payments": 105,
+    "refunds": 1,
+    "check_ins": 1237,
+    "tickets": 7,
+    "audit_log": 3,
+    "stock_ledger": 111
+  },
+  "recordFingerprints": {
+    "members": {
+      "count": 41,
+      "sha256": "8d06116dcb43ed09dbfdd7a00a11cafeb209aa0051ecfac7becfe57f5ffd2b3c"
+    },
+    "products": {
+      "count": 8,
+      "sha256": "aee63f699b8060b130df1c47fbb70a68d0fd0c99cb01a696d4d258eb73f2742f"
+    },
+    "memberships": {
+      "count": 39,
+      "sha256": "6d121f49de0f562323149b569c1127e8c0ab14c6d33e2606538b6fac9429537a"
+    },
+    "membership_events": {
+      "count": 42,
+      "sha256": "8af54d6c1a351a36a925e5f9db1bedcdf955af0e85e5ad533af61375459a37de"
+    },
+    "invoices": {
+      "count": 107,
+      "sha256": "a4cb2f726393b935cc0a06ebf460a3e56caff4aeb9dca6393d589b36d816bda5"
+    },
+    "invoice_lines": {
+      "count": 107,
+      "sha256": "1756be3ce83daa7f47f763224a389251be8f0e4b263440708292df5973e404f6"
+    },
+    "payments": {
+      "count": 105,
+      "sha256": "f790a1334760dc0a3e4d1af09d57b26afb045a13a0202552f630269438bcce36"
+    },
+    "refunds": {
+      "count": 1,
+      "sha256": "03751dea049118f3cc9e8039c2ca262c616c10fa6b7b889f2a95ae3e982199dd"
+    },
+    "check_ins": {
+      "count": 1237,
+      "sha256": "1c098f0a933d0c95a409cdae14a26557fc335eb8fb99ec7cdf26e45bf0417623"
+    },
+    "tickets": {
+      "count": 7,
+      "sha256": "c1d64a75587490fccf259206eb9dc7ac6968821ff1263f638e50bf899e9ce648"
+    },
+    "audit_log": {
+      "count": 3,
+      "sha256": "4de633ebeee915ec0517680fa43136155b8215b5c142a2da04a580a2a719fdc1"
+    },
+    "stock_ledger": {
+      "count": 111,
+      "sha256": "69925f7751250c95fedd460ae3a2f85a21db524f1cb7e0c44ae067d9a86f038d"
+    }
+  },
+  "manualPaymentAndRefund": {
+    "invoiceId": "inv_0mud1jsn7pljvtm",
+    "paymentId": "pay_0mud1jvmavfenwb",
+    "refundId": "ref_0mud1jvn333q4t7",
+    "outstandingMinor": 343882,
+    "grossMinor": 10000,
+    "refundedMinor": 2500,
+    "retainedMinor": 7500
+  },
+  "runtimes": [
+    {
+      "label": "initial",
+      "ready": {
+        "ok": true,
+        "database": "ready",
+        "schema": "ready",
+        "status": "ready",
+        "release": "recovery-proof-2077b42119c840e29e4e8d5f3f1b2e01-initial",
+        "configuration": "ready",
+        "scheduler": "disabled"
+      },
+      "authenticatedReadStatus": 200,
+      "authenticatedInvoiceAndReceipt": true
+    },
+    {
+      "label": "restart",
+      "ready": {
+        "ok": true,
+        "database": "ready",
+        "schema": "ready",
+        "status": "ready",
+        "release": "recovery-proof-2077b42119c840e29e4e8d5f3f1b2e01-restart",
+        "configuration": "ready",
+        "scheduler": "disabled"
+      },
+      "authenticatedReadStatus": 200,
+      "authenticatedInvoiceAndReceipt": true
+    },
+    {
+      "label": "replacement",
+      "ready": {
+        "ok": true,
+        "database": "ready",
+        "schema": "ready",
+        "status": "ready",
+        "release": "recovery-proof-2077b42119c840e29e4e8d5f3f1b2e01-replacement",
+        "configuration": "ready",
+        "scheduler": "disabled"
+      },
+      "authenticatedReadStatus": 200,
+      "authenticatedInvoiceAndReceipt": true
+    },
+    {
+      "label": "recovery",
+      "ready": {
+        "ok": true,
+        "database": "ready",
+        "schema": "ready",
+        "status": "ready",
+        "release": "recovery-proof-2077b42119c840e29e4e8d5f3f1b2e01-recovery",
+        "configuration": "ready",
+        "scheduler": "disabled"
+      },
+      "authenticatedReadStatus": 200,
+      "authenticatedInvoiceAndReceipt": true
+    }
+  ],
+  "readiness": {
+    "ok": true,
+    "database": "ready",
+    "schema": "ready",
+    "status": "ready",
+    "release": "recovery-proof-2077b42119c840e29e4e8d5f3f1b2e01-recovery",
+    "configuration": "ready",
+    "scheduler": "disabled"
+  },
+  "authenticatedReadStatus": 200
+}

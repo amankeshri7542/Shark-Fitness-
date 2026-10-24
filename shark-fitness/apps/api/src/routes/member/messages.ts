@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { channels } from '@shark/contracts';
 import { scanForSafety, type SafetySignal } from '@shark/domain';
 import { db, schema, transact } from '../../db/client.js';
-import { ctxOf } from '../../middleware/index.js';
+import { ctxOf, rateLimit } from '../../middleware/index.js';
 import { audit } from '../../lib/audit.js';
 import { emit } from '../../lib/events.js';
 import { conflict, invalid, notFound, precondition } from '../../lib/errors.js';
@@ -14,6 +14,8 @@ import { MINUTE, isoDate, localMinutes, now, relativeTime } from '../../lib/time
 import { RESPONSE_MINUTES, promisedMinutes, responseDeadline } from '../../services/support.js';
 
 export const messagesRoutes = new Hono();
+const messageWriteTenantLimit = rateLimit(300, 60_000, { identity: 'tenant', bucket: 'member-message-write-tenant' });
+const messageWriteActorLimit = rateLimit(30, 60_000, { identity: 'actor', bucket: 'member-message-write-actor' });
 
 /**
  * Member messaging and support (UX-M12, PF-SUP).
@@ -112,17 +114,13 @@ function hoursFor(kind: ConversationKind, branch: Branchish, at: number): HoursV
  * of silently dropping them (UX-M12 "failed attachment").
  */
 function attachmentPolicy(): { enabled: boolean; maxSizeMb: number; accept: string[]; reason: string | null } {
-  const bucket = process.env.SHARK_MEDIA_BUCKET ?? '';
-  if (!bucket) {
-    return {
-      enabled: false,
-      maxSizeMb: 0,
-      accept: [],
-      reason:
-        'Photos and files cannot be sent from the app yet. Show it at reception, or describe it here and someone will come and look.',
-    };
-  }
-  return { enabled: true, maxSizeMb: 10, accept: ['image/jpeg', 'image/png', 'application/pdf'], reason: null };
+  return {
+    enabled: false,
+    maxSizeMb: 0,
+    accept: [],
+    reason:
+      'Photos and files cannot be sent from the app yet. Show it at reception, or describe it here and someone will come and look.',
+  };
 }
 
 /* ============================================================================
@@ -400,7 +398,7 @@ const TicketOpenInput = z.object({
   anonymous: z.boolean().optional().default(false),
 });
 
-messagesRoutes.post('/tickets', validate('json', TicketOpenInput), (c) => {
+messagesRoutes.post('/tickets', messageWriteTenantLimit, messageWriteActorLimit, validate('json', TicketOpenInput), (c) => {
   const ctx = ctxOf(c);
   const memberId = ctx.memberId!;
   const input = c.req.valid('json');
@@ -864,7 +862,7 @@ const SendInput = z.object({
     .default([]),
 });
 
-messagesRoutes.post('/:conversationId', validate('json', SendInput), (c) => {
+messagesRoutes.post('/:conversationId', messageWriteTenantLimit, messageWriteActorLimit, validate('json', SendInput), (c) => {
   const ctx = ctxOf(c);
   const memberId = ctx.memberId!;
   const conversationId = c.req.param('conversationId');

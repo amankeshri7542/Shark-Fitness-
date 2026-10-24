@@ -269,6 +269,8 @@ export type SuppressionCode =
   | 'unknown_variables'
   | 'branch_not_trading'
   | 'no_destination'
+  | 'account_unavailable'
+  | 'provider_unavailable'
   | 'automation_paused';
 
 export interface SendDecision {
@@ -283,6 +285,12 @@ export interface SendFacts {
   channel: string;
   hasConsent: boolean;
   hasDestination: boolean;
+  /** False when the destination belongs to an invited, suspended or deleted
+   * account that cannot currently receive an application message. */
+  accountActive?: boolean;
+  /** False when this deployment has no real adapter for the chosen channel.
+   * An unavailable provider is a suppression, never a pretend delivery. */
+  providerAvailable?: boolean;
   branchTrades: boolean;
   inQuietHours: boolean;
   alreadySent: boolean;
@@ -313,6 +321,13 @@ export function decideSend(facts: SendFacts): SendDecision {
   if (!facts.hasDestination) {
     return { send: false, code: 'no_destination', reason: `No ${facts.channel} address on this member's record.` };
   }
+  if (facts.accountActive === false) {
+    return {
+      send: false,
+      code: 'account_unavailable',
+      reason: 'The member account is not active, so it cannot receive this message.',
+    };
+  }
   if (!facts.branchTrades) {
     return { send: false, code: 'branch_not_trading', reason: 'Their branch is closed or archived.' };
   }
@@ -331,6 +346,13 @@ export function decideSend(facts: SendFacts): SendDecision {
       send: false,
       code: 'missing_variables',
       reason: `No value for ${facts.missingVariables.join(', ')} on this member.`,
+    };
+  }
+  if (facts.providerAvailable === false) {
+    return {
+      send: false,
+      code: 'provider_unavailable',
+      reason: `No ${facts.channel} delivery provider is configured. Nothing was sent.`,
     };
   }
   if (facts.inQuietHours) {

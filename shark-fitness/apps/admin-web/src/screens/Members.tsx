@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
-import { useAdmin } from '../lib/store';
+import { useAdmin, usePermission } from '../lib/store';
 import { Page } from '../ui/shell';
 import { MembersBulkActions } from './members/BulkActions';
 import {
@@ -14,6 +14,7 @@ import {
   Label,
   Metric,
   Panel,
+  PermissionState,
   Seam,
   Segmented,
   Skeleton,
@@ -58,7 +59,7 @@ interface MembersPayload {
   items: MemberRow[];
 }
 
-const LIFECYCLES = ['all', 'active', 'trial', 'frozen', 'grace', 'expired', 'former'] as const;
+const LIFECYCLES = ['all', 'engaged', 'active', 'trial', 'frozen', 'grace', 'expired', 'former'] as const;
 
 const STATE_TONE: Record<string, Tone> = {
   active: 'good',
@@ -71,33 +72,47 @@ const STATE_TONE: Record<string, Tone> = {
 };
 
 export default function MembersScreen() {
+  const canView = usePermission('member.view');
   const branchId = useAdmin((s) => s.activeBranchId);
-  const [search, setSearch] = useState('');
-  const [lifecycle, setLifecycle] = useState<string>('all');
-  const [risk, setRisk] = useState<'any' | 'high' | 'watch'>('any');
-  const [tag, setTag] = useState<string | null>(null);
+  const filters = useSearch({ from: '/console/members' });
+  const navigate = useNavigate({ from: '/members' });
+  const search = filters.q ?? '';
+  const lifecycle = filters.lifecycle ?? 'all';
+  const risk = filters.risk ?? 'any';
+  const offset = filters.offset ?? 0;
+  const tag = filters.tag ?? null;
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
+  const setFilters = (next: Partial<typeof filters>): void => {
+    void navigate({
+      search: (current) => ({ ...current, offset: 0, ...next }),
+      replace: true,
+    });
+  };
+
   const params = new URLSearchParams();
+  params.set('offset', String(offset));
   if (search.trim()) params.set('q', search.trim());
   if (lifecycle !== 'all') params.set('lifecycle', lifecycle);
   if (risk !== 'any') params.set('risk', risk);
+  if (filters.joined) params.set('joined', filters.joined);
+  if (filters.expiring) params.set('expiring', String(filters.expiring));
   if (tag) params.set('tag', tag);
 
   const { data, isLoading, error, refetch, isFetching } = useQuery({
-    queryKey: ['members', branchId, search, lifecycle, risk, tag],
+    queryKey: ['members', branchId, search, lifecycle, risk, filters.joined, filters.expiring, tag, offset],
     queryFn: () => api<MembersPayload>(`/admin/members?${params}`, { branchId }),
     placeholderData: keepPreviousData,
+    enabled: canView,
   });
 
-  const toggle = (id: string): void => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
+  if (!canView) {
+    return (
+      <Page title="Members">
+        <PermissionState what="Member records" />
+      </Page>
+    );
+  }
 
   if (isLoading) return <MembersSkeleton />;
 
@@ -114,10 +129,19 @@ export default function MembersScreen() {
   }
 
   // Act only on rows that are on screen. A selection made before the filters
-  // changed must not quietly carry members the operator can no longer see.
+  // or the page changed must not quietly carry members the operator can no
+  // longer see.
   const selectedRows = data.items.filter((m) => selected.has(m.id));
   const allSelected = data.items.length > 0 && selectedRows.length === data.items.length;
   const toggleAll = (): void => setSelected(allSelected ? new Set() : new Set(data.items.map((m) => m.id)));
+  const toggle = (id: string): void => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const atRisk = data.items.filter((m) => m.riskBand === 'high').length;
   const owing = data.items.filter((m) => (m.balanceMinor ?? 0) > 0).length;
@@ -140,14 +164,14 @@ export default function MembersScreen() {
           </div>
         </div>
         <div className="min-w-[150px] flex-1 px-3.5 py-3">
-          <Label>High risk</Label>
+            <Label>High risk on this page</Label>
           <div className="mt-1.5">
             <Metric value={atRisk} size="md" tone={atRisk > 0 ? 'warn' : 'default'} />
           </div>
         </div>
         {data.columns.balanceVisible ? (
           <div className="min-w-[150px] flex-1 px-3.5 py-3">
-            <Label>With a balance</Label>
+            <Label>With a balance on this page</Label>
             <div className="mt-1.5">
               <Metric value={owing} size="md" tone={owing > 0 ? 'bad' : 'default'} />
             </div>
@@ -160,7 +184,7 @@ export default function MembersScreen() {
           label="Search"
           placeholder="Name, member number, email or phone"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => setFilters({ q: e.target.value || undefined })}
           className="min-w-[260px]"
         />
 
@@ -175,8 +199,11 @@ export default function MembersScreen() {
             label="Lifecycle"
             size="md"
             value={lifecycle}
-            onChange={setLifecycle}
-            options={LIFECYCLES.map((l) => ({ value: l, label: l }))}
+            onChange={(value) => setFilters({ lifecycle: value })}
+            options={LIFECYCLES.map((value) => ({
+              value,
+              label: value === 'engaged' ? 'active + trial' : value,
+            }))}
           />
         </div>
 
@@ -186,7 +213,7 @@ export default function MembersScreen() {
             label="Risk"
             size="md"
             value={risk}
-            onChange={setRisk}
+            onChange={(value) => setFilters({ risk: value })}
             options={[
               { value: 'any', label: 'any' },
               { value: 'watch', label: 'watch' },
@@ -195,12 +222,20 @@ export default function MembersScreen() {
           />
         </div>
 
+        {filters.joined ? <Chip tone="accent">Joined this month</Chip> : null}
+        {filters.expiring ? <Chip tone="warn">Expiring in {filters.expiring} days</Chip> : null}
+        {filters.joined || filters.expiring ? (
+          <Button variant="outline" onClick={() => setFilters({ joined: undefined, expiring: undefined })}>
+            Clear drill-down
+          </Button>
+        ) : null}
+
         {tag ? (
           <div className="flex flex-col gap-1">
             <Label>Tag</Label>
             <button
               type="button"
-              onClick={() => setTag(null)}
+              onClick={() => setFilters({ tag: undefined })}
               aria-label={`Clear tag filter ${tag}`}
               className="min-h-9 border border-sonar px-2.5 font-utility text-[10px] font-semibold uppercase tracking-[0.1em] text-sonar"
             >
@@ -217,19 +252,16 @@ export default function MembersScreen() {
         <EmptyState
           title="No members match"
           body={
-            search || lifecycle !== 'all' || risk !== 'any' || tag
+            search || lifecycle !== 'all' || risk !== 'any' || filters.joined || filters.expiring || tag
               ? 'Nothing fits those filters. Widen them, or clear the search.'
               : 'This branch has no members yet. Convert a lead to get started.'
           }
           action={
-            search || lifecycle !== 'all' || risk !== 'any' || tag ? (
+            search || lifecycle !== 'all' || risk !== 'any' || filters.joined || filters.expiring || tag ? (
               <Button
                 variant="outline"
                 onClick={() => {
-                  setSearch('');
-                  setLifecycle('all');
-                  setRisk('any');
-                  setTag(null);
+                  void navigate({ search: () => ({ lifecycle: 'all', risk: 'any' }), replace: true });
                 }}
               >
                 Clear filters
@@ -296,7 +328,7 @@ export default function MembersScreen() {
                         <button
                           key={t}
                           type="button"
-                          onClick={() => setTag(t)}
+                          onClick={() => setFilters({ tag: t })}
                           title={`Show members tagged ${t}`}
                           className="border border-line px-1.5 font-utility text-[9px] uppercase tracking-[0.1em] text-foam-45 hover:border-sonar hover:text-sonar"
                         >
@@ -351,6 +383,16 @@ export default function MembersScreen() {
           </tbody>
         </Table></TableScroll>
       )}
+
+      <nav aria-label="Member directory pages" className="flex items-center justify-between gap-3 border-t border-line p-3.5">
+        <Button variant="outline" disabled={isFetching || offset === 0}
+          onClick={() => setFilters({ offset: Math.max(0, offset - data.limit) })}>Previous page</Button>
+        <span className="text-[12px] text-foam-65">
+          {data.items.length ? data.offset + 1 : 0}–{data.offset + data.items.length} of {data.total}
+        </span>
+        <Button variant="outline" disabled={isFetching || offset + data.limit >= data.total}
+          onClick={() => setFilters({ offset: offset + data.limit })}>Next page</Button>
+      </nav>
 
       {!data.columns.balanceVisible ? (
         <Panel className="border-t border-line">

@@ -54,7 +54,7 @@ ENV NODE_ENV=production \
     CI=true \
     PORT=8787 \
     SHARK_SERVE_STATIC=true \
-    SHARK_DB=/tmp/shark-fitness/shark.db
+    SHARK_DB=/var/lib/shark-fitness/shark.db
 
 WORKDIR /app/shark-fitness
 RUN corepack enable && corepack prepare pnpm@10.28.0 --activate
@@ -77,6 +77,7 @@ COPY shark-fitness/apps/api/src ./apps/api/src
 COPY shark-fitness/packages/contracts/src ./packages/contracts/src
 COPY shark-fitness/packages/domain/src ./packages/domain/src
 COPY shark-fitness/infrastructure ./infrastructure
+COPY shark-fitness/scripts ./scripts
 
 # Built front ends. server.ts resolves these as ../../<app>/dist from
 # apps/api/src, so the paths below are load-bearing.
@@ -87,7 +88,7 @@ COPY docker-entrypoint.sh /usr/local/bin/shark-entrypoint
 RUN chmod +x /usr/local/bin/shark-entrypoint
 
 # The database lives outside the image; the node user must be able to write it.
-RUN mkdir -p /tmp/shark-fitness && chown -R node:node /tmp/shark-fitness /app
+RUN mkdir -p /var/lib/shark-fitness && chown -R node:node /var/lib/shark-fitness /app
 USER node
 
 EXPOSE 8787

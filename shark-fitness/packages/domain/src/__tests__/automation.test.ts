@@ -205,6 +205,17 @@ describe('the send decision', () => {
     expect(decideSend({ ...base, branchTrades: false }).code).toBe('branch_not_trading');
   });
 
+  it('refuses when the destination belongs to an account that cannot receive messages', () => {
+    const out = decideSend({ ...base, accountActive: false });
+    expect(out.code).toBe('account_unavailable');
+    expect(out.reason).toMatch(/account is not active/i);
+  });
+
+  it('reports an unavailable provider instead of pretending an external message is held', () => {
+    expect(decideSend({ ...base, channel: 'sms', providerAvailable: false, inQuietHours: true }).code)
+      .toBe('provider_unavailable');
+  });
+
   it('refuses a repeat of an event already sent', () => {
     expect(decideSend({ ...base, alreadySent: true }).code).toBe('already_sent');
   });

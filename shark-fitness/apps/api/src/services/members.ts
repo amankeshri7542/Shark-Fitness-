@@ -1,5 +1,6 @@
 import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import { db, schema } from '../db/client.js';
+import { branchScope } from '../lib/context.js';
 import { notFound } from '../lib/errors.js';
 
 /**
@@ -39,7 +40,7 @@ export function loadMemberInScope(
     )
     .get();
   if (!member) throw notFound('That member');
-  if (!memberBranchIds(member).some((branchId) => ctx.branchIds.includes(branchId))) {
+  if (!memberBranchIds(member).some((branchId) => branchScope(ctx).includes(branchId))) {
     throw notFound('That member');
   }
   return member;
@@ -48,12 +49,13 @@ export function loadMemberInScope(
 /** Member ids reachable via an explicit `member_branches` grant into scope —
  *  the list-query counterpart to `loadMemberInScope`, for search/browse. */
 function memberIdsGrantedInto(ctx: { tenantId: string; branchIds: string[] }): string[] {
-  if (ctx.branchIds.length === 0) return [];
+  const scope = branchScope(ctx);
+  if (scope.length === 0) return [];
   return db
     .select({ memberId: schema.memberBranches.memberId })
     .from(schema.memberBranches)
     .where(
-      and(eq(schema.memberBranches.tenantId, ctx.tenantId), inArray(schema.memberBranches.branchId, ctx.branchIds)),
+      and(eq(schema.memberBranches.tenantId, ctx.tenantId), inArray(schema.memberBranches.branchId, scope)),
     )
     .all()
     .map((row) => row.memberId);
@@ -62,8 +64,9 @@ function memberIdsGrantedInto(ctx: { tenantId: string; branchIds: string[] }): s
 /** Where-condition for a member list query: home branch in scope, or an
  *  explicit `member_branches` grant into scope. */
 export function memberScopeCondition(ctx: { tenantId: string; branchIds: string[] }) {
-  const granted = memberIdsGrantedInto(ctx);
+  const scope = branchScope(ctx);
+  const granted = memberIdsGrantedInto({ tenantId: ctx.tenantId, branchIds: scope });
   return granted.length > 0
-    ? or(inArray(schema.members.homeBranchId, ctx.branchIds), inArray(schema.members.id, granted))!
-    : inArray(schema.members.homeBranchId, ctx.branchIds);
+    ? or(inArray(schema.members.homeBranchId, scope), inArray(schema.members.id, granted))!
+    : inArray(schema.members.homeBranchId, scope);
 }

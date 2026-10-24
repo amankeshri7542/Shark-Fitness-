@@ -7,7 +7,7 @@ are the rules that keep parallel work from diverging.
 
 ```
 packages/contracts   Zod schemas + enums + error/event envelopes.  DO NOT EDIT.
-packages/domain      Pure business rules, 248 tests.               DO NOT EDIT.
+packages/domain      Pure business rules, 252 tests.               DO NOT EDIT.
 packages/design-tokens  Sonar tokens + the copy register.          DO NOT EDIT.
 apps/api/src/db/schema  94 tables.                                 DO NOT EDIT.
 apps/api/src/app.ts     Route mounts, all pre-wired.               DO NOT EDIT.

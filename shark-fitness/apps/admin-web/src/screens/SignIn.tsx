@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import type { Viewer } from '@shark/contracts';
 import { ApiError, OfflineError, api } from '../lib/api';
 import { useAdmin } from '../lib/store';
 import { Button, Display, Field } from '../ui/console';
 
-const TENANT_SLUG = 'shark';
+
 
 const DEMO_STAFF = [
   { email: 'owner@sharkfitness.in', role: 'Owner', sees: 'Everything except platform administration' },
@@ -17,20 +17,39 @@ const DEMO_STAFF = [
 
 export default function SignInScreen() {
   const navigate = useNavigate();
+  const [activation, setActivation] = useState(() => new URLSearchParams(window.location.hash.slice(1)));
+  const activationId = activation.get('activationId');
+  const activationToken = activation.get('activationToken');
+  const activating = Boolean(activationId && activationToken);
+  const [tenantSlug, setTenantSlug] = useState(activation.get('gym') ?? (import.meta.env.DEV ? 'shark' : ''));
+
   const bootstrap = useAdmin((state) => state.bootstrap);
-  const [email, setEmail] = useState('owner@sharkfitness.in');
-  const [password, setPassword] = useState('shark1234');
+  const [email, setEmail] = useState(import.meta.env.DEV ? 'owner@sharkfitness.in' : '');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const readActivation = () => {
+      const params = new URLSearchParams(window.location.hash.slice(1));
+      setActivation(params);
+      if (params.get('gym')) setTenantSlug(params.get('gym')!);
+      setError(null);
+    };
+    window.addEventListener('hashchange', readActivation);
+    return () => window.removeEventListener('hashchange', readActivation);
+  }, []);
+
 
   const signIn = async (): Promise<void> => {
     setBusy(true);
     setError(null);
     try {
-      const result = await api<{ viewer: Viewer; csrfToken: string }>('/auth/password', {
+      const result = await api<{ viewer: Viewer; csrfToken: string }>(activating ? '/auth/activation/redeem' : '/auth/password', {
         method: 'POST',
-        body: { tenantSlug: TENANT_SLUG, email, password },
+        body: activating ? { activationId, token: activationToken, password } : { tenantSlug: tenantSlug.trim(), email, password },
       });
+      if (activating) window.history.replaceState(null, '', window.location.pathname);
       if (result.viewer.role === 'member') {
         await api('/auth/sign-out', { method: 'POST' });
         setError('That is a member account. The dashboard is for gym staff — members use the app.');
@@ -88,17 +107,18 @@ export default function SignInScreen() {
           </div>
 
           <div className="flex flex-col gap-4 p-8">
-            <Field
+            {activating ? <p>Create your password (at least 12 characters). This activation link works once.</p> : <Field label="Gym code" value={tenantSlug} onChange={(event) => setTenantSlug(event.target.value)} />}
+            {!activating ? <Field
               label="Work email"
               type="email"
               autoComplete="username"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-            />
+            /> : null}
             <Field
               label="Password"
               type="password"
-              autoComplete="current-password"
+              autoComplete={activating ? "new-password" : "current-password"}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               onKeyDown={(event) => {
@@ -112,11 +132,11 @@ export default function SignInScreen() {
               </div>
             ) : null}
 
-            <Button variant="cta" size="md" full disabled={busy} onClick={() => void signIn()}>
-              {busy ? 'Signing in…' : 'Sign in'}
+            <Button variant="cta" size="md" full disabled={busy || (activating ? password.length < 12 : !tenantSlug.trim() || !email || !password)} onClick={() => void signIn()}>
+              {busy ? 'Signing in…' : activating ? 'Activate account' : 'Sign in'}
             </Button>
 
-            <div className="mt-2 border-t border-line pt-3">
+            {import.meta.env.DEV && !activating ? <div className="mt-2 border-t border-line pt-3">
               <span className="font-utility text-[10px] font-semibold uppercase tracking-[0.14em] text-foam-45">
                 Demo roles — the console changes shape for each
               </span>
@@ -134,7 +154,7 @@ export default function SignInScreen() {
                 ))}
               </ul>
               <p className="mt-2 text-[11px] text-foam-35">Password for all: shark1234</p>
-            </div>
+            </div> : null}
           </div>
         </div>
       </div>

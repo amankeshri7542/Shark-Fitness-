@@ -99,3 +99,21 @@ describe('derived state', () => {
     expect(deriveState({ current: 'grace', endsOn: '2026-12-01', today: '2026-08-06', graceDays: 7, hasOutstandingBalance: false })).toBe('active');
   });
 });
+
+
+describe('pilot effective dates', () => {
+  it('preserves cancellation notice access and ends it on the effective day', () => {
+    const args = { current: 'cancel_scheduled' as const, endsOn: '2026-09-01', cancelEffectiveOn: '2026-09-20', graceDays: 0, hasOutstandingBalance: false };
+    expect(isEntitled(deriveState({ ...args, today: '2026-09-19' }))).toBe(true);
+    expect(deriveState({ ...args, today: '2026-09-20' })).toBe('cancelled');
+  });
+  it('resumes timed freezes on their end date, then applies term expiry', () => {
+    const args = { current: 'frozen' as const, endsOn: '2026-10-01', freezeEndsOn: '2026-09-20', graceDays: 0, hasOutstandingBalance: false };
+    expect(deriveState({ ...args, today: '2026-09-19' })).toBe('frozen');
+    expect(deriveState({ ...args, today: '2026-09-20' })).toBe('active');
+    expect(deriveState({ ...args, today: '2026-10-02' })).toBe('expired');
+  });
+  it('allows staff immediate cancellation with a reason', () => {
+    expect(canTransition({ from: 'active', to: 'cancelled', actorRole: 'staff', reason: 'Member requested immediate cancellation' }).ok).toBe(true);
+  });
+});

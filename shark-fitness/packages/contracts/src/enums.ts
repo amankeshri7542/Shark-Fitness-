@@ -167,6 +167,7 @@ export const AccessDecision = z.enum([
   'denied_membership_inactive',
   'denied_grace_outstanding',
   'denied_branch_not_permitted',
+  'denied_branch_closed',
   'denied_outside_hours',
   'denied_capacity',
   'denied_suspended',

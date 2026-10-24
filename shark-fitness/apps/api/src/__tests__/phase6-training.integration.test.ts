@@ -82,6 +82,14 @@ describe('Phase 6 — exercise library, program builder and assignment', () => {
     });
     expect(created.status).toBe(201);
     const { exercise } = (await created.json()) as { exercise: { id: string } };
+    const createdAudit = db
+      .select({ branchId: schema.auditLog.branchId })
+      .from(schema.auditLog)
+      .where(and(eq(schema.auditLog.entityId, exercise.id), eq(schema.auditLog.action, 'exercise.created')))
+      .get()!;
+    // Tenant-wide library writes made from "All branches" must not be
+    // attributed to whichever branch happened to be first in the session.
+    expect(createdAudit.branchId).toBeNull();
 
     const shared = db.select({ id: schema.exercises.id }).from(schema.exercises).where(isNull(schema.exercises.tenantId)).get();
     if (shared) {

@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
 import { navFor } from '@shark/domain';
 import { Button, Chip, LiveDot, cx } from './console';
+import { useFocusTrap } from './overlay';
 import { useAdmin, useViewer } from '../lib/store';
 import { useConnection, useOnline } from '../lib/realtime';
 
@@ -62,6 +63,7 @@ export function Rail() {
             <Link
               key={module.key}
               to={module.to}
+              aria-label={module.label}
               aria-current={active ? 'page' : undefined}
               className={cx(
                 'bridge-rail-item relative flex min-h-11 flex-none items-center gap-2.5 border-b border-line-10 px-3.5 py-2.5 transition-colors',
@@ -298,6 +300,9 @@ export function CommandPalette() {
   const viewer = useViewer();
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const closePalette = () => togglePalette(false);
+  const panelRef = useFocusTrap(open, closePalette, inputRef);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -324,6 +329,9 @@ export function CommandPalette() {
       role="presentation"
     >
       <div
+        ref={panelRef}
+        tabIndex={-1}
+        data-overlay-panel=""
         className="w-[min(560px,92vw)] border border-line-strong bg-overlay"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
@@ -331,6 +339,7 @@ export function CommandPalette() {
         aria-label="Search and commands"
       >
         <input
+          ref={inputRef}
           autoFocus
           value={query}
           onChange={(e) => setQuery(e.target.value)}

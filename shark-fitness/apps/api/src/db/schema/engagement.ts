@@ -88,6 +88,44 @@ export const challengeParticipants = sqliteTable(
   }),
 );
 
+/**
+ * An invitation is the only door into a private challenge (PF-GAME-003).
+ *
+ * `challenges.visibility = 'private'` was honoured by the feed query and by
+ * nothing else, so a member who knew an id could read the board and put
+ * themselves on it. Membership of a private challenge is now a row here, and
+ * the read path asks this table rather than trusting the caller's branch.
+ *
+ * Kept separate from `challenge_participants` on purpose: an invitation that
+ * was declined, revoked or left to expire is evidence about who was asked, and
+ * deleting the participant row on leave must not erase it.
+ */
+export const challengeInvitations = sqliteTable(
+  'challenge_invitations',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    challengeId: text('challenge_id').notNull(),
+    memberId: text('member_id').notNull(),
+    /** The staff user who issued it. Null only for rows created by a migration. */
+    invitedByUserId: text('invited_by_user_id'),
+    /** pending | accepted | declined | revoked | expired */
+    state: text('state').notNull().default('pending'),
+    /** Absolute, in epoch ms. An invitation that outlives the challenge is
+     *  meaningless, so callers clamp it to the challenge end. */
+    expiresAt: integer('expires_at'),
+    respondedAt: integer('responded_at'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (t) => ({
+    /** One invitation per member per challenge. Re-inviting revives the row
+     *  rather than stacking a second one. */
+    uq: uniqueIndex('challenge_invitations_uq').on(t.challengeId, t.memberId),
+    byMember: index('challenge_invitations_member_idx').on(t.memberId, t.state),
+  }),
+);
+
 export const referrals = sqliteTable(
   'referrals',
   {

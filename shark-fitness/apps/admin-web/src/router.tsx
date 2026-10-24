@@ -87,15 +87,79 @@ const consoleRoute = createRoute({
 const homeRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/', component: CommandCenterScreen });
 const leadsRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/leads', component: LeadsScreen });
 const leadDetailRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/leads/$leadId', component: LeadDetailScreen });
-const membersRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/members', component: MembersScreen });
+const MEMBER_LIFECYCLES = ['all', 'engaged', 'active', 'trial', 'frozen', 'grace', 'expired', 'former'] as const;
+const MEMBER_RISKS = ['any', 'high', 'watch'] as const;
+type MembersSearch = {
+  offset?: number;
+  q?: string;
+  lifecycle?: (typeof MEMBER_LIFECYCLES)[number];
+  risk?: (typeof MEMBER_RISKS)[number];
+  joined?: 'this_month';
+  expiring?: number;
+  tag?: string;
+};
+const membersRoute = createRoute({
+  getParentRoute: () => consoleRoute,
+  path: '/members',
+  component: MembersScreen,
+  validateSearch: (search: Record<string, unknown>): MembersSearch => ({
+    ...(Number.isSafeInteger(Number(search.offset)) && Number(search.offset) >= 0
+      ? { offset: Number(search.offset) } : {}),
+    ...(typeof search.q === 'string' && search.q.trim() ? { q: search.q } : {}),
+    lifecycle: MEMBER_LIFECYCLES.includes(search.lifecycle as never)
+      ? (search.lifecycle as MembersSearch['lifecycle'])
+      : undefined,
+    risk: MEMBER_RISKS.includes(search.risk as never) ? (search.risk as MembersSearch['risk']) : undefined,
+    ...(search.joined === 'this_month' ? { joined: 'this_month' as const } : {}),
+    ...(Number.isInteger(Number(search.expiring)) && Number(search.expiring) >= 1 && Number(search.expiring) <= 365
+      ? { expiring: Number(search.expiring) }
+      : {}),
+    ...(typeof search.tag === 'string' && search.tag.trim() ? { tag: search.tag.slice(0, 64) } : {}),
+  }),
+});
 const memberDetailRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/members/$memberId', component: MemberDetailScreen });
 const plansRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/plans', component: PlansScreen });
-const billingRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/billing', component: BillingScreen });
+const INVOICE_STATES = ['', 'outstanding', 'open', 'partially_paid', 'overdue', 'paid', 'void', 'partially_refunded', 'refunded'] as const;
+type BillingSearch = { state?: (typeof INVOICE_STATES)[number] };
+const billingRoute = createRoute({
+  getParentRoute: () => consoleRoute,
+  path: '/billing',
+  component: BillingScreen,
+  validateSearch: (search: Record<string, unknown>): BillingSearch => ({
+    state: INVOICE_STATES.includes(search.state as never) ? (search.state as BillingSearch['state']) : undefined,
+  }),
+});
 const floorRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/floor', component: FloorScreen });
-const scheduleRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/schedule', component: ScheduleScreen });
+/** The day grid and the recurrence rules behind it are two surfaces on one
+ *  path, and which one is open belongs in the URL for the same reasons the
+ *  store's do: a manager sends a colleague "the recurring classes screen". */
+const SCHEDULE_TABS = ['day', 'series'] as const;
+export interface ScheduleSearch {
+  tab: (typeof SCHEDULE_TABS)[number];
+}
+const scheduleRoute = createRoute({
+  getParentRoute: () => consoleRoute,
+  path: '/schedule',
+  component: ScheduleScreen,
+  validateSearch: (search: Record<string, unknown>): ScheduleSearch => ({
+    tab: SCHEDULE_TABS.includes(search.tab as never) ? (search.tab as ScheduleSearch['tab']) : 'day',
+  }),
+});
 const trainingRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/training', component: TrainingScreen });
 const trainingBuilderRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/training/$programId', component: TrainingBuilderScreen });
-const staffRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/staff', component: StaffScreen });
+/** The directory and the commission ledger are two surfaces on one path. */
+const STAFF_TABS = ['directory', 'commission'] as const;
+export interface StaffSearch {
+  tab: (typeof STAFF_TABS)[number];
+}
+const staffRoute = createRoute({
+  getParentRoute: () => consoleRoute,
+  path: '/staff',
+  component: StaffScreen,
+  validateSearch: (search: Record<string, unknown>): StaffSearch => ({
+    tab: STAFF_TABS.includes(search.tab as never) ? (search.tab as StaffSearch['tab']) : 'directory',
+  }),
+});
 const staffDetailRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/staff/$staffId', component: StaffDetailScreen });
 /**
  * Store is the first module with several working surfaces behind one path, and

@@ -67,7 +67,7 @@ export function requireBranch(ctx: { branchIds: string[] }, branchId: string): v
  * this bug survived so long: on a single-branch tenant the two readings agree.
  */
 export function branchScope(
-  ctx: { branchIds: string[]; activeBranchId: string | null },
+  ctx: { branchIds: string[]; activeBranchId?: string | null },
   requested?: string | null,
 ): string[] {
   if (requested) {

@@ -1,11 +1,12 @@
+import { reconcileMembershipDates } from '../../services/membership-dates.js';
 import { Hono } from 'hono';
-import { and, desc, eq, inArray, isNull, like, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, like, lt, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { validate } from '../../middleware/validate.js';
 import { channels } from '@shark/contracts';
 import { applyFreeze, canTransition, formatMoney, levelFor } from '@shark/domain';
 import { db, schema, transact } from '../../db/client.js';
-import { ctxOf } from '../../middleware/index.js';
+import { ctxOf, rateLimit } from '../../middleware/index.js';
 import { branchScope, requireAssignedMember, requirePermission } from '../../lib/context.js';
 import { audit } from '../../lib/audit.js';
 import { emit } from '../../lib/events.js';
@@ -21,14 +22,16 @@ import {
   exportMembersCsv,
 } from '../../services/member-bulk.js';
 import { loadMemberInScope } from '../../services/members.js';
+import { branchTimeZone } from '../../lib/branch-time.js';
 
 export const membersRoutes = new Hono();
 
 const ListQuery = z.object({
   q: z.string().optional(),
-  lifecycle: z.string().optional(),
+  lifecycle: z.enum(['all', 'engaged', 'active', 'trial', 'frozen', 'grace', 'expired', 'former']).optional(),
   risk: z.enum(['high', 'watch', 'any']).optional(),
-  expiring: z.coerce.number().int().optional(),
+  joined: z.enum(['this_month']).optional(),
+  expiring: z.coerce.number().int().min(1).max(365).optional(),
   trainerId: z.string().optional(),
   tag: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
@@ -36,7 +39,12 @@ const ListQuery = z.object({
 });
 
 /** Directory (UX-A04). Task-focused columns, not every field in the table. */
-membersRoutes.get('/', validate('query', ListQuery), (c) => {
+membersRoutes.get(
+  '/',
+  rateLimit(1_200, 60_000, { identity: 'tenant', bucket: 'member-directory-tenant' }),
+  rateLimit(180, 60_000, { identity: 'actor', bucket: 'member-directory-actor' }),
+  validate('query', ListQuery),
+  (c) => {
   const ctx = ctxOf(c);
   requirePermission(ctx, 'member.view');
   const q = c.req.valid('query');
@@ -55,9 +63,31 @@ membersRoutes.get('/', validate('query', ListQuery), (c) => {
   }
   if (q.trainerId) filters.push(eq(schema.members.trainerId, q.trainerId));
   if (q.tag) filters.push(sql`exists (select 1 from json_each(${schema.members.tags}) where value = ${q.tag})`);
-  if (q.lifecycle && q.lifecycle !== 'all') filters.push(eq(schema.members.lifecycle, q.lifecycle));
+  if (q.lifecycle === 'engaged') filters.push(inArray(schema.members.lifecycle, ['active', 'trial', 'corporate']));
+  else if (q.lifecycle && q.lifecycle !== 'all') filters.push(eq(schema.members.lifecycle, q.lifecycle));
   if (q.risk === 'high') filters.push(sql`${schema.members.riskScore} >= 55`);
   if (q.risk === 'watch') filters.push(sql`${schema.members.riskScore} >= 28`);
+
+  const timeZone = branchTimeZone(ctx.tenantId, ctx.activeBranchId);
+  const today = isoDate(now(), timeZone);
+  if (q.joined === 'this_month') {
+    const monthStart = `${today.slice(0, 7)}-01`;
+    const nextMonth = new Date(`${monthStart}T00:00:00Z`);
+    nextMonth.setUTCMonth(nextMonth.getUTCMonth() + 1);
+    filters.push(gte(schema.members.joinedOn, monthStart), lt(schema.members.joinedOn, nextMonth.toISOString().slice(0, 10)));
+  }
+  if (q.expiring) {
+    const through = addDays(today, q.expiring);
+    filters.push(sql`exists (
+      select 1 from ${schema.memberships} drill_membership
+      where drill_membership.member_id = ${schema.members.id}
+        and drill_membership.tenant_id = ${ctx.tenantId}
+        and drill_membership.state = 'active'
+        and drill_membership.auto_renew = 0
+        and drill_membership.ends_on >= ${today}
+        and drill_membership.ends_on <= ${through}
+    )`);
+  }
 
   if (q.q) {
     const term = `%${q.q.trim().toLowerCase()}%`;
@@ -99,7 +129,7 @@ membersRoutes.get('/', validate('query', ListQuery), (c) => {
     })
     .from(schema.members)
     .where(where)
-    .orderBy(desc(schema.members.lastVisitAt))
+    .orderBy(desc(schema.members.lastVisitAt), schema.members.id)
     .limit(q.limit)
     .offset(q.offset)
     .all();
@@ -143,7 +173,7 @@ membersRoutes.get('/', validate('query', ListQuery), (c) => {
         .where(
           and(
             inArray(schema.invoices.memberId, memberIds),
-            sql`${schema.invoices.state} in ('open','partially_paid','overdue')`,
+            sql`${schema.invoices.voided} = 0 and ${schema.invoices.totalMinor} > ${schema.invoices.paidMinor}`,
           ),
         )
         .groupBy(schema.invoices.memberId)
@@ -195,7 +225,8 @@ membersRoutes.get('/', validate('query', ListQuery), (c) => {
       };
     }),
   });
-});
+  },
+);
 
 /* — Bulk actions (Design PRD §5.5) ———————————————————————————————
    Registered before `/:memberId` so "trainers" and "bulk" are never read as
@@ -274,9 +305,9 @@ membersRoutes.get('/:memberId', (c) => {
   requirePermission(ctx, 'member.view');
   const memberId = c.req.param('memberId');
 
-  const member = loadMemberInScope(ctx, memberId);
-
+  let member = loadMemberInScope(ctx, memberId);
   requireAssignedMember(ctx, member.trainerId);
+  if (reconcileMembershipDates(memberId)) member = loadMemberInScope(ctx, memberId);
 
   const canSeeBalances = ctx.permissions.includes('billing.view');
   const canSeeStaffNotes = ctx.permissions.includes('member.notes.private');
@@ -377,9 +408,10 @@ membersRoutes.get('/:memberId', (c) => {
         .get()
     : null;
 
-  const outstanding = invoices
-    .filter((i) => ['open', 'partially_paid', 'overdue'].includes(i.state))
-    .reduce((total, i) => total + (i.totalMinor - i.paidMinor), 0);
+  const outstanding = db.select({ total: sql<number>`coalesce(sum(${schema.invoices.totalMinor} - ${schema.invoices.paidMinor}), 0)` })
+    .from(schema.invoices).where(and(eq(schema.invoices.memberId, memberId),
+      sql`${schema.invoices.voided} = 0 and ${schema.invoices.totalMinor} > ${schema.invoices.paidMinor}`,
+    )).get()?.total ?? 0;
 
   return c.json({
     member: {
@@ -448,8 +480,8 @@ membersRoutes.get('/:memberId', (c) => {
             issuedOn: i.issuedOn,
             dueOn: i.dueOn,
             totalLabel: formatMoney(i.totalMinor, i.currency),
-            dueMinor: i.totalMinor - i.paidMinor,
-            dueLabel: formatMoney(i.totalMinor - i.paidMinor, i.currency),
+            dueMinor: i.voided ? 0 : Math.max(0, i.totalMinor - i.paidMinor),
+            dueLabel: formatMoney(i.voided ? 0 : Math.max(0, i.totalMinor - i.paidMinor), i.currency),
           })),
         }
       : null,
@@ -506,7 +538,9 @@ membersRoutes.post('/:memberId/freeze', validate('json', FreezeBody), (c) => {
 
   // The member first, and in scope. The membership lookup below matches on
   // member id alone — without this it did not check the tenant either.
-  requireAssignedMember(ctx, loadMemberInScope(ctx, memberId).trainerId);
+  const member = loadMemberInScope(ctx, memberId);
+  requireAssignedMember(ctx, member.trainerId);
+  reconcileMembershipDates(memberId);
 
   const membership = db
     .select()
@@ -543,7 +577,9 @@ membersRoutes.post('/:memberId/freeze', validate('json', FreezeBody), (c) => {
         state: 'frozen',
         endsOn: outcome.newEndsOn,
         freezeDaysUsed: outcome.daysUsed,
-        freezeStartedOn: isoDate(now(), 'Asia/Kolkata'),
+        // The member's own gym decides which day the freeze began.
+        freezeStartedOn: isoDate(now(), branchTimeZone(ctx.tenantId, member.homeBranchId)),
+        freezeEndsOn: addDays(isoDate(now(), branchTimeZone(ctx.tenantId, member.homeBranchId)), days),
         updatedAt: now(),
         version: membership.version + 1,
       })
@@ -602,6 +638,7 @@ membersRoutes.post('/:memberId/unfreeze', validate('json', z.object({ reason: z.
   const { reason } = c.req.valid('json');
 
   requireAssignedMember(ctx, loadMemberInScope(ctx, memberId).trainerId);
+  reconcileMembershipDates(memberId);
 
   const membership = db
     .select()
@@ -618,7 +655,7 @@ membersRoutes.post('/:memberId/unfreeze', validate('json', z.object({ reason: z.
 
   transact(() => {
     db.update(schema.memberships)
-      .set({ state: 'active', freezeStartedOn: null, updatedAt: now(), version: membership.version + 1 })
+      .set({ state: 'active', freezeStartedOn: null, freezeEndsOn: null, updatedAt: now(), version: membership.version + 1 })
       .where(eq(schema.memberships.id, membership.id))
       .run();
     db.insert(schema.membershipEvents)
@@ -645,9 +682,15 @@ membersRoutes.post('/:memberId/unfreeze', validate('json', z.object({ reason: z.
       before: { state: 'frozen' },
       after: { state: 'active' },
     });
+    // Ending a freeze cannot extend a term whose purchased expiry has passed.
+    reconcileMembershipDates(memberId);
   });
 
-  return c.json({ ok: true, message: 'Membership is active again.' });
+  const state = db.select({ state: schema.memberships.state }).from(schema.memberships)
+    .where(eq(schema.memberships.id, membership.id)).get()!.state;
+  return c.json({ ok: true, state, message: state === 'active'
+    ? 'Membership is active again.'
+    : `Freeze ended. Membership is ${state}; its original term rules still apply.` });
 });
 
 const CancelBody = z.object({
@@ -661,7 +704,9 @@ membersRoutes.post('/:memberId/cancel', validate('json', CancelBody), (c) => {
   const memberId = c.req.param('memberId');
   const { reason, immediate } = c.req.valid('json');
 
-  requireAssignedMember(ctx, loadMemberInScope(ctx, memberId).trainerId);
+  const cancellingMember = loadMemberInScope(ctx, memberId);
+  requireAssignedMember(ctx, cancellingMember.trainerId);
+  reconcileMembershipDates(memberId);
 
   const membership = db
     .select()
@@ -676,12 +721,25 @@ membersRoutes.post('/:memberId/cancel', validate('json', CancelBody), (c) => {
     .get();
   if (!membership) throw notFound('An active membership');
 
-  const policy = membership.productSnapshot.cancellation;
-  const effectiveOn = immediate
-    ? isoDate(now(), 'Asia/Kolkata')
-    : addDays(isoDate(now(), 'Asia/Kolkata'), policy.noticeDays);
+  if (!immediate && membership.state === 'grace') {
+    throw precondition('Scheduled cancellation is unavailable during grace. Settle outstanding invoices and resolve renewal with reception, or cancel immediately.');
+  }
 
-  const target = immediate ? 'cancelled' : 'cancel_scheduled';
+  if (!immediate && membership.state === 'frozen') {
+    throw precondition('Unfreeze this membership before scheduling cancellation, or cancel it immediately.');
+  }
+
+  const policy = membership.productSnapshot.cancellation;
+  // A notice period is counted in the member's own calendar. Counting it in
+  // India's moves the end of the notice by a day for every gym that is not
+  // there, which is the difference between a refundable cancellation and one
+  // that is a day late.
+  const cancelTz = branchTimeZone(ctx.tenantId, cancellingMember.homeBranchId);
+  const effectiveOn = immediate
+    ? isoDate(now(), cancelTz)
+    : addDays(isoDate(now(), cancelTz), policy.noticeDays);
+
+  const target = immediate || policy.noticeDays === 0 ? 'cancelled' : 'cancel_scheduled';
   const transition = canTransition({
     from: membership.state as 'active',
     to: target,
@@ -701,6 +759,11 @@ membersRoutes.post('/:memberId/cancel', validate('json', CancelBody), (c) => {
       })
       .where(eq(schema.memberships.id, membership.id))
       .run();
+
+    if (target === 'cancelled') {
+      db.update(schema.members).set({ lifecycle: 'former', updatedAt: now() })
+        .where(eq(schema.members.id, memberId)).run();
+    }
 
     db.insert(schema.membershipEvents)
       .values({
@@ -738,7 +801,7 @@ membersRoutes.post('/:memberId/cancel', validate('json', CancelBody), (c) => {
   return c.json({
     ok: true,
     effectiveOn,
-    message: immediate
+    message: target === 'cancelled'
       ? 'Cancelled with immediate effect. Access ends now.'
       : `Cancellation scheduled for ${effectiveOn}, after the ${policy.noticeDays}-day notice period. Access continues until then.`,
   });
@@ -758,6 +821,7 @@ membersRoutes.patch('/:memberId/notes', validate('json', NoteBody), (c) => {
 
   const member = loadMemberInScope(ctx, memberId);
   requireAssignedMember(ctx, member.trainerId);
+  reconcileMembershipDates(memberId);
 
   // Optimistic concurrency: someone else's edit must not vanish silently.
   if (member.version !== body.version) {

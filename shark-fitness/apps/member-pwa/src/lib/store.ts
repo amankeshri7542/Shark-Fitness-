@@ -35,6 +35,14 @@ export const useSession = create<SessionState>((set, get) => ({
     }
     try {
       const { viewer } = await api<{ viewer: Viewer }>('/me');
+      if (viewer.role !== 'member') {
+        // A staff cookie is valid for the admin console, not the member app.
+        // Refuse it before member-only queries render misleading network-error
+        // states for an authenticated operator on the root URL.
+        auth.clear();
+        set({ viewer: null, branches: [], activeBranchId: null, status: 'signed-out' });
+        return;
+      }
       set({ viewer, status: 'signed-in' });
       const branches = await api<{ items: Branch[]; activeBranchId: string | null }>('/me/branches');
       set({

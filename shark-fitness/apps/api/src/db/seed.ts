@@ -27,6 +27,7 @@ import { RESPONSE_MINUTES as SUPPORT_RESPONSE_MINUTES } from '../services/suppor
 import { backfillRollups } from '../services/reports.js';
 import { EXERCISES } from './seed/exercises.js';
 import { makeRandom } from './seed/random.js';
+import { wipeSeedTables } from './seed-tables.js';
 import {
   ACHIEVEMENTS_SEED,
   CLASS_TYPES,
@@ -44,40 +45,7 @@ const TODAY = isoDate(NOW, TZ);
 
 /** Wipe in reverse dependency order so a reseed is clean. */
 function wipe(): void {
-  const tables = [
-    'media_progress', 'media_assets', 'live_sessions', 'usage_meters',
-    'ticket_events', 'interventions', 'feedback',
-    'messages', 'conversations', 'tickets',
-    'reactions', 'comments', 'content_reports', 'blocks', 'posts',
-    'challenge_participants', 'challenges', 'referrals', 'member_achievements', 'achievements',
-    'streaks', 'xp_ledger',
-    'weekly_check_ins', 'nutrition_targets', 'daily_metrics', 'habit_logs', 'habits',
-    'progress_photos', 'assessments', 'goals', 'measurements',
-    'adaptive_decisions', 'personal_records', 'workout_sets', 'workouts',
-    'assignment_overrides', 'assignments', 'program_items', 'program_days', 'programs', 'exercises',
-    'facility_tasks', 'work_orders', 'equipment',
-    'pos_payments', 'pos_order_lines', 'pos_orders',
-    'stock_transfer_lines', 'stock_transfers',
-    'stock_ledger', 'retail_products', 'retail_product_groups', 'suppliers',
-    'appointments', 'waitlist_entries', 'bookings', 'class_sessions', 'rooms', 'class_types',
-    'used_access_windows', 'check_ins', 'access_tokens',
-    'dunning_attempts', 'provider_events', 'refunds', 'payments', 'invoice_lines', 'invoices',
-    'commission_lines', 'commission_rates', 'shifts', 'staff', 'lead_activities', 'leads',
-    'credits', 'membership_events', 'memberships', 'products',
-    'member_branches', 'members',
-    'metric_rollups', 'automations', 'message_templates', 'notifications',
-    'idempotency_keys', 'outbox_events', 'audit_log', 'consents', 'otp_challenges', 'sessions', 'users',
-    'branches', 'tenants',
-  ];
-  sqlite.exec('PRAGMA foreign_keys = OFF');
-  for (const t of tables) {
-    try {
-      sqlite.exec(`DELETE FROM ${t}`);
-    } catch {
-      /* table may not exist on a partial schema */
-    }
-  }
-  sqlite.exec('PRAGMA foreign_keys = ON');
+  wipeSeedTables(sqlite);
 }
 
 console.log('seeding…');
@@ -1480,6 +1448,20 @@ const DAILY_GRID = [
 
 const sessionsSeeded: Array<{ id: string; branchId: string; startsAt: number; capacity: number; name: string }> = [];
 
+/** The recurrence rules behind the grid below.
+ *
+ *  The grid was always a series in spirit — same class, same room, same coach,
+ *  same time, every day — but `class_sessions.series_id` was a free-text key
+ *  with no row behind it. Collected here as real `class_series` rows so the
+ *  demo data matches the model: every seeded occurrence carries the
+ *  `occurrence_date` the generator dedupes on, and re-running the generator
+ *  over seeded data is the no-op it should be rather than a duplicate
+ *  timetable.
+ *
+ *  Deliberately takes no `rng` draws — this seed is one deterministic stream
+ *  and an extra draw here would silently re-roll every later fixture. */
+const seriesSeeded = new Map<string, typeof schema.classSeries.$inferInsert>();
+
 for (let dayOffset = -7; dayOffset <= 14; dayOffset++) {
   const date = addDays(TODAY, dayOffset);
   for (const b of BRANCHES) {
@@ -1495,6 +1477,44 @@ for (let dayOffset = -7; dayOffset <= 14; dayOffset++) {
       // Branch-local time expressed as UTC (IST is +5:30).
       const startsAt = Date.parse(`${date}T${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00+05:30`);
       const sessionId = id('ses');
+      const seriesId = `series_${b.id}_${ct.name.replace(/\s+/g, '_')}_${slot.time}`;
+      if (!seriesSeeded.has(seriesId)) {
+        seriesSeeded.set(seriesId, {
+          id: seriesId,
+          tenantId,
+          branchId: b.id,
+          classTypeId: classTypeIds.get(ct.name)!,
+          roomId: room.id,
+          trainerId: slot.trainer.staffId,
+          frequency: 'weekly',
+          interval: 1,
+          // Every day of the week — the grid runs daily so the date strip is
+          // never empty.
+          weekdays: [0, 1, 2, 3, 4, 5, 6],
+          startDate: addDays(TODAY, -7),
+          // Ends where the seeded occurrences end, so the horizon job finds
+          // nothing to do rather than extending demo data behind your back.
+          endDate: addDays(TODAY, 14),
+          occurrenceCount: null,
+          startTime: `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`,
+          durationMin: ct.duration,
+          capacity: room.capacity,
+          creditsRequired: ['Deep Mobility', 'Reef Yoga', 'Cage Boxing'].includes(ct.name) ? 1 : 0,
+          dropInPriceMinor: ['Deep Mobility', 'Reef Yoga', 'Cage Boxing'].includes(ct.name) ? 35_000 : null,
+          lateCancelFeeMinor: 0,
+          waitlistEnabled: true,
+          bookingOpensMinBefore: 14 * 24 * 60,
+          cancelDeadlineMinBefore: 120,
+          notes: null,
+          state: 'active',
+          generatedThrough: addDays(TODAY, 14),
+          supersedesSeriesId: null,
+          supersededBySeriesId: null,
+          version: 1,
+          createdAt: NOW - 30 * DAY,
+          updatedAt: NOW,
+        });
+      }
 
       sessionsSeeded.push({ id: sessionId, branchId: b.id, startsAt, capacity: room.capacity, name: ct.name });
 
@@ -1506,7 +1526,8 @@ for (let dayOffset = -7; dayOffset <= 14; dayOffset++) {
           classTypeId: classTypeIds.get(ct.name)!,
           roomId: room.id,
           trainerId: slot.trainer.staffId,
-          seriesId: `series_${b.id}_${ct.name.replace(/\s+/g, '_')}_${slot.time}`,
+          seriesId,
+          occurrenceDate: date,
           startsAt,
           endsAt: startsAt + ct.duration * MINUTE,
           capacity: room.capacity,
@@ -1531,6 +1552,10 @@ for (let dayOffset = -7; dayOffset <= 14; dayOffset++) {
         .run();
     }
   }
+}
+
+for (const series of seriesSeeded.values()) {
+  db.insert(schema.classSeries).values(series).run();
 }
 
 /** Fill seats. One evening class is deliberately full with a waitlist. */
@@ -3771,10 +3796,13 @@ const TEMPLATES = [
   },
 ];
 
+const TEMPLATE_IDS = new Map<string, string>();
 for (const template of TEMPLATES) {
+  const templateId = id('tpl');
+  TEMPLATE_IDS.set(template.code, templateId);
   db.insert(schema.messageTemplates)
     .values({
-      id: id('tpl'),
+      id: templateId,
       tenantId,
       code: template.code,
       channel: template.channel,
@@ -3794,7 +3822,7 @@ const AUTOMATIONS = [
     trigger: 'membership.expiring',
     description: 'Texts members a week before their plan ends.',
     conditions: [{ field: 'daysLeft', op: 'lte', value: '7' }],
-    actions: [{ kind: 'sms', templateCode: 'membership.expiring', delayMin: 0 }],
+    actions: [{ kind: 'sms', templateCode: 'membership.expiring', templateId: TEMPLATE_IDS.get('membership.expiring')!, templateVersion: 1, delayMin: 0 }],
     state: 'active',
     dryRun: false,
   },
@@ -3803,7 +3831,7 @@ const AUTOMATIONS = [
     trigger: 'membership.payment_failed',
     description: 'Texts a member whose card was refused, while the grace period runs.',
     conditions: [],
-    actions: [{ kind: 'sms', templateCode: 'payment.failed', delayMin: 0 }],
+    actions: [{ kind: 'sms', templateCode: 'payment.failed', templateId: TEMPLATE_IDS.get('payment.failed')!, templateVersion: 1, delayMin: 0 }],
     state: 'active',
     dryRun: true,
   },
@@ -3812,7 +3840,7 @@ const AUTOMATIONS = [
     trigger: 'member.inactive',
     description: 'Emails members who have not trained for three weeks. Paused while the copy is rewritten.',
     conditions: [{ field: 'daysSinceVisit', op: 'gte', value: '21' }],
-    actions: [{ kind: 'email', templateCode: 'member.winback', delayMin: 0 }],
+    actions: [{ kind: 'email', templateCode: 'member.winback', templateId: TEMPLATE_IDS.get('member.winback')!, templateVersion: 1, delayMin: 0 }],
     state: 'paused',
     dryRun: true,
   },
@@ -3828,6 +3856,7 @@ for (const automation of AUTOMATIONS) {
       description: automation.description,
       conditions: automation.conditions,
       actions: automation.actions,
+      branchIds: null,
       quietHours: null,
       state: automation.state,
       dryRun: automation.dryRun,

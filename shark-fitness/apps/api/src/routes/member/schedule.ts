@@ -14,8 +14,10 @@ import { id } from '../../lib/ids.js';
 import { DAY, MINUTE, isoDate, localTime, now } from '../../lib/time.js';
 import { AppError, conflict, entitlementMissing, notFound, precondition } from '../../lib/errors.js';
 import {
+  WAITLIST_AVAILABLE,
   LIVE_BOOKING_STATES,
   LIVE_WAITLIST_STATES,
+  assertBranchAcceptsBookings,
   claimSeat,
   classCreditsHeld,
   deadHoldCount,
@@ -373,7 +375,7 @@ scheduleRoutes.get('/', validate('query', ListQuery), (c) => {
       productName: standing.productName,
     },
     credits: { class: creditsHeld },
-    waitlist: { offerWindowMin: OFFER_WINDOW_MIN },
+    waitlist: { available: WAITLIST_AVAILABLE, offerWindowMin: OFFER_WINDOW_MIN, message: 'Waitlists are unavailable. Ask reception about available classes.' },
     myBookedToday: [...myBookings.values()].length,
     items,
   });
@@ -600,6 +602,7 @@ function promoteWaitlist(
   atMs: number,
   tz: string,
 ): { memberId: string; position: number; offerExpiresAt: string; offerWindowMin: number } | null {
+  if (!WAITLIST_AVAILABLE) return null;
   const queue = db
     .select()
     .from(schema.waitlistEntries)
@@ -716,6 +719,7 @@ scheduleRoutes.post('/waitlist', validate('json', WaitlistBody), (c) => {
   const session = sessionById(ctx.tenantId, sessionId);
   if (!session) throw notFound('That class');
   requireBranch(ctx, session.branchId);
+  if (!WAITLIST_AVAILABLE) throw precondition('Waitlists are unavailable while seat reservations are being stabilized. Ask reception about available classes.');
 
   const branch = db.select().from(schema.branches).where(eq(schema.branches.id, session.branchId)).get();
   const tz = branch?.timezone ?? 'Asia/Kolkata';
@@ -724,6 +728,8 @@ scheduleRoutes.post('/waitlist', validate('json', WaitlistBody), (c) => {
   const entry = transact(() => {
     const existing = myWaitlistFor(memberId, session.id);
     if (existing) return existing;
+
+    assertBranchAcceptsBookings(ctx.tenantId, session.branchId);
 
     if (session.state === 'cancelled') throw precondition('This class was cancelled.');
     if (session.startsAt <= atMs) throw new AppError('BOOKING_WINDOW_CLOSED', 'This class has already started.');

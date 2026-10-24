@@ -1,7 +1,9 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, asc, eq, isNull, ne } from 'drizzle-orm';
 import { app } from '../app.js';
 import { db, schema } from '../db/client.js';
+import { id } from '../lib/ids.js';
+import { now } from '../lib/time.js';
 
 /* ============================================================================
    Member-detail authorization.
@@ -81,43 +83,79 @@ function membersAt(branchId: string): Array<{ id: string }> {
 
 const memberAt = (branchId: string): { id: string } => membersAt(branchId)[0]!;
 
-/**
- * An out-of-scope member the manager could actually act on.
- *
- * A probe against a member with no live membership proves nothing: freeze and
- * cancel would 404 on the *membership*, which reads as authorization working
- * when it is not. Each mutation probe takes a different one so a cancellation
- * that does go through cannot mask the next test.
- */
-const actionable = (() => {
-  let cursor = 0;
-  return (state: 'active' | 'frozen'): string | null => {
-    const rows = membersAt('br_ind').map((m) => m.id);
-    for (; cursor < rows.length; cursor += 1) {
-      const live = db
-        .select({ id: schema.memberships.id })
-        .from(schema.memberships)
-        .where(and(eq(schema.memberships.memberId, rows[cursor]!), eq(schema.memberships.state, state)))
-        .get();
-      if (live) {
-        const found = rows[cursor]!;
-        cursor += 1;
-        return found;
-      }
-    }
-    return null;
-  };
-})();
-
 /** Owner: every branch. Manager: Koramangala only (see the seed). */
 let owner: Session;
 let manager: Session;
 let trainer: Session;
+let outOfScopeMemberId = '';
+let outOfScopeMembershipId = '';
 
 beforeAll(async () => {
   owner = await signIn('owner@sharkfitness.in');
   manager = await signIn('manager@sharkfitness.in');
   trainer = await signIn('rehan@sharkfitness.in');
+
+  // This file used to probe the first seeded Indiranagar member. Other suites
+  // legitimately add a temporary Koramangala grant to seeded members, and
+  // Vitest may run files concurrently; that made the security regression turn
+  // green or red depending on timing. Clone a real active member + membership
+  // so the endpoint still traverses the full business path without sharing its
+  // authorization fixture with any other test.
+  const sourceMember = db
+    .select()
+    .from(schema.members)
+    .where(and(eq(schema.members.tenantId, tenantId()), eq(schema.members.homeBranchId, 'br_ind'), isNull(schema.members.deletedAt)))
+    .orderBy(asc(schema.members.memberNo))
+    .all()
+    .find((member) =>
+      Boolean(
+        db
+          .select({ id: schema.memberships.id })
+          .from(schema.memberships)
+          .where(and(eq(schema.memberships.memberId, member.id), eq(schema.memberships.state, 'active')))
+          .get(),
+      ),
+    )!;
+  const sourceMembership = db
+    .select()
+    .from(schema.memberships)
+    .where(and(eq(schema.memberships.memberId, sourceMember.id), eq(schema.memberships.state, 'active')))
+    .get()!;
+  const atMs = now();
+  outOfScopeMemberId = id('mbr');
+  outOfScopeMembershipId = id('msh');
+  db.insert(schema.members)
+    .values({
+      ...sourceMember,
+      id: outOfScopeMemberId,
+      userId: null,
+      memberNo: `SCOPE-${outOfScopeMemberId.slice(-10).toUpperCase()}`,
+      firstName: 'Scope',
+      lastName: 'Fixture',
+      email: null,
+      emailNormalized: null,
+      phone: null,
+      phoneNormalized: null,
+      createdAt: atMs,
+      updatedAt: atMs,
+    })
+    .run();
+  db.insert(schema.memberships)
+    .values({
+      ...sourceMembership,
+      id: outOfScopeMembershipId,
+      memberId: outOfScopeMemberId,
+      previousMembershipId: null,
+      createdAt: atMs,
+      updatedAt: atMs,
+    })
+    .run();
+});
+
+afterAll(() => {
+  db.delete(schema.memberBranches).where(eq(schema.memberBranches.memberId, outOfScopeMemberId)).run();
+  db.delete(schema.memberships).where(eq(schema.memberships.id, outOfScopeMembershipId)).run();
+  db.delete(schema.members).where(eq(schema.members.id, outOfScopeMemberId)).run();
 });
 
 /* ——— The member record obeys the same scope as the member list ——— */
@@ -131,31 +169,29 @@ describe('member detail — a branch the caller cannot see is not found', () => 
   it('refuses that manager an Indiranagar member by direct id — 404, not the record', async () => {
     // The list already hid this member. Knowing the id must not be a way round
     // it, and a 403 would confirm the record exists somewhere they may not look.
-    const response = await get(manager, `/v1/admin/members/${memberAt('br_ind').id}`);
+    const response = await get(manager, `/v1/admin/members/${outOfScopeMemberId}`);
     expect(response.status).toBe(404);
   });
 
   it('refuses to freeze an out-of-scope member’s live membership', async () => {
-    const target = actionable('active');
-    expect(target).not.toBeNull();
+    const target = outOfScopeMemberId;
     const before = db
       .select({ state: schema.memberships.state })
       .from(schema.memberships)
-      .where(and(eq(schema.memberships.memberId, target!), eq(schema.memberships.state, 'active')))
+      .where(and(eq(schema.memberships.memberId, target), eq(schema.memberships.state, 'active')))
       .get()!;
     const response = await post(manager, `/v1/admin/members/${target}/freeze`, { days: 7, reason: 'scope probe' });
     expect(response.status).toBe(404);
     const after = db
       .select({ state: schema.memberships.state })
       .from(schema.memberships)
-      .where(eq(schema.memberships.memberId, target!))
+      .where(eq(schema.memberships.memberId, target))
       .get()!;
     expect(after.state).toBe(before.state);
   });
 
   it('refuses to cancel an out-of-scope member’s live membership', async () => {
-    const target = actionable('active');
-    expect(target).not.toBeNull();
+    const target = outOfScopeMemberId;
     // Notice-period cancellation, because `immediate` is refused from `active`
     // by the state machine and would 409 before ever reaching the data.
     const response = await post(manager, `/v1/admin/members/${target}/cancel`, {
@@ -166,7 +202,7 @@ describe('member detail — a branch the caller cannot see is not found', () => 
     const after = db
       .select({ state: schema.memberships.state, cancelEffectiveOn: schema.memberships.cancelEffectiveOn })
       .from(schema.memberships)
-      .where(eq(schema.memberships.memberId, target!))
+      .where(eq(schema.memberships.memberId, target))
       .get()!;
     // The proof that matters: before the fix this came back `cancel_scheduled`
     // with a date on it, from a manager two branches away.
@@ -175,21 +211,20 @@ describe('member detail — a branch the caller cannot see is not found', () => 
   });
 
   it('refuses to unfreeze an out-of-scope member’s membership', async () => {
-    const response = await post(manager, `/v1/admin/members/${memberAt('br_ind').id}/unfreeze`, {
+    const response = await post(manager, `/v1/admin/members/${outOfScopeMemberId}/unfreeze`, {
       reason: 'scope probe',
     });
     expect(response.status).toBe(404);
   });
 
   it('refuses to write notes onto an out-of-scope member, and leaves them untouched', async () => {
-    const target = memberAt('br_ind');
-    const before = db.select().from(schema.members).where(eq(schema.members.id, target.id)).get()!;
-    const response = await patch(manager, `/v1/admin/members/${target.id}/notes`, {
+    const before = db.select().from(schema.members).where(eq(schema.members.id, outOfScopeMemberId)).get()!;
+    const response = await patch(manager, `/v1/admin/members/${outOfScopeMemberId}/notes`, {
       staffNotes: 'written from another branch',
       version: before.version,
     });
     expect(response.status).toBe(404);
-    const after = db.select().from(schema.members).where(eq(schema.members.id, target.id)).get()!;
+    const after = db.select().from(schema.members).where(eq(schema.members.id, outOfScopeMemberId)).get()!;
     expect(after.staffNotes).toBe(before.staffNotes);
     expect(after.version).toBe(before.version);
   });
@@ -208,7 +243,7 @@ describe('member detail — a branch the caller cannot see is not found', () => 
   it('keeps a cross-branch entitlement working — a granted member stays reachable', async () => {
     // `member_branches` is a real grant: a member of Indiranagar who trains at
     // Koramangala must not be collateral damage of the fix above.
-    const target = memberAt('br_ind');
+    const target = { id: outOfScopeMemberId };
     db.insert(schema.memberBranches)
       .values({ tenantId: tenantId(), memberId: target.id, branchId: 'br_kor' })
       .onConflictDoNothing()

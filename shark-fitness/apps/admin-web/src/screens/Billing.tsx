@@ -1,9 +1,10 @@
 import { useState } from 'react';
+import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError, api } from '../lib/api';
+import { ApiError, api, API_ORIGIN } from '../lib/api';
 import { usePermission } from '../lib/store';
 import { Page } from '../ui/shell';
-import { Button, Checkbox, Chip, EmptyState, ErrorState, Field, Label, Metric, Panel, PermissionState, Seam, SelectField, Skeleton, Table, TableScroll, type Tone } from '../ui/console';
+import { Button, Checkbox, Chip, EmptyState, ErrorState, Field, Label, Metric, Panel, PermissionState, RowOpen, Seam, SelectField, Skeleton, Table, TableScroll, type Tone } from '../ui/console';
 import { ConfirmDialog, Drawer, Modal } from '../ui/overlay';
 import { useIdempotentAttempt } from '../lib/idempotent-attempt';
 
@@ -46,6 +47,7 @@ interface InvoiceDetail {
     totalLabel: string;
     paidLabel: string;
     refundedLabel: string;
+    dueMinor: number;
     dueLabel: string;
     voided: boolean;
     voidReason: string | null;
@@ -68,13 +70,17 @@ const STATE_TONE: Record<string, Tone> = {
   refunded: 'neutral',
 };
 
+const INVOICE_STATES = ['', 'outstanding', 'open', 'partially_paid', 'overdue', 'paid', 'void', 'partially_refunded', 'refunded'] as const;
+
 export default function BillingScreen() {
   const canView = usePermission('billing.view');
   const canRecordPayment = usePermission('billing.record_payment');
   const canRefund = usePermission('billing.refund');
   const canWriteOff = usePermission('billing.write_off');
   const queryClient = useQueryClient();
-  const [stateFilter, setStateFilter] = useState('');
+  const { state } = useSearch({ from: '/console/billing' });
+  const stateFilter = state ?? '';
+  const navigate = useNavigate({ from: '/billing' });
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
 
   const summary = useQuery({ queryKey: ['billing-summary'], queryFn: () => api<Summary>('/admin/billing/summary'), enabled: canView });
@@ -176,11 +182,11 @@ export default function BillingScreen() {
         <div className="flex flex-col gap-1">
           <Label>State</Label>
           <div className="flex flex-wrap">
-            {['', 'open', 'partially_paid', 'overdue', 'paid', 'void', 'refunded'].map((s, i) => (
+            {INVOICE_STATES.map((s, i) => (
               <button
                 key={s || 'all'}
                 type="button"
-                onClick={() => setStateFilter(s)}
+                onClick={() => void navigate({ search: () => ({ state: s }), replace: true })}
                 aria-pressed={stateFilter === s}
                 className={`min-h-9 border border-line px-2.5 font-utility text-[10px] font-semibold uppercase tracking-[0.1em] transition-colors ${i > 0 ? '-ml-px' : ''} ${stateFilter === s ? 'z-10 border-sonar text-sonar' : 'text-foam-45 hover:text-foam'}`}
               >
@@ -216,7 +222,9 @@ export default function BillingScreen() {
           <tbody>
             {invoices.data.items.map((inv) => (
               <tr key={inv.id} onClick={() => setSelectedInvoiceId(inv.id)} className="cursor-pointer">
-                <td className="font-utility text-[11px] uppercase tracking-[0.08em]">{inv.number}</td>
+                <td className="font-utility text-[11px] uppercase tracking-[0.08em]">
+                  <RowOpen onClick={() => setSelectedInvoiceId(inv.id)}>{inv.number}</RowOpen>
+                </td>
                 <td>
                   {inv.memberName} <span className="text-foam-35">· {inv.memberNo}</span>
                 </td>
@@ -321,7 +329,7 @@ function InvoiceDetailPanel({
                 </ul>
               </Panel>
 
-              {!data.invoice.voided && data.invoice.state !== 'paid' && data.invoice.state !== 'refunded' ? (
+              {!data.invoice.voided && data.invoice.dueMinor > 0 ? (
                 <div className="flex flex-wrap gap-2">
                   {canRecordPayment ? (
                     <Button variant="cta" onClick={() => setSheet('payment')}>
@@ -352,6 +360,11 @@ function InvoiceDetailPanel({
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="font-display">{p.amountLabel}</span>
+                          {p.state === 'succeeded' ? (
+                            <a className="text-sonar underline" href={`${API_ORIGIN}/v1/admin/billing/payments/${p.id}/receipt`} download>
+                              Download receipt
+                            </a>
+                          ) : null}
                           {canRefund && p.state === 'succeeded' ? (
                             <Button variant="outline" onClick={() => setSheet({ refundPaymentId: p.id })}>
                               Refund
@@ -382,20 +395,7 @@ function InvoiceDetailPanel({
                 </Panel>
               ) : null}
 
-              {data.dunning.length > 0 ? (
-                <Panel title="Dunning history">
-                  <ul className="divide-y divide-line">
-                    {data.dunning.map((d) => (
-                      <li key={d.id} className="flex items-center justify-between px-3.5 py-2 text-[12px]">
-                        <span>
-                          Attempt {d.attempt} · {d.channel}
-                        </span>
-                        <Chip tone={d.state === 'sent' ? 'good' : d.state === 'failed' ? 'bad' : 'neutral'}>{d.state}</Chip>
-                      </li>
-                    ))}
-                  </ul>
-                </Panel>
-              ) : null}
+              {data.dunning.length > 0 ? <DunningPanel invoiceId={invoiceId} /> : null}
             </div>
           </>
         )}
@@ -429,6 +429,7 @@ export function RecordPaymentSheet({
   const [amount, setAmount] = useState(dueMinor && dueMinor > 0 ? (dueMinor / 100).toFixed(2) : '');
   const [method, setMethod] = useState('cash');
   const [reference, setReference] = useState('');
+  const [fundsVerified, setFundsVerified] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   /* Money in. This endpoint takes its key in the body, so the fingerprint is
@@ -437,7 +438,7 @@ export function RecordPaymentSheet({
   const attempt = useIdempotentAttempt('billing-payment', invoiceId);
   const record = useMutation({
     mutationFn: () => {
-      const payload = { amountMinor: Math.round(Number(amount) * 100), method, reference: reference || undefined };
+      const payload = { amountMinor: Math.round(Number(amount) * 100), method, reference: reference.trim() || undefined };
       return api(`/admin/billing/invoices/${invoiceId}/payments`, {
         method: 'POST',
         // The key is scoped to the invoice and fingerprinted on the payment,
@@ -463,7 +464,7 @@ export function RecordPaymentSheet({
           <Button
             variant="cta"
             size="md"
-            disabled={!amount || Number(amount) <= 0}
+            disabled={!amount || Number(amount) <= 0 || !fundsVerified || (method === 'upi' && !reference.trim())}
             pending={record.isPending}
             pendingLabel="Recording…"
             onClick={() => record.mutate()}
@@ -474,17 +475,22 @@ export function RecordPaymentSheet({
       }
     >
       <div className="flex flex-col gap-3.5 p-4">
-        <Field label="Amount (₹)" type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} hint={`Outstanding: ${dueLabel}`} />
+        <Field label="Amount (₹)" type="number" min={0} value={amount} onChange={(e) => { setAmount(e.target.value); setFundsVerified(false); }} hint={`Outstanding: ${dueLabel}`} />
         <SelectField
-          label="Method"
+          label="Method (already received)"
           value={method}
-          onChange={(e) => setMethod(e.target.value)}
+          onChange={(e) => { setMethod(e.target.value); setFundsVerified(false); }}
           options={['cash', 'card', 'bank_transfer', 'upi', 'wallet', 'voucher'].map((m) => ({
             value: m,
             label: m.replace(/_/g, ' '),
           }))}
         />
-        <Field label="Reference" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Optional — receipt or transaction id" />
+        <Field label={method === 'upi' ? 'UPI transaction reference (required)' : 'Reference'} value={reference} onChange={(e) => { setReference(e.target.value); setFundsVerified(false); }} placeholder={method === 'upi' ? 'Verified UPI transaction ID' : 'Optional receipt or transaction ID'} />
+        <p className="text-[12px] text-foam-45">Manual ledger entry. This does not collect money or verify settlement with a payment provider.</p>
+        <label className="flex items-start gap-2 text-[12px]">
+          <input type="checkbox" checked={fundsVerified} onChange={(e) => setFundsVerified(e.target.checked)} />
+          I independently verified that these funds have been received.
+        </label>
         {error ? (
           <Panel tone="bad">
             <p className="px-3 py-2.5 text-[12px] leading-relaxed">{error}</p>
@@ -527,9 +533,14 @@ function RefundSheet({ paymentId, onClose, onDone }: { paymentId: string; onClos
   const [entitlementReversed, setEntitlementReversed] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const attempt = useIdempotentAttempt('billing-refund', paymentId);
   const run = useMutation({
-    mutationFn: () => api(`/admin/billing/payments/${paymentId}/refund`, { method: 'POST', body: { amountMinor: Math.round(Number(amount) * 100), reason, entitlementReversed } }),
-    onSuccess: onDone,
+    mutationFn: () => {
+      const body = { amountMinor: Math.round(Number(amount) * 100), reason, entitlementReversed };
+      return api(`/admin/billing/payments/${paymentId}/refund`, { method: 'POST', body,
+        idempotencyKey: attempt.keyFor(body) });
+    },
+    onSuccess: () => { attempt.retire(); onDone(); },
     onError: (e) => setError(e instanceof ApiError ? e.message : 'That did not work.'),
   });
 
@@ -573,5 +584,93 @@ function RefundSheet({ paymentId, onClose, onDone }: { paymentId: string; onClos
         ) : null}
       </div>
     </Modal>
+  );
+}
+
+/* ============================================================================
+   Dunning — PF-BILL-005.
+
+   The history, plus the sentence that matters most: there is no payment
+   provider, so nothing here retried a charge and nothing can. A console that
+   showed "attempt 2 · sent" without saying what was actually attempted would
+   read as three failed charges when in fact nobody was ever charged.
+   ========================================================================= */
+
+interface DunningView {
+  outstandingMinor: number;
+  currency: string;
+  totalSteps: number;
+  attempts: Array<{
+    attempt: number;
+    channel: string;
+    state: string;
+    scheduledFor: number;
+    sentAt: number | null;
+    stopReason: string | null;
+    retrySubmitted: boolean;
+    retryOutcome: string | null;
+  }>;
+  nextAttemptAt: number | null;
+  escalated: boolean;
+  automaticCollection: { available: boolean; reason: string; message: string };
+}
+
+function DunningPanel({ invoiceId }: { invoiceId: string }) {
+  const view = useQuery({
+    queryKey: ['invoice', invoiceId, 'dunning'],
+    queryFn: () => api<DunningView>(`/admin/billing/invoices/${invoiceId}/dunning`),
+  });
+
+  if (view.isLoading) return <Skeleton className="h-32" />;
+  if (!view.data) return null;
+  const data = view.data;
+
+  return (
+    <Panel title="Dunning">
+      {!data.automaticCollection.available ? (
+        <p className="border-b border-line px-3.5 py-2.5 text-[11px] leading-relaxed text-foam-45">
+          {data.automaticCollection.message}
+        </p>
+      ) : null}
+      <ul className="divide-y divide-line">
+        {data.attempts.map((row) => (
+          <li key={row.attempt} className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2 text-[12px]">
+            <span className="min-w-0 flex-1">
+              Attempt {row.attempt} of {data.totalSteps} · {row.channel}
+              <span className="block font-utility text-[10px] uppercase tracking-[0.1em] text-foam-35">
+                {row.sentAt
+                  ? `Told the member ${new Date(row.sentAt).toLocaleString()}`
+                  : `Due ${new Date(row.scheduledFor).toLocaleString()}`}
+                {/* The honest bit: what, if anything, was actually submitted. */}
+                {row.retrySubmitted ? ' · charge submitted' : row.retryOutcome ? ' · no charge submitted' : ''}
+                {row.stopReason ? ` · ${row.stopReason.replace(/_/g, ' ')}` : ''}
+              </span>
+            </span>
+            <Chip
+              tone={
+                row.state === 'sent'
+                  ? 'good'
+                  : row.state === 'escalated'
+                    ? 'bad'
+                    : row.state === 'deferred'
+                      ? 'warn'
+                      : 'neutral'
+              }
+            >
+              {row.state}
+            </Chip>
+          </li>
+        ))}
+      </ul>
+      {data.nextAttemptAt ? (
+        <p className="border-t border-line px-3.5 py-2.5 text-[11px] text-foam-45">
+          Next reminder {new Date(data.nextAttemptAt).toLocaleString()}.
+        </p>
+      ) : data.escalated ? (
+        <p className="border-t border-line px-3.5 py-2.5 text-[11px] text-signal-warn">
+          Escalated. The reminders are finished; this one needs somebody to call.
+        </p>
+      ) : null}
+    </Panel>
   );
 }

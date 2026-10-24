@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError, api } from '../../lib/api';
+import { ApiError, api, idempotencyKey } from '../../lib/api';
 import {
   Button,
   Chip,
@@ -163,6 +163,7 @@ function Editor({
       api('/admin/automations/templates', {
         method: 'POST',
         body: { code: code.trim(), channel, subject: subject.trim() || null, body: body.trim() },
+        idempotencyKey: idempotencyKey('automation-template', code.trim(), String(template.version + 1), body.trim()),
       }),
     onSuccess: onSaved,
   });
@@ -224,7 +225,7 @@ function Editor({
 
           {!isNew ? (
             <p className="text-[11px] leading-relaxed text-foam-45">
-              Saving creates version {template.version + 1}. Messages already sent keep the words they were sent with.
+              Saving creates version {template.version + 1}. Existing rules stay pinned to their reviewed version until you edit and re-preview them.
             </p>
           ) : null}
 

@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, OfflineError, api } from '../lib/api';
 import { useAdmin, useBranchScope, usePermission } from '../lib/store';
 import { useOnline } from '../lib/realtime';
 import { Page } from '../ui/shell';
-import { Button, Chip, EmptyState, ErrorState, Field, Label, Metric, Panel, PermissionState, Seam, SelectField as ConsoleSelectField, Skeleton, Toolbar, type Tone } from '../ui/console';
+import { Button, Chip, EmptyState, ErrorState, Field, Label, Metric, Panel, PermissionState, Seam, SelectField as ConsoleSelectField, Skeleton, Tabs, Toolbar, type Tone } from '../ui/console';
+import CommissionSurface from './staff/Commission';
 import { Modal } from '../ui/overlay';
 import { useIdempotentAttempt } from '../lib/idempotent-attempt';
 
@@ -15,7 +16,39 @@ interface StaffListPayload { total: number; page: number; pageSize: number; tota
 const ROLE_LABEL: Record<string, string> = { owner: 'Owner', regional_manager: 'Regional manager', branch_manager: 'Branch manager', reception: 'Reception', trainer: 'Trainer', accountant: 'Accountant' };
 const STATUS_TONE: Record<string, Tone> = { active: 'good', on_leave: 'warn', notice: 'warn', former: 'bad' };
 
+const STAFF_TABS = [
+  { key: 'directory', label: 'Directory' },
+  { key: 'commission', label: 'Commission' },
+] as const;
+
+/** The shell and the choice of surface. `Directory` is the original screen
+ *  unchanged; commission is a sibling rather than a panel inside it, because
+ *  "who works here" and "what are we paying them" are different questions. */
 export default function StaffScreen() {
+  const { tab } = useSearch({ from: '/console/staff' });
+  const navigate = useNavigate({ from: '/staff' });
+  const canCommission = usePermission('staff.commission');
+
+  return (
+    <>
+      <Tabs
+        label="Staff"
+        active={tab}
+        items={STAFF_TABS.filter((t) => t.key !== 'commission' || canCommission).map((t) => ({ key: t.key, label: t.label }))}
+        onChange={(key) => void navigate({ search: () => ({ tab: key as 'directory' | 'commission' }), replace: true })}
+      />
+      {tab === 'commission' && canCommission ? (
+        <Page title="Staff" kicker="Commission">
+          <CommissionSurface />
+        </Page>
+      ) : (
+        <Directory />
+      )}
+    </>
+  );
+}
+
+function Directory() {
   const canView = usePermission('staff.view');
   const canManage = usePermission('staff.manage');
   const { branchId } = useBranchScope();

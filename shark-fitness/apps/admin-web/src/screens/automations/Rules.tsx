@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, api, idempotencyKey } from '../../lib/api';
+import { useAdmin } from '../../lib/store';
 import {
   Button,
   Chip,
@@ -8,6 +9,7 @@ import {
   ErrorState,
   Field,
   Label,
+  RowOpen,
   SelectField,
   Skeleton,
   Table,
@@ -44,7 +46,12 @@ export interface AutomationRow {
   state: 'draft' | 'active' | 'paused';
   dryRun: boolean;
   channel: string;
+  providerAvailable: boolean;
   templateCode: string | null;
+  templateVersion: number | null;
+  delayMin: number;
+  /** Null is the server's canonical representation for every tenant branch. */
+  branchIds: string[] | null;
   conditions: Array<{ field: string; op: string; value: string }>;
   quietHours: { from: string; to: string } | null;
   runsLast30: number;
@@ -67,10 +74,10 @@ interface Payload {
 
 const CHANNELS = [
   { value: 'in_app', label: 'In-app' },
-  { value: 'push', label: 'Push' },
-  { value: 'email', label: 'Email' },
-  { value: 'sms', label: 'SMS — metered' },
-  { value: 'whatsapp', label: 'WhatsApp — metered' },
+  { value: 'push', label: 'Push — provider not configured' },
+  { value: 'email', label: 'Email — provider not configured' },
+  { value: 'sms', label: 'SMS — provider not configured' },
+  { value: 'whatsapp', label: 'WhatsApp — provider not configured' },
 ];
 
 /** Live is the only state that reaches a member. Everything else rehearses. */
@@ -78,11 +85,13 @@ function standing(row: AutomationRow): { label: string; tone: Tone } {
   if (row.state === 'paused') return { label: 'Paused', tone: 'neutral' };
   if (row.state === 'draft') return { label: 'Draft', tone: 'neutral' };
   if (row.dryRun) return { label: 'Rehearsing', tone: 'warn' };
+  if (!row.providerAvailable) return { label: 'Provider blocked', tone: 'bad' };
   return { label: 'Live', tone: 'good' };
 }
 
 export default function Rules() {
   const queryClient = useQueryClient();
+  const branches = useAdmin((state) => state.branches);
   const [creating, setCreating] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
 
@@ -103,7 +112,7 @@ export default function Rules() {
   }
 
   const { items, triggers } = automations.data;
-  const live = items.filter((a) => a.state === 'active' && !a.dryRun).length;
+  const live = items.filter((a) => a.state === 'active' && !a.dryRun && a.providerAvailable).length;
 
   return (
     <>
@@ -137,6 +146,7 @@ export default function Rules() {
               <TH>When</TH>
               <TH>Standing</TH>
               <TH>Channel</TH>
+              <TH>Scope</TH>
               <TH numeric>Sent 30d</TH>
               <TH>Last run</TH>
             </THead>
@@ -146,7 +156,9 @@ export default function Rules() {
                 return (
                   <TR key={row.id} onClick={() => setOpenId(row.id)}>
                     <TD>
-                      <span className="block truncate text-foam">{row.name}</span>
+                      <RowOpen onClick={() => setOpenId(row.id)} className="block truncate text-foam">
+                        {row.name}
+                      </RowOpen>
                       {row.description ? (
                         <span className="block truncate text-[11px] text-foam-45">{row.description}</span>
                       ) : null}
@@ -155,7 +167,15 @@ export default function Rules() {
                     <TD>
                       <Chip tone={badge.tone}>{badge.label}</Chip>
                     </TD>
-                    <TD className="capitalize">{row.channel.replace(/_/g, '-')}</TD>
+                    <TD className="capitalize">
+                      {row.channel.replace(/_/g, '-')}
+                      {row.delayMin > 0 ? <span className="block text-[10px] text-foam-35">after {row.delayMin}m</span> : null}
+                    </TD>
+                    <TD>
+                      {row.branchIds === null
+                        ? 'All branches'
+                        : row.branchIds.map((id) => branches.find((branch) => branch.id === id)?.name ?? id).join(', ')}
+                    </TD>
                     <TD numeric>{row.runsLast30}</TD>
                     <TD>
                       {row.lastRunAt
@@ -207,27 +227,44 @@ function RuleDialog({
   onSaved: () => void;
 }) {
   const queryClient = useQueryClient();
+  const branches = useAdmin((state) => state.branches);
+  const activeBranchId = useAdmin((state) => state.activeBranchId);
   const [name, setName] = useState(existing?.name ?? '');
   const [description, setDescription] = useState(existing?.description ?? '');
   const [trigger, setTrigger] = useState(existing?.trigger ?? triggers[0]?.key ?? '');
   const [channel, setChannel] = useState(existing?.channel ?? 'in_app');
   const [templateCode, setTemplateCode] = useState(existing?.templateCode ?? '');
+  const [delayMin, setDelayMin] = useState(existing?.delayMin ?? 0);
   const [conditions, setConditions] = useState(existing?.conditions ?? []);
+  const [branchIds, setBranchIds] = useState<string[]>(
+    existing?.branchIds ?? (activeBranchId ? [activeBranchId] : branches.map((branch) => branch.id)),
+  );
 
   const templates = useQuery({
     queryKey: ['automations', 'templates'],
-    queryFn: () => api<{ items: Array<{ code: string; channel: string; variables: string[] }> }>('/admin/automations/templates'),
+    queryFn: () => api<{ items: Array<{ code: string; channel: string; version: number; variables: string[] }> }>('/admin/automations/templates'),
   });
 
   const spec = triggers.find((t) => t.key === trigger);
   const attempt = idempotencyKey('automation', name.trim(), trigger);
+  const latestTemplates = new Map<string, { code: string; channel: string; version: number; variables: string[] }>();
+  for (const template of templates.data?.items ?? []) {
+    const current = latestTemplates.get(template.code);
+    if (!current || template.version > current.version) latestTemplates.set(template.code, template);
+  }
 
+  const allAccessibleBranches = branches.length > 0 && branches.every((branch) => branchIds.includes(branch.id));
   const body = {
     name: name.trim(),
     description: description.trim(),
     trigger,
     channel,
     templateCode: templateCode || null,
+    delayMin,
+    // Preserve null for an existing tenant-wide rule. A regional operator's
+    // "all accessible" selection remains an explicit array and cannot widen
+    // beyond their server-side branch ceiling.
+    branchIds: allAccessibleBranches && existing?.branchIds === null ? null : branchIds,
     conditions,
   };
 
@@ -267,7 +304,7 @@ function RuleDialog({
           </Button>
           <Button
             variant="cta"
-            disabled={!name.trim() || !trigger || save.isPending}
+            disabled={!name.trim() || !trigger || branchIds.length === 0 || save.isPending}
             pending={save.isPending}
             pendingLabel="Saving…"
             onClick={() => save.mutate()}
@@ -301,9 +338,14 @@ function RuleDialog({
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <SelectField
               label="Send by"
-              hint={channel === 'sms' || channel === 'whatsapp' ? 'Metered — you will see the cost before it sends.' : 'Costs nothing per message.'}
+              hint={channel === 'in_app' ? 'Delivered inside the member app.' : 'No adapter is configured; previews and runs will hold these messages honestly.'}
               value={channel}
-              onChange={(e) => setChannel(e.target.value)}
+              onChange={(e) => {
+                const next = e.target.value;
+                setChannel(next);
+                const selected = latestTemplates.get(templateCode);
+                if (selected && selected.channel !== next) setTemplateCode('');
+              }}
               options={CHANNELS}
             />
             <SelectField
@@ -313,9 +355,57 @@ function RuleDialog({
               onChange={(e) => setTemplateCode(e.target.value)}
               options={[
                 { value: '', label: 'Choose a message' },
-                ...(templates.data?.items ?? []).map((t) => ({ value: t.code, label: `${t.code} · ${t.channel}` })),
+                ...[...latestTemplates.values()]
+                  .filter((template) => template.channel === channel)
+                  .map((template) => ({ value: template.code, label: `${template.code} · v${template.version ?? 'latest'}` })),
               ]}
             />
+          </div>
+
+          <Field
+            label="Wait before delivery (minutes)"
+            hint="Stored durably; 0 delivers immediately. Maximum 7 days."
+            type="number"
+            min={0}
+            max={10080}
+            step={1}
+            value={delayMin}
+            onChange={(event) => setDelayMin(Math.max(0, Math.min(10080, Number(event.target.value) || 0)))}
+          />
+
+          <div>
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <Label>Runs at</Label>
+              <Button
+                variant="ghost"
+                aria-pressed={allAccessibleBranches}
+                onClick={() => setBranchIds(branches.map((branch) => branch.id))}
+              >
+                All accessible branches
+              </Button>
+            </div>
+            <div className="mt-1.5 flex flex-wrap gap-2">
+              {branches.map((branch) => {
+                const selected = branchIds.includes(branch.id);
+                return (
+                  <Button
+                    key={branch.id}
+                    variant={selected ? 'cta' : 'outline'}
+                    aria-pressed={selected}
+                    onClick={() =>
+                      setBranchIds((current) =>
+                        selected ? current.filter((id) => id !== branch.id) : [...current, branch.id],
+                      )
+                    }
+                  >
+                    {branch.name}
+                  </Button>
+                );
+              })}
+            </div>
+            <p className="mt-1.5 text-[11px] leading-relaxed text-foam-45">
+              Preview and live runs use this complete scope, even while the console is filtered to one branch.
+            </p>
           </div>
 
           {save.isError ? (
@@ -435,9 +525,13 @@ function Standing({
         <Chip tone={badge.tone}>{badge.label}</Chip>
         <p className="min-w-[24ch] flex-1 text-[12px] leading-relaxed text-foam-65">
           {automation.dryRun
-            ? 'Rehearsing. It records what it would have done and nobody hears from it.'
+            ? automation.providerAvailable
+              ? 'Rehearsing. It records what it would have done and nobody hears from it.'
+              : `Rehearsing only. No ${automation.channel.replace(/_/g, '-')} provider is configured, so this cannot send.`
             : automation.state === 'active'
-              ? 'Live. This reaches members.'
+              ? automation.providerAvailable
+                ? 'Live. This reaches members.'
+                : `Blocked. No ${automation.channel.replace(/_/g, '-')} provider is configured; no external message is sent.`
               : 'Not running.'}
         </p>
         {automation.state !== 'active' ? (
@@ -450,8 +544,14 @@ function Standing({
           </Button>
         )}
         {automation.dryRun ? (
-          <Button variant="cta" disabled={pending} pending={pending} pendingLabel="…" onClick={() => onChange({ dryRun: false })}>
-            Let it send
+          <Button
+            variant="cta"
+            disabled={pending || !automation.providerAvailable}
+            pending={pending}
+            pendingLabel="…"
+            onClick={() => onChange({ dryRun: false })}
+          >
+            {automation.providerAvailable ? 'Let it send' : 'Provider required'}
           </Button>
         ) : (
           <Button variant="danger" disabled={pending} onClick={() => onChange({ dryRun: true })}>

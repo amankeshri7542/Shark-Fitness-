@@ -1,6 +1,7 @@
 import type { RequestContext } from './context.js';
 import { hashToken } from './crypto.js';
 import { token } from './ids.js';
+import { resolveSessionById } from '../services/auth.js';
 
 interface TicketRecord {
   ctx: RequestContext;
@@ -26,7 +27,7 @@ export function consumeRealtimeTicket(raw: string): RequestContext | null {
   const record = tickets.get(key);
   tickets.delete(key);
   if (!record || record.expiresAt < Date.now()) return null;
-  return record.ctx;
+  return resolveSessionById(record.ctx.sessionId);
 }
 
 function purgeExpired(): void {

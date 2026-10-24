@@ -1,5 +1,7 @@
 # Shark Fitness
 
+**Current acceptance scope (23 September 2026):** one staffed gym; manual verified settlement and reception attendance. Online checkout and demo provider callbacks are disabled. See [current evidence and gates](docs/STABILIZATION-2026-09-20.md), [local recovery/hosted blockers](docs/deployment-stabilization.md), and [the presentation guide](docs/PILOT-TEST-AND-DEMO.md). Historical module descriptions and test counts below do not establish complete PRD delivery or pilot readiness.
+
 A multi-tenant gym operating system: a member PWA and a staff operations console,
 built to the four PRDs in the parent directory.
 
@@ -10,7 +12,7 @@ apps/
   admin-web/      React + Vite operations console, desktop-first.
 packages/
   contracts/      Zod schemas, enums, error + event envelopes. One source of truth.
-  domain/         Pure business rules. 248 tests. No I/O, no framework.
+  domain/         Pure business rules. 252 tests. No I/O, no framework.
   design-tokens/  The Sonar design system + the copy register.
 infrastructure/
   migrations/     Generated SQL, checked in.
@@ -25,6 +27,7 @@ docs/
 ```bash
 pnpm install
 pnpm db:reset      # migrate + seed. Deterministic — same gym every time.
+pnpm db:backup:verify # isolated backup → mutate → restore proof
 pnpm dev           # api :8787 · member :5173 · admin :5174
 ```
 
@@ -57,7 +60,7 @@ reception and then as owner to see it.
 ```bash
 pnpm lint                   # ESLint across the workspace, --max-warnings=0
 pnpm typecheck              # all six packages, zero errors
-pnpm test                   # 992 tests: 248 domain, 468 API, 24 member, 252 console
+pnpm test                   # 1,215 tests: 252 domain, 681 API, 26 member, 256 console
 pnpm build                  # both apps
 ```
 

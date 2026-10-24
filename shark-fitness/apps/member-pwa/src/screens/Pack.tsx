@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { Link } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useCopy } from '../lib/store';
@@ -156,7 +155,7 @@ export default function PackScreen() {
   }
 
   const d = engagement.data;
-  const challenge = d.challenges[0] ?? null;
+  const challenges = d.challenges;
 
   return (
     <ScreenBody>
@@ -205,21 +204,26 @@ export default function PackScreen() {
             <p className="-mt-1.5 text-[11px] leading-relaxed text-foam-35">{d.streak.restNote}</p>
           ) : null}
 
+          {/* Private challenge invitations — PF-GAME-003.
+              Placed above the challenge card on purpose: an invitation is a
+              decision waiting on the member, and a decision waiting is worth
+              more room than a leaderboard they are already on. */}
+          <Invitations />
+
           {/* Challenge */}
-          {challenge ? (
+          {challenges.length > 0 ? (
             <div>
               <SectionRule
                 action={
-                  <Link to="/pack/challenge/$challengeId" params={{ challengeId: challenge.id }}>
-                    <Button variant="ghost" size="sm">
-                      Rules
-                    </Button>
-                  </Link>
+                  <span className="text-[11px] text-foam-45">{challenges.length} active</span>
                 }
               >
                 {copy('challengeTitle')}
               </SectionRule>
 
+              <div className="flex flex-col gap-2.5">
+                {challenges.map((challenge) => (
+                  <div key={challenge.id}>
               <Panel tone="accent" className="p-3.5">
                 <div className="flex items-center gap-2">
                   <span className="font-display text-[15px] tracking-[0.06em] text-sonar">{challenge.name}</span>
@@ -287,6 +291,9 @@ export default function PackScreen() {
 
               {/* Fairness is stated in the open, not buried in terms. */}
               <p className="mt-2 text-[11px] leading-relaxed text-foam-45">{challenge.fairnessNote}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           ) : (
             <EmptyState
@@ -473,5 +480,108 @@ function PackSkeleton() {
         <Skeleton className="h-48 w-full" />
       </Stack>
     </ScreenBody>
+  );
+}
+
+/**
+ * Invitations to private challenges.
+ *
+ * Renders nothing at all when there are none — this is the common case, and a
+ * permanent empty "no invitations" block on the busiest screen in the app is
+ * clutter rather than information.
+ *
+ * Joining is what accepts; there is no separate accept button, because a
+ * member who wants in should not have to press twice.
+ */
+function Invitations() {
+  const queryClient = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+
+  const invitations = useQuery({
+    queryKey: ['engagement', 'invitations'],
+    queryFn: () =>
+      api<{
+        invitations: Array<{
+          challengeId: string;
+          name: string;
+          description: string;
+          startsOn: string;
+          endsOn: string;
+          rewardLabel: string | null;
+          expiresAt: number | null;
+        }>;
+      }>('/member/engagement/invitations'),
+  });
+
+  const refresh = (): void => {
+    void queryClient.invalidateQueries({ queryKey: ['engagement'] });
+  };
+
+  const join = useMutation({
+    mutationFn: (challengeId: string) =>
+      api(`/member/engagement/challenge/${challengeId}/join`, { method: 'POST', body: {} }),
+    onSuccess: () => {
+      setError(null);
+      refresh();
+    },
+    onError: () => setError('That did not go through. Nothing has changed.'),
+  });
+
+  const decline = useMutation({
+    mutationFn: (challengeId: string) =>
+      api(`/member/engagement/challenge/${challengeId}/invitation/decline`, { method: 'POST', body: {} }),
+    onSuccess: () => {
+      setError(null);
+      refresh();
+    },
+    onError: () => setError('That did not go through. Nothing has changed.'),
+  });
+
+  const rows = invitations.data?.invitations ?? [];
+  if (rows.length === 0) return null;
+
+  return (
+    <div>
+      <SectionRule>You have been invited</SectionRule>
+      {error ? <p className="mb-2 text-[12px] text-signal-bad">{error}</p> : null}
+      <div className="grid gap-2">
+        {rows.map((row) => (
+          <Panel key={row.challengeId} tone="accent" className="p-3.5">
+            <div className="flex items-center gap-2">
+              <span className="font-display text-[15px] tracking-[0.06em] text-sonar">{row.name}</span>
+              <span className="flex-1" />
+              {row.expiresAt ? (
+                <Chip tone="neutral">
+                  Reply by {new Date(row.expiresAt).toLocaleDateString()}
+                </Chip>
+              ) : null}
+            </div>
+            <p className="mt-1.5 text-[13px] leading-relaxed text-foam-65">{row.description}</p>
+            <p className="mt-1 text-[11px] text-foam-45">
+              {row.startsOn} → {row.endsOn}
+              {row.rewardLabel ? ` · ${row.rewardLabel}` : ''}
+            </p>
+            <div className="mt-3 flex gap-2">
+              <Button
+                variant="cta"
+                size="sm"
+                disabled={join.isPending}
+                onClick={() => join.mutate(row.challengeId)}
+              >
+                Join
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={decline.isPending}
+                onClick={() => decline.mutate(row.challengeId)}
+              >
+                No thanks
+              </Button>
+            </div>
+          </Panel>
+        ))}
+      </div>
+    </div>
   );
 }

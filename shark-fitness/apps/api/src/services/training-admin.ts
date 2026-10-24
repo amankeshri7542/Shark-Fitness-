@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import { channels, PrescribedSet } from '@shark/contracts';
 import { db, schema, transact } from '../db/client.js';
-import type { RequestContext } from '../lib/context.js';
+import { requireAssignedMember, type RequestContext } from '../lib/context.js';
 import { audit } from '../lib/audit.js';
 import { emit } from '../lib/events.js';
 import { conflict, invalid, notFound, precondition } from '../lib/errors.js';
@@ -105,7 +105,7 @@ export function createExercise(ctx: RequestContext, input: ExerciseInput) {
       entityType: 'exercise',
       entityId: exerciseId,
       entityLabel: input.name,
-      branchId: ctx.activeBranchId ?? ctx.branchIds[0] ?? '',
+      branchId: ctx.activeBranchId,
       after: { slug: input.slug },
     });
   });
@@ -153,7 +153,7 @@ export function updateExercise(ctx: RequestContext, exerciseId: string, patch: P
       action: 'exercise.updated',
       entityType: 'exercise',
       entityId: exerciseId,
-      branchId: ctx.activeBranchId ?? ctx.branchIds[0] ?? '',
+      branchId: ctx.activeBranchId,
       before: { name: exercise.name },
       after: { name: patch.name ?? exercise.name },
     });
@@ -171,7 +171,7 @@ export function archiveExercise(ctx: RequestContext, exerciseId: string) {
       entityType: 'exercise',
       entityId: exerciseId,
       entityLabel: exercise.name,
-      branchId: ctx.activeBranchId ?? ctx.branchIds[0] ?? '',
+      branchId: ctx.activeBranchId,
       before: { archived: false },
       after: { archived: true },
     });
@@ -337,7 +337,7 @@ export function createDraftProgram(ctx: RequestContext, input: ProgramMetaInput)
       entityType: 'program',
       entityId: programId,
       entityLabel: input.name,
-      branchId: ctx.activeBranchId ?? ctx.branchIds[0] ?? '',
+      branchId: ctx.activeBranchId,
       after: { name: input.name, version: 1 },
     });
   });
@@ -470,7 +470,7 @@ export function createNewVersion(ctx: RequestContext, sourceProgramId: string) {
       entityType: 'program',
       entityId: newProgramId,
       entityLabel: source.name,
-      branchId: ctx.activeBranchId ?? ctx.branchIds[0] ?? '',
+      branchId: ctx.activeBranchId,
       before: { sourceProgramId, version: source.version },
       after: { version: maxVersion + 1 },
     });
@@ -527,7 +527,7 @@ export function publishProgram(ctx: RequestContext, programId: string) {
       entityType: 'program',
       entityId: programId,
       entityLabel: program.name,
-      branchId: ctx.activeBranchId ?? ctx.branchIds[0] ?? '',
+      branchId: ctx.activeBranchId,
       before: { state: 'draft' },
       after: { state: 'published' },
     });
@@ -549,7 +549,7 @@ export function archiveProgram(ctx: RequestContext, programId: string) {
       entityType: 'program',
       entityId: programId,
       entityLabel: program.name,
-      branchId: ctx.activeBranchId ?? ctx.branchIds[0] ?? '',
+      branchId: ctx.activeBranchId,
       before: { state: program.state },
       after: { state: 'archived' },
     });
@@ -627,7 +627,7 @@ export function upsertProgramDay(ctx: RequestContext, programId: string, input: 
       action: existing ? 'program.day_updated' : 'program.day_created',
       entityType: 'program_day',
       entityId: dayId,
-      branchId: ctx.activeBranchId ?? ctx.branchIds[0] ?? '',
+      branchId: ctx.activeBranchId,
       after: { programId, week: input.week, dayIndex: input.dayIndex, isRest: input.isRest },
     });
   });
@@ -644,7 +644,7 @@ export function deleteProgramDay(ctx: RequestContext, dayId: string) {
       action: 'program.day_deleted',
       entityType: 'program_day',
       entityId: day.id,
-      branchId: ctx.activeBranchId ?? ctx.branchIds[0] ?? '',
+      branchId: ctx.activeBranchId,
       before: { programId: day.programId, week: day.week, dayIndex: day.dayIndex },
     });
   });
@@ -726,7 +726,7 @@ export function addProgramItem(ctx: RequestContext, dayId: string, input: Progra
       action: 'program.item_added',
       entityType: 'program_item',
       entityId: itemId,
-      branchId: ctx.activeBranchId ?? ctx.branchIds[0] ?? '',
+      branchId: ctx.activeBranchId,
       after: { programDayId: dayId, exerciseId: input.exerciseId, orderIndex: input.orderIndex ?? maxOrder + 1 },
     });
   });
@@ -796,7 +796,7 @@ export function updateProgramItem(ctx: RequestContext, itemId: string, patch: Pa
       action: 'program.item_updated',
       entityType: 'program_item',
       entityId: itemId,
-      branchId: ctx.activeBranchId ?? ctx.branchIds[0] ?? '',
+      branchId: ctx.activeBranchId,
       before: { exerciseId: item.exerciseId, orderIndex: item.orderIndex, targetLabel: item.targetLabel },
       after: { exerciseId: patch.exerciseId ?? item.exerciseId, orderIndex: shouldSwap && targetSibling ? targetSibling.orderIndex : patch.orderIndex ?? item.orderIndex, targetLabel: patch.targetLabel ?? item.targetLabel },
     });
@@ -813,7 +813,7 @@ export function deleteProgramItem(ctx: RequestContext, itemId: string) {
       action: 'program.item_deleted',
       entityType: 'program_item',
       entityId: itemId,
-      branchId: ctx.activeBranchId ?? ctx.branchIds[0] ?? '',
+      branchId: ctx.activeBranchId,
       before: { exerciseId: item.exerciseId, programDayId: item.programDayId },
     });
   });
@@ -829,6 +829,8 @@ export function deleteProgramItem(ctx: RequestContext, itemId: string) {
  *  trainer-role session cannot see the member at all. `null` unassigns. */
 export function assignTrainer(ctx: RequestContext, memberId: string, trainerId: string | null) {
   const member = loadMemberInScope(ctx, memberId);
+  requireAssignedMember(ctx, member.trainerId);
+  requireAssignedMember(ctx, trainerId);
 
   if (trainerId) {
     const staff = loadStaffInScope(ctx, trainerId);
@@ -900,12 +902,14 @@ function activeTrainerForMember(ctx: RequestContext, member: typeof schema.membe
 export function assignProgram(ctx: RequestContext, input: AssignProgramInput) {
   const atMs = now();
   const member = loadMemberInScope(ctx, input.memberId);
+  requireAssignedMember(ctx, member.trainerId);
   const program = loadProgramInScope(ctx, input.programId);
   if (program.state !== 'published') throw precondition('Only a published program can be assigned.');
   assertIsoDate(input.startsOn);
 
   const trainerId = input.trainerId !== undefined ? input.trainerId : member.trainerId;
   if (!trainerId) throw invalid('A published program assignment needs an active trainer.');
+  requireAssignedMember(ctx, trainerId);
   activeTrainerForMember(ctx, member, trainerId);
 
   return transact(() => {
@@ -1009,16 +1013,17 @@ export function assignProgram(ctx: RequestContext, input: AssignProgramInput) {
   });
 }
 
-function loadAssignmentInScope(ctx: { tenantId: string; branchIds: string[] }, assignmentId: string) {
+function loadAssignmentInScope(ctx: RequestContext, assignmentId: string) {
   const row = db.select().from(schema.assignments).where(and(eq(schema.assignments.id, assignmentId), eq(schema.assignments.tenantId, ctx.tenantId))).get();
   if (!row) throw notFound('That assignment');
-  loadMemberInScope(ctx, row.memberId);
-  return row;
+  const member = loadMemberInScope(ctx, row.memberId);
+  requireAssignedMember(ctx, member.trainerId);
+  return { assignment: row, member };
 }
 
 export function endAssignment(ctx: RequestContext, assignmentId: string, toState: 'paused' | 'active' | 'completed') {
   const atMs = now();
-  const assignment = loadAssignmentInScope(ctx, assignmentId);
+  const { assignment, member } = loadAssignmentInScope(ctx, assignmentId);
   if (assignment.state !== 'active' && assignment.state !== 'paused') {
     throw precondition('That plan is no longer active, so its state cannot change.');
   }
@@ -1038,7 +1043,7 @@ export function endAssignment(ctx: RequestContext, assignmentId: string, toState
       action: 'assignment.state_changed',
       entityType: 'assignment',
       entityId: assignmentId,
-      branchId: ctx.activeBranchId ?? ctx.branchIds[0] ?? '',
+      branchId: member.homeBranchId,
       before: { state: assignment.state },
       after: { state: toState },
     });
@@ -1047,8 +1052,9 @@ export function endAssignment(ctx: RequestContext, assignmentId: string, toState
   return db.select().from(schema.assignments).where(and(eq(schema.assignments.id, assignmentId), eq(schema.assignments.tenantId, ctx.tenantId))).get()!;
 }
 
-export function assignmentHistory(ctx: { tenantId: string; branchIds: string[] }, memberId: string) {
-  loadMemberInScope(ctx, memberId);
+export function assignmentHistory(ctx: RequestContext, memberId: string) {
+  const member = loadMemberInScope(ctx, memberId);
+  requireAssignedMember(ctx, member.trainerId);
   const rows = db
     .select({
       id: schema.assignments.id,

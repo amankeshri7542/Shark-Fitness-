@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ErrorEnvelope } from '@shark/contracts';
 import { ApiError, OfflineError } from '../../lib/api';
@@ -27,13 +27,36 @@ describe('member sign-in', () => {
   beforeEach(() => {
     apiMock.mockReset();
     navigate.mockReset();
+    window.history.replaceState(null, '', '/sign-in');
   });
 
   it('asks for a code on the identifier step', () => {
     render(<SignInScreen />);
 
     expect(screen.getByLabelText('Email or phone')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Send my code' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Request a code' })).toBeEnabled();
+  });
+
+  it('uses the selected gym instead of the seeded gym', async () => {
+    const user = userEvent.setup();
+    apiMock.mockRejectedValueOnce(new OfflineError());
+    render(<SignInScreen />);
+    await user.clear(screen.getByLabelText('Gym code'));
+    await user.type(screen.getByLabelText('Gym code'), 'fresh-gym');
+    await user.click(screen.getByRole('button', { name: 'Request a code' }));
+    expect(apiMock).toHaveBeenCalledWith('/auth/otp/start', { method: 'POST', body: { identifier: 'aman@sharkfitness.in', tenantSlug: 'fresh-gym' } });
+  });
+
+  it('redeems a fragment activation link with a new password', async () => {
+    window.history.replaceState(null, '', '/sign-in#activationId=one&activationToken=secret&gym=fresh-gym');
+    const user = userEvent.setup();
+    apiMock.mockRejectedValueOnce(new OfflineError());
+    render(<SignInScreen />);
+    expect(screen.queryByLabelText('Email or phone')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Activate account' })).toBeDisabled();
+    await user.type(screen.getByLabelText('Password'), 'fresh-password-123');
+    await user.click(screen.getByRole('button', { name: 'Activate account' }));
+    expect(apiMock).toHaveBeenCalledWith('/auth/activation/redeem', { method: 'POST', body: { activationId: 'one', token: 'secret', password: 'fresh-password-123' } });
   });
 
   it('explains that sign-in is the one thing needing a connection', async () => {
@@ -41,7 +64,7 @@ describe('member sign-in', () => {
     apiMock.mockRejectedValueOnce(new OfflineError());
 
     render(<SignInScreen />);
-    await user.click(screen.getByRole('button', { name: 'Send my code' }));
+    await user.click(screen.getByRole('button', { name: 'Request a code' }));
 
     expect(
       await screen.findByText('No connection. Signing in needs one — everything else works offline.'),
@@ -55,7 +78,7 @@ describe('member sign-in', () => {
     apiMock.mockRejectedValueOnce(new ApiError(401, envelope('That email is not registered.')));
 
     render(<SignInScreen />);
-    await user.click(screen.getByRole('button', { name: 'Send my code' }));
+    await user.click(screen.getByRole('button', { name: 'Request a code' }));
 
     expect(await screen.findByText('That email is not registered.')).toBeInTheDocument();
   });
@@ -65,7 +88,7 @@ describe('member sign-in', () => {
     apiMock.mockRejectedValueOnce(new Error('boom'));
 
     render(<SignInScreen />);
-    await user.click(screen.getByRole('button', { name: 'Send my code' }));
+    await user.click(screen.getByRole('button', { name: 'Request a code' }));
 
     expect(await screen.findByText('That did not work. Try again.')).toBeInTheDocument();
   });
@@ -73,19 +96,39 @@ describe('member sign-in', () => {
   it('advances to the code step once a challenge is issued', async () => {
     const user = userEvent.setup();
     apiMock.mockResolvedValueOnce({
+      delivery: 'submitted',
       challengeId: 'chg_1',
-      sentTo: 'a***@sharkfitness.in',
+      destination: 'a***@sharkfitness.in',
       expiresInSec: 300,
     });
 
     render(<SignInScreen />);
-    await user.click(screen.getByRole('button', { name: 'Send my code' }));
+    await user.click(screen.getByRole('button', { name: 'Request a code' }));
 
     expect(apiMock).toHaveBeenCalledWith('/auth/otp/start', {
       method: 'POST',
       body: { identifier: 'aman@sharkfitness.in', tenantSlug: 'shark' },
     });
     expect(await screen.findByLabelText('Six-digit code')).toBeInTheDocument();
+    expect(screen.getByText(/A sign-in code was submitted to/)).toBeInTheDocument();
+  });
+
+  it('describes development echo without claiming an external message was sent', async () => {
+    const user = userEvent.setup();
+    apiMock.mockResolvedValueOnce({
+      delivery: 'development_echo',
+      challengeId: 'chg_dev',
+      destination: 'a•••@sharkfitness.in',
+      expiresInSec: 600,
+      devCode: '654321',
+    });
+
+    render(<SignInScreen />);
+    await user.click(screen.getByRole('button', { name: 'Request a code' }));
+
+    expect(await screen.findByText(/no message was sent/i)).toBeInTheDocument();
+    expect(screen.getByLabelText('Six-digit code')).toHaveValue('654321');
+    expect(screen.queryByText(/We sent/i)).not.toBeInTheDocument();
   });
 
   it('switches to password sign-in and clears the previous error', async () => {
@@ -93,7 +136,7 @@ describe('member sign-in', () => {
     apiMock.mockRejectedValueOnce(new ApiError(401, envelope('That email is not registered.')));
 
     render(<SignInScreen />);
-    await user.click(screen.getByRole('button', { name: 'Send my code' }));
+    await user.click(screen.getByRole('button', { name: 'Request a code' }));
     expect(await screen.findByText('That email is not registered.')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Use a password instead' }));
@@ -102,4 +145,21 @@ describe('member sign-in', () => {
     expect(screen.getByLabelText('Password')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
   });
+});
+
+it('updates activation credentials when a link changes the mounted page fragment', async () => {
+  window.history.replaceState(null, '', '/sign-in');
+  apiMock.mockReset().mockRejectedValue(new Error('offline'));
+  render(<SignInScreen />);
+  window.history.replaceState(null, '', '/sign-in#activationId=next&activationToken=secret&gym=other-gym');
+  fireEvent(window, new HashChangeEvent('hashchange'));
+  fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'fresh-password-123' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Activate account' }));
+  await screen.findByText('That did not work. Try again.');
+  expect(apiMock).toHaveBeenCalledWith('/auth/activation/redeem', { method: 'POST', body: { activationId: 'next', token: 'secret', password: 'fresh-password-123' } });
+  window.history.replaceState(null, '', '/sign-in');
+  fireEvent(window, new HashChangeEvent('hashchange'));
+  expect(screen.getByLabelText('Email')).toBeInTheDocument();
+  expect(screen.getByLabelText('Gym code')).toHaveValue('other-gym');
+  expect(screen.queryByRole('button', { name: 'Activate account' })).not.toBeInTheDocument();
 });

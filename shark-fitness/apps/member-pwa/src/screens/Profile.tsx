@@ -302,7 +302,8 @@ export default function ProfileScreen() {
                 Request a copy of my data
               </Button>
               <p className="mt-2 text-[12px] leading-relaxed text-foam-50">
-                Everything we hold about you, as a file. It usually takes a few hours.
+                This records a request for the gym’s privacy contact. The current release does not generate or email
+                the file automatically.
               </p>
             </div>
 
@@ -312,8 +313,9 @@ export default function ProfileScreen() {
                   Delete your account
                 </Display>
                 <p className="text-[13px] leading-relaxed text-foam-65">
-                  Your profile, workouts and messages are removed within 30 days. Payment and safety records that the
-                  law requires us to keep are retained. You can cancel this at any point before it completes.
+                  This signs you out and records a request for manual privacy review. It does not automatically erase
+                  your profile, workouts, messages, payment records or safety records. The gym’s privacy contact must
+                  apply its retention policy and tell you what can be removed.
                 </p>
                 <div className="flex items-center gap-2">
                   <Button variant="danger" disabled={requestDeletion.isPending} onClick={() => requestDeletion.mutate()}>
@@ -326,7 +328,7 @@ export default function ProfileScreen() {
               </Panel>
             ) : (
               <Button variant="danger" onClick={() => setConfirmDelete(true)}>
-                Delete my account
+                Request account deletion
               </Button>
             )}
           </Panel>

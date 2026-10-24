@@ -1,22 +1,18 @@
+import { reconcileMembershipDates } from '../../services/membership-dates.js';
 import { Hono } from 'hono';
 import { and, desc, eq, sql } from 'drizzle-orm';
-import { z } from 'zod';
-import { validate } from '../../middleware/validate.js';
 import { formatMoney } from '@shark/domain';
-import { db, schema, transact } from '../../db/client.js';
+import { db, schema } from '../../db/client.js';
 import { ctxOf } from '../../middleware/index.js';
-import { conflict, notFound, precondition } from '../../lib/errors.js';
-import { id, token } from '../../lib/ids.js';
-import { MINUTE, now } from '../../lib/time.js';
-import { applyPaymentToInvoice } from '../../services/billing.js';
+import { notFound, precondition } from '../../lib/errors.js';
 
 export const billingRoutes = new Hono();
 
-const INTENT_TTL_MS = 10 * MINUTE;
 
 billingRoutes.get('/', (c) => {
   const ctx = ctxOf(c);
   const memberId = ctx.memberId!;
+  reconcileMembershipDates(memberId);
 
   const membership = db
     .select()
@@ -27,7 +23,13 @@ billingRoutes.get('/', (c) => {
 
   const invoices = db.select().from(schema.invoices).where(eq(schema.invoices.memberId, memberId)).orderBy(desc(schema.invoices.issuedOn)).limit(24).all();
 
+  const outstanding = db.select({ total: sql<number>`coalesce(sum(${schema.invoices.totalMinor} - ${schema.invoices.paidMinor}), 0)` })
+    .from(schema.invoices).where(and(eq(schema.invoices.memberId, memberId),
+      sql`${schema.invoices.voided} = 0 and ${schema.invoices.totalMinor} > ${schema.invoices.paidMinor}`,
+    )).get()?.total ?? 0;
   return c.json({
+    outstandingMinor: outstanding,
+    outstandingLabel: formatMoney(outstanding, 'INR'),
     membership: membership
       ? {
           id: membership.id,
@@ -45,9 +47,9 @@ billingRoutes.get('/', (c) => {
       issuedOn: i.issuedOn,
       dueOn: i.dueOn,
       totalLabel: formatMoney(i.totalMinor, i.currency),
-      dueMinor: Math.max(0, i.totalMinor - i.paidMinor),
-      dueLabel: formatMoney(Math.max(0, i.totalMinor - i.paidMinor), i.currency),
-      payable: !i.voided && i.totalMinor - i.paidMinor > 0 && i.state !== 'refunded',
+      dueMinor: i.voided ? 0 : Math.max(0, i.totalMinor - i.paidMinor),
+      dueLabel: formatMoney(i.voided ? 0 : Math.max(0, i.totalMinor - i.paidMinor), i.currency),
+      payable: !i.voided && i.totalMinor - i.paidMinor > 0,
     })),
   });
 });
@@ -55,6 +57,7 @@ billingRoutes.get('/', (c) => {
 billingRoutes.get('/invoices/:invoiceId', (c) => {
   const ctx = ctxOf(c);
   const memberId = ctx.memberId!;
+  reconcileMembershipDates(memberId);
   const invoiceId = c.req.param('invoiceId');
 
   const invoice = db.select().from(schema.invoices).where(and(eq(schema.invoices.id, invoiceId), eq(schema.invoices.memberId, memberId))).get();
@@ -72,7 +75,7 @@ billingRoutes.get('/invoices/:invoiceId', (c) => {
       dueOn: invoice.dueOn,
       totalLabel: formatMoney(invoice.totalMinor, invoice.currency),
       paidLabel: formatMoney(invoice.paidMinor, invoice.currency),
-      dueLabel: formatMoney(Math.max(0, invoice.totalMinor - invoice.paidMinor), invoice.currency),
+      dueLabel: formatMoney(invoice.voided ? 0 : Math.max(0, invoice.totalMinor - invoice.paidMinor), invoice.currency),
       payable: !invoice.voided && invoice.totalMinor - invoice.paidMinor > 0,
     },
     lines: lines.map((l) => ({ id: l.id, description: l.description, unitLabel: formatMoney(l.unitMinor, invoice.currency), taxLabel: formatMoney(l.taxMinor, invoice.currency), totalLabel: formatMoney(l.totalMinor, invoice.currency) })),
@@ -80,98 +83,10 @@ billingRoutes.get('/invoices/:invoiceId', (c) => {
   });
 });
 
-const CheckoutIntentBody = z.object({ invoiceId: z.string() });
-
-/**
- * Demo checkout — there is no live payment gateway. This creates a pending
- * payment attempt the member then confirms; see POST .../confirm for why
- * that confirmation is server-authoritative rather than client-supplied.
- */
-billingRoutes.post('/checkout-intent', validate('json', CheckoutIntentBody), (c) => {
-  const ctx = ctxOf(c);
-  const memberId = ctx.memberId!;
-  const { invoiceId } = c.req.valid('json');
-
-  const invoice = db.select().from(schema.invoices).where(and(eq(schema.invoices.id, invoiceId), eq(schema.invoices.memberId, memberId))).get();
-  if (!invoice) throw notFound('That invoice');
-  if (invoice.voided || ['paid', 'refunded'].includes(invoice.state)) throw conflict('This invoice is not payable.');
-
-  const dueMinor = invoice.totalMinor - invoice.paidMinor;
-  if (dueMinor <= 0) throw conflict('This invoice has nothing outstanding.');
-
-  const paymentId = id('pay');
-  const clientToken = token(16);
-  const expiresAt = now() + INTENT_TTL_MS;
-
-  db.insert(schema.payments)
-    .values({
-      id: paymentId,
-      tenantId: ctx.tenantId,
-      branchId: invoice.branchId,
-      invoiceId,
-      memberId,
-      method: 'upi',
-      state: 'created',
-      amountMinor: dueMinor,
-      currency: invoice.currency,
-      provider: 'demo',
-      providerRef: clientToken,
-      idempotencyKey: paymentId,
-      recordedById: null,
-      recordedByName: null,
-      failureReason: null,
-      note: null,
-      createdAt: now(),
-      settledAt: null,
-    })
-    .run();
-
-  return c.json({
-    intentId: paymentId,
-    invoiceId,
-    amountMinor: dueMinor,
-    currency: invoice.currency,
-    provider: 'demo',
-    clientToken,
-    expiresAt: new Date(expiresAt).toISOString(),
-  });
-});
-
-/**
- * Server-authoritative confirmation. The request body carries no outcome —
- * the member is not telling the server "it succeeded"; the server itself,
- * acting as this demo/manual adapter, decides. A real gateway's webhook
- * would occupy exactly this role; this endpoint stands in for it because
- * there is no live gateway behind this build (see docs/PHASE-1-SECURITY /
- * the Phase 3 plan header).
- */
-billingRoutes.post('/checkout-intent/:intentId/confirm', (c) => {
-  const ctx = ctxOf(c);
-  const memberId = ctx.memberId!;
-  const intentId = c.req.param('intentId');
-
-  const payment = db.select().from(schema.payments).where(and(eq(schema.payments.id, intentId), eq(schema.payments.tenantId, ctx.tenantId), eq(schema.payments.memberId, memberId))).get();
-  if (!payment) throw notFound('That checkout attempt');
-
-  if (payment.state === 'succeeded') {
-    return c.json({ ok: true, invoiceState: 'settled_previously', alreadyProcessed: true });
-  }
-  if (payment.state !== 'created') throw conflict('This checkout attempt is no longer active.');
-  if (now() - payment.createdAt > INTENT_TTL_MS) throw precondition('This checkout attempt expired. Start again.');
-
-  const result = transact(() =>
-    applyPaymentToInvoice({
-      ctx,
-      invoiceId: payment.invoiceId!,
-      amountMinor: payment.amountMinor,
-      method: payment.method,
-      provider: 'demo',
-      providerRef: payment.providerRef,
-      idempotencyKey: payment.idempotencyKey,
-      recordedByName: null,
-      existingPaymentId: payment.id,
-    }),
-  );
-
-  return c.json(result);
-});
+// Retired endpoints fail closed, including retries of historical demo intents.
+// A server-generated simulated outcome is not evidence of received funds.
+const receptionSettlement = () => {
+  throw precondition('Online payment is unavailable. Pay at reception; staff will record independently received funds.');
+};
+billingRoutes.post('/checkout-intent', receptionSettlement);
+billingRoutes.post('/checkout-intent/:intentId/confirm', receptionSettlement);

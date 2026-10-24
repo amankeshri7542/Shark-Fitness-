@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { EntitlementsInput, ImpersonateInput, TenantStatusInput } from '@shark/contracts';
 import { setBrowserSession } from './auth.js';
-import { ctxOf, platformOnly } from '../middleware/index.js';
+import { clientIp, ctxOf, platformOnly } from '../middleware/index.js';
 import { validate } from '../middleware/validate.js';
 import {
   endImpersonation,
@@ -63,10 +63,11 @@ platformRoutes.get('/health', platformOnly('platform.admin'), (c) => c.json(plat
  */
 platformRoutes.post('/impersonate', platformOnly('platform.impersonate'), validate('json', ImpersonateInput), (c) => {
   const ctx = ctxOf(c);
+  const requestIp = clientIp(c);
   const { session, token } = startImpersonation(
     ctx,
     c.req.valid('json'),
-    c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ?? ctx.ip,
+    requestIp === 'local' ? ctx.ip : requestIp,
     c.req.header('user-agent') ?? ctx.userAgent,
   );
   // Same flags as an ordinary sign-in, including a fresh CSRF token: the

@@ -26,10 +26,11 @@ import {
    answered here or nowhere.
    ========================================================================= */
 
-type Outcome = 'all' | 'sent' | 'suppressed' | 'failed' | 'dry_run';
+type Outcome = 'all' | 'sent' | 'queued' | 'suppressed' | 'failed' | 'dry_run';
 
 const TONE: Record<string, Tone> = {
   sent: 'good',
+  queued: 'warn',
   suppressed: 'neutral',
   failed: 'bad',
   dry_run: 'accent',
@@ -37,6 +38,7 @@ const TONE: Record<string, Tone> = {
 
 const LABEL: Record<string, string> = {
   sent: 'Sent',
+  queued: 'Queued',
   suppressed: 'Held',
   failed: 'Failed',
   dry_run: 'Rehearsed',
@@ -50,6 +52,8 @@ interface RunRow {
   outcome: string;
   reason: string;
   channel: string;
+  dueAt: string | null;
+  attempts: number;
 }
 
 export default function Runs() {
@@ -73,6 +77,7 @@ export default function Runs() {
           options={[
             { value: 'all', label: 'all' },
             { value: 'sent', label: 'sent' },
+            { value: 'queued', label: 'queued' },
             { value: 'suppressed', label: 'held' },
             { value: 'dry_run', label: 'rehearsed' },
             { value: 'failed', label: 'failed' },
@@ -104,8 +109,9 @@ export default function Runs() {
               <TH>When</TH>
               <TH>Rule</TH>
               <TH>Member</TH>
+              <TH>Channel</TH>
               <TH>Outcome</TH>
-              <TH>Why</TH>
+              <TH>Delivery detail</TH>
             </THead>
             <tbody>
               {runs.data.items.map((row) => (
@@ -113,10 +119,19 @@ export default function Runs() {
                   <TD>{new Date(row.at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</TD>
                   <TD>{row.automationName}</TD>
                   <TD>{row.memberName ?? '—'}</TD>
+                  <TD className="capitalize">{row.channel.replace(/_/g, '-')}</TD>
                   <TD>
                     <Chip tone={TONE[row.outcome] ?? 'neutral'}>{LABEL[row.outcome] ?? row.outcome}</Chip>
                   </TD>
-                  <TD>{row.reason || '—'}</TD>
+                  <TD>
+                    {row.reason || '—'}
+                    {row.dueAt && row.outcome === 'queued' ? (
+                      <span className="block text-[10px] text-foam-35">
+                        Due {new Date(row.dueAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+                      </span>
+                    ) : null}
+                    {row.attempts > 0 ? <span className="block text-[10px] text-foam-35">{row.attempts} attempt{row.attempts === 1 ? '' : 's'}</span> : null}
+                  </TD>
                 </TR>
               ))}
             </tbody>

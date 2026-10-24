@@ -18,6 +18,13 @@ import {
   visibleCertifications,
 } from '../../services/staff.js';
 import { DAY, now } from '../../lib/time.js';
+import {
+  coverageBoard,
+  coverageImpact,
+  listUnavailability,
+  markUnavailable,
+  withdrawUnavailability,
+} from '../../services/staff-coverage.js';
 import { runIdempotently } from '../../lib/idempotency.js';
 
 /**
@@ -210,4 +217,69 @@ staffRoutes.patch('/shifts/:shiftId', validate('json', ShiftPatchBody), (c) => {
   requirePermission(ctx, 'staff.manage');
   const shift = updateShiftState(ctx, c.req.param('shiftId'), c.req.valid('json'));
   return c.json({ shift: { id: shift.id, state: shift.state } });
+});
+
+/* ============================================================================
+   Coverage — trainer absence and cover (PF-STAFF).
+
+   Recording an absence changes nothing about anybody's booking. It produces a
+   list of what is affected and leaves each decision to a person, which is why
+   the create response carries the impact with it.
+   ========================================================================= */
+
+const UnavailabilityBody = z.object({
+  startsAt: z.string().datetime(),
+  endsAt: z.string().datetime(),
+  reason: z.enum(['sick', 'leave', 'training', 'other']),
+  note: z.string().max(280).nullable().default(null),
+});
+
+staffRoutes.post('/:staffId/unavailability', validate('json', UnavailabilityBody), (c) => {
+  const ctx = ctxOf(c);
+  const body = c.req.valid('json');
+  const staffId = c.req.param('staffId');
+  const response = runIdempotently(
+    ctx,
+    `/admin/staff/${staffId}/unavailability`,
+    c.req.header('idempotency-key'),
+    body,
+    () =>
+      markUnavailable(ctx, {
+        staffId,
+        startsAt: Date.parse(body.startsAt),
+        endsAt: Date.parse(body.endsAt),
+        reason: body.reason,
+        note: body.note,
+      }),
+  );
+  return c.json(response, 201);
+});
+
+staffRoutes.get('/:staffId/unavailability', (c) => c.json(listUnavailability(ctxOf(c), c.req.param('staffId'))));
+
+staffRoutes.delete('/unavailability/:id', (c) =>
+  c.json(withdrawUnavailability(ctxOf(c), c.req.param('id'))),
+);
+
+const ImpactQuery = z.object({
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional(),
+});
+
+/** What an absent trainer leaves uncovered. Defaults to the next four weeks,
+ *  which is as far ahead as a rota is usually worked. */
+staffRoutes.get('/:staffId/coverage', validate('query', ImpactQuery), (c) => {
+  const ctx = ctxOf(c);
+  const query = c.req.valid('query');
+  const from = query.from ? Date.parse(query.from) : now();
+  const to = query.to ? Date.parse(query.to) : from + 28 * DAY;
+  return c.json(coverageImpact(ctx, c.req.param('staffId'), { from, to }));
+});
+
+staffRoutes.get('/coverage/board', validate('query', ImpactQuery), (c) => {
+  const ctx = ctxOf(c);
+  const query = c.req.valid('query');
+  const from = query.from ? Date.parse(query.from) : now();
+  const to = query.to ? Date.parse(query.to) : from + 28 * DAY;
+  return c.json(coverageBoard(ctx, { from, to }));
 });

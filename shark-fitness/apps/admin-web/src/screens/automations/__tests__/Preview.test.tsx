@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -23,6 +23,7 @@ import Preview from '../Preview';
 const payload = {
   summary: {
     considered: 46,
+    wouldSend: 8,
     suppressed: 38,
     bySuppression: [
       { code: 'no_consent', reason: 'This member has not agreed to sms messages.', count: 30 },
@@ -70,7 +71,7 @@ describe('Preview — who this reaches, and who it does not', () => {
     expect(screen.getByText(/Held until quiet hours end/)).toBeInTheDocument();
     // Counted, so an operator can see that consent capture is the problem.
     expect(screen.getByText('30')).toBeInTheDocument();
-    expect(screen.getByText('8')).toBeInTheDocument();
+    expect(within(screen.getByText(/Held until quiet hours end/).closest('li')!).getByText('8')).toBeInTheDocument();
   });
 
   it('states the cost before the send, on a metered channel', async () => {
@@ -96,7 +97,7 @@ describe('Preview — who this reaches, and who it does not', () => {
   it('reports a rehearsal as a rehearsal, naming nobody messaged', async () => {
     const user = userEvent.setup();
     renderPreview();
-    apiMock.mockResolvedValueOnce({ dryRun: true, sent: 0, suppressed: 46 });
+    apiMock.mockResolvedValueOnce({ dryRun: true, considered: 46, sent: 0, queued: 0, suppressed: 46, failed: 0 });
     await user.click(await screen.findByRole('button', { name: 'Run it now' }));
     expect(await screen.findByText(/Nobody was messaged/)).toBeInTheDocument();
   });
@@ -104,9 +105,9 @@ describe('Preview — who this reaches, and who it does not', () => {
   it('reports a real send with both numbers', async () => {
     const user = userEvent.setup();
     renderPreview();
-    apiMock.mockResolvedValueOnce({ dryRun: false, sent: 8, suppressed: 38 });
+    apiMock.mockResolvedValueOnce({ dryRun: false, considered: 46, sent: 8, queued: 0, suppressed: 38, failed: 0 });
     await user.click(await screen.findByRole('button', { name: 'Run it now' }));
-    expect(await screen.findByText(/Sent to 8\. 38 held\./)).toBeInTheDocument();
+    expect(await screen.findByText('Sent 8. Queued 0. Held 38. Failed 0.')).toBeInTheDocument();
   });
 
   it('surfaces a failed read rather than an empty audience', async () => {

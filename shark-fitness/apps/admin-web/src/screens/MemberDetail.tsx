@@ -7,6 +7,7 @@ import { Page } from '../ui/shell';
 import { Bar, Button, Checkbox, Chip, ErrorState, Field, Label, Metric, Panel, Seam, SelectField as ConsoleSelectField, Skeleton, Table, TableScroll, cx, type Tone } from '../ui/console';
 import { Modal } from '../ui/overlay';
 import { useIdempotentAttempt } from '../lib/idempotent-attempt';
+import { AccountActivation } from '../ui/AccountActivation';
 import { RecordPaymentSheet } from './Billing';
 
 interface Detail {
@@ -87,6 +88,7 @@ export default function MemberDetailScreen() {
   const { memberId } = useParams({ from: '/console/members/$memberId' });
   const queryClient = useQueryClient();
   const canManage = usePermission('membership.manage');
+  const canEdit = usePermission('member.edit');
   const canTraining = usePermission('training.assign');
   const canRecordPayment = usePermission('billing.record_payment');
   const [payingInvoice, setPayingInvoice] = useState<{ id: string; dueLabel: string; dueMinor: number } | null>(null);
@@ -116,6 +118,8 @@ export default function MemberDetailScreen() {
   }
 
   const m = data.member;
+  const status = data.membership?.state === 'pending_payment' ? 'pending_payment'
+    : m.lifecycle === 'trial' && !data.membership ? 'awaiting_plan' : m.lifecycle;
 
   return (
     <Page
@@ -151,11 +155,12 @@ export default function MemberDetailScreen() {
       }
     >
       {/* Identity strip */}
+      {canEdit ? <AccountActivation key={memberId} memberId={memberId} /> : null}
       <Seam className="border-b border-line">
         <div className="min-w-[190px] flex-1 px-3.5 py-3">
           <Label>Status</Label>
           <div className="mt-1.5 flex items-center gap-2">
-            <Chip tone={STATE_TONE[m.lifecycle] ?? 'neutral'}>{m.lifecycle}</Chip>
+            <Chip tone={STATE_TONE[status] ?? 'neutral'}>{status.replace(/_/g, ' ')}</Chip>
             {data.membership ? <span className="text-[12px] text-foam-65">{data.membership.productName}</span> : null}
           </div>
           <p className="mt-1.5 text-[11px] text-foam-45">Joined {m.joinedOn}</p>
@@ -218,7 +223,10 @@ export default function MemberDetailScreen() {
                     <Label>Plan</Label>
                     <div className="mt-1 font-utility text-[14px] font-semibold">{data.membership.productName}</div>
                   </div>
-                  {data.membership.state !== 'active' ? (
+                  {/* The header already names a pending payment or a matching
+                      lifecycle; repeat the term's state here only when it adds
+                      something, such as grace under an active lifecycle. */}
+                  {data.membership.state !== 'active' && data.membership.state !== status ? (
                     <div>
                       <Label>State</Label>
                       <div className="mt-1">
@@ -239,10 +247,10 @@ export default function MemberDetailScreen() {
                     <div className="mt-1 font-display text-[15px]">{data.membership.priceLabel}</div>
                   </div>
                   <div>
-                    <Label>Auto-renew</Label>
+                    <Label>Renewal</Label>
                     <div className="mt-1">
-                      <Chip tone={data.membership.autoRenew ? 'good' : 'warn'}>
-                        {data.membership.autoRenew ? 'on' : 'off'}
+                      <Chip tone="warn">
+                        Manual at reception
                       </Chip>
                     </div>
                   </div>
@@ -670,6 +678,10 @@ function AssignPlanSheet({ memberId, onClose, onDone }: { memberId: string; onCl
       <div className="flex flex-col gap-3.5 p-4">
           {products.isLoading ? (
             <Skeleton className="h-24" />
+          ) : products.error ? (
+            <ErrorState title="Could not load plans"
+              body={products.error instanceof ApiError ? products.error.message : 'The API did not answer. Reconnect and retry; nothing has changed.'}
+              onRetry={() => void products.refetch()} />
           ) : publishedProducts.length === 0 ? (
             <Panel tone="warn">
               <p className="px-3 py-2.5 text-[12px] leading-relaxed">No published products yet. Publish one from Plans first.</p>

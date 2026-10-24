@@ -10,7 +10,8 @@ import { audit } from '../../lib/audit.js';
 import { emit } from '../../lib/events.js';
 import { AppError, conflict } from '../../lib/errors.js';
 import { id, initialsOf, normalizeEmail, normalizePhone } from '../../lib/ids.js';
-import { now } from '../../lib/time.js';
+import { isoDate, now } from '../../lib/time.js';
+import { branchTimeZone } from '../../lib/branch-time.js';
 import {
   LEAD_STAGE_TRANSITIONS,
   assertValidOwner,
@@ -127,6 +128,7 @@ leadsRoutes.get('/owners', (c) => {
   const ctx = ctxOf(c);
   requirePermission(ctx, 'lead.view');
   const branchId = c.req.query('branchId');
+  const scope = branchScope(ctx, branchId);
 
   const rows = db
     .select({ id: schema.staff.id, name: schema.users.name, branchIds: schema.staff.branchIds })
@@ -141,7 +143,9 @@ leadsRoutes.get('/owners', (c) => {
     )
     .all();
 
-  const items = (branchId ? rows.filter((r) => r.branchIds.includes(branchId)) : rows).map((r) => ({ id: r.id, name: r.name }));
+  const items = rows
+    .filter((row) => row.branchIds.some((candidate) => scope.includes(candidate)))
+    .map((row) => ({ id: row.id, name: row.name }));
   return c.json({ items });
 });
 
@@ -567,7 +571,7 @@ leadsRoutes.post('/:leadId/convert', (c) => {
         staffNotes: null,
         riskScore: null,
         riskReasons: null,
-        joinedOn: new Date(now()).toISOString().slice(0, 10),
+        joinedOn: isoDate(now(), branchTimeZone(ctx.tenantId, lead.branchId)),
         lastVisitAt: null,
         mergedIntoId: null,
         version: 1,

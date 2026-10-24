@@ -58,12 +58,39 @@ export default function Health() {
               <THead>
                 <TH>Job</TH>
                 <TH numeric>Every</TH>
+                <TH>Last success</TH>
+                <TH>Last failure</TH>
+                <TH>Next expected</TH>
+                <TH>Health</TH>
               </THead>
               <tbody>
                 {h.jobs.map((job) => (
                   <TR key={job.name}>
                     <TD>{job.name.replace(/-/g, ' ')}</TD>
                     <TD numeric>{job.everyMinutes < 60 ? `${job.everyMinutes} min` : `${job.everyMinutes / 60} h`}</TD>
+                    <TD>
+                      {job.lastSuccessfulRunAt
+                        ? new Date(job.lastSuccessfulRunAt).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })
+                        : 'Never'}
+                    </TD>
+                    <TD>
+                      {job.lastFailedRunAt
+                        ? new Date(job.lastFailedRunAt).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })
+                        : 'Never'}
+                      {job.lastFailureMessage ? <span className="block max-w-[36ch] text-[10px] text-chum">{job.lastFailureMessage}</span> : null}
+                    </TD>
+                    <TD>
+                      {job.nextExpectedAt
+                        ? new Date(job.nextExpectedAt).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })
+                        : '—'}
+                    </TD>
+                    <TD>
+                      <Chip tone={job.health === 'failing' || job.health === 'stale' ? 'bad' : job.health === 'healthy' ? 'good' : 'neutral'}>
+                        {job.health}
+                      </Chip>
+                      {job.durationMs !== null ? <span className="ml-2 text-[10px] text-foam-35">{job.durationMs} ms</span> : null}
+                      {job.error ? <span className="block max-w-[36ch] text-[10px] text-chum">{job.error}</span> : null}
+                    </TD>
                   </TR>
                 ))}
               </tbody>

@@ -6,6 +6,7 @@ const base: AccessInput = {
   membershipState: 'active',
   permittedBranchIds: ['br_kor'],
   branchId: 'br_kor',
+  branchTrading: true,
   nowMinutes: 9 * 60 + 41,
   opensMinutes: 5 * 60,
   closesMinutes: 23 * 60,
@@ -36,6 +37,14 @@ describe('door decisions', () => {
   it('refuses a member entitled only to another branch', () => {
     expect(decideAccess({ ...base, permittedBranchIds: ['br_indira'] }).decision)
       .toBe('denied_branch_not_permitted');
+  });
+
+  it('refuses a closed branch and does not permit an override', () => {
+    expect(decideAccess({ ...base, branchTrading: false })).toEqual({
+      decision: 'denied_branch_closed',
+      granted: false,
+      overridable: false,
+    });
   });
 
   it('refuses a grace member with an outstanding balance when grace entry is off', () => {

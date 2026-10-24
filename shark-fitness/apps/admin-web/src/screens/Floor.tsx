@@ -114,6 +114,7 @@ const DECISION_LABEL: Record<string, string> = {
   denied_membership_inactive: 'Membership inactive',
   denied_grace_outstanding: 'Balance outstanding',
   denied_branch_not_permitted: 'Wrong branch',
+  denied_branch_closed: 'Branch closed',
   denied_outside_hours: 'Outside plan hours',
   denied_capacity: 'At capacity',
   denied_suspended: 'Suspended',

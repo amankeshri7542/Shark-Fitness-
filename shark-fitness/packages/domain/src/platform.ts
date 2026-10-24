@@ -100,6 +100,12 @@ export function archiveBlockers(facts: {
       message: `${facts.legalHolds} ${facts.legalHolds === 1 ? 'account is' : 'accounts are'} under legal hold. A hold has to be lifted by whoever placed it before this gym can be offboarded.`,
     };
   }
+  if (facts.liveClassesNow > 0) {
+    return {
+      ok: false,
+      message: `${facts.liveClassesNow} ${facts.liveClassesNow === 1 ? 'class is' : 'classes are'} still running. Finish or cancel ${facts.liveClassesNow === 1 ? 'it' : 'them'} before this gym is offboarded.`,
+    };
+  }
   return { ok: true, message: '' };
 }
 
@@ -192,8 +198,11 @@ export function canImpersonate(request: ImpersonationRequest): PlatformOutcome {
   if (request.targetAccountState !== 'active') {
     return { ok: false, message: `That account is ${request.targetAccountState.replace(/_/g, ' ')} and cannot be entered.` };
   }
-  if (request.targetTenantStatus === 'archived') {
-    return { ok: false, message: 'That gym is archived. Restore it before entering an account.' };
+  if (!TENANT_STATUSES[request.targetTenantStatus].operational) {
+    return {
+      ok: false,
+      message: `That gym is ${request.targetTenantStatus}. Restore it to an operational state before entering an account.`,
+    };
   }
   if (request.reason.trim().length < 8) {
     return { ok: false, message: 'Say why you need access. It is recorded and the gym can read it.' };

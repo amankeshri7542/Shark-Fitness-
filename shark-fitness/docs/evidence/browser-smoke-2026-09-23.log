@@ -1,0 +1,9 @@
+[browser-smoke] fresh member browser reached sign-in without /v1/me
+[browser-smoke] phone member activation fragment navigation OK (no password submitted)
+[browser-smoke] member worker activated: http://localhost:8896/sw.js
+[browser-smoke] member page controlled by: http://localhost:8896/sw.js
+[browser-smoke] desktop staff activation fragment navigation OK (no password submitted)
+[browser-smoke] Admin runtime OK at http://localhost:8896/admin/
+[browser-smoke] Admin bundle: http://localhost:8896/admin/assets/index-916U5Rmf.js
+[browser-smoke] controller at Admin: http://localhost:8896/sw.js
+[browser-smoke] authenticated member directory and phone layout OK

@@ -2,7 +2,8 @@ import { desc, isNull, sql } from 'drizzle-orm';
 import type { EventTopic } from '@shark/contracts';
 import { db, schema } from '../db/client.js';
 import { id } from './ids.js';
-import { now } from './time.js';
+import { reportException } from './observability.js';
+import { DAY, now } from './time.js';
 
 /**
  * Transactional outbox. An event is written in the same transaction as the
@@ -12,6 +13,10 @@ import { now } from './time.js';
  */
 
 type Listener = (event: OutboxEvent) => void;
+
+/** Reconnecting clients may replay delivered events for seven full days. The
+ * maintenance job preserves this window and never prunes undelivered work. */
+export const OUTBOX_REPLAY_WINDOW_MS = 7 * DAY;
 
 export interface OutboxEvent {
   id: string;
@@ -34,14 +39,11 @@ export function subscribe(listener: Listener): () => void {
 let seqCounter: number | null = null;
 
 function nextSeq(): number {
-  if (seqCounter === null) {
-    const row = db
-      .select({ max: sql<number>`coalesce(max(${schema.outboxEvents.seq}), 0)` })
-      .from(schema.outboxEvents)
-      .get();
-    seqCounter = row?.max ?? 0;
-  }
-  seqCounter += 1;
+  const row = db
+    .select({ max: sql<number>`coalesce(max(${schema.outboxEvents.seq}), 0)` })
+    .from(schema.outboxEvents)
+    .get();
+  seqCounter = Math.max(seqCounter ?? 0, row?.max ?? 0) + 1;
   return seqCounter;
 }
 
@@ -86,7 +88,7 @@ export function emit(input: EmitInput): OutboxEvent {
       try {
         listener(event);
       } catch (err) {
-        console.error('[events] listener failed', err);
+        reportException(err, { job: 'outbox-listener' });
       }
     }
     db.update(schema.outboxEvents)

@@ -1,5 +1,7 @@
 # Shark Fitness
 
+**23 September 2026:** the release scope is one staffed gym with reception-recorded, independently received payments. Simulated checkout is disabled. Local rehearsal evidence and incomplete hosted/human gates are tracked in [the stabilization report](shark-fitness/docs/STABILIZATION-2026-09-20.md) and [demo guide](shark-fitness/docs/PILOT-TEST-AND-DEMO.md). The historical feature inventory below is not a claim of PRD completion or real-member pilot approval.
+
 A high-performance gym management SaaS and member mobile platform engineered for multi-branch gym chains, independent clubs, and boutique fitness studios.
 
 ---
@@ -7,10 +9,10 @@ A high-performance gym management SaaS and member mobile platform engineered for
 ## 🦈 Platform Overview
 
 Shark Fitness provides an end-to-end multi-tenant platform comprising:
-- **Member Mobile PWA (`apps/member-pwa`):** Member app featuring the industrial "Sonar" dark-mode theme (`#04080b` abyss, `#46c8dd` cyan accent, zero border-radius), workout logger with adaptive load calculation, plate calculator, rest timers, rotating 30s security entry pass, training calendar, class booking, progress charts, and gym pack leaderboards.
+- **Member Mobile PWA (`apps/member-pwa`):** Member app featuring the industrial "Sonar" dark-mode theme (`#04080b` abyss, `#46c8dd` cyan accent, zero border-radius), workout logger with adaptive load calculation, plate calculator, rest timers, reception identification card, training calendar, class booking, progress charts, and gym pack leaderboards.
 - **Admin Web Dashboard (`apps/admin-web`):** Command center for gym owners, managers, and staff with real-time multi-branch KPIs, live animated occupancy trace canvas, searchable member directory, and 360° member detail drawer with lifecycle controls (freeze, cancel, renew).
 - **API Backend (`apps/api`):** High-performance Hono server with Drizzle SQLite, transactional outbox, WebSocket hub, audit logging, rate limiting, and background schedulers.
-- **Domain Business Engine (`packages/domain`):** Pure TypeScript domain rules with **153 unit tests** covering membership state machines, 1RM progression, recovery index, plate math, XP tiers, fair waitlists, and reporting periods and comparisons.
+- **Domain Business Engine (`packages/domain`):** Pure TypeScript domain rules with **252 unit tests** covering membership state machines, 1RM progression, recovery index, plate math, XP tiers, fair waitlists, and reporting periods and comparisons.
 - **Store / point of sale (`screens/store`, `routes/admin/store.ts`):** Till with mixed tender and a stable idempotency key per checkout attempt, stock derived from an append-only ledger, returns as compensating entries, inter-branch transfers with visible shrinkage, and cost/margin gated separately by permission.
 - **Support / retention (`screens/support`, `routes/admin/support.ts`):** Ticket queue with an SLA computed in the branch's *open* hours, staff replies flowing into the member's existing conversation rather than a parallel thread, an append-only ticket timeline for disputes, NPS/CSAT and cancellation reporting with honest reporting floors, and explainable retention risk with intervention effectiveness tracking.
 - **Reports and analytics (`screens/reports`, `routes/admin/reports.ts`):** Revenue, membership, attendance, coach utilisation and retention cohorts over any range, computed in the branch's timezone; `report.financial` withholds money as *absent* rather than as zero; totals are never summed across currencies; every figure states how fresh it is; and every CSV export is audited with the filters that produced it.
@@ -36,48 +38,36 @@ Shark Fitness provides an end-to-end multi-tenant platform comprising:
     ├── packages/
     │   ├── contracts/                             # Shared Zod schemas & API contracts
     │   ├── design-tokens/                         # Sonar CSS tokens & tone copy register
-    │   └── domain/                                # Pure business logic & 153 unit tests
+    │   └── domain/                                # Pure business logic & 252 unit tests
     ├── infrastructure/migrations/                 # Generated Drizzle SQL migrations
     └── scripts/                                   # CI browser smoke harness
 ```
 
 ---
 
-## 🚦 Current Implementation Status
+## Current stabilization status
 
-Verified on `chore/final-production-hardening` (Node 22.23.2) on 23 August 2026:
-`pnpm lint`, `pnpm typecheck`, `pnpm test` and `pnpm build` all clean, and a
-browser pass across every console route at 1440×900, 1024×768, 768×1024 and
-375×812 in both themes and both densities — no horizontal overflow, no content
-clipped outside a scroller, no console errors.
+The current offering is a **supervised demonstration for one staffed gym**:
+owner setup, staff/member activation, walk-in enrollment, plan assignment,
+manually verified payment recording, payment acknowledgement receipts and reception attendance.
 
-**Every planned module is implemented.** What remains is operational, and it is
-written down honestly in
-[shark-fitness/docs/PRODUCTION-READINESS.md](./shark-fitness/docs/PRODUCTION-READINESS.md) —
-this is **beta ready, not production ready**, and that document says exactly why.
+The [stabilization report](shark-fitness/docs/STABILIZATION-2026-09-20.md)
+records the final candidate, measured checks, readiness scores and remaining gates.
+The [manual QA and 10–15 minute demo guide](shark-fitness/docs/PILOT-TEST-AND-DEMO.md)
+covers fresh-account setup, failure cases and safe reset.
 
-### ✅ Completed & Working
-- **Domain Engine:** 248 unit tests across membership, access decisions, training algorithms, fair scheduling, report maths, tenant settings, platform rules and automation suppression.
-- **Test suite:** **992 tests** in 60 files — 248 domain, 468 API integration, 24 member PWA, 252 admin console. Includes an end-to-end journey suite that walks lead → member → plan → invoice → payment → door → class → training → shop → support → report → refund as one continuous story, across seven roles and two tenants.
-- **Database & Migrations:** 94 SQLite tables across 5 schema files, six forward-only additive migrations, deterministic seed data with two customer tenants and a platform operator, 9 append-only/guard triggers, and 2 partial unique indexes enforcing "once" where a seat or a message is at stake.
-- **Quality gates:** `pnpm lint` (ESLint 10 flat config, `--max-warnings=0`), `pnpm typecheck` and `pnpm build` pass with 0 errors, all gated in CI.
-- **Member PWA:** all 18 screens implemented — no stubs remain.
-- **Admin Web:** all 21 screens implemented — no placeholders remain. Six are shells over their own sub-surfaces: Reports, Store, Support, Settings, Automations and Platform.
-- **API Routes:** all 30 route modules implemented — no stubs remain. `routes/platform.ts` is the only cross-tenant surface in the product.
-- **Branch isolation:** one rule for every read. `branchScope(ctx, branchId?)` decides which branches a request covers; no selection means every branch the caller may see, an `x-branch-id` outside their entitlement is refused, and a record outside scope is 404 rather than 403 — on lists and on detail endpoints alike.
-- **Production serving:** one origin serves the member PWA at `/` and the admin console at `/admin/`, with hashed assets returning their own content types rather than the SPA HTML fallback.
+Real-member use remains **NO-GO** until the target deployment's persistence,
+off-instance backup/restore and operator acceptance checks are proven. Local
+recovery tools exist and are tested; a local proof is not a hosted recovery test.
+Physical door scanning, integrated payment collection, automatic renewal and
+waitlists are outside this offering. The member pass is a reception ID card;
+waitlist joins/offers are disabled. Existing-password recovery and automated
+activation delivery remain follow-up work. Broad module presence does not establish
+production completeness.
 
-### ⏳ Remaining before a real gym can use it
-
-Not features — infrastructure. Four blockers, detailed with effort estimates in
-[PRODUCTION-READINESS.md](./shark-fitness/docs/PRODUCTION-READINESS.md):
-
-- **Backups.** There are none. One disk failure loses everything.
-- **A payment provider.** Payments are *recorded*, not taken.
-- **Environment validation at boot**, so a misconfigured deploy fails fast.
-- **Error reporting**, so a 500 reaches somebody other than stdout.
-
-See [05_Shark_Fitness_Remaining_Implementation_Plan.md](./05_Shark_Fitness_Remaining_Implementation_Plan.md) for the sequenced plan.
+Historical architecture and larger-product plans are retained in
+[PRODUCTION-READINESS.md](shark-fitness/docs/PRODUCTION-READINESS.md) and the PRDs;
+use the current stabilization report for release decisions.
 
 ---
 
@@ -133,7 +123,7 @@ pnpm dev
 cd shark-fitness
 pnpm lint         # ESLint across the workspace; --max-warnings=0
 pnpm typecheck    # TypeScript across all 6 packages
-pnpm test         # 992 tests (domain, API integration, member PWA, admin console)
+pnpm test         # domain, API integration, member PWA and admin console suites
 pnpm build        # Production bundles for both front ends
 ```
 
@@ -141,13 +131,13 @@ All four run in CI on every push and pull request.
 
 ### Production single-origin check
 
-One process serves both apps, which is how the demo is deployed:
+One process serves both built apps. First migrate and bootstrap a disposable database using the QA guide; then:
 
 ```bash
 cd shark-fitness
 pnpm build
 NODE_ENV=production SHARK_SERVE_STATIC=true PORT=8787 \
-  SHARK_PASS_SECRET=local-smoke-secret \
+  SHARK_PASS_SECRET="$(openssl rand -hex 32)" \
   SHARK_ALLOWED_ORIGINS=http://localhost:8787,http://127.0.0.1:8787 \
   pnpm -F @shark/api start
 ```
@@ -172,5 +162,7 @@ push and pull request.
 
 ```bash
 docker build -t shark-fitness .
-docker run --rm -p 8787:8787 -e SHARK_PASS_SECRET=local-secret shark-fitness
+docker run --rm -p 8787:8787 -v shark-data:/var/lib/shark-fitness \
+  -e SHARK_PASS_SECRET="$(openssl rand -hex 32)" \
+  -e SHARK_ALLOWED_ORIGINS=http://localhost:8787,http://127.0.0.1:8787 shark-fitness
 ```

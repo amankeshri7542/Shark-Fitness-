@@ -39,6 +39,9 @@ describe('module rail', () => {
     const expected = ADMIN_NAV.filter((m) => can('owner', m.permission));
     const links = screen.getAllByRole('link');
     expect(links).toHaveLength(expected.length);
+    for (const module of expected) {
+      expect(screen.getByRole('link', { name: module.label })).toHaveAttribute('aria-label', module.label);
+    }
   });
 
   it('hides the modules reception has no permission for', () => {

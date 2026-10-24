@@ -18,20 +18,21 @@ Nothing here recommends architecture for a scale this product does not have.
 
 | Area | State | Blocking? |
 |---|---|---|
-| Business logic and authorisation | Strong. 992 tests, tenant and branch isolation tested from the outside | No |
-| Persistence | SQLite on one disk. No backups configured | **Yes** |
+| Business logic and authorisation | Strong. More than 1,200 automated tests, including tenant and branch isolation from the outside | No |
+| Persistence | SQLite on one disk. Backup/restore tooling exists; external scheduling and off-host retention remain required | **Yes** |
 | Payments | No real provider. Cash and card are recorded, not taken | **Yes** for card |
 | Scaling | Single instance only, by design and by constraint | No, at this size |
 | Realtime | In-process WebSocket fan-out, lost on restart | No |
 | Scheduler | In-process timers, one set per instance | **Yes** if ever scaled |
-| Observability | `console.log`. No metrics, no traces, no alerting | **Yes** |
-| Secrets | One secret validated in production; the rest fail late | **Yes** |
-| Rate limiting | In-memory, auth routes only | Partially |
+| Observability | Structured request/job logs, durable job evidence and a replaceable error-provider boundary; no metrics or alerting backend | **Yes** operationally |
+| Secrets | Canonical boot-time production validation | No |
+| Rate limiting | In-memory, endpoint-sensitive IP/actor/tenant budgets | Partially |
 | Migrations | Forward-only, additive, tested | No |
 
-**Four blockers.** Backups, a payment provider, secrets validation, and
-somewhere for errors to go. Everything else is either fine at this size or a
-known trade-off with a written reason.
+**Two external blockers.** A payment provider where cards are accepted, and a
+configured error-reporting/alerting destination. Backup and restore tooling is
+now in the repository and proved locally; production still needs an external
+object-storage schedule and an owner for restore drills.
 
 ---
 
@@ -47,30 +48,42 @@ thousand rows a day. SQLite handles that on a laptop. The schema is D1-shaped
 so the port to a hosted SQLite is a migration-runner change rather than a
 rewrite. The deviation is noted in `db/client.ts`.
 
-**What is missing, and it is the first blocker.**
+**What remains operational work.**
 
-- **No backups.** There is no dump, no snapshot, no restore procedure and no
-  test that a restore works. One disk failure loses every member, invoice and
-  audit row. This is the single largest risk in the system and it is a
-  configuration problem, not a code problem.
+- **Repository tooling exists.** `pnpm db:backup` uses SQLite's online backup
+  API, timestamps the result, runs `integrity_check`, and writes a sidecar
+  manifest with size and SHA-256. `pnpm db:restore -- <backup>
+  <separate-target>` verifies that manifest, refuses the backup itself as a
+  target, stages and integrity-checks the restored copy before replacement,
+  and refuses to overwrite by default. `pnpm db:backup:verify` proves migrate → seed → representative
+  audit/ledger writes → backup → restore → migrate, checks immutable rows and
+  counts, boots the restored API, signs in, and completes an authenticated
+  read.
 - **No point-in-time recovery.** WAL gives crash consistency, not history. A
   bad migration or a wrong `DELETE` is permanent.
 - **The file must be on a real disk.** On a platform with an ephemeral
   filesystem the database is lost on every deploy. `render.yaml` must attach a
   persistent volume; the free tier does not.
 
-**Before production:** a scheduled `VACUUM INTO` to object storage every hour,
-a documented restore, and a restore actually performed once against a copy.
-Litestream is the usual answer for SQLite and would give continuous replication
-for near-zero effort.
+**Before production:** schedule `pnpm db:backup` on the persistent-volume host,
+copy the completed artifact to object storage, retain it independently of the
+application disk, and run a documented restore drill. The upload seam is the
+backup artifact path printed by the command; credentials are intentionally not
+part of this repository. Litestream remains a good continuous-replication
+option.
 
 ---
 
 ## 2. Backups and recovery
 
-Nothing exists. See above. The order of work is: take a backup, prove you can
-restore it, then automate it — in that order, because an automated backup
-nobody has restored is a belief rather than a backup.
+Run `pnpm db:backup:verify` after dependency or SQLite upgrades. To restore a
+real backup, first use a separate target and validate it; replacing an existing
+file requires both `--replace` and `--yes-replace`.
+
+Move both the `.db` artifact and its `.manifest.json` sidecar to durable
+off-host/object storage. A checksum detects corruption or accidental
+replacement; it is not an authenticity signature and does not replace storage
+access controls, versioning or retention policy.
 
 ---
 
@@ -123,32 +136,46 @@ so a client cannot subscribe to a channel it has no claim on.
 
 **Limits.** In-process only. No reconnect backoff on the server side; the
 client reconnects and replays from a sequence number, which covers a dropped
-connection but not a restart with a cold outbox. `outbox_events` rows are
-marked delivered but nothing prunes them — the table grows forever.
+connection but not a restart with a cold outbox. Delivered `outbox_events` are
+retained for the reconnect window and then pruned while preserving the latest
+sequence high-water row, so a restart cannot reuse a cursor.
 
 ---
 
 ## 6. Scheduler behaviour
 
-Six jobs on `setInterval`, unref'd, started in `server.ts`:
+Ten jobs on `setInterval`, unref'd, started in `server.ts`:
 
 | Job | Every |
 |---|---|
+| `deliver-automation-queue` | 1 min |
 | `run-automations` | 1 hour |
 | `expire-memberships` | 6 hours |
 | `roll-up-metrics` | 6 hours |
 | `close-stale-check-ins` | 30 min |
 | `expire-waitlist-offers` | 1 min |
 | `release-expired-holds` | 1 min |
+| `run-dunning` | 15 min |
+| `extend-class-series` | 6 hours |
+| `prune-operational-data` | 24 hours |
 
 **Every job runs on every instance.** There is no lock and no leader election.
 With one instance that is correct and simple. `SHARK_DISABLE_JOBS=true` turns
 them off, which is what a second instance would need.
 
-There is also no record of a job having run, so a job that silently stops is
-invisible until somebody notices the effect. The platform health screen lists
-what is *registered*, not what last succeeded — a real gap, and a small one to
-close.
+Two of the ten are safe under a second instance by construction rather than by
+luck. `extend-class-series` dedupes on a partial unique index over
+`(series_id, occurrence_date)`, so a duplicate run loses at the index instead of
+producing a second Tuesday. `run-dunning` claims each step with a conditional
+update before doing any work, with a five-minute lock timeout so a worker that
+dies holding a step does not strand the sequence — which matters more there than
+elsewhere because the work sends a message to a member.
+
+Each execution writes a durable `job_runs` record with start, finish, outcome,
+duration, bounded safe summary, error category/message and build identifier.
+Platform health reports the last success, last failure, next expected time and
+`healthy`/`stale`/`failing`/`never`/`disabled` state; a historical success no
+longer means the scheduler is healthy forever.
 
 ---
 
@@ -167,9 +194,19 @@ close.
 
 **What is genuinely built** and would survive a real integration: the invoice
 and refund model, per-line tax, mixed tender, idempotency on the write path,
-the dunning attempt ledger, and a grace period the door reads. Adding a
-provider is an adapter and a webhook verifier, not a redesign — but until it
-exists, this system cannot take money.
+the dunning state machine, and a grace period the door reads. Adding a provider
+is an adapter and a webhook verifier, not a redesign — but until it exists,
+this system cannot take money.
+
+**The provider boundary now has a shape.** `lib/payment-provider.ts` is the one
+seam a real integration plugs into; `resolvePaymentProvider()` returns null and
+there is no branch in it that can report a charge that did not happen. The
+dunning worker asks it on every attempt and writes the answer — today always
+`no_payment_provider_configured` — onto the attempt row, and the console read
+returns `automaticCollection: { available: false, reason, message }` so a UI
+cannot render a retry button over a capability that does not exist. The member's
+reminder says what is owed and where to settle it, and never says a charge was
+attempted or will be retried.
 
 ---
 
@@ -193,45 +230,53 @@ part is sound.
 
 ## 9. Logging and observability
 
-**`console.log`, and nothing else.** This is the third blocker.
+**Structured request and scheduler diagnostics are present.** Every request
+emits JSON with request ID, method, normalized route, status, duration, release
+and safe tenant/branch/actor identifiers when authentication succeeded.
+Scheduler executions include the job name and durable run id. `/ready` proves
+database connectivity and the current operational schema without disclosing
+tenant data. `SHARK_ERROR_REPORTING_ENDPOINT` initializes a replaceable JSON
+collector provider at boot and remains a no-op when absent.
 
-- One line per request with method, path, status and duration; warnings over
+- One line per request with method, normalized route, status and duration; warnings over
   400ms; errors on 5xx.
 - Every request carries an `x-request-id`, and it is written into `audit_log`.
   That is genuinely useful and is the one thread that ties a user report to a
   server event.
 - **No metrics.** No request rate, error rate, latency percentiles, database
   size, queue depth.
-- **No error reporting.** An unhandled 500 prints to stdout. If nobody is
-  tailing it, nobody knows.
+- **No configured reporting destination in the repository.** The boundary is
+  implemented, but an operator still has to configure and monitor a real
+  collector.
 - **No alerting.** Nothing pages anybody, ever.
 
 The audit log is strong and is not a substitute: it records what people did,
 not what the system did to itself.
 
-**Before production:** ship stdout somewhere searchable, add error reporting
-(Sentry or equivalent) with the request id attached, and alert on 5xx rate and
-on the process being down. That is a day of work and it is the difference
-between finding out from a graph and finding out from a member.
+**Before production:** ship stdout somewhere searchable, configure an error
+collector/alerting destination, and alert on 5xx rate and process/readiness
+failure. No request bodies, cookies, passwords, tokens, OTPs or contact fields
+are included in the structured records.
 
 ---
 
 ## 10. Rate limiting
 
-`rateLimit(max, windowMs)` in `middleware/index.ts`, keyed on path plus
-`x-forwarded-for`.
+`rateLimit(max, windowMs)` in `middleware/index.ts` has endpoint-sensitive
+budgets. It uses a trusted-proxy hop count and the direct socket address rather
+than accepting the leftmost client-supplied `x-forwarded-for` value.
 
-**Applied to four routes only**: OTP start, OTP verify, password sign-in, and
-the auth-stabilisation route. That is the right priority — credential stuffing
-is the attack that matters — but the rest of the API has no limit at all. A
-signed-in member can hammer any endpoint.
+Auth flows retain tight budgets. Protected API routes also have outer IP,
+tenant and actor budgets. Door scans, report computation/export, retention,
+support writes, member messages, directory/attendance search, automation
+preview and manual runs have separate actor and tenant ceilings.
 
 **It is in-memory.** The bucket `Map` is per-process and lost on restart, so a
 deploy resets every counter. With one instance that is a minor weakness; with
 several it would be useless.
 
-There is no global request cap and no per-tenant cap, so one gym's runaway
-client can exhaust the single instance for everybody on it.
+The limiter remains process-local, so it is an appropriate single-instance
+safeguard rather than distributed DDoS protection.
 
 ---
 
@@ -247,10 +292,14 @@ elsewhere.
 - Three database-level guards back it up where money or a seat is at stake:
   `bookings_live_uq` (one live booking per member per session),
   `automation_runs_sent_uq` (one send per logical event) and the class capacity
-  trigger.
+  trigger — joined by `class_sessions_series_occurrence_uq` (one occurrence per
+  series per branch-local date), `commission_lines_source_uq` (one accrual per
+  source transaction, with the partial clause that lets corrections exist) and
+  `dunning_attempt_uq` (one row per invoice per dunning step).
 
-`idempotency_keys` is never pruned. It grows forever, which is slow rather than
-wrong.
+Operational idempotency evidence is retained for its documented window and
+then pruned in bounded batches. Audit, accounting, consent and ledger history
+are explicitly excluded from pruning.
 
 ---
 
@@ -258,17 +307,18 @@ wrong.
 
 Read from the environment, with `.env.example` as the reference.
 
-**Only `SHARK_PASS_SECRET` is validated**, and only when it is first used —
-which means a deployment missing it starts, serves, and fails at the first door
-scan. `SHARK_ALLOWED_ORIGINS`, `SHARK_DB`, `SHARK_PUBLIC_ORIGIN` and the reader
-keys are read where needed with silent fallbacks.
+`src/lib/config.ts` validates the shared API configuration before the
+application graph opens SQLite or registers static serving. Booleans accept
+only the exact strings `true` and `false`; ports, reader JSON and exact browser
+origins are parsed once and shared by every consumer.
 
-`SHARK_ALLOW_BEARER_AUTH` and `SHARK_ECHO_OTP` are unsafe switches that default
-off and are ignored in production — that part is right.
-
-**This is the fourth blocker, and the cheapest to fix:** validate the whole
-environment at boot with a Zod schema and refuse to start when it is wrong. A
-config error should be a crash on deploy, not a 500 at 06:00.
+Production additionally requires an explicit database path, a pass secret of
+at least 48 bytes and at least one configured public/allowed/platform origin.
+Origins and the optional error collector must use HTTPS except for explicit
+loopback smoke tests. OTP echo and bearer-session compatibility are refused,
+not silently enabled, in production. Operational retention/prune settings are
+bounded and parsed here as well. A bad deployment exits at boot instead of
+failing on its first door scan or browser request.
 
 ---
 
@@ -287,9 +337,13 @@ an error.
 
 ## 14. Migrations
 
-Six migrations, forward-only, generated by drizzle-kit, checked in with their
-snapshots. Additive throughout: Phases 11, 12 and 13 added columns and one
-table and rewrote nothing.
+Fourteen migrations, forward-only, generated by drizzle-kit, checked in with
+their snapshots. Every one of them is additive, and that is enforced by reading
+the generated SQL rather than assumed: drizzle proposed a table rebuild for the
+commission change whose `INSERT…SELECT` named the new columns while reading the
+old table, which would have failed on any database with rows in it. The trigger
+was a column default nothing reads, so the default stayed and the migration is
+eight `ADD COLUMN`s.
 
 `migrate.ts` applies extras drizzle cannot express — the append-only triggers
 on `audit_log`, `xp_ledger`, `stock_ledger` and `ticket_events`, the capacity
@@ -304,25 +358,19 @@ and it is why every migration so far has been additive on purpose.
 
 ## 15. Performance
 
-Not measured. No load test has been run, so anything here is an estimate from
-reading the code.
+Measured with the repeatable `pnpm perf:baseline` production-HTTP harness at
+5,000 members across three branches. Post-optimization p95 results on the
+recorded Node 22 darwin-arm64 run were: dashboard 11.68 ms, directory 8.11 ms,
+member detail 3.47 ms, retention 9.18 ms, revenue 15.96 ms, attendance 17.07 ms
+and automation planning 71.81 ms.
 
-**Known hot spots:**
-
-- **Retention risk** recomputes over every check-in, payment and membership of
-  every member in scope. Fine at 40 members, visibly slow at 5,000.
-- **Automation planning** loads the whole audience and runs a per-subject
-  consent and dedupe query. At a few thousand members that is a few thousand
-  small reads per run, hourly.
-- **`branchPolicy()`** reads the tenant and branch rows on every call, and the
-  door calls it twice per scan. Two indexed reads on tiny tables — deliberate,
-  because a cached anti-passback window is worse than a fast one.
-- **Reports** are backed by `metric_rollups` for completed days and recompute
-  only the current day. This is the one place performance was designed in.
-
-**Before production:** run the seed at 5,000 members and time the dashboard,
-the member directory and a retention read. Nothing above needs fixing until
-those numbers exist.
+The first evidence run found attendance at 190.09 ms p95 and automation
+planning at 304.93 ms p95. Reusing pure `Intl` timezone formatters reduced the
+attendance CPU path; batching automation dedupe/account/consent facts removed
+up to 10,000 per-candidate reads. Query plans already used the intended
+membership, attendance and partial dedupe indexes, so no speculative index or
+business-data cache was added. Full method, dataset, before/after numbers and
+limitations are in `docs/PERFORMANCE-BASELINE.md`.
 
 ---
 
@@ -348,15 +396,15 @@ Worth saying plainly, because the list above is all caveats:
 
 ## Recommended order
 
-1. **Backups.** `VACUUM INTO` on a timer, restore proven once. Half a day.
-2. **Environment validation at boot.** An hour.
-3. **Error reporting and log shipping**, with the request id attached. A day.
-4. **A payment provider**, if the gym takes card. A week, plus their review.
-5. **Job run records**, so a stopped scheduler is visible. Half a day.
-6. **Prune `idempotency_keys` and delivered `outbox_events`.** An hour.
-7. **Rate limits beyond auth**, per-tenant. A day.
-8. **A load test at 5,000 members**, then optimise what it finds. Two days.
-
-Items 1–3 are the difference between "a demo that works" and "a system a gym
-can run on". Item 4 is the difference between running a gym and running its
-membership records.
+1. **Configure off-host backup transfer and alerts**, then schedule and own
+   recurring restore drills. Repository recovery mechanics are proved; local
+   artifacts alone are not backups.
+2. **Configure log shipping/error reporting and paging.** The provider boundary
+   is present; nobody is alerted until operations connects it.
+3. **Add a payment provider**, if the gym takes card. Recorded card payments
+   are not charges.
+4. **Run the performance harness on the intended persistent disk** and retain
+   results before onboarding each materially larger gym.
+5. **Add scheduler leadership and a shared database only before a second
+   instance is introduced.** The current architecture remains explicitly
+   single-instance.

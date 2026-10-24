@@ -2,7 +2,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { app } from '../app.js';
 import { db, schema } from '../db/client.js';
-import { now } from '../lib/time.js';
+import { isoDate, now } from '../lib/time.js';
+import { branchTimeZone } from '../lib/branch-time.js';
 
 /* ============================================================================
    The whole business, end to end.
@@ -298,6 +299,10 @@ describe('journey · 6 · they book a class', () => {
         eq(schema.classSessions.tenantId, tenantId()),
         eq(schema.classSessions.branchId, 'br_kor'),
         eq(schema.classSessions.state, 'scheduled'),
+        // This step exercises the membership-to-booking seam. Paid drop-ins
+        // have their own explicit-consent coverage and must never be selected
+        // here merely because the suite happens to run late in the day.
+        eq(schema.classSessions.creditsRequired, 0),
         sql`${schema.classSessions.startsAt} > ${now()}`,
         sql`${schema.classSessions.booked} < ${schema.classSessions.capacity}`,
       ))
@@ -475,7 +480,7 @@ describe('journey · 9 · they raise a complaint', () => {
 /* ——— 11. Reports ————————————————————————————————————— */
 
 describe('journey · 10 · the money shows up in the reports', () => {
-  const today = new Date(now()).toISOString().slice(0, 10);
+  const today = isoDate(now(), branchTimeZone(tenantId(), 'br_kor'));
 
   it('the accountant sees the revenue, because they hold report.financial', async () => {
     const res = await get(accountant, `/v1/admin/reports/revenue?from=${today}&to=${today}`);
@@ -518,7 +523,7 @@ describe('journey · 10 · the money shows up in the reports', () => {
 /* ——— 12. Refund ————————————————————————————————————— */
 
 describe('journey · 11 · a refund, and what it does to the report', () => {
-  const today = new Date(now()).toISOString().slice(0, 10);
+  const today = isoDate(now(), branchTimeZone(tenantId(), 'br_kor'));
 
   it('reception cannot refund — that is a separate permission', async () => {
     const res = await post(reception, `/v1/admin/billing/payments/${journey.paymentId}/refund`, {

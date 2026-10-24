@@ -59,7 +59,7 @@ interface SchedulePayload {
   categories: Array<{ value: string; label: string; count: number }>;
   membership: { entitled: boolean; reason: string | null; productName: string };
   credits: { class: number };
-  waitlist: { offerWindowMin: number };
+  waitlist: { available: boolean; offerWindowMin: number; message: string };
   items: Session[];
 }
 
@@ -156,6 +156,8 @@ export default function BookScreen() {
               {data.credits.class} credit{data.credits.class === 1 ? '' : 's'}
             </span>
           </div>
+
+          {!data.waitlist.available ? <p className="text-[13px] text-foam-50">{data.waitlist.message}</p> : null}
 
           {!data.membership.entitled ? (
             <Panel tone="warn" className="p-3.5">

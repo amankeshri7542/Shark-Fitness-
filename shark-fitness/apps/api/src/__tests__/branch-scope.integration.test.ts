@@ -177,4 +177,3 @@ describe('branch scope — a single-branch user is unaffected', () => {
     for (const m of bare.items) expect(m.branchName).toBe('Koramangala Depot');
   });
 });
-

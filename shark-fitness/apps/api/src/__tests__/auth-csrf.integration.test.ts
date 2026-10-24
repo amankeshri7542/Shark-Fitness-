@@ -68,7 +68,7 @@ describe('Signing in with a stale session cookie', () => {
     expect(response.headers.get('set-cookie') ?? '').toContain('shark_csrf=');
   });
 
-  it('starts an OTP sign-in while a stale session cookie is present', async () => {
+  it('reaches the truthful OTP provider boundary with a stale session cookie', async () => {
     const response = await app.request('/v1/auth/otp/start', {
       method: 'POST',
       headers: {
@@ -79,7 +79,8 @@ describe('Signing in with a stale session cookie', () => {
       body: JSON.stringify({ tenantSlug: 'shark', identifier: 'aman@sharkfitness.in' }),
     });
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ error: { code: 'PROVIDER_UNAVAILABLE' } });
   });
 
   it('still refuses a sign-in from an origin that is not ours', async () => {

@@ -1,8 +1,10 @@
-import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { and, eq } from 'drizzle-orm';
+import { StartOtpResult } from '@shark/contracts';
 import { app } from '../app.js';
 import { db, schema, sqlite } from '../db/client.js';
 import { consumeRealtimeTicket } from '../lib/realtime-ticket.js';
+import { runtimeConfig } from '../lib/config.js';
 
 interface BrowserSession {
   cookie: string;
@@ -73,9 +75,17 @@ function prepareAmanForDoorTest(): void {
   sqlite
     .prepare("UPDATE invoices SET state = 'paid', paid_minor = total_minor WHERE tenant_id = ? AND member_id = ?")
     .run(tenant!.id, member!.id);
-  sqlite
-    .prepare('UPDATE branches SET opens_minutes = 0, closes_minutes = 1440, capacity = 500 WHERE tenant_id = ?')
-    .run(tenant!.id);
+  db.update(schema.branches)
+    .set({
+      state: 'active',
+      opensMinutes: 0,
+      closesMinutes: 1440,
+      hours: null,
+      holidays: [],
+      capacity: 500,
+    })
+    .where(eq(schema.branches.tenantId, tenant!.id))
+    .run();
 }
 
 describe('Phase 1 production boundaries', () => {
@@ -129,15 +139,48 @@ describe('Phase 1 production boundaries', () => {
     expect(afterSignOut.status).toBe(401);
   });
 
-  it('does not echo OTPs unless explicitly enabled for local development', async () => {
+  it('reports OTP delivery unavailable without creating a pretend challenge', async () => {
+    const challengesBefore = db.select().from(schema.otpChallenges).all().length;
     const response = await app.request('/v1/auth/otp/start', {
       method: 'POST',
       headers: { 'content-type': 'application/json', origin: 'http://localhost:5173' },
       body: JSON.stringify({ tenantSlug: 'shark', identifier: 'aman@sharkfitness.in' }),
     });
-    expect(response.status).toBe(200);
-    const body = (await response.json()) as { devCode?: string };
-    expect(body.devCode).toBeUndefined();
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: 'PROVIDER_UNAVAILABLE',
+        message: expect.stringMatching(/No sign-in code provider is configured/i),
+      },
+    });
+    expect(db.select().from(schema.otpChallenges).all()).toHaveLength(challengesBefore);
+  });
+
+  it('labels local OTP echo explicitly instead of claiming provider delivery', async () => {
+    const echoBefore = runtimeConfig.echoOtp;
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    let challengeId: string | undefined;
+    runtimeConfig.echoOtp = true;
+    try {
+      const response = await app.request('/v1/auth/otp/start', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: 'http://localhost:5173' },
+        body: JSON.stringify({ tenantSlug: 'shark', identifier: 'aman@sharkfitness.in' }),
+      });
+      expect(response.status).toBe(200);
+      const body = StartOtpResult.parse(await response.json());
+      expect(body.delivery).toBe('development_echo');
+      if (body.delivery !== 'development_echo') throw new Error('Expected development echo');
+      challengeId = body.challengeId;
+      expect(body.devCode).toMatch(/^\d{6}$/);
+      expect(body.destination).toContain('@sharkfitness.in');
+      expect(body).not.toHaveProperty('sentTo');
+      expect(consoleLog.mock.calls.flat().join(' ')).not.toContain(body.devCode);
+    } finally {
+      consoleLog.mockRestore();
+      runtimeConfig.echoOtp = echoBefore;
+      if (challengeId) db.delete(schema.otpChallenges).where(eq(schema.otpChallenges.id, challengeId)).run();
+    }
   });
 
   it('issues one-use realtime tickets instead of putting the session token in a WebSocket URL', async () => {
@@ -179,7 +222,7 @@ describe('Phase 1 production boundaries', () => {
     const readerHeaders = {
       'content-type': 'application/json',
       'x-reader-id': 'demo-reader',
-      'x-reader-key': process.env.SHARK_DEMO_READER_KEY ?? 'phase1-test-reader-secret',
+      'x-reader-key': runtimeConfig.demoReaderKey,
     };
     const firstScan = await app.request('/v1/door/scan', { method: 'POST', headers: readerHeaders, body });
     expect(firstScan.status).toBe(200);

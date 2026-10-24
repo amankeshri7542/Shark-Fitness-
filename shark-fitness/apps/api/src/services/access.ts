@@ -1,6 +1,7 @@
+import { reconcileMembershipDates } from './membership-dates.js';
 import { and, desc, eq, gt, isNull, sql } from 'drizzle-orm';
-import { channels } from '@shark/contracts';
-import { DENIAL_COPY, decideAccess, occupancyLabel } from '@shark/domain';
+import { channels, type BranchState } from '@shark/contracts';
+import { DENIAL_COPY, branchTrades, decideAccess, occupancyLabel } from '@shark/domain';
 import { db, schema, transact } from '../db/client.js';
 import { openWindow, policyValue } from '../lib/policy.js';
 import type { RequestContext } from '../lib/context.js';
@@ -37,6 +38,7 @@ export function scanSignedPass(input: {
   rawToken: string;
   branchId: string;
   actor: ScanActor;
+  allowedTenantSlug?: string;
   allowedBranchSlugs?: string[];
 }): ScanResult {
   const verified = verifyPassToken(input.rawToken);
@@ -59,6 +61,19 @@ export function scanSignedPass(input: {
     .get();
   if (!branch) throw notFound('That branch');
 
+  const tenant = db
+    .select({ slug: schema.tenants.slug })
+    .from(schema.tenants)
+    .where(eq(schema.tenants.id, tenantId))
+    .get();
+  if (
+    input.allowedTenantSlug &&
+    input.allowedTenantSlug !== '*' &&
+    input.allowedTenantSlug !== tenant?.slug
+  ) {
+    return deniedToken('denied_branch_not_permitted');
+  }
+
   if (
     input.allowedBranchSlugs &&
     !input.allowedBranchSlugs.includes('*') &&
@@ -75,6 +90,7 @@ export function scanSignedPass(input: {
     .map((row) => row.branchId);
   const permittedBranchIds = [...new Set([member.homeBranchId, ...extraBranches])];
 
+  reconcileMembershipDates(memberId);
   const membership = db
     .select()
     .from(schema.memberships)
@@ -98,7 +114,7 @@ export function scanSignedPass(input: {
       and(
         eq(schema.invoices.tenantId, tenantId),
         eq(schema.invoices.memberId, memberId),
-        sql`${schema.invoices.state} in ('open','partially_paid','overdue')`,
+        sql`${schema.invoices.voided} = 0 and ${schema.invoices.totalMinor} > ${schema.invoices.paidMinor}`,
       ),
     )
     .get();
@@ -168,6 +184,7 @@ export function scanSignedPass(input: {
     membershipState: (membership?.state ?? 'expired') as 'active',
     permittedBranchIds,
     branchId: branch.id,
+    branchTrading: branchTrades(branch.state as BranchState),
     nowMinutes: localMinutes(now(), branch.timezone),
     // The day's own hours where the branch sets them, the branch's typical
     // day otherwise, and a holiday closes the door outright (PF-TEN-002).

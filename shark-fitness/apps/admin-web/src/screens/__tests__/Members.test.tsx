@@ -9,9 +9,30 @@ const downloadMock = vi.hoisted(() => vi.fn());
 const saveBlobMock = vi.hoisted(() => vi.fn());
 const permissionMock = vi.hoisted(() => vi.fn());
 
-vi.mock('@tanstack/react-router', () => ({
-  Link: ({ children }: { children: ReactNode }) => <a href="/admin/members">{children}</a>,
-}));
+// The directory keeps its filters in the URL, so the router mock holds a
+// search object and re-renders its readers when a filter navigates.
+const router = vi.hoisted(() => ({ search: {} as Record<string, unknown>, listeners: new Set<() => void>() }));
+
+vi.mock('@tanstack/react-router', async () => {
+  const React = await import('react');
+  return {
+    Link: ({ children }: { children: ReactNode }) => <a href="/admin/members">{children}</a>,
+    useSearch: () => {
+      const [, rerender] = React.useReducer((n: number) => n + 1, 0);
+      React.useEffect(() => {
+        router.listeners.add(rerender);
+        return () => {
+          router.listeners.delete(rerender);
+        };
+      }, []);
+      return router.search;
+    },
+    useNavigate: () => (options: { search: (current: Record<string, unknown>) => Record<string, unknown> }) => {
+      router.search = options.search(router.search);
+      for (const listener of router.listeners) listener();
+    },
+  };
+});
 
 vi.mock('../../lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../lib/api')>();
@@ -88,6 +109,7 @@ describe('members bulk actions', () => {
     saveBlobMock.mockReset();
     permissionMock.mockReset();
     permissionMock.mockReturnValue(true);
+    router.search = {};
   });
 
   it('shows the bulk bar only after a selection, and select-all picks every shown row', async () => {

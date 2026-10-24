@@ -107,8 +107,61 @@ describe('billing — products', () => {
 
   it('denies product management to a role without product.manage', async () => {
     const reception = await signIn('reception@sharkfitness.in');
-    const response = await app.request('/v1/admin/billing/products', { headers: headers(reception) });
+    const before = db.select().from(schema.products).all();
+    const product = before.find((row) => row.id === 'prd_daypass')!;
+    for (const [method, path, body] of [
+      ['POST', '/products', product],
+      ['PATCH', `/products/${product.id}`, { priceMinor: 0 }],
+      ['POST', `/products/${product.id}/retire`, {}],
+      ['POST', `/products/${product.id}/duplicate`, {}],
+    ] as const) {
+      const response = await app.request(`/v1/admin/billing${path}`, { method, headers: headers(reception, true), body: JSON.stringify(body) });
+      expect(response.status).toBe(403);
+    }
+    expect(db.select().from(schema.products).all()).toEqual(before);
+  });
+
+  it.each(['rehan@sharkfitness.in', 'accounts@sharkfitness.in'])('denies catalogue access without product or membership management: %s', async (email) => {
+    const session = await signIn(email);
+    const response = await app.request('/v1/admin/billing/products', { headers: headers(session) });
     expect(response.status).toBe(403);
+  });
+
+  it('lets reception list an entitled published plan and assign it without exposing draft or other-branch plans', async () => {
+    const reception = await signIn('reception@sharkfitness.in');
+    const template = db.select().from(schema.products).where(eq(schema.products.id, 'prd_daypass')).get()!;
+    const draftId = idemKey('draft-plan');
+    const otherBranchId = idemKey('other-branch-plan');
+    db.insert(schema.products).values([
+      { ...template, id: draftId, status: 'draft' },
+      { ...template, id: otherBranchId, status: 'active', branchIds: ['br_ind'], access: { ...template.access, allBranches: false, branchIds: ['br_ind'] } },
+    ]).run();
+    try {
+      const response = await app.request('/v1/admin/billing/products', { headers: { ...headers(reception), 'x-branch-id': 'br_kor' } });
+      expect(response.status).toBe(200);
+      const { items } = await response.json() as { items: Array<{ id: string; status: string; name: string; priceLabel: string; cadence: string }> };
+      const plan = items.find((item) => item.id === template.id)!;
+      expect(plan).toMatchObject({ id: template.id, status: 'active', name: template.name, priceLabel: expect.any(String), cadence: template.cadence });
+      expect(items.map((item) => item.id)).not.toContain(draftId);
+      expect(items.map((item) => item.id)).not.toContain(otherBranchId);
+      expect(items.every((item) => item.status === 'active')).toBe(true);
+      const memberId = await freshMember(reception);
+      const denied = await app.request(`/v1/admin/billing/members/${memberId}/assign-plan`, {
+        method: 'POST', headers: headers(reception, true), body: JSON.stringify({ productId: otherBranchId }),
+      });
+      expect(denied.status).toBe(422);
+      const assign = await app.request(`/v1/admin/billing/members/${memberId}/assign-plan`, {
+        method: 'POST', headers: headers(reception, true), body: JSON.stringify({ productId: plan.id }),
+      });
+      expect(assign.status).toBe(201);
+      const { membershipId, invoiceId, activated } = await assign.json() as { membershipId: string; invoiceId: string; activated: boolean };
+      expect(activated).toBe(false);
+      expect(db.select().from(schema.memberships).where(eq(schema.memberships.id, membershipId)).get()?.state).toBe('pending_payment');
+      expect(db.select().from(schema.invoices).where(eq(schema.invoices.id, invoiceId)).get()).toMatchObject({ state: 'open', paidMinor: 0 });
+    } finally {
+      db.delete(schema.products).where(eq(schema.products.id, draftId)).run();
+      db.delete(schema.products).where(eq(schema.products.id, otherBranchId)).run();
+    }
   });
 });
 
@@ -258,49 +311,6 @@ describe('billing — manual payment recording', () => {
   });
 });
 
-describe('billing — demo webhook simulator and dunning', () => {
-  it('simulates a failed payment, leaving paidMinor untouched and creating a dunning attempt', async () => {
-    const owner = await signIn('owner@sharkfitness.in');
-    const memberId = await freshMember(owner);
-    const assign = await app.request(`/v1/admin/billing/members/${memberId}/assign-plan`, { method: 'POST', headers: headers(owner, true), body: JSON.stringify({ productId: 'prd_daypass' }) });
-    const { invoiceId } = (await assign.json()) as { invoiceId: string };
-
-    const webhook = await app.request('/v1/admin/billing/webhooks/demo', {
-      method: 'POST',
-      headers: headers(owner, true),
-      body: JSON.stringify({ invoiceId, outcome: 'failed', reason: 'Card declined (simulated)' }),
-    });
-    expect(webhook.status).toBe(200);
-
-    const invoice = db.select().from(schema.invoices).where(eq(schema.invoices.id, invoiceId)).get();
-    expect(invoice?.paidMinor).toBe(0);
-
-    const dunning = db.select().from(schema.dunningAttempts).where(eq(schema.dunningAttempts.invoiceId, invoiceId)).all();
-    expect(dunning.length).toBeGreaterThan(0);
-
-    const queue = await app.request('/v1/admin/billing/dunning', { headers: headers(owner) });
-    const queueBody = (await queue.json()) as { items: Array<{ invoiceId: string }> };
-    expect(queueBody.items.some((i) => i.invoiceId === invoiceId)).toBe(true);
-  });
-
-  it('simulates a succeeded payment, activating the membership', async () => {
-    const owner = await signIn('owner@sharkfitness.in');
-    const memberId = await freshMember(owner);
-    const assign = await app.request(`/v1/admin/billing/members/${memberId}/assign-plan`, { method: 'POST', headers: headers(owner, true), body: JSON.stringify({ productId: 'prd_daypass' }) });
-    const { invoiceId, membershipId } = (await assign.json()) as { invoiceId: string; membershipId: string };
-
-    const webhook = await app.request('/v1/admin/billing/webhooks/demo', {
-      method: 'POST',
-      headers: headers(owner, true),
-      body: JSON.stringify({ invoiceId, outcome: 'succeeded' }),
-    });
-    expect(webhook.status).toBe(200);
-
-    const membership = db.select().from(schema.memberships).where(eq(schema.memberships.id, membershipId)).get();
-    expect(membership?.state).toBe('active');
-  });
-});
-
 describe('billing — refunds and void', () => {
   it('refunds a succeeded payment, moving the invoice to refunded, without auto-reversing entitlements', async () => {
     const owner = await signIn('owner@sharkfitness.in');
@@ -409,41 +419,4 @@ describe('billing — member self-service', () => {
     expect(crossAccess.status).toBe(404);
   });
 
-  it('completes a demo checkout end to end and activates a pending membership', async () => {
-    const owner = await signIn('owner@sharkfitness.in');
-    const memberId = await freshMember(owner);
-    const assign = await app.request(`/v1/admin/billing/members/${memberId}/assign-plan`, { method: 'POST', headers: headers(owner, true), body: JSON.stringify({ productId: 'prd_daypass' }) });
-    const { membershipId } = (await assign.json()) as { invoiceId: string; membershipId: string };
-
-    // Sign in as the newly converted member directly via a password reset is
-    // out of scope for this test — exercise the member endpoints using the
-    // member's own session by looking up their user and issuing a password
-    // sign-in only works for demo accounts with a password hash. Newly
-    // converted members have none (accountState: invited, passwordHash null)
-    // by design (Phase 2 stabilization) — so the checkout flow is exercised
-    // here as a same-tenant demo member instead, against their own real
-    // outstanding invoice from seed data.
-    const rohit = await signIn('rohit@sharkfitness.in');
-    const rohitInvoices = await app.request('/v1/member/billing', { headers: headers(rohit) });
-    const rohitBody = (await rohitInvoices.json()) as { invoices: Array<{ id: string; payable: boolean }> };
-    const payable = rohitBody.invoices.find((i) => i.payable);
-    expect(payable).toBeTruthy();
-
-    const intent = await app.request('/v1/member/billing/checkout-intent', { method: 'POST', headers: headers(rohit, true), body: JSON.stringify({ invoiceId: payable!.id }) });
-    expect(intent.status).toBe(200);
-    const intentBody = (await intent.json()) as { intentId: string; clientToken: string };
-    expect(intentBody.clientToken).toBeTruthy();
-
-    const confirm = await app.request(`/v1/member/billing/checkout-intent/${intentBody.intentId}/confirm`, { method: 'POST', headers: headers(rohit, true) });
-    expect(confirm.status).toBe(200);
-    const confirmBody = (await confirm.json()) as { invoiceState: string; alreadyProcessed: boolean };
-    expect(confirmBody.alreadyProcessed).toBe(false);
-
-    const secondConfirm = await app.request(`/v1/member/billing/checkout-intent/${intentBody.intentId}/confirm`, { method: 'POST', headers: headers(rohit, true) });
-    expect(secondConfirm.status).toBe(200);
-    const secondBody = (await secondConfirm.json()) as { alreadyProcessed: boolean };
-    expect(secondBody.alreadyProcessed).toBe(true);
-
-    void membershipId;
-  });
 });
