@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 import { app } from '../app.js';
 import { db, schema } from '../db/client.js';
 import { id } from '../lib/ids.js';
@@ -72,5 +72,38 @@ describe('member privacy requests are truthful', () => {
 
     const afterDeletion = await app.request('/v1/me', { headers });
     expect(afterDeletion.status).toBe(401);
+  });
+
+  it('refuses the gym’s only owner, who is also the only person who could review it', async () => {
+    // Found by sending every route an empty body: one POST locked the seeded
+    // owner out of their own gym, with nobody left able to undo it.
+    const owner = db
+      .select()
+      .from(schema.users)
+      .where(and(eq(schema.users.tenantId, 'ten_shark'), eq(schema.users.email, 'owner@sharkfitness.in')))
+      .get()!;
+    // Other suites add owners of their own; for this question the seeded owner
+    // has to be the only active one.
+    const others = db
+      .select({ id: schema.users.id, accountState: schema.users.accountState })
+      .from(schema.users)
+      .where(and(eq(schema.users.tenantId, 'ten_shark'), eq(schema.users.role, 'owner'), ne(schema.users.id, owner.id)))
+      .all();
+    try {
+      for (const other of others) db.update(schema.users).set({ accountState: 'disabled' }).where(eq(schema.users.id, other.id)).run();
+      const session = createSession(owner.id, 'ten_shark', '192.0.2.71', 'privacy-regression-owner');
+      const headers = { authorization: `Bearer ${session.token}`, 'content-type': 'application/json' };
+
+      const response = await app.request('/v1/me/deletion-request', { method: 'POST', headers, body: '{}' });
+      expect(response.status).toBe(409);
+      expect(((await response.json()) as { error: { message: string } }).error.message).toMatch(/only owner/);
+
+      expect(db.select({ state: schema.users.accountState }).from(schema.users).where(eq(schema.users.id, owner.id)).get()!.state).toBe('active');
+      expect((await app.request('/v1/me', { headers })).status).toBe(200);
+    } finally {
+      for (const other of others) db.update(schema.users).set({ accountState: other.accountState }).where(eq(schema.users.id, other.id)).run();
+      // Never leave the shared fixture locked out, whatever went wrong above.
+      db.update(schema.users).set({ accountState: 'active' }).where(eq(schema.users.id, owner.id)).run();
+    }
   });
 });

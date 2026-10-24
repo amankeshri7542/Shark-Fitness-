@@ -158,6 +158,13 @@ describe('PF-PLAT-004 — support access borrows authority and acquires none', (
     expect((await get(borrowed, '/v1/admin/settings/business')).status).toBe(200);
   });
 
+  it('cannot file a deletion request for the owner whose authority it borrows', async () => {
+    const res = await post(borrowed, '/v1/me/deletion-request', {});
+    expect(res.status).toBe(403);
+    expect(db.select({ state: schema.users.accountState }).from(schema.users).where(eq(schema.users.id, targetUserId)).get()!.state).toBe('active');
+    expect((await get(borrowed, '/v1/me')).status).toBe(200);
+  });
+
   it('cannot re-enter the platform it came from', async () => {
     // The whole requirement. The borrowed role is `owner`, which never held
     // platform permissions; the guard must not depend on that being true.
