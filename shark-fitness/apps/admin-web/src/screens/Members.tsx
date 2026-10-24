@@ -1,8 +1,10 @@
+import { useState } from 'react';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useAdmin, usePermission } from '../lib/store';
 import { Page } from '../ui/shell';
+import { MembersBulkActions } from './members/BulkActions';
 import {
   Button,
   Chip,
@@ -78,6 +80,8 @@ export default function MembersScreen() {
   const lifecycle = filters.lifecycle ?? 'all';
   const risk = filters.risk ?? 'any';
   const offset = filters.offset ?? 0;
+  const tag = filters.tag ?? null;
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const setFilters = (next: Partial<typeof filters>): void => {
     void navigate({
@@ -93,9 +97,10 @@ export default function MembersScreen() {
   if (risk !== 'any') params.set('risk', risk);
   if (filters.joined) params.set('joined', filters.joined);
   if (filters.expiring) params.set('expiring', String(filters.expiring));
+  if (tag) params.set('tag', tag);
 
   const { data, isLoading, error, refetch, isFetching } = useQuery({
-    queryKey: ['members', branchId, search, lifecycle, risk, filters.joined, filters.expiring, offset],
+    queryKey: ['members', branchId, search, lifecycle, risk, filters.joined, filters.expiring, tag, offset],
     queryFn: () => api<MembersPayload>(`/admin/members?${params}`, { branchId }),
     placeholderData: keepPreviousData,
     enabled: canView,
@@ -122,6 +127,21 @@ export default function MembersScreen() {
       </Page>
     );
   }
+
+  // Act only on rows that are on screen. A selection made before the filters
+  // or the page changed must not quietly carry members the operator can no
+  // longer see.
+  const selectedRows = data.items.filter((m) => selected.has(m.id));
+  const allSelected = data.items.length > 0 && selectedRows.length === data.items.length;
+  const toggleAll = (): void => setSelected(allSelected ? new Set() : new Set(data.items.map((m) => m.id)));
+  const toggle = (id: string): void => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const atRisk = data.items.filter((m) => m.riskBand === 'high').length;
   const owing = data.items.filter((m) => (m.balanceMinor ?? 0) > 0).length;
@@ -209,18 +229,35 @@ export default function MembersScreen() {
             Clear drill-down
           </Button>
         ) : null}
+
+        {tag ? (
+          <div className="flex flex-col gap-1">
+            <Label>Tag</Label>
+            <button
+              type="button"
+              onClick={() => setFilters({ tag: undefined })}
+              aria-label={`Clear tag filter ${tag}`}
+              className="min-h-9 border border-sonar px-2.5 font-utility text-[10px] font-semibold uppercase tracking-[0.1em] text-sonar"
+            >
+              {tag} ×
+            </button>
+          </div>
+        ) : null}
       </Toolbar>
+
+      {/* Bulk actions appear only after a selection (Design PRD §5.5). */}
+      <MembersBulkActions members={selectedRows} branchId={branchId} onClear={() => setSelected(new Set())} />
 
       {data.items.length === 0 ? (
         <EmptyState
           title="No members match"
           body={
-            search || lifecycle !== 'all' || risk !== 'any' || filters.joined || filters.expiring
+            search || lifecycle !== 'all' || risk !== 'any' || filters.joined || filters.expiring || tag
               ? 'Nothing fits those filters. Widen them, or clear the search.'
               : 'This branch has no members yet. Convert a lead to get started.'
           }
           action={
-            search || lifecycle !== 'all' || risk !== 'any' || filters.joined || filters.expiring ? (
+            search || lifecycle !== 'all' || risk !== 'any' || filters.joined || filters.expiring || tag ? (
               <Button
                 variant="outline"
                 onClick={() => {
@@ -240,6 +277,18 @@ export default function MembersScreen() {
         <TableScroll><Table>
           <thead>
             <tr>
+              <th className="w-8">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  ref={(el) => {
+                    if (el) el.indeterminate = selectedRows.length > 0 && !allSelected;
+                  }}
+                  onChange={toggleAll}
+                  aria-label={allSelected ? 'Clear selection' : 'Select all shown'}
+                  className="h-4 w-4 accent-[var(--sf-sonar)]"
+                />
+              </th>
               <th>Member</th>
               <th>Plan</th>
               <th>Last seen</th>
@@ -250,7 +299,16 @@ export default function MembersScreen() {
           </thead>
           <tbody>
             {data.items.map((m) => (
-              <tr key={m.id}>
+              <tr key={m.id} data-selected={selected.has(m.id)}>
+                <td>
+                  <input
+                    type="checkbox"
+                    checked={selected.has(m.id)}
+                    onChange={() => toggle(m.id)}
+                    aria-label={`Select ${m.name}`}
+                    className="h-4 w-4 accent-[var(--sf-sonar)]"
+                  />
+                </td>
                 <td>
                   <Link to="/members/$memberId" params={{ memberId: m.id }} className="flex items-center gap-2.5 hover:text-sonar">
                     <span className="grid h-7 w-7 flex-none place-items-center border border-line-strong font-utility text-[10px] font-semibold">
@@ -263,6 +321,22 @@ export default function MembersScreen() {
                       </span>
                     </span>
                   </Link>
+                  {m.tags.length > 0 ? (
+                    <div className="mt-1 flex flex-wrap gap-1 pl-[38px]">
+                      {/* A tag is also a filter: one click shows everyone who has it. */}
+                      {m.tags.map((t) => (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => setFilters({ tag: t })}
+                          title={`Show members tagged ${t}`}
+                          className="border border-line px-1.5 font-utility text-[9px] uppercase tracking-[0.1em] text-foam-45 hover:border-sonar hover:text-sonar"
+                        >
+                          {t}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                 </td>
                 <td>
                   <div className="flex items-center gap-1.5">

@@ -26,6 +26,8 @@ export interface EligibilityInput {
   onWaitlist: boolean;
   conflictsWithSessionId: string | null;
   waitlistEnabled: boolean;
+  /** IANA zone the sentences speak in — the branch's, never the server's. */
+  timeZone?: string;
 }
 
 export function evaluateEligibility(i: EligibilityInput): BookingEligibility {
@@ -46,7 +48,7 @@ export function evaluateEligibility(i: EligibilityInput): BookingEligibility {
       canBook: false,
       action: 'cancel',
       reason: canCancelFree
-        ? `Booked. Free cancellation until ${formatTime(i.cancelDeadlineAt)}.`
+        ? `Booked. Free cancellation until ${formatTime(i.cancelDeadlineAt, i.timeZone)}.`
         : `Booked. Cancelling now counts as a late cancellation.`,
     };
   }
@@ -82,7 +84,7 @@ export function evaluateEligibility(i: EligibilityInput): BookingEligibility {
       ...base,
       canBook: false,
       action: 'closed',
-      reason: `Booking opens ${formatWhen(i.bookingOpensAt)}.`,
+      reason: `Booking opens ${formatWhen(i.bookingOpensAt, i.timeZone)}.`,
     };
   }
 
@@ -181,13 +183,14 @@ export function holdIsLive(heldAt: Date, now: Date, holdSeconds = 120): boolean 
   return now.getTime() - heldAt.getTime() < holdSeconds * 1000;
 }
 
-function formatTime(d: Date | null): string {
+function formatTime(d: Date | null, timeZone?: string): string {
   if (!d) return 'the start of class';
-  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone });
 }
 
-function formatWhen(d: Date): string {
+function formatWhen(d: Date, timeZone?: string): string {
   return d.toLocaleString('en-GB', {
+    timeZone,
     weekday: 'short',
     day: 'numeric',
     month: 'short',

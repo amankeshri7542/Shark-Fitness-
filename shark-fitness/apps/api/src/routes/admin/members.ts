@@ -14,6 +14,13 @@ import { conflict, notFound, precondition } from '../../lib/errors.js';
 import { id } from '../../lib/ids.js';
 import { DAY, addDays, isoDate, now, relativeTime } from '../../lib/time.js';
 import { memberTrainingSummary } from '../../services/training-admin.js';
+import {
+  assignableTrainers,
+  bulkAssignTrainer,
+  bulkMessage,
+  bulkTag,
+  exportMembersCsv,
+} from '../../services/member-bulk.js';
 import { loadMemberInScope } from '../../services/members.js';
 import { branchTimeZone } from '../../lib/branch-time.js';
 
@@ -26,6 +33,7 @@ const ListQuery = z.object({
   joined: z.enum(['this_month']).optional(),
   expiring: z.coerce.number().int().min(1).max(365).optional(),
   trainerId: z.string().optional(),
+  tag: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 });
@@ -54,6 +62,7 @@ membersRoutes.get(
     filters.push(eq(schema.members.trainerId, ctx.staffId));
   }
   if (q.trainerId) filters.push(eq(schema.members.trainerId, q.trainerId));
+  if (q.tag) filters.push(sql`exists (select 1 from json_each(${schema.members.tags}) where value = ${q.tag})`);
   if (q.lifecycle === 'engaged') filters.push(inArray(schema.members.lifecycle, ['active', 'trial', 'corporate']));
   else if (q.lifecycle && q.lifecycle !== 'all') filters.push(eq(schema.members.lifecycle, q.lifecycle));
   if (q.risk === 'high') filters.push(sql`${schema.members.riskScore} >= 55`);
@@ -81,14 +90,17 @@ membersRoutes.get(
   }
 
   if (q.q) {
-    const term = `%${q.q.toLowerCase()}%`;
+    const term = `%${q.q.trim().toLowerCase()}%`;
+    // Staff type a phone the way it is printed ("98123 45678") as often as
+    // they type it bare, so compare digits against the normalized number.
+    const digits = q.q.replace(/\D/g, '');
     filters.push(
       or(
-        like(sql`lower(${schema.members.firstName})`, term),
-        like(sql`lower(${schema.members.lastName})`, term),
+        like(sql`lower(${schema.members.firstName} || ' ' || ${schema.members.lastName})`, term),
         like(sql`lower(${schema.members.email})`, term),
         like(sql`lower(${schema.members.memberNo})`, term),
         like(schema.members.phone, term),
+        ...(digits.length >= 4 ? [like(sql`coalesce(${schema.members.phoneNormalized}, '')`, `%${digits}%`)] : []),
       )!,
     );
   }
@@ -215,6 +227,67 @@ membersRoutes.get(
   });
   },
 );
+
+/* — Bulk actions (Design PRD §5.5) ———————————————————————————————
+   Registered before `/:memberId` so "trainers" and "bulk" are never read as
+   a member id. */
+
+const MemberIds = z.array(z.string().min(1)).min(1).max(500);
+
+membersRoutes.get('/trainers', (c) => {
+  const ctx = ctxOf(c);
+  requirePermission(ctx, 'member.edit');
+  return c.json(assignableTrainers(ctx));
+});
+
+const BulkTagBody = z.object({
+  memberIds: MemberIds,
+  tag: z.string().min(1).max(64),
+  mode: z.enum(['add', 'remove']).default('add'),
+});
+
+membersRoutes.post('/bulk/tag', validate('json', BulkTagBody), (c) => {
+  const ctx = ctxOf(c);
+  requirePermission(ctx, 'member.edit');
+  return c.json(bulkTag(ctx, c.req.valid('json')));
+});
+
+const BulkTrainerBody = z.object({
+  memberIds: MemberIds,
+  trainerId: z.string().min(1).nullable(),
+});
+
+membersRoutes.post('/bulk/trainer', validate('json', BulkTrainerBody), (c) => {
+  const ctx = ctxOf(c);
+  requirePermission(ctx, 'member.edit');
+  return c.json(bulkAssignTrainer(ctx, c.req.valid('json')));
+});
+
+const BulkMessageBody = z.object({
+  memberIds: MemberIds,
+  body: z.string().min(1).max(1000),
+});
+
+membersRoutes.post('/bulk/message', validate('json', BulkMessageBody), (c) => {
+  const ctx = ctxOf(c);
+  requirePermission(ctx, 'member.edit');
+  return c.json(bulkMessage(ctx, c.req.valid('json')));
+});
+
+/** POST rather than GET: a few hundred ids do not fit in a URL, and an export
+ *  of personal data should not sit in proxy logs or browser history. */
+membersRoutes.post('/bulk/export', validate('json', z.object({ memberIds: MemberIds })), (c) => {
+  const ctx = ctxOf(c);
+  // The desk exports the people it manages (member.edit); finance exports
+  // for reporting (report.export). Trainers have neither.
+  if (!ctx.permissions.includes('member.edit')) requirePermission(ctx, 'report.export');
+  const { filename, csv } = exportMembersCsv(ctx, c.req.valid('json').memberIds);
+  return c.body(csv, 200, {
+    'content-type': 'text/csv; charset=utf-8',
+    'content-disposition': `attachment; filename="${filename}"`,
+    'cache-control': 'no-store',
+  });
+});
 
 /**
  * Member 360 (UX-A05).

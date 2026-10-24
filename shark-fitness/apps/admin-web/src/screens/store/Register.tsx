@@ -15,6 +15,7 @@ import {
   Stepper,
   cx,
 } from '../../ui/console';
+import { useAdmin } from '../../lib/store';
 import { TENDER_LABEL, TENDER_NEEDS_REFERENCE, money, StockChip } from './shared';
 
 /* ============================================================================
@@ -96,6 +97,8 @@ export default function Register({
      tender or the member changes the body and mints a new one, because that is
      a different sale and must not replay the last one's receipt. — */
   const attempt = useIdempotentAttempt('pos', branchId ?? 'none');
+  const branches = useAdmin((st) => st.branches);
+  const setActiveBranch = useAdmin((st) => st.setActiveBranch);
 
   /* — Money. Mirrors the server's rule exactly: tax per line, then summed.
        Summing first and taxing the total drifts by a rupee or two on a
@@ -283,7 +286,16 @@ export default function Register({
       <Panel>
         <EmptyState
           title="Pick a branch to open the till"
-          body={`A till belongs to one shop floor — its stock, its takings and its staff. You are looking at ${branchName}; choose a single branch in the bar above to start selling.`}
+          body={`A till belongs to one shop floor — its stock, its takings and its staff. You are looking at ${branchName}; choose the branch to sell from.`}
+          action={
+            <div className="flex flex-wrap gap-2">
+              {branches.map((b) => (
+                <Button key={b.id} variant="outline" onClick={() => setActiveBranch(b.id)}>
+                  {b.name}
+                </Button>
+              ))}
+            </div>
+          }
         />
       </Panel>
     );

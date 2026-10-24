@@ -306,7 +306,20 @@ export function eligibilityFor(
     onWaitlist: mine.waitlisted,
     conflictsWithSessionId: overlapWith(session, scope.otherBookings),
     waitlistEnabled: WAITLIST_AVAILABLE && session.waitlistEnabled,
+    timeZone: branchTimeZone(session.branchId),
   });
+}
+
+const zoneCache = new Map<string, string>();
+
+/** Server clocks run in UTC; a member reads class times in their branch's zone. */
+function branchTimeZone(branchId: string): string {
+  const cached = zoneCache.get(branchId);
+  if (cached) return cached;
+  const row = db.select({ tz: schema.branches.timezone }).from(schema.branches).where(eq(schema.branches.id, branchId)).get();
+  const tz = row?.tz ?? 'Asia/Kolkata';
+  zoneCache.set(branchId, tz);
+  return tz;
 }
 
 /** Turns a blocked eligibility into the error the write path should throw, so

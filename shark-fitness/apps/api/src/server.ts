@@ -6,6 +6,7 @@ import { relative, resolve } from 'node:path';
 import { runtimeConfig } from './lib/config.js';
 import { initializeErrorReporting } from './lib/error-reporting.js';
 import { log } from './lib/observability.js';
+import { otpSenders } from './services/otp-delivery.js';
 
 // Configuration must fail before importing the application graph: those
 // modules open the database and register static/runtime integrations.
@@ -87,11 +88,15 @@ if (runtimeConfig.serveStatic) {
   });
 }
 
+// Fail at boot, not on the first member sign-in, if OTP delivery is misconfigured.
+const senders = otpSenders();
+
 const server = serve({ fetch: app.fetch, port: runtimeConfig.port, hostname: '0.0.0.0' }, (info) => {
   log('info', 'api_listening', {
     host: '0.0.0.0',
     port: info.port,
     errorReportingProvider,
+    otpDelivery: { sms: senders.sms.name, email: senders.email.name },
     jobs: runtimeConfig.disableJobs ? 'disabled' : 'enabled',
   });
 });

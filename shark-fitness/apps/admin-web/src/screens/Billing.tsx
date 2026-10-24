@@ -412,8 +412,21 @@ function InvoiceDetailPanel({
   );
 }
 
-function RecordPaymentSheet({ invoiceId, dueLabel, onClose, onDone }: { invoiceId: string; dueLabel: string; onClose: () => void; onDone: () => void }) {
-  const [amount, setAmount] = useState('');
+export function RecordPaymentSheet({
+  invoiceId,
+  dueLabel,
+  dueMinor,
+  onClose,
+  onDone,
+}: {
+  invoiceId: string;
+  dueLabel: string;
+  /** Prefills the amount: settling the whole balance is the common case. */
+  dueMinor?: number;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [amount, setAmount] = useState(dueMinor && dueMinor > 0 ? (dueMinor / 100).toFixed(2) : '');
   const [method, setMethod] = useState('cash');
   const [reference, setReference] = useState('');
   const [fundsVerified, setFundsVerified] = useState(false);

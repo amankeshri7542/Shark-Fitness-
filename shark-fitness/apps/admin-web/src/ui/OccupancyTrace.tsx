@@ -48,15 +48,13 @@ export function OccupancyTrace({
   // Two different numbers that were one.
   //
   // `scaleMax` has a floor of 1 so the geometry below never divides by zero.
-  // The *reported* peak must not carry that floor: on a day where nobody has
-  // come in yet, it made the readout say "1 at -1:00" — a peak of one person
-  // at hour minus one, because `indexOf` could not find the synthetic 1 in an
-  // array of zeroes. A quiet morning is the most common state this component
-  // is in, so that was the state it was wrong in.
+  // The *reported* figure must not carry that floor: on a day where nobody has
+  // come in yet, it made the readout say "1 at -1:00". `hourly` counts entries
+  // per hour, so the figure is the busiest hour for arrivals, not peak
+  // occupancy.
   const scaleMax = Math.max(1, ...hourly);
-  const peak = Math.max(0, ...hourly);
-  const peakHour = peak > 0 ? hourly.indexOf(peak) : -1;
-  const peakLabel = peakHour < 0 ? 'No entries yet' : `${peak} at ${String(peakHour).padStart(2, '0')}:00`;
+  const busiest = Math.max(0, ...hourly);
+  const busiestLabel = busiest > 0 ? `${String(hourly.indexOf(busiest)).padStart(2, '0')}:00` : '—';
   const step = width / 24;
 
   // A stepped trace, not a smooth curve: occupancy is counted per hour and a
@@ -88,15 +86,11 @@ export function OccupancyTrace({
           </div>
         </div>
         <div className="pb-1">
-          <Label>Peak today</Label>
+          {/* `hourly` counts arrivals per hour, not people inside, so this is
+              the busiest hour for entries rather than peak occupancy. */}
+          <Label>Busiest hour</Label>
           <div className="mt-1 font-display text-[15px] leading-none tabular-nums">
-            {peakHour < 0 ? (
-              <span className="text-[13px] text-foam-45">{peakLabel}</span>
-            ) : (
-              <>
-                {peak} <span className="text-[11px] text-foam-45">at {String(peakHour).padStart(2, '0')}:00</span>
-              </>
-            )}
+            {busiestLabel} <span className="text-[11px] text-foam-45">{busiest} arrivals</span>
           </div>
         </div>
       </div>
@@ -106,7 +100,7 @@ export function OccupancyTrace({
         className="w-full"
         preserveAspectRatio="none"
         role="img"
-        aria-label={`Occupancy through the day. ${inside} of ${capacity} inside now, ${label}. ${peakHour < 0 ? 'Nobody has come in yet today.' : `Peak of ${peak} at ${String(peakHour).padStart(2, '0')}:00.`}`}
+        aria-label={`Occupancy through the day. ${inside} of ${capacity} inside now, ${label}. ${busiest > 0 ? `Busiest hour ${busiestLabel} with ${busiest} arrivals.` : 'Nobody has come in yet today.'}`}
       >
         {/* Hours the branch is shut are dimmed rather than hidden, so a gap in
             the trace reads as "closed" and not as "no data". */}
