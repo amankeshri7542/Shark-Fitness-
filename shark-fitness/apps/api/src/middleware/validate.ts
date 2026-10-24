@@ -14,6 +14,17 @@ import { AppError } from '../lib/errors.js';
 export const queryFlag = z.enum(['true', 'false']).transform((value) => value === 'true');
 
 /**
+ * A PATCH body has to change something. An empty one reached the database as
+ * an update with no columns, which Drizzle refuses by throwing ("No values to
+ * set"), so the caller saw a 500 instead of being told what was missing.
+ */
+export function changing<T extends z.AnyZodObject>(schema: T) {
+  return schema.refine((value: Record<string, unknown>) => Object.values(value).some((field) => field !== undefined), {
+    message: 'Send at least one field to change.',
+  });
+}
+
+/**
  * `zValidator` with our error envelope.
  *
  * The stock validator answers with Zod's own `{success:false, error:{issues}}`

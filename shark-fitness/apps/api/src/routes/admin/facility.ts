@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { EquipmentStatus, WorkOrderState } from '@shark/contracts';
 import { ctxOf } from '../../middleware/index.js';
-import { validate } from '../../middleware/validate.js';
+import { changing, validate } from '../../middleware/validate.js';
 import { requirePermission } from '../../lib/context.js';
 import { runIdempotently } from '../../lib/idempotency.js';
 import {
@@ -186,7 +186,7 @@ facilityRoutes.post('/equipment', validate('json', EquipmentBody), (c) => {
   return c.json(response, 201);
 });
 
-facilityRoutes.patch('/equipment/:equipmentId', validate('json', EquipmentPatch), (c) => {
+facilityRoutes.patch('/equipment/:equipmentId', validate('json', changing(EquipmentPatch)), (c) => {
   const ctx = ctxOf(c);
   requirePermission(ctx, 'facility.manage');
   return c.json(updateEquipment(ctx, c.req.param('equipmentId'), c.req.valid('json')));
@@ -208,7 +208,7 @@ facilityRoutes.post('/work-orders', validate('json', WorkOrderBody), (c) => {
   return c.json(response, 201);
 });
 
-facilityRoutes.patch('/work-orders/:workOrderId', validate('json', WorkOrderPatch), (c) => {
+facilityRoutes.patch('/work-orders/:workOrderId', validate('json', changing(WorkOrderPatch)), (c) => {
   const ctx = ctxOf(c);
   requirePermission(ctx, 'facility.manage');
   return c.json(updateWorkOrder(ctx, c.req.param('workOrderId'), c.req.valid('json')));
@@ -228,7 +228,7 @@ function registerTaskCreate(path: '/tasks' | '/facility-tasks'): void {
 }
 
 function registerTaskPatch(path: '/tasks/:taskId' | '/facility-tasks/:taskId'): void {
-  facilityRoutes.patch(path, validate('json', TaskPatch), (c) => {
+  facilityRoutes.patch(path, validate('json', changing(TaskPatch)), (c) => {
     const ctx = ctxOf(c);
     requirePermission(ctx, 'facility.manage');
     return c.json(updateFacilityTask(ctx, c.req.param('taskId'), c.req.valid('json')));
