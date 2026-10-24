@@ -391,7 +391,17 @@ describe('PF-COMM — the reasons not to send', () => {
 
   it('suppresses a member whose branch has stopped trading', async () => {
     const automation = await byName('Renewal nudge');
-    db.update(schema.branches).set({ state: 'temporarily_closed' }).where(eq(schema.branches.id, 'br_hsr')).run();
+    // Close the branch of a member this automation actually considers, rather
+    // than a fixed one: which branch holds an expiring membership is the
+    // seed's random choice.
+    const before = (await (await get(owner, `/v1/admin/automations/${automation.id}/preview`)).json()) as {
+      recipients: Array<{ memberId: string }>;
+      suppressed: Array<{ memberId: string }>;
+    };
+    const subject = [...before.recipients, ...before.suppressed][0];
+    expect(subject).toBeDefined();
+    const branchId = db.select({ branchId: schema.members.homeBranchId }).from(schema.members).where(eq(schema.members.id, subject!.memberId)).get()!.branchId;
+    db.update(schema.branches).set({ state: 'temporarily_closed' }).where(eq(schema.branches.id, branchId)).run();
     try {
       const body = (await (await get(owner, `/v1/admin/automations/${automation.id}/preview`)).json()) as {
         suppressed: Array<{ code: string }>;
@@ -399,7 +409,7 @@ describe('PF-COMM — the reasons not to send', () => {
       };
       expect(body.summary.bySuppression.some((s) => s.code === 'branch_not_trading')).toBe(true);
     } finally {
-      db.update(schema.branches).set({ state: 'active' }).where(eq(schema.branches.id, 'br_hsr')).run();
+      db.update(schema.branches).set({ state: 'active' }).where(eq(schema.branches.id, branchId)).run();
     }
   });
 

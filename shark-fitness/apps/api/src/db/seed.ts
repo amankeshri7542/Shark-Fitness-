@@ -748,18 +748,29 @@ const STATE_MIX: Array<{ state: string; lifecycle: string; weight: number }> = [
 
 const weighted = STATE_MIX.flatMap((s) => Array<typeof s>(s.weight).fill(s));
 
+/** Whether a member at this branch could hold the plan: it is sold there, or it
+ *  has no floor access at all (Digital Only), so the branch does not matter. */
+const coversBranch = (productId: string, branchId: string): boolean => {
+  const access = productRows.get(productId)!.access;
+  return access.allBranches || access.branchIds.length === 0 || access.branchIds.includes(branchId);
+};
+
 MEMBER_NAMES.forEach(([first, last], index) => {
   if (last === 'Bhaskar') return; // already seeded as the grace demo
   const mix = weighted[index % weighted.length]!;
+  // The trial is sold only at Koramangala. Everyone else holds a plan their own
+  // branch sells: picked blind, a third of the members held one their front
+  // desk would refuse (Depot Monthly at HSR, say).
+  const branchId = mix.lifecycle === 'trial' ? 'br_kor' : rng.pick(['br_kor', 'br_kor', 'br_ind', 'br_hsr']);
   const productId =
     mix.lifecycle === 'trial'
       ? 'prd_trial'
-      : rng.pick(['prd_elite_annual', 'prd_monthly', 'prd_monthly', 'prd_offpeak', 'prd_digital']);
+      : rng.pick(['prd_elite_annual', 'prd_monthly', 'prd_monthly', 'prd_offpeak', 'prd_digital'].filter((id) => coversBranch(id, branchId)));
   seedMember({
     firstName: first,
     lastName: last,
     memberNo: `SF-${40220 + index}`,
-    branchId: rng.pick(['br_kor', 'br_kor', 'br_ind', 'br_hsr']),
+    branchId,
     productId,
     membershipState: mix.state,
     lifecycle: mix.lifecycle,
@@ -1005,13 +1016,16 @@ for (const m of membersSeeded) {
       });
     }
   } else {
-    // Annual and one-time products are paid once, when the current term starts.
+    // Annual and one-time products are paid once, when the current term
+    // starts, and never before the member joined: a grace or expired term's
+    // end is pinned near today, which can put a year-long term's start before
+    // the join date.
     const termStart = addDays(m.endsOn, -(product.durationDays ?? 365));
     seedInvoice({
       memberId: m.memberId,
       branchId: m.branchId,
       productId: m.productId,
-      issuedDaysAgo: Math.max(0, daysBetween(termStart, TODAY)),
+      issuedDaysAgo: Math.max(0, Math.min(daysBetween(termStart, TODAY), daysBetween(m.joinedOn, TODAY))),
       paid: true,
     });
   }
