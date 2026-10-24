@@ -223,7 +223,10 @@ export default function MemberDetailScreen() {
                     <Label>Plan</Label>
                     <div className="mt-1 font-utility text-[14px] font-semibold">{data.membership.productName}</div>
                   </div>
-                  {data.membership.state !== 'active' ? (
+                  {/* The header already names a pending payment or a matching
+                      lifecycle; repeat the term's state here only when it adds
+                      something, such as grace under an active lifecycle. */}
+                  {data.membership.state !== 'active' && data.membership.state !== status ? (
                     <div>
                       <Label>State</Label>
                       <div className="mt-1">
