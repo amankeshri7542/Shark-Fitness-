@@ -179,6 +179,8 @@ export default function BookScreen() {
                     type="button"
                     onClick={() => setDate(day.date)}
                     aria-pressed={active}
+                    // The three stacked spans read as "Sat 24 8"; say what the 8 is.
+                    aria-label={`${day.weekday} ${day.dayNo}, ${day.sessionCount} ${day.sessionCount === 1 ? 'class' : 'classes'}`}
                     className={cx(
                       'min-h-[58px] w-[58px] flex-none px-1 py-2 transition-colors',
                       i > 0 && 'border-l border-line',

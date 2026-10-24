@@ -101,6 +101,21 @@ describe('Phase 6 — exercise library, program builder and assignment', () => {
     expect(own.status).toBe(200);
   });
 
+  it('lists the library for archived=false, the way the console asks for it', async () => {
+    const owner = await signIn('owner@sharkfitness.in');
+    // `z.coerce.boolean()` read "false" as true, so the console's default view
+    // asked for archived exercises only and showed an empty library.
+    const live = (await (await get(owner, '/v1/admin/training/exercises?archived=false')).json()) as { items: Array<{ archived: boolean }> };
+    expect(live.items.length).toBeGreaterThan(0);
+    expect(live.items.every((e) => !e.archived)).toBe(true);
+
+    const archived = (await (await get(owner, '/v1/admin/training/exercises?archived=true')).json()) as { items: Array<{ archived: boolean }> };
+    expect(archived.items.every((e) => e.archived)).toBe(true);
+
+    // Anything but the two words is refused rather than guessed at.
+    expect((await get(owner, '/v1/admin/training/exercises?archived=no')).status).toBe(422);
+  });
+
   it('refuses to publish an empty draft, then walks a draft through publish and a new version', async () => {
     const owner = await signIn('owner@sharkfitness.in');
     const exSlug = slug();
