@@ -4,6 +4,7 @@ import { app } from '../app.js';
 import { db, schema } from '../db/client.js';
 import { id } from '../lib/ids.js';
 import { taxInvoiceRecord } from '../services/tax-invoice.js';
+import { nextInvoiceNumber } from '../services/billing.js';
 
 /* ============================================================================
    GST tax invoices.
@@ -178,6 +179,28 @@ describe('the details a tax invoice was raised under are frozen', () => {
     expect(() => db.delete(schema.invoiceTaxDocuments).where(where).run()).toThrow(/immutable/);
   });
 
+  it('starts a separate series per prefix and year, and refuses a full one in words', async () => {
+    const t = tenant();
+    const year = new Date().getUTCFullYear();
+    const profile = t.taxProfile as Record<string, unknown>;
+    const full = id('inv');
+    db.update(schema.tenants).set({ taxProfile: { ...profile, invoicePrefix: 'FULL' } as never }).where(eq(schema.tenants.id, t.id)).run();
+    const member = memberByNo('SF-40219');
+    try {
+      expect(nextInvoiceNumber(t.id)).toBe(`FULL-${year}-00001`);
+      db.insert(schema.invoices).values({
+        id: full, tenantId: t.id, branchId: member.homeBranchId, memberId: member.id, number: `FULL-${year}-99999`,
+        state: 'open', issuedOn: '2026-05-10', dueOn: '2026-05-17', currency: 'INR', subtotalMinor: 0, discountMinor: 0,
+        taxMinor: 0, totalMinor: 0, paidMinor: 0, refundedMinor: 0, voided: false, voidReason: null, refType: null, refId: null,
+        createdAt: Date.now(), updatedAt: Date.now(),
+      }).run();
+      expect(() => nextInvoiceNumber(t.id)).toThrow(/series FULL-\d{4}- is full/);
+    } finally {
+      db.delete(schema.invoices).where(eq(schema.invoices.id, full)).run();
+      db.update(schema.tenants).set({ taxProfile: profile as never }).where(eq(schema.tenants.id, t.id)).run();
+    }
+  });
+
   it('numbers new invoices with the gym’s own prefix', async () => {
     const owner = await signIn('owner@sharkfitness.in');
     const profile = tenant().taxProfile as Record<string, unknown>;
@@ -224,34 +247,51 @@ describe('who may read a tax invoice', () => {
 });
 
 describe('when it is not, or not provably, a tax invoice', () => {
-  it('marks an invoice raised before tax documents existed, and uses current details', async () => {
+  it('prints an invoice raised before tax documents existed as a plain invoice, never an original tax invoice', async () => {
+    // Nothing records the GSTIN it was raised under, so today's must not be
+    // printed on it as if it were.
     const owner = await signIn('owner@sharkfitness.in');
     const { invoiceId, cleanup } = legacyInvoice(memberByNo('SF-40219').id);
     try {
-      const text = await (await get(owner, `/v1/admin/billing/invoices/${invoiceId}/tax-invoice`)).text();
-      expect(text).toContain('Raised before tax-invoice details were recorded');
-      expect(text).toContain('CGST 9% ₹90.00; SGST 9% ₹90.00');
+      const res = await get(owner, `/v1/admin/billing/invoices/${invoiceId}/tax-invoice`);
+      expect(res.headers.get('content-disposition')).toMatch(/filename="invoice-/);
+      const text = await res.text();
+      expect(text).toMatch(/^INVOICE\n/);
+      expect(text).toContain('Raised before tax-invoice details were recorded, so it is not issued as a GST tax invoice.');
+      expect(text).toContain('GST 18% ₹180.00');
+      expect(text).not.toMatch(/GSTIN:|Place of supply|Original for recipient|CGST/);
+      const detail = (await (await get(owner, `/v1/admin/billing/invoices/${invoiceId}`)).json()) as { invoice: { document: { title: string } } };
+      expect(detail.invoice.document.title).toBe('Invoice');
     } finally {
       cleanup();
     }
   });
 
-  it('says plainly that it is not a GST tax invoice when no valid GSTIN is configured', async () => {
+  it('says plainly that it is not a GST tax invoice when no valid GSTIN was configured at issuance', async () => {
     const owner = await signIn('owner@sharkfitness.in');
     await withTaxProfile(null, async () => {
-      const { invoiceId, cleanup } = legacyInvoice(memberByNo('SF-40219').id);
-      try {
-        const res = await get(owner, `/v1/admin/billing/invoices/${invoiceId}/tax-invoice`);
-        expect(res.headers.get('content-disposition')).toMatch(/filename="invoice-/);
-        const text = await res.text();
-        expect(text).toMatch(/^INVOICE\n/);
-        expect(text).toContain('Not a GST tax invoice: no valid GSTIN was configured when this invoice was raised.');
-        expect(text).not.toContain('GSTIN:');
-        expect(text).not.toContain('Place of supply');
-      } finally {
-        cleanup();
-      }
+      const invoiceId = await raiseMembershipInvoice(owner);
+      const res = await get(owner, `/v1/admin/billing/invoices/${invoiceId}/tax-invoice`);
+      expect(res.headers.get('content-disposition')).toMatch(/filename="invoice-/);
+      const text = await res.text();
+      expect(text).toMatch(/^INVOICE\n/);
+      expect(text).toContain('Not a GST tax invoice: no valid GSTIN was configured when this invoice was raised.');
+      expect(text).not.toContain('GSTIN:');
+      expect(text).not.toContain('Place of supply');
     });
+  });
+
+  it('reads the member from their record, so a privacy erasure reaches every printed invoice', async () => {
+    const owner = await signIn('owner@sharkfitness.in');
+    const invoiceId = await raiseMembershipInvoice(owner);
+    const invoice = db.select().from(schema.invoices).where(eq(schema.invoices.id, invoiceId)).get()!;
+    // What anonymisation does to the member row.
+    db.update(schema.members).set({ firstName: 'Erased', lastName: 'Member', addressLine: null }).where(eq(schema.members.id, invoice.memberId)).run();
+    const text = await (await get(owner, `/v1/admin/billing/invoices/${invoiceId}/tax-invoice`)).text();
+    expect(text).toContain('Billed to: Erased Member');
+    expect(text).toContain('Address: Not recorded');
+    // The supplier side stays as issued.
+    expect(text).toContain('GSTIN: ');
   });
 
   it('escapes member-supplied text on the printable page', async () => {

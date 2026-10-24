@@ -10,9 +10,16 @@ import { now } from '../lib/time.js';
 
    An invoice row says what was charged. A tax invoice also says who charged
    it, under which GSTIN, from which state, to whom, and how the tax divides
-   between the Centre and the State. Those details are frozen when the invoice
-   is raised (`invoice_tax_documents`), because the document has to read the
-   same in an audit years later however the gym's settings have changed since.
+   between the Centre and the State. The supplier's side is frozen when the
+   invoice is raised (`invoice_tax_documents`), because the document has to
+   read the same in an audit years later however the gym's settings have
+   changed since.
+
+   The member's side is not frozen. It is read from the member record each
+   time, so a privacy erasure, which pseudonymises that record, also
+   pseudonymises every invoice printed afterwards, as the retention policy
+   promises. An append-only copy of a name and street address would have been
+   the one place erasure could not reach.
 
    The figures are never recomputed here. Taxable value, tax and total come
    from the invoice lines as charged; CGST and SGST are a split of the tax each
@@ -37,7 +44,6 @@ export interface TaxDocumentSnapshot {
     stateCode: string | null;
     stateName: string | null;
   };
-  recipient: { name: string; memberNo: string; address: string | null };
   /**
    * Always intra-state today: members are billed as unregistered persons at
    * the branch they train in, and the system records no recipient GSTIN that
@@ -64,7 +70,6 @@ function issuingGstin(taxProfile: unknown, currency: string) {
 export function taxDocumentFor(args: {
   tenant: TenantIdentity;
   branch: { addressLine: string; city: string };
-  member: { firstName: string; lastName: string; memberNo: string; addressLine: string | null };
   currency: string;
   lines: Array<{ id: string }>;
   /** The code every line carries: the fitness SAC for services, null for a shop basket. */
@@ -87,11 +92,6 @@ export function taxDocumentFor(args: {
       stateCode: state?.stateCode ?? null,
       stateName: state?.stateName ?? null,
     },
-    recipient: {
-      name: `${args.member.firstName} ${args.member.lastName}`.trim(),
-      memberNo: args.member.memberNo,
-      address: args.member.addressLine?.trim() || null,
-    },
     interState: false,
     placeOfSupply: state,
     lineCodes: Object.fromEntries(args.lines.map((line) => [line.id, args.lineCode])),
@@ -105,8 +105,10 @@ export function taxDocumentFor(args: {
 export function recordTaxDocument(tenantId: string, invoiceId: string, lineCode: string | null): void {
   const invoice = db.select().from(schema.invoices).where(and(eq(schema.invoices.tenantId, tenantId), eq(schema.invoices.id, invoiceId))).get();
   if (!invoice) throw notFound('That invoice');
+  const { tenant, branch } = identityFor(tenantId, invoice);
   const document = taxDocumentFor({
-    ...identityFor(tenantId, invoice),
+    tenant,
+    branch,
     currency: invoice.currency,
     lines: db.select({ id: schema.invoiceLines.id }).from(schema.invoiceLines).where(eq(schema.invoiceLines.invoiceId, invoiceId)).all(),
     lineCode,
@@ -130,17 +132,38 @@ function identityFor(tenantId: string, invoice: typeof schema.invoices.$inferSel
   return { tenant, branch, member };
 }
 
+/** An invoice raised before tax documents existed: today's supplier details,
+ *  printed as a plain invoice, because nothing records what it was issued under. */
+function legacyDocument(
+  identity: ReturnType<typeof identityFor>,
+  invoice: typeof schema.invoices.$inferSelect,
+  lines: Array<{ id: string }>,
+): TaxDocumentSnapshot {
+  const today = taxDocumentFor({
+    tenant: identity.tenant,
+    branch: identity.branch,
+    currency: invoice.currency,
+    lines,
+    lineCode: invoice.refType === 'pos_order' ? null : FITNESS_SERVICE_CODE,
+  });
+  return { ...today, kind: 'invoice', supplier: { ...today.supplier, gstin: null, stateCode: null, stateName: null }, placeOfSupply: null };
+}
+
 /* ——— Reading ————————————————————————————————————————— */
 
-/** What an invoice prints as, for a link label, without building the document. */
-export function taxDocumentKind(tenantId: string, invoice: { id: string; currency: string }): { kind: TaxDocumentSnapshot['kind']; title: string } {
+/**
+ * What an invoice prints as, for a link label, without building the document.
+ * One raised before tax documents were recorded is a plain invoice: nothing
+ * records the GSTIN it was raised under, so it is never re-issued as an
+ * original tax invoice under today's.
+ */
+export function taxDocumentKind(tenantId: string, invoice: { id: string }): { kind: TaxDocumentSnapshot['kind']; title: string } {
   const stored = db
     .select({ kind: schema.invoiceTaxDocuments.kind })
     .from(schema.invoiceTaxDocuments)
     .where(and(eq(schema.invoiceTaxDocuments.tenantId, tenantId), eq(schema.invoiceTaxDocuments.invoiceId, invoice.id)))
     .get();
-  const tenant = stored ? null : db.select({ taxProfile: schema.tenants.taxProfile }).from(schema.tenants).where(eq(schema.tenants.id, tenantId)).get();
-  const kind = (stored?.kind as TaxDocumentSnapshot['kind'] | undefined) ?? (issuingGstin(tenant?.taxProfile, invoice.currency) ? 'gst_tax_invoice' : 'invoice');
+  const kind = (stored?.kind as TaxDocumentSnapshot['kind'] | undefined) ?? 'invoice';
   return { kind, title: kind === 'gst_tax_invoice' ? 'Tax invoice' : 'Invoice' };
 }
 
@@ -162,6 +185,8 @@ export interface TaxInvoiceLine {
 export interface TaxInvoiceRecord {
   invoice: typeof schema.invoices.$inferSelect;
   document: TaxDocumentSnapshot;
+  /** Read from the member record now, so erasure reaches it. */
+  recipient: { name: string; memberNo: string; address: string | null };
   /** True for an invoice raised before tax documents were recorded. */
   legacy: boolean;
   title: string;
@@ -180,9 +205,13 @@ export function taxInvoiceRecord(tenantId: string, invoiceId: string): TaxInvoic
   const lines = db.select().from(schema.invoiceLines).where(eq(schema.invoiceLines.invoiceId, invoice.id)).orderBy(asc(schema.invoiceLines.id)).all();
   const stored = db.select().from(schema.invoiceTaxDocuments).where(and(eq(schema.invoiceTaxDocuments.tenantId, tenantId), eq(schema.invoiceTaxDocuments.invoiceId, invoice.id))).get();
   const legacy = !stored;
-  const document = stored
-    ? (stored.document as unknown as TaxDocumentSnapshot)
-    : taxDocumentFor({ ...identityFor(tenantId, invoice), currency: invoice.currency, lines, lineCode: invoice.refType === 'pos_order' ? null : FITNESS_SERVICE_CODE });
+  const identity = identityFor(tenantId, invoice);
+  const document = stored ? (stored.document as unknown as TaxDocumentSnapshot) : legacyDocument(identity, invoice, lines);
+  const recipient = {
+    name: `${identity.member.firstName} ${identity.member.lastName}`.trim(),
+    memberNo: identity.member.memberNo,
+    address: identity.member.addressLine?.trim() || null,
+  };
 
   const rows: TaxInvoiceLine[] = lines.map((line) => {
     const split = splitGst(line.taxMinor, line.taxRateBp, document.interState);
@@ -218,6 +247,7 @@ export function taxInvoiceRecord(tenantId: string, invoiceId: string): TaxInvoic
   return {
     invoice,
     document,
+    recipient,
     legacy,
     title: document.kind === 'gst_tax_invoice' ? 'Tax invoice' : 'Invoice',
     financialYear: financialYear(invoice.issuedOn),
@@ -248,10 +278,11 @@ function notices(record: TaxInvoiceRecord): string[] {
   const { invoice, document } = record;
   return [
     invoice.voided ? `CANCELLED${invoice.voidReason ? `: ${clean(invoice.voidReason)}` : ''}` : '',
-    document.kind === 'invoice' && invoice.currency === 'INR'
-      ? 'Not a GST tax invoice: no valid GSTIN was configured when this invoice was raised.'
-      : '',
-    record.legacy ? 'Raised before tax-invoice details were recorded. Supplier and member details shown are current, not as at issuance.' : '',
+    record.legacy
+      ? 'Raised before tax-invoice details were recorded, so it is not issued as a GST tax invoice. Supplier details shown are current, not as at issuance.'
+      : document.kind === 'invoice' && invoice.currency === 'INR'
+        ? 'Not a GST tax invoice: no valid GSTIN was configured when this invoice was raised.'
+        : '',
     invoice.refundedMinor > 0
       ? 'Refunds are recorded against payments. This system does not issue GST credit notes; raise one in your accounts if a refund reduces the taxable value.'
       : '',
@@ -276,8 +307,8 @@ export function taxInvoiceText(record: TaxInvoiceRecord): string {
     `Invoice number: ${invoice.number}`,
     `Invoice date: ${invoice.issuedOn} (financial year ${record.financialYear})`,
     `Due: ${invoice.dueOn}`,
-    `Billed to: ${clean(document.recipient.name)} (${clean(document.recipient.memberNo)})`,
-    `Address: ${document.recipient.address ? clean(document.recipient.address) : 'Not recorded'}`,
+    `Billed to: ${clean(record.recipient.name)} (${clean(record.recipient.memberNo)})`,
+    `Address: ${record.recipient.address ? clean(record.recipient.address) : 'Not recorded'}`,
     ...(gst ? [`Place of supply: ${state(document.placeOfSupply)}`, 'Tax payable on reverse charge: No'] : []),
     '',
     ...record.lines.map((line, i) => {
@@ -362,9 +393,9 @@ ${party('Supplier', [
     : document.supplier.registrationNumber ? `Registration ${document.supplier.registrationNumber}` : 'No registration recorded',
 ])}
 ${party('Billed to', [
-  document.recipient.name,
-  `Member ${document.recipient.memberNo}`,
-  document.recipient.address ?? 'Address not recorded',
+  record.recipient.name,
+  `Member ${record.recipient.memberNo}`,
+  record.recipient.address ?? 'Address not recorded',
   ...(gst ? [`Place of supply: ${document.placeOfSupply ? `${document.placeOfSupply.stateName} (${document.placeOfSupply.stateCode})` : 'Not stated'}`, 'Reverse charge: No'] : []),
 ])}
 </div>

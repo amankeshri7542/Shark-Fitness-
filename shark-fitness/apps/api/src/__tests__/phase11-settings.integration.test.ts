@@ -224,6 +224,18 @@ describe('PF-TEN-001 — the business profile', () => {
       expect((await patch(owner, '/v1/admin/settings/business', gst('29ABCDE1234F1ZW'))).status).toBe(200);
     });
 
+    it('leaves a GST number alone outside India, where GST is not a GSTIN', async () => {
+      // Australia, New Zealand, Singapore and Canada also print "GST".
+      const t = db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId())).get()!;
+      db.update(schema.tenants).set({ currency: 'AUD' }).where(eq(schema.tenants.id, t.id)).run();
+      try {
+        const res = await patch(owner, '/v1/admin/settings/business', gst('51 824 753 556'));
+        expect(res.status).toBe(200);
+      } finally {
+        db.update(schema.tenants).set({ currency: t.currency, taxProfile: t.taxProfile as never }).where(eq(schema.tenants.id, t.id)).run();
+      }
+    });
+
     it('refuses an invoice prefix that would push a number past 16 characters', async () => {
       const res = await patch(owner, '/v1/admin/settings/business', gst('29ABCDE1234F1ZW', { invoicePrefix: 'SHARKF' }));
       expect(res.status).toBe(422);

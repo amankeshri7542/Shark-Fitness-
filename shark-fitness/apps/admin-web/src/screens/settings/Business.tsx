@@ -66,7 +66,8 @@ export default function Business({ canManage }: { canManage: boolean }) {
   };
   // Checked as it is typed, with the same rule the server applies on save, so a
   // typo is caught here rather than on a tax invoice a member has filed.
-  const isGst = taxDraft.label.trim().toUpperCase() === 'GST';
+  // Indian GSTINs only: Australia, New Zealand, Singapore and Canada also say GST.
+  const isGst = taxDraft.label.trim().toUpperCase() === 'GST' && draft.currency.trim().toUpperCase() === 'INR';
   const gstin = isGst && taxDraft.registrationNumber.trim() ? parseGstin(taxDraft.registrationNumber) : null;
   // Older profiles may say prices include tax. Nothing ever read that: every
   // invoice has added tax to the catalogue price. Saving records what happens.
