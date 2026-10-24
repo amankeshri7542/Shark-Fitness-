@@ -12,3 +12,6 @@ data/*.db-wal
 coverage/
 playwright-report/
 test-results/
+
+# Postman suite output: holds live session tokens for the demo accounts
+scripts/postman/out/
