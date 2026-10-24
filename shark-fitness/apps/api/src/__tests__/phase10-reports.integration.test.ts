@@ -332,7 +332,12 @@ describe('PF-RPT edge case — a currency change inside the range', () => {
   it('reports each currency separately and refuses to state one total', async () => {
     const branch = branches()[0]!;
     const day = '2018-06-12';
-    const inr = paidInvoice(branch.id, day, branch.timezone, 'INR', 120_000);
+    // Two rupee invoices to one dirham: the series is drawn in the currency
+    // with the most invoices, so the rupee line is the expected one.
+    const inr = [
+      paidInvoice(branch.id, day, branch.timezone, 'INR', 120_000),
+      paidInvoice(branch.id, day, branch.timezone, 'INR', 80_000),
+    ];
     const aed = paidInvoice(branch.id, day, branch.timezone, 'AED', 50_000);
     // try/finally: a stray AED row left behind by a failed assertion turns
     // every later revenue read over this day into a mixed-currency answer.
@@ -355,7 +360,7 @@ describe('PF-RPT edge case — a currency change inside the range', () => {
       // The series still has to be one currency to be a line, and says which.
       expect(body.seriesCurrency).toBe('INR');
     } finally {
-      forget([inr, aed], day);
+      forget([...inr, aed], day);
     }
   });
 

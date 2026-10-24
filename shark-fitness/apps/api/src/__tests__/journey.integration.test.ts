@@ -124,14 +124,11 @@ describe('journey · 1 · a lead walks in', () => {
 /* ——— 2. Member ————————————————————————————————————————— */
 
 describe('journey · 2 · the lead converts to a member', () => {
-  it('cannot be converted straight from new — the pipeline is the pipeline', async () => {
-    // "Won" is reachable only through a trial that completed. A lead that
-    // jumps from a walk-in to a member is a member nobody qualified.
-    const res = await post(reception, `/v1/admin/leads/${journey.leadId}/convert`, {});
-    expect(res.status).toBe(409);
-  });
-
-  it('reception cannot fake the last step either', async () => {
+  // A walk-in who pays on the spot may convert from any open stage (#20), so
+  // this journey no longer asserts a refusal from `new`; leads.integration
+  // covers that rule. What still holds is that `won` is reachable only through
+  // /convert, never by a bare stage change.
+  it('reception cannot fake the last step', async () => {
     const res = await post(reception, `/v1/admin/leads/${journey.leadId}/stage`, { to: 'won' });
     expect(res.status).toBe(409);
   });
