@@ -76,6 +76,18 @@ describe('booking eligibility', () => {
     expect(r.reason).toContain('Free cancellation');
   });
 
+  it('states the cancellation deadline in the branch time zone, not the server one', () => {
+    const r = evaluateEligibility({
+      ...base,
+      alreadyBooked: true,
+      now: at('2026-08-05T00:00:00Z'),
+      cancelDeadlineAt: at('2026-08-05T23:00:00Z'),
+      timeZone: 'Asia/Kolkata',
+    });
+    // 23:00 UTC is 04:30 the next morning in Bengaluru.
+    expect(r.reason).toBe('Booked. Free cancellation until 04:30.');
+  });
+
   it('warns that cancelling is now late once the deadline has passed', () => {
     const r = evaluateEligibility({
       ...base,

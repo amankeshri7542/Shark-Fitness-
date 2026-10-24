@@ -90,6 +90,10 @@ function idleEntitledMember(branchId: string): { id: string; memberNo: string } 
         eq(schema.members.homeBranchId, branchId),
         isNull(schema.members.deletedAt),
         eq(schema.memberships.state, 'active'),
+        // Off-peak plans refuse entry outside their window, which would make
+        // these tests depend on the CI runner's clock like branch hours did.
+        sql`json_extract(${schema.memberships.productSnapshot}, '$.access.windowStartMin') is null`,
+        sql`json_extract(${schema.memberships.productSnapshot}, '$.access.windowEndMin') is null`,
         sql`not exists (
           select 1 from invoices i
           where i.member_id = ${schema.members.id}

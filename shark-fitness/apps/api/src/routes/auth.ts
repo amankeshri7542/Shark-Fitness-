@@ -29,10 +29,10 @@ authRoutes.get('/tenants', (c) => {
   return c.json({ items: rows });
 });
 
-authRoutes.post('/otp/start', rateLimit(10, 60_000), validate('json', StartOtpInput), (c) => {
+authRoutes.post('/otp/start', rateLimit(10, 60_000), validate('json', StartOtpInput), async (c) => {
   const body = c.req.valid('json');
   return c.json(
-    startOtp({
+    await startOtp({
       identifier: body.identifier,
       ...(body.tenantSlug ? { tenantSlug: body.tenantSlug } : {}),
       ip: clientIp(c),
