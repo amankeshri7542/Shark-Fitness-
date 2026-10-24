@@ -6,7 +6,7 @@ import { BillingCadence, ProductKind, RecordPaymentInput, type Product } from '@
 import { dunningPlan, formatMoney } from '@shark/domain';
 import { db, schema, transact } from '../../db/client.js';
 import { ctxOf } from '../../middleware/index.js';
-import { requireBranch, requirePermission } from '../../lib/context.js';
+import { branchScope, requireBranch, requirePermission } from '../../lib/context.js';
 import { audit } from '../../lib/audit.js';
 import { conflict, invalid, notFound, precondition } from '../../lib/errors.js';
 import { id } from '../../lib/ids.js';
@@ -221,7 +221,7 @@ billingRoutes.post('/products/:productId/duplicate', (c) => {
 billingRoutes.get('/summary', (c) => {
   const ctx = ctxOf(c);
   requirePermission(ctx, 'billing.view');
-  const scope = ctx.activeBranchId ? [ctx.activeBranchId] : ctx.branchIds;
+  const scope = branchScope(ctx);
   const monthStart = new Date(now());
   monthStart.setUTCDate(1);
   monthStart.setUTCHours(0, 0, 0, 0);
@@ -273,7 +273,7 @@ billingRoutes.get('/invoices', validate('query', InvoiceListQuery), (c) => {
   const ctx = ctxOf(c);
   requirePermission(ctx, 'billing.view');
   const q = c.req.valid('query');
-  const scope = ctx.activeBranchId ? [ctx.activeBranchId] : ctx.branchIds;
+  const scope = branchScope(ctx);
 
   const filters = [eq(schema.invoices.tenantId, ctx.tenantId), inArray(schema.invoices.branchId, scope)];
   if (q.state) filters.push(eq(schema.invoices.state, q.state));
@@ -473,7 +473,7 @@ billingRoutes.post('/webhooks/demo', validate('json', DemoWebhookBody), (c) => {
 billingRoutes.get('/dunning', (c) => {
   const ctx = ctxOf(c);
   requirePermission(ctx, 'billing.view');
-  const scope = ctx.activeBranchId ? [ctx.activeBranchId] : ctx.branchIds;
+  const scope = branchScope(ctx);
 
   const rows = db
     .select({

@@ -17,6 +17,7 @@ import {
   Panel,
   RowOpen,
   Segmented,
+  SelectField,
   Skeleton,
   TD,
   TH,
@@ -889,6 +890,11 @@ function Rupees({ label, value, onChange }: { label: string; value: number; onCh
   );
 }
 
+/* The shared control, with this drawer's one convention on top: a supplier or
+   a group is optional, so the empty value is offered as "None" rather than an
+   invisible blank row. It used to be a hand-rolled label and select with its
+   own border, its own 9px label and its own control height — a second design
+   system in one drawer. */
 function Select({
   label,
   value,
@@ -902,26 +908,13 @@ function Select({
   options: Array<{ value: string; label: string }>;
   hint?: string;
 }) {
-  const id = `sf_${label.replace(/\W+/g, '_').toLowerCase()}`;
   return (
-    <div className="flex min-w-0 flex-col gap-1">
-      <label htmlFor={id} className="font-utility text-[9px] uppercase tracking-[0.14em] text-foam-45">
-        {label}
-      </label>
-      <select
-        id={id}
-        className="min-h-9 border border-line bg-panel px-2 text-[13px] text-foam"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        <option value="">None</option>
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-      {hint ? <p className="text-[10px] leading-snug text-foam-35">{hint}</p> : null}
-    </div>
+    <SelectField
+      label={label}
+      hint={hint}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      options={[{ value: '', label: 'None' }, ...options]}
+    />
   );
 }

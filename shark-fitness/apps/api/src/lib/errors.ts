@@ -36,7 +36,11 @@ export const forbidden = (why = 'You do not have access to this.') => new AppErr
 export const unauthenticated = () =>
   new AppError('UNAUTHENTICATED', 'Sign in to continue.');
 
-export const conflict = (why: string) => new AppError('CONFLICT', why);
+/** `details` carries machine-readable context the console renders — the
+ *  consequences of a settings change, for instance. It travels in the error
+ *  envelope, so a client can show exactly what it is being asked to confirm. */
+export const conflict = (why: string, details?: Record<string, unknown>) =>
+  new AppError('CONFLICT', why, details ? { details } : {});
 
 export const invalid = (why: string, fields?: FieldError[]) =>
   new AppError('VALIDATION_FAILED', why, fields ? { fields } : {});

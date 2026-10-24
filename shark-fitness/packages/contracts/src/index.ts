@@ -10,3 +10,6 @@ export * from './schemas/engagement.js';
 export * from './schemas/ops.js';
 export * from './schemas/pos.js';
 export * from './schemas/support.js';
+export * from './schemas/reports.js';
+export * from './schemas/settings.js';
+export * from './schemas/platform.js';

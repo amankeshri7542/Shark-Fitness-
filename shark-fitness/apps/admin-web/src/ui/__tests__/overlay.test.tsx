@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-import { ConfirmDialog, Drawer } from '../overlay';
+import { ConfirmDialog, Drawer, Modal } from '../overlay';
 
 /* The Store puts every detail view and every irreversible action behind one of
    these two surfaces, so their keyboard behaviour is the module's keyboard
@@ -164,5 +164,188 @@ describe('ConfirmDialog', () => {
 
     expect(screen.getByRole('button', { name: 'Working…' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Keep it' })).toBeDisabled();
+  });
+});
+
+/* ============================================================================
+   Modal.
+
+   Eighteen dialogs across Leads, Billing, Plans, Staff, Training, Equipment
+   and the member record were hand-built before this existed. Every one of them
+   set `aria-modal="true"` — telling assistive technology the rest of the page
+   was inert — and not one trapped focus, restored it, or closed on Escape. A
+   keyboard user tabbed out of the dialog into the page behind it with no way
+   back. These are the guarantees that migration was for.
+   ========================================================================= */
+
+describe('Modal', () => {
+  it('is a labelled modal dialog', () => {
+    render(
+      <Modal open onClose={() => undefined} title="New lead">
+        <p>Body</p>
+      </Modal>,
+    );
+
+    expect(screen.getByRole('dialog', { name: 'New lead' })).toHaveAttribute('aria-modal', 'true');
+  });
+
+  it('moves focus onto the panel on open, so its name is announced first', () => {
+    render(
+      <Modal open onClose={() => undefined} title="New lead">
+        <button type="button">Inside</button>
+      </Modal>,
+    );
+
+    expect(screen.getByRole('dialog', { name: 'New lead' })).toHaveFocus();
+  });
+
+  it('closes on Escape', async () => {
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <Modal open onClose={onClose} title="New lead">
+        <button type="button">Inside</button>
+      </Modal>,
+    );
+
+    await user.keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps Tab inside the panel rather than letting it escape to the page behind', async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <button type="button">Behind</button>
+        <Modal open onClose={() => undefined} title="New lead" footer={<button type="button">Save</button>}>
+          <button type="button">Inside</button>
+        </Modal>
+      </>,
+    );
+
+    // Round the whole panel twice. "Behind" is outside the dialog and must
+    // never receive focus — that was the defect in all eighteen originals.
+    for (let press = 0; press < 6; press += 1) {
+      await user.tab();
+      expect(screen.getByRole('button', { name: 'Behind' })).not.toHaveFocus();
+    }
+  });
+
+  it('gives focus back to whatever opened it', async () => {
+    const user = userEvent.setup();
+
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Open
+          </button>
+          {open ? (
+            <Modal open onClose={() => setOpen(false)} title="New lead">
+              <p>Body</p>
+            </Modal>
+          ) : null}
+        </>
+      );
+    }
+
+    render(<Harness />);
+    const opener = screen.getByRole('button', { name: 'Open' });
+    await user.click(opener);
+    await user.keyboard('{Escape}');
+
+    // Without this the operator is dumped at the top of the document and has
+    // to tab back down to where they were.
+    expect(opener).toHaveFocus();
+  });
+
+  it('gives focus back even when the dialog autofocuses a field', async () => {
+    // The case the plain restore test above cannot see, and the shape almost
+    // every real dialog has. React applies `autoFocus` during the commit,
+    // before any effect runs, so an effect asking "what had focus?" was told
+    // "this field, inside the dialog" — and restoring to it after the dialog
+    // was gone dropped the keyboard user on `<body>` at the top of the page.
+    const user = userEvent.setup();
+
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Add equipment
+          </button>
+          {open ? (
+            <Modal
+              open
+              onClose={() => setOpen(false)}
+              title="Add equipment"
+              footer={<button type="button">Save</button>}
+            >
+              {/* Every one of Equipment's, Training's and Leads' dialogs. */}
+              <input aria-label="Name" autoFocus />
+            </Modal>
+          ) : null}
+        </>
+      );
+    }
+
+    render(<Harness />);
+    const opener = screen.getByRole('button', { name: 'Add equipment' });
+    await user.click(opener);
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
+  });
+
+  it('does not strand focus when the control that opened it has gone', async () => {
+    // A row action whose row this dialog just removed. There is nothing to go
+    // back to, and focusing a detached node is worse than not trying.
+    const user = userEvent.setup();
+
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      const [rowThere, setRowThere] = useState(true);
+      return (
+        <>
+          {rowThere ? (
+            <button type="button" onClick={() => setOpen(true)}>
+              Delete row
+            </button>
+          ) : null}
+          {open ? (
+            <Modal
+              open
+              onClose={() => {
+                setRowThere(false);
+                setOpen(false);
+              }}
+              title="Delete row"
+            >
+              <p>Body</p>
+            </Modal>
+          ) : null}
+        </>
+      );
+    }
+
+    render(<Harness />);
+    await user.click(screen.getByRole('button', { name: 'Delete row' }));
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete row' })).not.toBeInTheDocument();
+  });
+
+  it('renders nothing at all when closed', () => {
+    render(
+      <Modal open={false} onClose={() => undefined} title="New lead">
+        <p>Body</p>
+      </Modal>,
+    );
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 });

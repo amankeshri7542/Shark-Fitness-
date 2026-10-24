@@ -90,7 +90,7 @@ export default function TicketDrawer({
     onError: (e) =>
       setError(
         e instanceof OfflineError
-          ? 'No connection. Nothing was sent — the member has not seen anything.'
+          ? 'No connection. If the reply was sent, pressing send again will not send it twice.'
           : e instanceof ApiError
             ? e.message
             : 'The reply did not send.',

@@ -1,6 +1,7 @@
 import type { Context, MiddlewareHandler, Next } from 'hono';
 import { getCookie } from 'hono/cookie';
 import { ZodError } from 'zod';
+import { can } from '@shark/domain';
 import { AppError } from '../lib/errors.js';
 import { id } from '../lib/ids.js';
 import { SESSION_COOKIE } from '../lib/security.js';
@@ -103,8 +104,26 @@ export const authenticate: MiddlewareHandler = async (c, next) => {
   if (!ctx) throw new AppError('UNAUTHENTICATED', 'Your session has ended. Sign in again.');
   ctx.authMethod = bearer ? 'bearer' : 'cookie';
 
-  const requested = c.req.header('x-branch-id');
-  if (requested && ctx.branchIds.includes(requested)) ctx.activeBranchId = requested;
+  // The branch switcher, and the only thing that narrows a request.
+  //
+  // Absent or empty means *no selection* — the request covers every branch the
+  // caller may see. It must not fall back to a default branch: the console
+  // says "All branches" precisely by sending nothing, and a server-side
+  // default turns that label into a lie.
+  //
+  // Present but outside the caller's entitlement is refused here rather than
+  // ignored. Ignoring it was the tempting reading and it is worse than an
+  // error: the client asked about one branch and would be handed another
+  // branch's figures under the first one's heading. A branch id the caller
+  // does not hold is refused identically whether or not it exists, so this
+  // leaks nothing about the tenant's shape.
+  const requested = c.req.header('x-branch-id')?.trim();
+  if (requested) {
+    if (!ctx.branchIds.includes(requested)) {
+      throw new AppError('FORBIDDEN', 'You do not have access to this branch.');
+    }
+    ctx.activeBranchId = requested;
+  }
 
   ctx.requestId = c.get('requestId') ?? ctx.requestId;
   c.set('ctx', ctx);
@@ -116,6 +135,47 @@ export const staffOnly: MiddlewareHandler = async (c, next) => {
   if (ctx.role === 'member') throw new AppError('FORBIDDEN', 'This area is for gym staff.');
   await next();
 };
+
+/**
+ * The gate on every platform route (PF-PLAT-004, PF-PLAT-006).
+ *
+ * Three refusals, and the order matters.
+ *
+ * **An impersonated session is refused outright**, whoever it is impersonating.
+ * Support borrows a gym owner's view to answer a ticket; it must not be able to
+ * use that borrowed session to re-enter the tooling their own role withholds,
+ * and asking "but is the *impersonated* role allowed?" is the question that
+ * gets this wrong the day support enters another operator's account. The
+ * session's permissions are stripped as well (`resolveSession`) — this is the
+ * door, that is the lock.
+ *
+ * **A tenant role is refused** however senior. An owner is the most powerful
+ * person inside one gym and has no standing over anybody else's.
+ *
+ * **Then, and only then, the permission is checked.**
+ *
+ * Cross-tenant reads exist nowhere else in this product. Every other service
+ * filters on `ctx.tenantId`; the platform service is the single place allowed
+ * to look past it, and this middleware is what makes that safe to say.
+ */
+export function platformOnly(permission: 'platform.admin' | 'platform.impersonate'): MiddlewareHandler {
+  return async (c, next) => {
+    const ctx = ctxOf(c);
+
+    if (ctx.impersonatorId) {
+      throw new AppError('FORBIDDEN', 'Platform tools are not available inside a support session. End it first.');
+    }
+    if (ctx.role !== 'platform_admin' && ctx.role !== 'platform_support') {
+      // Deliberately the same answer a wrong permission gets: whether this
+      // deployment has a platform console at all is not a tenant's business.
+      throw new AppError('FORBIDDEN', 'Your role does not include this action.');
+    }
+    if (!can(ctx.role, permission)) {
+      throw new AppError('FORBIDDEN', 'Your role does not include this action.');
+    }
+    await next();
+  };
+}
 
 export const memberOnly: MiddlewareHandler = async (c, next) => {
   const ctx = ctxOf(c);

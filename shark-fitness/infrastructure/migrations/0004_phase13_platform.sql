@@ -1,0 +1,1 @@
+ALTER TABLE `tenants` ADD `kind` text DEFAULT 'customer' NOT NULL;

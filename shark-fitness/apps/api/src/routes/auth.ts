@@ -81,7 +81,14 @@ authRoutes.get('/session', authenticate, (c) => {
   return c.json({ viewer: viewerFor(ctxOf(c).userId) });
 });
 
-function setBrowserSession(c: Parameters<typeof setCookie>[0], rawToken: string): string {
+/**
+ * Writes the browser session cookie and issues a matching CSRF token.
+ *
+ * Exported because starting a support session swaps the cookie for a borrowed
+ * one, and it must carry exactly the same flags — a second hand-rolled
+ * `Set-Cookie` that quietly forgot `httpOnly` would be a real hole.
+ */
+export function setBrowserSession(c: Parameters<typeof setCookie>[0], rawToken: string): string {
   setCookie(c, SESSION_COOKIE, rawToken, {
     httpOnly: true,
     sameSite: 'Lax',

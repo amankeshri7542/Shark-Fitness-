@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray, like, notInArray, or, sql } from 'drizzle-orm';
 import { channels, type EquipmentStatus } from '@shark/contracts';
 import { db, schema, transact } from '../db/client.js';
-import { requireBranch, type RequestContext } from '../lib/context.js';
+import { branchScope, isAllBranches, requireBranch, type RequestContext } from '../lib/context.js';
 import { audit } from '../lib/audit.js';
 import { emit } from '../lib/events.js';
 import { forbidden, invalid, notFound } from '../lib/errors.js';
@@ -44,9 +44,18 @@ const MANAGEMENT_ROLES = ['owner', 'regional_manager', 'branch_manager', 'platfo
 
 /* ------------------------------------------------------------------ scope */
 
+/**
+ * Which branches a facility read covers.
+ *
+ * `branchScope` is the shared rule — no selection means every branch the
+ * caller may see. Facility keeps its own 404 for an unheld branch named in the
+ * query rather than the shared 403: an equipment filter names a branch the
+ * operator picked off their own list, and a "not found" is the honest answer
+ * for a board that does not exist for them.
+ */
 export function scopeFor(ctx: RequestContext, branchId?: string): string[] {
   if (branchId && !ctx.branchIds.includes(branchId)) throw notFound('That branch');
-  return branchId ? [branchId] : ctx.activeBranchId ? [ctx.activeBranchId] : ctx.branchIds;
+  return branchScope(ctx, branchId ?? null);
 }
 
 function assertActiveBranch(ctx: RequestContext, branchId: string): void {
@@ -456,7 +465,7 @@ export function facilityView(ctx: RequestContext, query: FacilityListQuery) {
   const equipmentById = new Map(allEquipment.map((row) => [row.id, row]));
 
   return {
-    scope: { branchIds: scope, branchNames: scope.map((branchId) => branches.get(branchId) ?? branchId), allBranches: !ctx.activeBranchId && !query.branchId },
+    scope: { branchIds: scope, branchNames: scope.map((branchId) => branches.get(branchId) ?? branchId), allBranches: isAllBranches(ctx, query.branchId) },
     metrics: computeMetrics(allEquipment, allWorkOrders, allTasks),
     equipment: equipmentRows.map((row) => toEquipment(row, allWorkOrders, branches.get(row.branchId) ?? row.branchId)),
     workOrders: workOrderRows.map((row) => toWorkOrder(ctx, row, equipmentById, branches.get(row.branchId) ?? row.branchId, names)),

@@ -3,6 +3,8 @@ import { channels } from '@shark/contracts';
 import { deriveState } from '@shark/domain';
 import { db, schema, transact } from '../db/client.js';
 import { emit } from '../lib/events.js';
+import { runDueAutomations } from '../services/automations.js';
+import { rollUpCompletedDays } from '../services/reports.js';
 import { HOUR, MINUTE, isoDate, now } from '../lib/time.js';
 
 /**
@@ -180,8 +182,42 @@ function releaseExpiredHolds(): void {
   }
 }
 
+/**
+ * Keep the report rollups warm (PF-RPT-006).
+ *
+ * Reports materialise any day they need on demand, so this is not what makes
+ * them correct — it is what stops the first person to open Reports on a Monday
+ * paying for a whole quarter's scan. The last few days are recomputed rather
+ * than only the newest, because a day can still gain a late refund or a
+ * corrected booking after it has ended.
+ */
+function rollUpMetrics(): void {
+  for (const tenant of db.select({ id: schema.tenants.id }).from(schema.tenants).all()) {
+    rollUpCompletedDays(tenant.id, 3);
+  }
+}
+
+/**
+ * Fire the automations that are due (PF-COMM-004).
+ *
+ * On the existing scheduler rather than a timer of its own. A second scheduler
+ * is a second thing to reason about when a member is messaged twice, and the
+ * answer to "which one fired?" should never be "both".
+ *
+ * Hourly, not by the minute: every trigger this product has is a daily or
+ * per-occurrence event, and the suppression that matters — quiet hours — is
+ * measured in hours. A minute-by-minute sweep would scan every member sixty
+ * times an hour to change nothing.
+ */
+function runAutomations(): void {
+  const { ran, sent } = runDueAutomations();
+  if (ran > 0) console.log(`[jobs] automations ran ${ran}, sent ${sent}`);
+}
+
 const JOBS: Job[] = [
+  { name: 'run-automations', everyMs: HOUR, run: runAutomations },
   { name: 'expire-memberships', everyMs: 6 * HOUR, run: expireMemberships },
+  { name: 'roll-up-metrics', everyMs: 6 * HOUR, run: rollUpMetrics },
   { name: 'close-stale-check-ins', everyMs: 30 * MINUTE, run: closeStaleCheckIns },
   { name: 'expire-waitlist-offers', everyMs: MINUTE, run: expireWaitlistOffers },
   { name: 'release-expired-holds', everyMs: MINUTE, run: releaseExpiredHolds },
@@ -206,5 +242,10 @@ export function startScheduler(): void {
   }
   console.log(`[jobs] ${JOBS.length} scheduled`);
 }
+
+/** What is scheduled, for the platform health surface (PF-PLAT-003). A job
+ *  list nobody can see is a job list nobody notices has stopped. */
+export const scheduledJobs = (): Array<{ name: string; everyMinutes: number }> =>
+  JOBS.map((job) => ({ name: job.name, everyMinutes: Math.round(job.everyMs / MINUTE) }));
 
 export const jobsForTest = { expireMemberships, closeStaleCheckIns, expireWaitlistOffers, releaseExpiredHolds };

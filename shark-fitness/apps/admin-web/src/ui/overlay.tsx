@@ -21,13 +21,62 @@ const FOCUSABLE = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(',');
 
+/* ——— Who to give focus back to ————————————————————————————— */
+
+/**
+ * The last thing focused outside an overlay.
+ *
+ * Tracked continuously rather than read when a panel opens, because by then
+ * the answer is already wrong. Most of these dialogs carry an `autoFocus`
+ * field, and React applies `autoFocus` during the commit — before any effect
+ * runs. An effect reading `document.activeElement` therefore saw a field
+ * *inside* the dialog, and closing restored focus to a node that had just been
+ * removed from the document, which the browser answers by focusing `<body>`.
+ *
+ * The symptom: press Escape on any dialog and a keyboard user was returned to
+ * the top of the page rather than to the control they opened it from — the
+ * exact failure the trap exists to prevent, in the one direction nobody had
+ * watched, because focus does move correctly on the way *in*.
+ *
+ * A capture-phase `focusin` listener sees every focus change in order, so
+ * skipping the ones landing inside a panel leaves the opener standing.
+ */
+let lastFocusOutsideOverlay: HTMLElement | null = null;
+
+if (typeof document !== 'undefined') {
+  document.addEventListener(
+    'focusin',
+    (event) => {
+      const target = event.target as HTMLElement | null;
+      if (!target || typeof target.closest !== 'function') return;
+      if (target.closest('[data-overlay-panel]')) return;
+      lastFocusOutsideOverlay = target;
+    },
+    true,
+  );
+}
+
+const openerBeforeOverlay = (): HTMLElement | null =>
+  lastFocusOutsideOverlay && lastFocusOutsideOverlay !== document.body ? lastFocusOutsideOverlay : null;
+
 /**
  * Focus containment for a modal surface.
  *
- * Returns a ref for the panel. On mount it remembers what had focus, moves
- * focus inside, and on unmount puts it back — including when the element that
- * opened the panel has since been re-rendered, which is why the restore target
- * is captured rather than looked up again.
+ * Returns a ref for the panel. On open it remembers what had focus, moves
+ * focus inside, and on close puts it back.
+ *
+ * The remembering happens **during render**, not in an effect, and that is the
+ * whole subtlety. Most of these dialogs carry an `autoFocus` field, and React
+ * applies `autoFocus` in the commit phase — before any effect runs. An effect
+ * reading `document.activeElement` therefore did not see the button that
+ * opened the dialog; it saw a field *inside* the dialog. Closing then restored
+ * focus to a node that had just been removed from the document, which the
+ * browser answers by focusing `<body>`.
+ *
+ * The visible symptom: press Escape on any dialog and the keyboard user is
+ * returned to the top of the page rather than to the control they opened it
+ * from — the exact failure the trap exists to prevent, in the one path nobody
+ * had watched because focus *did* move correctly on the way in.
  */
 function useFocusTrap(open: boolean, onClose: () => void) {
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -44,7 +93,7 @@ function useFocusTrap(open: boolean, onClose: () => void) {
 
   useEffect(() => {
     if (!open) return;
-    restoreTo.current = document.activeElement as HTMLElement | null;
+    restoreTo.current = openerBeforeOverlay();
 
     // The panel itself, not its first control. A screen reader then announces
     // the dialog and its name before anything inside it, and Tab walks the
@@ -53,7 +102,12 @@ function useFocusTrap(open: boolean, onClose: () => void) {
     panelRef.current?.focus();
 
     return () => {
-      restoreTo.current?.focus?.();
+      const target = restoreTo.current;
+      restoreTo.current = null;
+      // `isConnected` because the opener can genuinely have gone: a row action
+      // whose row the dialog just deleted. Focusing a detached node silently
+      // drops the caret on `<body>`, so check rather than hope.
+      if (target?.isConnected) target.focus();
     };
   }, [open]);
 
@@ -132,6 +186,7 @@ export function Drawer({
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
+        data-overlay-panel=""
         aria-label={title}
         onClick={(e) => e.stopPropagation()}
         className={cx('flex h-full flex-col border-l border-line-strong bg-overlay outline-none', width)}
@@ -152,6 +207,87 @@ export function Drawer({
         <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
 
         {footer ? <div className="flex-none border-t border-line px-4 py-3">{footer}</div> : null}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A centred dialog for a form or a result.
+ *
+ * The shape eighteen places across Leads, Billing, Plans, Staff, Training,
+ * Equipment and the member record had each built by hand: scrim, bordered
+ * panel, header, body, footer. Every one of them declared `role="dialog"` and
+ * `aria-modal="true"` — so assistive technology was told the rest of the page
+ * was inert — and not one of them trapped focus, restored it, or closed on
+ * Escape. A keyboard user tabbed straight out of the dialog into the page
+ * behind it, with no way back and no way out.
+ *
+ * `Drawer` is right-anchored and exists to keep a list on screen beside a
+ * record. This is the other case: a modal task that owns the screen while it
+ * is open. Both take their focus behaviour from the same `useFocusTrap`, so
+ * fixing it once fixes it everywhere.
+ */
+export function Modal({
+  open,
+  onClose,
+  title,
+  kicker,
+  footer,
+  children,
+  width = 'w-[min(560px,100%)]',
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  kicker?: string;
+  footer?: ReactNode;
+  children: ReactNode;
+  width?: string;
+}) {
+  const panelRef = useFocusTrap(open, onClose);
+
+  if (!open) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4"
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        data-overlay-panel=""
+        aria-label={title}
+        onClick={(e) => e.stopPropagation()}
+        // `max-h` with a scrolling body rather than a growing panel: a long
+        // form on a 375×812 phone otherwise pushes its own footer — and the
+        // button that submits it — off the bottom of the screen.
+        className={cx('flex max-h-[85dvh] flex-col border border-line-strong bg-overlay outline-none', width)}
+      >
+        <header className="flex flex-none items-start gap-3 border-b border-line px-4 py-3">
+          <div className="min-w-0">
+            {kicker ? <Label>{kicker}</Label> : null}
+            <Display size="sm" as="h2" className="mt-0.5 truncate">
+              {title}
+            </Display>
+          </div>
+          <span className="flex-1" />
+          <Button variant="ghost" onClick={onClose} aria-label="Close">
+            Close
+          </Button>
+        </header>
+
+        <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+
+        {footer ? (
+          <div className="flex flex-none flex-wrap items-center justify-end gap-2 border-t border-line px-4 py-3">
+            {footer}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -216,11 +352,12 @@ export function ConfirmDialog({
         tabIndex={-1}
         role="alertdialog"
         aria-modal="true"
+        data-overlay-panel=""
         aria-label={title}
         onClick={(e) => e.stopPropagation()}
-        className="w-[min(460px,92vw)] border border-line-strong bg-overlay outline-none"
+        className="flex max-h-[85dvh] w-[min(460px,92vw)] flex-col border border-line-strong bg-overlay outline-none"
       >
-        <div className="flex flex-col gap-3 p-4">
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
           <Display size="sm" as="h2">
             {title}
           </Display>
@@ -243,7 +380,7 @@ export function ConfirmDialog({
           {error ? <p className="text-[12px] text-chum">{error}</p> : null}
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-line px-4 py-3">
+        <div className="flex flex-none flex-wrap items-center justify-end gap-2 border-t border-line px-4 py-3">
           <Button variant="outline" onClick={close} disabled={pending}>
             Keep it
           </Button>

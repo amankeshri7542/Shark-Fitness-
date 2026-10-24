@@ -3,6 +3,7 @@ import { channels } from '@shark/contracts';
 import type { AccessDecision } from '@shark/contracts';
 import { DENIAL_COPY, decideAccess, occupancyLabel } from '@shark/domain';
 import { db, schema, transact } from '../db/client.js';
+import { openWindow, policyValue } from '../lib/policy.js';
 import type { RequestContext } from '../lib/context.js';
 import { audit } from '../lib/audit.js';
 import { emit } from '../lib/events.js';
@@ -269,20 +270,26 @@ function decideForDesk(
     .orderBy(desc(schema.checkIns.enteredAt))
     .get();
 
-  const policy = (db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId)).get()?.policy ??
-    {}) as Record<string, unknown>;
+  // Branch-resolved (PF-TEN-003), and the same values the door reads — a
+  // member let in at reception and refused at the turnstile is the kind of
+  // inconsistency nobody can explain at the desk.
+  const hours = openWindow(branch, atMs);
+  const graceAllowsEntry = policyValue(tenantId, branch.id, 'graceAllowsEntry', false);
+  const antiPassbackSeconds = policyValue(tenantId, branch.id, 'antiPassbackSeconds', 90);
 
   const outcome = decideAccess({
     membershipState: (membership?.state ?? 'expired') as 'active',
     permittedBranchIds: memberBranchIds(member),
     branchId: branch.id,
     nowMinutes: localMinutes(atMs, branch.timezone),
-    opensMinutes: branch.opensMinutes,
-    closesMinutes: branch.closesMinutes,
+    // The day's own hours where the branch sets them, the branch's typical
+    // day otherwise, and a holiday closes the door outright (PF-TEN-002).
+    opensMinutes: hours.openMinutes,
+    closesMinutes: hours.closeMinutes,
     windowStartMin: membership?.productSnapshot.access.windowStartMin ?? null,
     windowEndMin: membership?.productSnapshot.access.windowEndMin ?? null,
     outstandingMinor: outstanding?.total ?? 0,
-    graceAllowsEntry: Boolean(policy.graceAllowsEntry),
+    graceAllowsEntry: Boolean(graceAllowsEntry),
     occupancy: inside,
     capacity: branch.capacity,
     // The desk is not presenting a token at all. Staff identity is the evidence,
@@ -291,7 +298,7 @@ function decideForDesk(
     tokenReplayed: false,
     secondsSinceLastCheckIn:
       opts.ignoreAntiPassback || !lastCheckIn ? null : Math.round((atMs - lastCheckIn.enteredAt) / 1000),
-    antiPassbackSeconds: Number(policy.antiPassbackSeconds ?? 90),
+    antiPassbackSeconds: Number(antiPassbackSeconds),
     alreadyInside: false,
   });
 

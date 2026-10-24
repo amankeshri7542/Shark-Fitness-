@@ -10,6 +10,7 @@ import { id } from '../lib/ids.js';
 import { MINUTE, isoDate, localTime, now } from '../lib/time.js';
 import { LIVE_BOOKING_STATES, LIVE_WAITLIST_STATES, claimSeat, claimSeatOverride, runClaim, sessionById } from './booking.js';
 import { loadMemberInScope } from './members.js';
+import { branchTimeZone } from '../lib/branch-time.js';
 
 /**
  * Class operations from the console (PF-SCH, UX-A09).
@@ -433,8 +434,7 @@ export function updateSession(ctx: RequestContext, sessionId: string, patch: Ses
   const moved = startsAt !== session.startsAt || endsAt !== session.endsAt;
   const roomChanged = roomId !== session.roomId;
 
-  const branch = db.select().from(schema.branches).where(eq(schema.branches.id, session.branchId)).get();
-  const tz = branch?.timezone ?? 'Asia/Kolkata';
+  const tz = branchTimeZone(ctx.tenantId, session.branchId);
 
   transact(() => {
     db.update(schema.classSessions)
@@ -744,8 +744,7 @@ export function bookMemberOntoSession(
   const session = sessionById(ctx.tenantId, input.sessionId);
   if (!session || !ctx.branchIds.includes(session.branchId)) throw notFound('That class');
 
-  const branch = db.select().from(schema.branches).where(eq(schema.branches.id, session.branchId)).get();
-  const tz = branch?.timezone ?? 'Asia/Kolkata';
+  const tz = branchTimeZone(ctx.tenantId, session.branchId);
   const today = isoDate(atMs, tz);
 
   return runClaim(() =>

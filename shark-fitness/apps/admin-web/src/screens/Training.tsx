@@ -1,11 +1,13 @@
 import { useState, type ReactNode } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError, OfflineError, api, idempotencyKey } from '../lib/api';
+import { ApiError, OfflineError, api } from '../lib/api';
 import { usePermission } from '../lib/store';
 import { useOnline } from '../lib/realtime';
 import { Page } from '../ui/shell';
-import { Button, Chip, Display, EmptyState, ErrorState, Field, Label, Metric, Panel, PermissionState, Seam, Skeleton, Toolbar, type Tone } from '../ui/console';
+import { Button, Chip, EmptyState, ErrorState, Field, Label, Metric, Panel, PermissionState, Seam, SelectField as ConsoleSelectField, Skeleton, Toolbar, type Tone } from '../ui/console';
+import { Modal } from '../ui/overlay';
+import { useIdempotentAttempt } from '../lib/idempotent-attempt';
 
 interface ExerciseRow { id: string; slug: string; name: string; equipment: string; primaryMuscles: string[]; difficulty: string; archived: boolean; defaultRestSec: number; }
 interface ProgramRow { id: string; name: string; version: number; goal: string; daysPerWeek: number; weeks: number; authorName: string; state: 'draft' | 'published' | 'archived'; description: string; updatedAt: number; }
@@ -40,17 +42,19 @@ export default function TrainingScreen() {
     enabled: canView,
   });
 
+  const exerciseAttempt = useIdempotentAttempt('exercise-create');
   const createExercise = useMutation({
-    mutationFn: (body: Record<string, unknown>) => api('/admin/training/exercises', { method: 'POST', idempotencyKey: idempotencyKey('exercise-create', String(body.slug ?? 'exercise')), body }),
-    onSuccess: () => { setShowExerciseForm(false); void queryClient.invalidateQueries({ queryKey: ['training', 'exercises'] }); },
+    mutationFn: (body: Record<string, unknown>) => api('/admin/training/exercises', { method: 'POST', idempotencyKey: exerciseAttempt.keyFor(body), body }),
+    onSuccess: () => { exerciseAttempt.retire(); setShowExerciseForm(false); void queryClient.invalidateQueries({ queryKey: ['training', 'exercises'] }); },
   });
   const archiveExercise = useMutation({
     mutationFn: (id: string) => api(`/admin/training/exercises/${id}/archive`, { method: 'POST' }),
     onSuccess: () => { setArchiveId(null); void queryClient.invalidateQueries({ queryKey: ['training', 'exercises'] }); },
   });
+  const programAttempt = useIdempotentAttempt('program-create');
   const createProgram = useMutation({
-    mutationFn: (body: Record<string, unknown>) => api<{ program: { id: string } }>('/admin/training/programs', { method: 'POST', idempotencyKey: idempotencyKey('program-create', String(body.name ?? 'program')), body }),
-    onSuccess: ({ program }) => { setShowProgramForm(false); void navigate({ to: '/training/$programId', params: { programId: program.id } }); },
+    mutationFn: (body: Record<string, unknown>) => api<{ program: { id: string } }>('/admin/training/programs', { method: 'POST', idempotencyKey: programAttempt.keyFor(body), body }),
+    onSuccess: ({ program }) => { programAttempt.retire(); setShowProgramForm(false); void navigate({ to: '/training/$programId', params: { programId: program.id } }); },
   });
 
   if (!canView) return <Page title="Training"><PermissionState what="Training programs and the exercise library" /></Page>;
@@ -90,7 +94,7 @@ function ExerciseForm({ isPending, error, onClose, onSave }: { isPending: boolea
   const [slug, setSlug] = useState('');
   const [equipment, setEquipment] = useState('bodyweight');
   const [muscle, setMuscle] = useState('core');
-  return <Dialog title="Add exercise" onClose={onClose}><div className="flex flex-col gap-3"><Field label="Name" value={name} onChange={(event) => { setName(event.target.value); if (!slug) setSlug(event.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')); }} placeholder="Goblet squat" autoFocus /><Field label="Slug" value={slug} onChange={(event) => setSlug(event.target.value)} hint="Unique within the shared catalogue" /><SelectField label="Equipment" value={equipment} onChange={setEquipment} options={EQUIPMENT.map((value) => [value, value] as [string, string])} /><Field label="Primary muscle" value={muscle} onChange={(event) => setMuscle(event.target.value)} hint="Use a contract muscle group such as full_body, quads or lats" />{error ? <p className="text-[11px] text-chum">{error instanceof ApiError ? error.message : 'That exercise could not be saved.'}</p> : null}</div><DialogActions onClose={onClose} isPending={isPending} disabled={!name.trim() || !slug.trim()} label="Add exercise" onConfirm={() => onSave({ slug: slug.trim(), name: name.trim(), equipment, primaryMuscles: [muscle], secondaryMuscles: [], difficulty: 'intermediate', instructions: [], cues: [], contraindications: [], isUnilateral: false, usesBarbell: equipment === 'barbell', defaultRestSec: 90, loadStepKg: 2.5, mediaUrl: null })} /></Dialog>;
+  return <Dialog title="Add exercise" onClose={onClose} actions={<DialogActions onClose={onClose} isPending={isPending} disabled={!name.trim() || !slug.trim()} label="Add exercise" onConfirm={() => onSave({ slug: slug.trim(), name: name.trim(), equipment, primaryMuscles: [muscle], secondaryMuscles: [], difficulty: 'intermediate', instructions: [], cues: [], contraindications: [], isUnilateral: false, usesBarbell: equipment === 'barbell', defaultRestSec: 90, loadStepKg: 2.5, mediaUrl: null })} />}><div className="flex flex-col gap-3"><Field label="Name" value={name} onChange={(event) => { setName(event.target.value); if (!slug) setSlug(event.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')); }} placeholder="Goblet squat" autoFocus /><Field label="Slug" value={slug} onChange={(event) => setSlug(event.target.value)} hint="Unique within the shared catalogue" /><SelectField label="Equipment" value={equipment} onChange={setEquipment} options={EQUIPMENT.map((value) => [value, value] as [string, string])} /><Field label="Primary muscle" value={muscle} onChange={(event) => setMuscle(event.target.value)} hint="Use a contract muscle group such as full_body, quads or lats" />{error ? <p className="text-[11px] text-chum">{error instanceof ApiError ? error.message : 'That exercise could not be saved.'}</p> : null}</div></Dialog>;
 }
 
 function ProgramForm({ isPending, error, onClose, onSave }: { isPending: boolean; error: unknown; onClose: () => void; onSave: (body: Record<string, unknown>) => void }) {
@@ -98,11 +102,46 @@ function ProgramForm({ isPending, error, onClose, onSave }: { isPending: boolean
   const [goal, setGoal] = useState('general');
   const [daysPerWeek, setDaysPerWeek] = useState('3');
   const [weeks, setWeeks] = useState('4');
-  return <Dialog title="New program draft" onClose={onClose}><div className="flex flex-col gap-3"><Field label="Program name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Strength foundation" autoFocus /><div className="grid grid-cols-1 gap-3 sm:grid-cols-3"><SelectField label="Goal" value={goal} onChange={setGoal} options={['general', 'hypertrophy', 'strength', 'fat_loss', 'endurance', 'rehab'].map((value) => [value, value.replace(/_/g, ' ')] as [string, string])} /><Field label="Days/week" type="number" min={1} max={7} value={daysPerWeek} onChange={(event) => setDaysPerWeek(event.target.value)} /><Field label="Weeks" type="number" min={1} max={52} value={weeks} onChange={(event) => setWeeks(event.target.value)} /></div>{error ? <p className="text-[11px] text-chum">{error instanceof ApiError ? error.message : 'That program could not be created.'}</p> : null}</div><DialogActions onClose={onClose} isPending={isPending} disabled={!name.trim()} label="Create draft" onConfirm={() => onSave({ name: name.trim(), goal, daysPerWeek: Number(daysPerWeek), weeks: Number(weeks), description: '' })} /></Dialog>;
+  return <Dialog title="New program draft" onClose={onClose} actions={<DialogActions onClose={onClose} isPending={isPending} disabled={!name.trim()} label="Create draft" onConfirm={() => onSave({ name: name.trim(), goal, daysPerWeek: Number(daysPerWeek), weeks: Number(weeks), description: '' })} />}><div className="flex flex-col gap-3"><Field label="Program name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Strength foundation" autoFocus /><div className="grid grid-cols-1 gap-3 sm:grid-cols-3"><SelectField label="Goal" value={goal} onChange={setGoal} options={['general', 'hypertrophy', 'strength', 'fat_loss', 'endurance', 'rehab'].map((value) => [value, value.replace(/_/g, ' ')] as [string, string])} /><Field label="Days/week" type="number" min={1} max={7} value={daysPerWeek} onChange={(event) => setDaysPerWeek(event.target.value)} /><Field label="Weeks" type="number" min={1} max={52} value={weeks} onChange={(event) => setWeeks(event.target.value)} /></div>{error ? <p className="text-[11px] text-chum">{error instanceof ApiError ? error.message : 'That program could not be created.'}</p> : null}</div></Dialog>;
 }
 
-function ConfirmDialog({ title, body, isPending, onClose, onConfirm }: { title: string; body: string; isPending: boolean; onClose: () => void; onConfirm: () => void }) { return <Dialog title={title} onClose={onClose}><p className="text-[13px] leading-relaxed text-foam-65">{body}</p><DialogActions onClose={onClose} isPending={isPending} label="Archive" onConfirm={onConfirm} danger /></Dialog>; }
-function Dialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) { return <div className="fixed inset-0 z-50 grid place-items-center bg-scrim p-6" role="presentation"><div className="max-h-[85vh] w-[min(560px,100%)] overflow-auto border border-line-strong bg-overlay p-4" role="dialog" aria-modal="true" aria-labelledby="training-dialog-title"><div className="flex items-center gap-2"><Display size="sm" as="h2">{title}</Display><span className="flex-1" /><Button variant="ghost" onClick={onClose} aria-label="Close dialog">Close</Button></div><div className="mt-4">{children}</div></div></div>; }
-function DialogActions({ onClose, isPending, disabled, label, onConfirm, danger = false }: { onClose: () => void; isPending: boolean; disabled?: boolean; label: string; onConfirm: () => void; danger?: boolean }) { return <div className="mt-5 flex justify-end gap-2 border-t border-line pt-3"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant={danger ? 'danger' : 'cta'} disabled={isPending || disabled} onClick={onConfirm}>{isPending ? 'Saving…' : label}</Button></div>; }
-function SelectField({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: Array<[string, string]> }) { return <div className="flex flex-col gap-1"><Label>{label}</Label><select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} className="sf-field !min-h-9 !py-2 !text-[13px]">{options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}</select></div>; }
+function ConfirmDialog({ title, body, isPending, onClose, onConfirm }: { title: string; body: string; isPending: boolean; onClose: () => void; onConfirm: () => void }) { return <Dialog title={title} onClose={onClose} actions={<DialogActions onClose={onClose} isPending={isPending} label="Archive" onConfirm={onConfirm} danger />}><p className="text-[13px] leading-relaxed text-foam-65">{body}</p></Dialog>; }
+/* The shared modal, not a local copy of one. This wrapper used to be its own
+   scrim and panel: it declared `aria-modal="true"` and then let focus tab
+   straight out into the page behind it, with no Escape and no restore.
+
+   `actions` go to `Modal`'s pinned footer rather than into the body. They used
+   to be the last child of a scrolling column, so on a 375x812 phone the button
+   that submits a long form sat below the fold, under a scrollbar, while the
+   footer rule the design system draws for exactly this sat empty above it. */
+function Dialog({ title, actions, onClose, children }: { title: string; actions: ReactNode; onClose: () => void; children: ReactNode }) {
+  return (
+    <Modal open onClose={onClose} title={title} footer={actions}>
+      <div className="p-4">{children}</div>
+    </Modal>
+  );
+}
+/* Just the two buttons: `Modal`'s footer supplies the rule, the padding and
+   the right alignment, and drawing a second border here doubled it. */
+function DialogActions({ onClose, isPending, disabled, label, onConfirm, danger = false }: { onClose: () => void; isPending: boolean; disabled?: boolean; label: string; onConfirm: () => void; danger?: boolean }) {
+  return (
+    <>
+      <Button variant="ghost" onClick={onClose}>Cancel</Button>
+      <Button variant={danger ? 'danger' : 'cta'} disabled={isPending || disabled} pending={isPending} pendingLabel="Saving…" onClick={onConfirm}>{label}</Button>
+    </>
+  );
+}
+/* Tuple-shaped call sites, shared control underneath. Three screens each had
+   their own byte-identical copy of this select's styling, which is how the
+   label gap and control height came to differ by screen. */
+function SelectField({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: Array<[string, string]> }) {
+  return (
+    <ConsoleSelectField
+      label={label}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      options={options.map(([optionValue, optionLabel]) => ({ value: optionValue, label: optionLabel }))}
+    />
+  );
+}
 function TrainingSkeleton() { return <Page title="Training" kicker="Loading"><div className="grid grid-cols-1 gap-px bg-line p-4 md:grid-cols-2">{Array.from({ length: 4 }, (_, index) => <Skeleton key={index} className="h-64" />)}</div></Page>; }

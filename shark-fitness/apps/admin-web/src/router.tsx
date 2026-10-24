@@ -7,6 +7,7 @@ import {
   redirect,
 } from '@tanstack/react-router';
 import { CommandPalette, Rail, StatusStrip } from './ui/shell';
+import { SupportBanner } from './ui/SupportBanner';
 import { useAdmin } from './lib/store';
 
 // Sign-in ships in the entry chunk so the console's first paint needs no
@@ -53,13 +54,18 @@ function RoutePending() {
 
 function ConsoleLayout() {
   return (
-    <div className="bridge">
-      <Rail />
-      <StatusStrip />
-      <div className="col-start-2 min-h-0 overflow-hidden">
-        <Outlet />
+    // The support banner sits above the console grid rather than inside it, so
+    // it cannot be scrolled away and does not compete with the rail for space.
+    <div className="flex h-dvh flex-col overflow-hidden">
+      <SupportBanner />
+      <div className="bridge min-h-0 flex-1">
+        <Rail />
+        <StatusStrip />
+        <div className="bridge-main col-start-2 min-h-0 overflow-hidden">
+          <Outlet />
+        </div>
+        <CommandPalette />
       </div>
-      <CommandPalette />
     </div>
   );
 }
@@ -132,8 +138,47 @@ const storeRoute = createRoute({
   }),
 });
 const equipmentRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/equipment', component: EquipmentScreen });
-const automationsRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/automations', component: AutomationsScreen });
-const reportsRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/reports', component: ReportsScreen });
+const AUTOMATIONS_TABS = ['rules', 'templates', 'runs'] as const;
+type AutomationsSearch = { tab: (typeof AUTOMATIONS_TABS)[number] };
+
+const automationsRoute = createRoute({
+  getParentRoute: () => consoleRoute,
+  path: '/automations',
+  component: AutomationsScreen,
+  validateSearch: (search: Record<string, unknown>): AutomationsSearch => ({
+    tab: AUTOMATIONS_TABS.includes(search.tab as never) ? (search.tab as AutomationsSearch['tab']) : 'rules',
+  }),
+});
+const REPORT_TABS = ['revenue', 'membership', 'attendance', 'trainer', 'retention'] as const;
+
+export interface ReportsSearch {
+  tab: (typeof REPORT_TABS)[number];
+  /** Local calendar dates in the reporting timezone. */
+  from?: string;
+  to?: string;
+  branchId?: string;
+}
+
+const isDay = (v: unknown): v is string => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
+
+/* The report, the range and the branch all live in the URL.
+
+   A report is something people send each other. "Revenue, Koramangala, last
+   month" has to survive being pasted into a message, and a reload during a
+   review must not silently drop back to the default range on a different
+   report — which is the version of this that quietly makes two people discuss
+   two different numbers. */
+const reportsRoute = createRoute({
+  getParentRoute: () => consoleRoute,
+  path: '/reports',
+  component: ReportsScreen,
+  validateSearch: (search: Record<string, unknown>): ReportsSearch => ({
+    tab: REPORT_TABS.includes(search.tab as never) ? (search.tab as ReportsSearch['tab']) : 'revenue',
+    ...(isDay(search.from) ? { from: search.from } : {}),
+    ...(isDay(search.to) ? { to: search.to } : {}),
+    ...(typeof search.branchId === 'string' && search.branchId.length > 0 ? { branchId: search.branchId } : {}),
+  }),
+});
 /** Same reasoning as Store: which surface is open belongs in the URL, and the
  *  validator returns a concrete value so search accumulating down the pathless
  *  console layout cannot hand the screen a tab that does not exist. */
@@ -154,8 +199,28 @@ const supportRoute = createRoute({
     ...(typeof search.ticket === 'string' && search.ticket.length > 0 ? { ticket: search.ticket } : {}),
   }),
 });
-const settingsRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/settings', component: SettingsScreen });
-const platformRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/platform', component: PlatformScreen });
+const SETTINGS_TABS = ['business', 'branches', 'privacy', 'setup'] as const;
+type SettingsSearch = { tab: (typeof SETTINGS_TABS)[number] };
+
+const settingsRoute = createRoute({
+  getParentRoute: () => consoleRoute,
+  path: '/settings',
+  component: SettingsScreen,
+  validateSearch: (search: Record<string, unknown>): SettingsSearch => ({
+    tab: SETTINGS_TABS.includes(search.tab as never) ? (search.tab as SettingsSearch['tab']) : 'business',
+  }),
+});
+const PLATFORM_TABS = ['tenants', 'health'] as const;
+type PlatformSearch = { tab: (typeof PLATFORM_TABS)[number] };
+
+const platformRoute = createRoute({
+  getParentRoute: () => consoleRoute,
+  path: '/platform',
+  component: PlatformScreen,
+  validateSearch: (search: Record<string, unknown>): PlatformSearch => ({
+    tab: PLATFORM_TABS.includes(search.tab as never) ? (search.tab as PlatformSearch['tab']) : 'tenants',
+  }),
+});
 
 const routeTree = rootRoute.addChildren([
   signInRoute,

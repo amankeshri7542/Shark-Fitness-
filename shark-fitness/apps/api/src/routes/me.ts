@@ -10,10 +10,19 @@ import { id } from '../lib/ids.js';
 import { now, relativeTime } from '../lib/time.js';
 import { notFound } from '../lib/errors.js';
 import { issueRealtimeTicket } from '../lib/realtime-ticket.js';
+import { impersonationBanner } from '../services/platform.js';
 
 export const meRoutes = new Hono();
 
-meRoutes.get('/', (c) => c.json({ viewer: viewerFor(ctxOf(c).userId) }));
+meRoutes.get('/', (c) => {
+  const ctx = ctxOf(c);
+  // The impersonation banner rides on the call the console already makes at
+  // boot. A separate endpoint would mean a window between sign-in and the
+  // banner appearing, and a support session that looks like an ordinary one —
+  // even for a second — is the failure PF-PLAT-004 is written against.
+  const impersonation = impersonationBanner(ctx);
+  return c.json({ viewer: viewerFor(ctx.userId), ...(impersonation ? { impersonation } : {}) });
+});
 
 meRoutes.get('/branches', (c) => {
   const ctx = ctxOf(c);

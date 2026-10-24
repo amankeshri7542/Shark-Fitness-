@@ -45,22 +45,29 @@ export function OccupancyTrace({
   const width = 720;
   const height = 132;
   const padY = 14;
-  const peak = Math.max(1, ...hourly);
+  // Two different numbers that were one.
+  //
+  // `scaleMax` has a floor of 1 so the geometry below never divides by zero.
+  // The *reported* figure must not carry that floor: on a day where nobody has
+  // come in yet, it made the readout say "1 at -1:00". `hourly` counts entries
+  // per hour, so the figure is the busiest hour for arrivals, not peak
+  // occupancy.
+  const scaleMax = Math.max(1, ...hourly);
   const busiest = Math.max(0, ...hourly);
-  const busiestLabel = busiest > 0 ? `${hourly.indexOf(busiest)}:00` : '—';
+  const busiestLabel = busiest > 0 ? `${String(hourly.indexOf(busiest)).padStart(2, '0')}:00` : '—';
   const step = width / 24;
 
   // A stepped trace, not a smooth curve: occupancy is counted per hour and a
   // spline would invent readings between the buckets that were never taken.
   const points: string[] = [];
   hourly.forEach((value, hour) => {
-    const y = height - padY - ((height - padY * 2) * value) / peak;
+    const y = height - padY - ((height - padY * 2) * value) / scaleMax;
     points.push(`${hour * step},${y}`, `${(hour + 1) * step},${y}`);
   });
 
   const nowX = (currentHour + 0.5) * step;
   const nowValue = hourly[currentHour] ?? 0;
-  const nowY = height - padY - ((height - padY * 2) * nowValue) / peak;
+  const nowY = height - padY - ((height - padY * 2) * nowValue) / scaleMax;
 
   return (
     <div className="relative flex flex-col">
@@ -93,7 +100,7 @@ export function OccupancyTrace({
         className="w-full"
         preserveAspectRatio="none"
         role="img"
-        aria-label={`Occupancy through the day. ${inside} of ${capacity} inside now, ${label}. Busiest hour ${busiestLabel} with ${busiest} arrivals.`}
+        aria-label={`Occupancy through the day. ${inside} of ${capacity} inside now, ${label}. ${busiest > 0 ? `Busiest hour ${busiestLabel} with ${busiest} arrivals.` : 'Nobody has come in yet today.'}`}
       >
         {/* Hours the branch is shut are dimmed rather than hidden, so a gap in
             the trace reads as "closed" and not as "no data". */}

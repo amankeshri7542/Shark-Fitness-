@@ -29,6 +29,13 @@ const extras = [
      WHEN NEW.booked < 0
      BEGIN SELECT RAISE(ABORT, 'NEGATIVE_BOOKED'); END`,
 
+  // One send per automation per logical event, enforced by the database rather
+  // than by the service remembering to check (PF-COMM-004). Partial, so a
+  // failed run leaves the key free to retry and a dry run never consumes it.
+  `CREATE UNIQUE INDEX IF NOT EXISTS automation_runs_sent_uq
+     ON automation_runs (automation_id, event_key)
+     WHERE outcome = 'sent'`,
+
   // The audit log is append-only. Enforce it where it cannot be argued with.
   `CREATE TRIGGER IF NOT EXISTS audit_log_no_update
      BEFORE UPDATE ON audit_log

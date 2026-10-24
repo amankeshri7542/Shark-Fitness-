@@ -37,7 +37,7 @@ import { db, schema, transact } from '../db/client.js';
 import { audit } from '../lib/audit.js';
 import { branchTimeZone } from '../lib/branch-time.js';
 import type { RequestContext } from '../lib/context.js';
-import { requireBranch, requirePermission } from '../lib/context.js';
+import { branchScope, requireBranch, requirePermission } from '../lib/context.js';
 import { conflict, invalid, notFound, precondition } from '../lib/errors.js';
 import { emit } from '../lib/events.js';
 import { id } from '../lib/ids.js';
@@ -133,13 +133,7 @@ function ticketInScope(ctx: RequestContext, ticketId: string): TicketRow {
  * A ticket is also visible when it names no branch at all — see the `isNull`
  * arm at each call site.
  */
-function scopeFor(ctx: RequestContext, branchId?: string | null): string[] {
-  if (branchId) {
-    requireBranch(ctx, branchId);
-    return [branchId];
-  }
-  return ctx.branchIds;
-}
+const scopeFor = (ctx: RequestContext, branchId?: string | null): string[] => branchScope(ctx, branchId);
 
 /* ——— Names ————————————————————————————————————————————————— */
 

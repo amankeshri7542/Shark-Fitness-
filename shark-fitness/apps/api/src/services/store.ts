@@ -26,6 +26,7 @@ import type {
   Supplier,
 } from '@shark/contracts';
 import { db, schema, transact } from '../db/client.js';
+import { policyValue } from '../lib/policy.js';
 import { audit } from '../lib/audit.js';
 import type { RequestContext } from '../lib/context.js';
 import { requireBranch, requirePermission } from '../lib/context.js';
@@ -117,13 +118,16 @@ export function averageCost(tenantId: string, productId: string, fallbackMinor: 
 /* ——— Tenant policy ——————————————————————————————————————————— */
 
 /**
- * Negative stock is refused unless the tenant has explicitly turned it on
+ * Negative stock is refused unless it has explicitly been turned on
  * (PF-POS-004). Absent policy means "no" — a shop that never made the decision
  * has not consented to selling what it does not have.
+ *
+ * Resolved per branch (PF-TEN-003): a flagship with a stockroom and a daily
+ * count is not the same operation as a studio with a shelf, and the settings
+ * screen lets them differ.
  */
-export function allowsNegativeStock(tenantId: string): boolean {
-  const tenant = db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId)).get();
-  return tenant?.policy?.['allowNegativeStock'] === true;
+export function allowsNegativeStock(tenantId: string, branchId: string | null = null): boolean {
+  return policyValue<unknown>(tenantId, branchId, 'allowNegativeStock', false) === true;
 }
 
 /* ——— Scope helpers ——————————————————————————————————————————— */
@@ -514,9 +518,11 @@ function writeMovement(ctx: RequestContext, input: MovementInput): void {
   if (input.delta < 0) {
     const current = onHand(ctx.tenantId, input.branchId, input.productId);
     if (current + input.delta < 0) {
-      if (!allowsNegativeStock(ctx.tenantId)) {
+      // The branch the movement is happening at, not the tenant: a studio with
+      // a shelf and a flagship with a stockroom can hold different answers.
+      if (!allowsNegativeStock(ctx.tenantId, input.branchId)) {
         throw precondition(
-          `Only ${current} in stock at this branch. Negative stock is not enabled for this tenant.`,
+          `Only ${current} in stock at this branch. Selling below zero is not enabled here.`,
         );
       }
       if (!input.overrideReason || input.overrideReason.trim().length < 4) {
@@ -620,8 +626,25 @@ export interface CheckoutInput {
  * Stock is re-read *inside* the transaction. The screen may have been showing
  * one unit left for ten minutes; what matters is what is there at commit.
  */
+/**
+ * Ring up a sale.
+ *
+ * Gated on being able to see the catalogue and take money, not on
+ * `inventory.manage`. Selling one shaker is the most common thing that happens
+ * at a gym till and the Design PRD names Reception a primary operator of this
+ * screen (UX-A14) — but `inventory.manage` is the permission for adjusting
+ * stock, editing products and dispatching transfers, which reception does not
+ * hold. Requiring it here meant either receptionists could not sell, or every
+ * receptionist had to be given stock-management rights to do their job. Taking
+ * payment is what a sale *is*, and `billing.record_payment` is the permission
+ * for that.
+ *
+ * Everything that *changes* stock outside a sale still requires
+ * `inventory.manage`; a sale's own movement is a consequence of the sale.
+ */
 export function checkout(ctx: RequestContext, input: CheckoutInput) {
-  requirePermission(ctx, 'inventory.manage');
+  requirePermission(ctx, 'inventory.view');
+  requirePermission(ctx, 'billing.record_payment');
   requireBranch(ctx, input.branchId);
   if (input.lines.length === 0) throw invalid('A sale needs at least one line.');
   if (input.payments.length === 0) throw invalid('A sale needs at least one payment.');

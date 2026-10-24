@@ -17,6 +17,16 @@ export const tenants = sqliteTable('tenants', {
   legalName: text('legal_name').notNull(),
   displayName: text('display_name').notNull(),
   plan: text('plan').notNull().default('growth'),
+  /**
+   * `customer` or `platform`.
+   *
+   * Platform staff are not a customer's users — they are above every tenant —
+   * but `users.tenant_id` is not nullable and should not become so. They live
+   * in their own tenant instead, which this column marks so the platform's
+   * customer list does not show the operator its own record as if it were a
+   * gym. Nothing else in the product reads it.
+   */
+  kind: text('kind').notNull().default('customer'),
   locale: text('locale').notNull().default('en-IN'),
   currency: text('currency').notNull().default('INR'),
   timezone: text('timezone').notNull().default('Asia/Kolkata'),
@@ -27,6 +37,21 @@ export const tenants = sqliteTable('tenants', {
   branding: text('branding', { mode: 'json' }).$type<Record<string, string>>().notNull(),
   /** Tenant-level policy switches the domain rules read. */
   policy: text('policy', { mode: 'json' }).$type<Record<string, unknown>>().notNull(),
+  /**
+   * Invoicing identity (PF-TEN-001). Separate from `policy` because it is
+   * financial and appears on documents people keep: a registration number, the
+   * label tax is printed under, and whether prices are quoted inclusive of it.
+   * Changing it must never re-interpret an invoice already raised, which is
+   * why every invoice carries its own currency and per-line tax.
+   */
+  taxProfile: text('tax_profile', { mode: 'json' }).$type<Record<string, unknown>>(),
+  /**
+   * Data-processing configuration (PF-TEN-001): retention windows, the contact
+   * a subject reaches, and the consent-document version in force. Consent rows
+   * store the version they were granted under, so raising this here does not
+   * silently re-consent anybody.
+   */
+  dataProcessing: text('data_processing', { mode: 'json' }).$type<Record<string, unknown>>(),
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
@@ -48,6 +73,27 @@ export const branches = sqliteTable(
     amenities: text('amenities', { mode: 'json' }).$type<string[]>().notNull(),
     holidays: text('holidays', { mode: 'json' }).$type<string[]>().notNull(),
     phone: text('phone'),
+    email: text('email'),
+    /**
+     * Per-day opening hours (PF-TEN-002), keyed `mon`…`sun`.
+     *
+     * `opensMinutes`/`closesMinutes` above stay as the branch's typical day and
+     * remain the fallback: the door and the occupancy chart have read them
+     * since Phase 1 and a null here must not change what they decide. A day
+     * present in this map wins for that day.
+     */
+    hours: text('hours', { mode: 'json' }).$type<Record<string, { open: number; close: number; closed: boolean }>>(),
+    /**
+     * Branch overrides of tenant policy (PF-TEN-003) — **overrides only**.
+     *
+     * A key absent here is inherited, and that absence is the inheritance
+     * indicator: there is no separate "inherited?" flag that could disagree
+     * with the value beside it. `resolveBranchPolicy` is the only reader.
+     */
+    policy: text('policy', { mode: 'json' }).$type<Record<string, unknown>>().notNull().default({}),
+    /** When the branch last changed lifecycle state, and why (PF-TEN-004). */
+    stateChangedAt: integer('state_changed_at'),
+    stateNote: text('state_note'),
     createdAt: integer('created_at').notNull(),
     updatedAt: integer('updated_at').notNull(),
   },
@@ -249,6 +295,47 @@ export const automations = sqliteTable('automations', {
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
+
+/**
+ * Every time an automation considered somebody (PF-COMM-004, PF-COMM-005).
+ *
+ * One row per automation per subject per logical event, whatever the outcome —
+ * sent, suppressed, failed, or a dry run. The suppressions are the point: "why
+ * did my member not get the renewal reminder" is the question this module gets
+ * asked, and an execution log that only records successes cannot answer it.
+ *
+ * `eventKey` is the logical event, not the attempt. A partial unique index on
+ * `(automation_id, event_key) WHERE outcome = 'sent'` is what actually
+ * prevents a duplicate send — the database refuses it rather than the service
+ * remembering to check. A failed run leaves the key free to retry; a dry run
+ * never consumes it.
+ */
+export const automationRuns = sqliteTable(
+  'automation_runs',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    automationId: text('automation_id').notNull(),
+    branchId: text('branch_id'),
+    memberId: text('member_id'),
+    userId: text('user_id'),
+    trigger: text('trigger').notNull(),
+    /** The logical event this run answers. The dedupe key. */
+    eventKey: text('event_key').notNull(),
+    /** sent | suppressed | failed | dry_run */
+    outcome: text('outcome').notNull(),
+    /** Why it was suppressed or how it failed. Empty for a plain send. */
+    reason: text('reason').notNull().default(''),
+    channel: text('channel').notNull(),
+    templateCode: text('template_code'),
+    notificationId: text('notification_id'),
+    at: integer('at').notNull(),
+  },
+  (t) => ({
+    byAutomation: index('automation_runs_idx').on(t.tenantId, t.automationId, t.at),
+    bySubject: index('automation_runs_member_idx').on(t.tenantId, t.memberId, t.at),
+  }),
+);
 
 /** Precomputed report aggregates, so a dashboard never scans the whole
  *  transaction history (PF-RPT-006). */
