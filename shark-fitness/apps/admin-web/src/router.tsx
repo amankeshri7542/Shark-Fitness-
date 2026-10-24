@@ -96,6 +96,7 @@ type MembersSearch = {
   risk?: (typeof MEMBER_RISKS)[number];
   joined?: 'this_month';
   expiring?: number;
+  tag?: string;
 };
 const membersRoute = createRoute({
   getParentRoute: () => consoleRoute,
@@ -113,6 +114,7 @@ const membersRoute = createRoute({
     ...(Number.isInteger(Number(search.expiring)) && Number(search.expiring) >= 1 && Number(search.expiring) <= 365
       ? { expiring: Number(search.expiring) }
       : {}),
+    ...(typeof search.tag === 'string' && search.tag.trim() ? { tag: search.tag.slice(0, 64) } : {}),
   }),
 });
 const memberDetailRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/members/$memberId', component: MemberDetailScreen });

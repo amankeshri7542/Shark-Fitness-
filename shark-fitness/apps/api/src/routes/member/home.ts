@@ -86,6 +86,9 @@ homeRoutes.get('/', (c) => {
     .where(and(eq(schema.assignments.memberId, memberId), eq(schema.assignments.state, 'active')))
     .get();
 
+  // Monday-first weekday of the branch-local date. `getUTCDay()` on the clock
+  // put members on yesterday's programme day between midnight and 05:30 IST,
+  // so Home offered a session the workout screen then called a rest day.
   const dayIndex = localDayIndex(atMs, tz);
 
   const programDay = assignment

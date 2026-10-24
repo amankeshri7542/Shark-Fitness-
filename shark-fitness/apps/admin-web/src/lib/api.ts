@@ -152,3 +152,63 @@ async function refreshCsrf(): Promise<void> {
 export function idempotencyKey(scope: string, ...parts: (string | number)[]): string {
   return `${scope}:${parts.join(':')}:${crypto.randomUUID().slice(0, 8)}`;
 }
+
+/**
+ * A POST that answers with a file (a CSV export) rather than JSON. Same CSRF
+ * handling as `api`, including the one retry on a stale token; an error body
+ * is still the JSON envelope, so failures surface as an ApiError.
+ */
+export async function apiDownload(
+  path: string,
+  options: { body: unknown; branchId?: string | null },
+): Promise<{ blob: Blob; filename: string | null }> {
+  if (!csrf.get()) await refreshCsrf();
+
+  const attempt = async (): Promise<Response> => {
+    const headers: Record<string, string> = { 'content-type': 'application/json' };
+    if (options.branchId) headers['x-branch-id'] = options.branchId;
+    const token = csrf.get();
+    if (token) headers['x-csrf-token'] = token;
+    try {
+      return await fetch(`${API_ORIGIN}/v1${path}`, {
+        method: 'POST',
+        headers,
+        credentials: 'include',
+        body: JSON.stringify(options.body),
+      });
+    } catch {
+      throw new OfflineError();
+    }
+  };
+
+  // Same reasoning as `api`: a CSRF refusal is indistinguishable from any
+  // other 403, and retrying once is safe because it happens before a handler.
+  let response = await attempt();
+  if (response.status === 403) {
+    csrf.clear();
+    await refreshCsrf();
+    response = await attempt();
+  }
+
+  if (!response.ok) {
+    const text = await response.text();
+    if (response.status === 401) csrf.clear();
+    throw new ApiError(response.status, (text ? JSON.parse(text) : null) as ErrorEnvelope);
+  }
+
+  const disposition = response.headers.get('content-disposition') ?? '';
+  const filename = disposition.match(/filename="([^"]+)"/)?.[1] ?? null;
+  return { blob: await response.blob(), filename };
+}
+
+/** Hands a blob to the browser as a download. */
+export function saveBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}

@@ -51,12 +51,14 @@ leadsRoutes.get('/', validate('query', ListQuery), (c) => {
   if (q.stage) filters.push(eq(schema.leads.stage, q.stage));
   if (q.ownerId) filters.push(eq(schema.leads.ownerId, q.ownerId));
   if (q.q) {
-    const term = `%${q.q.toLowerCase()}%`;
+    const term = `%${q.q.trim().toLowerCase()}%`;
+    const digits = q.q.replace(/\D/g, '');
     filters.push(
       or(
         like(sql`lower(${schema.leads.name})`, term),
         like(schema.leads.phone, term),
         like(sql`lower(${schema.leads.email})`, term),
+        ...(digits.length >= 4 ? [like(sql`coalesce(${schema.leads.phoneNormalized}, '')`, `%${digits}%`)] : []),
       )!,
     );
   }
@@ -460,8 +462,10 @@ leadsRoutes.post('/:leadId/activities', validate('json', ActivityBody), (c) => {
   return c.json({ ok: true });
 });
 
-/** §6.1 step: converts a qualified lead into a member. Creates a user + member
+/** §6.1 step: converts an open lead into a member. Creates a user + member
  *  row only — no membership/payment yet (Phase 3). The response says so. */
+const CONVERTIBLE_STAGES = new Set<string>(['new', 'contacted', 'qualified', 'trial_booked', 'trial_completed', 'nurture', 'reopened']);
+
 leadsRoutes.post('/:leadId/convert', (c) => {
   const ctx = ctxOf(c);
   requirePermission(ctx, 'lead.manage');
@@ -469,10 +473,15 @@ leadsRoutes.post('/:leadId/convert', (c) => {
 
   const lead = loadLeadInScope(ctx, leadId);
   if (lead.convertedMemberId) throw conflict('This lead has already been converted.');
-  // A qualified walk-in can enroll without claiming a trial happened.
-  // "Won" still requires this atomic conversion, never a bare stage change.
-  if (lead.stage !== 'qualified' && lead.stage !== 'trial_completed') {
-    throw conflict(`This lead is in ${lead.stage.replace(/_/g, ' ')}. Qualify the lead or complete its trial before converting.`);
+  // `won` is only reachable as a side effect of this endpoint — see
+  // LEAD_STAGE_TRANSITIONS. Any open stage may convert: a walk-in who pays on
+  // the spot should not be clicked through four pipeline stages first.
+  if (!CONVERTIBLE_STAGES.has(lead.stage)) {
+    throw conflict(
+      lead.stage === 'won'
+        ? 'This lead has already been converted.'
+        : `This lead is ${lead.stage.replace(/_/g, ' ')}. Reopen it before converting.`,
+    );
   }
 
   // Block a duplicate person rather than let a unique-index collision surface

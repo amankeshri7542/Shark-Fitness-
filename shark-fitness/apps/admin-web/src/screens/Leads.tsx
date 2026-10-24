@@ -238,8 +238,10 @@ function CreateLeadSheet({ onClose }: { onClose: () => void }) {
             .filter(Boolean),
         },
       }),
-    onSuccess: () => {
+    onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: ['leads'] });
+      // A flagged duplicate keeps the sheet open (below) so the warning is seen.
+      if (!result.duplicateOfId) onClose();
     },
   });
 
@@ -292,11 +294,6 @@ function CreateLeadSheet({ onClose }: { onClose: () => void }) {
         </div>
       </Modal>
     );
-  }
-
-  if (create.isSuccess) {
-    onClose();
-    return null;
   }
 
   return (

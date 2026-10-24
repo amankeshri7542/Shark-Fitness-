@@ -3,7 +3,7 @@ import { and, desc, eq, sql } from 'drizzle-orm';
 import { app } from '../app.js';
 import { db, schema } from '../db/client.js';
 import { id } from '../lib/ids.js';
-import { isoDate, now, startOfLocalDay } from '../lib/time.js';
+import { addDays, isoDate, now, startOfLocalDay } from '../lib/time.js';
 
 /* ============================================================================
    Phase 10 — Reports and analytics (PF-RPT-001…006).
@@ -76,12 +76,28 @@ let trainer: Session;
 let tz: string;
 let today: string;
 
+/* The seed writes its history backwards from the day it runs: twelve weeks of
+   visits, a few months of invoices, three weeks of classes. A window that must
+   hold seeded rows has to move with it; these tests used fixed 2026 windows and
+   started failing once the calendar walked past them. Fixed dates remain only
+   where a test inserts its own rows on a historical day, or where it is about
+   date arithmetic and validation rather than data. Every window ends on the
+   last settled day, so none of them includes a moving today. */
+let lastSettled: string;
+let wideFrom: string; // eight settled weeks
+let shortFrom: string; // eighteen settled days
+let weekFrom: string; // seven settled days
+
 beforeAll(async () => {
   owner = await signIn('owner@sharkfitness.in');
   manager = await signIn('manager@sharkfitness.in');
   trainer = await signIn('rehan@sharkfitness.in');
   tz = branches()[0]!.timezone;
   today = isoDate(now(), tz);
+  lastSettled = addDays(today, -1);
+  wideFrom = addDays(today, -56);
+  shortFrom = addDays(today, -18);
+  weekFrom = addDays(today, -7);
 });
 
 const range = (from: string, to: string): string => `from=${from}&to=${to}`;
@@ -90,7 +106,7 @@ const range = (from: string, to: string): string => `from=${from}&to=${to}`;
 
 describe('PF-RPT-005 — report.view and report.financial are separate', () => {
   it('lets the owner see revenue', async () => {
-    const res = await get(owner, `/v1/admin/reports/revenue?${range('2026-06-01', '2026-08-18')}`);
+    const res = await get(owner, `/v1/admin/reports/revenue?${range(wideFrom, lastSettled)}`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { totals: { grossMinor: { value: number } } | null; meta: { canSeeFinancial: boolean } };
     expect(body.meta.canSeeFinancial).toBe(true);
@@ -101,14 +117,14 @@ describe('PF-RPT-005 — report.view and report.financial are separate', () => {
   it('opens Reports for a role with report.view and no report.financial', async () => {
     // The whole point of two permissions: a branch manager works the
     // operational reports and is refused only the money.
-    const res = await get(manager, `/v1/admin/reports/attendance?${range('2026-06-01', '2026-08-18')}`);
+    const res = await get(manager, `/v1/admin/reports/attendance?${range(wideFrom, lastSettled)}`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { visits: { value: number } };
     expect(body.visits.value).toBeGreaterThan(0);
   });
 
   it('withholds revenue as absent rather than as zero', async () => {
-    const res = await get(manager, `/v1/admin/reports/revenue?${range('2026-06-01', '2026-08-18')}`);
+    const res = await get(manager, `/v1/admin/reports/revenue?${range(wideFrom, lastSettled)}`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       totals: unknown;
@@ -124,7 +140,7 @@ describe('PF-RPT-005 — report.view and report.financial are separate', () => {
   });
 
   it('withholds lifetime value from membership but still reports the joins', async () => {
-    const res = await get(manager, `/v1/admin/reports/membership?${range('2026-06-01', '2026-08-18')}`);
+    const res = await get(manager, `/v1/admin/reports/membership?${range(wideFrom, lastSettled)}`);
     const body = (await res.json()) as { ltvMinor: number | null; joins: { value: number }; meta: { restricted: string[] } };
     expect(body.ltvMinor).toBeNull();
     expect(body.meta.restricted).toContain('ltvMinor');
@@ -133,7 +149,7 @@ describe('PF-RPT-005 — report.view and report.financial are separate', () => {
   });
 
   it('gives the owner a lifetime value figure', async () => {
-    const res = await get(owner, `/v1/admin/reports/membership?${range('2026-06-01', '2026-08-18')}`);
+    const res = await get(owner, `/v1/admin/reports/membership?${range(wideFrom, lastSettled)}`);
     const body = (await res.json()) as { ltvMinor: number | null };
     expect(body.ltvMinor).not.toBeNull();
   });
@@ -141,7 +157,7 @@ describe('PF-RPT-005 — report.view and report.financial are separate', () => {
   it('refuses Reports entirely to a role without report.view', async () => {
     // A trainer has no reporting permission at all — not a blank report, a
     // refusal.
-    const res = await get(trainer, `/v1/admin/reports/attendance?${range('2026-06-01', '2026-08-18')}`);
+    const res = await get(trainer, `/v1/admin/reports/attendance?${range(wideFrom, lastSettled)}`);
     expect(res.status).toBe(403);
   });
 });
@@ -164,11 +180,13 @@ describe('PF-RPT edge case — a range with no prior comparison period', () => {
   });
 
   it('offers a comparison when there is history behind the range', async () => {
-    const res = await get(owner, `/v1/admin/reports/revenue?${range('2026-08-01', '2026-08-18')}`);
+    const res = await get(owner, `/v1/admin/reports/revenue?${range(shortFrom, lastSettled)}`);
     const body = (await res.json()) as { meta: { comparison: { from: string; to: string } | null } };
     expect(body.meta.comparison).not.toBeNull();
     // Immediately before, equal length.
-    expect(body.meta.comparison).toEqual({ from: '2026-07-14', to: '2026-07-31', days: 18, label: '2026-07-14 to 2026-07-31' });
+    const from = addDays(shortFrom, -18);
+    const to = addDays(shortFrom, -1);
+    expect(body.meta.comparison).toEqual({ from, to, days: 18, label: `${from} to ${to}` });
   });
 });
 
@@ -176,7 +194,7 @@ describe('PF-RPT edge case — a range with no prior comparison period', () => {
 
 describe('PF-MBR — a user scoped to some branches sees only those', () => {
   it('covers every branch the caller may see when none is named', async () => {
-    const res = await get(owner, `/v1/admin/reports/attendance?${range('2026-06-01', '2026-08-18')}`);
+    const res = await get(owner, `/v1/admin/reports/attendance?${range(wideFrom, lastSettled)}`);
     const body = (await res.json()) as { meta: { branchIds: string[] } };
     // Not `activeBranchId`. Scoping an unfiltered read to the session default
     // is what made "all branches" a lie in Support before Phase 9.
@@ -185,7 +203,7 @@ describe('PF-MBR — a user scoped to some branches sees only those', () => {
 
   it('narrows to one branch on request, and says so', async () => {
     const one = branches()[0]!;
-    const res = await get(owner, `/v1/admin/reports/attendance?${range('2026-06-01', '2026-08-18')}&branchId=${one.id}`);
+    const res = await get(owner, `/v1/admin/reports/attendance?${range(wideFrom, lastSettled)}&branchId=${one.id}`);
     const body = (await res.json()) as { meta: { branchIds: string[]; scopeNote: string } };
     expect(body.meta.branchIds).toEqual([one.id]);
     expect(body.meta.scopeNote).toContain(one.name);
@@ -193,23 +211,23 @@ describe('PF-MBR — a user scoped to some branches sees only those', () => {
 
   it('refuses a branch the caller does not hold', async () => {
     const all = branches();
-    const managerScope = (await (await get(manager, `/v1/admin/reports/attendance?${range('2026-08-01', '2026-08-18')}`)).json()) as {
+    const managerScope = (await (await get(manager, `/v1/admin/reports/attendance?${range(shortFrom, lastSettled)}`)).json()) as {
       meta: { branchIds: string[] };
     };
     const outside = all.find((b) => !managerScope.meta.branchIds.includes(b.id));
     if (!outside) return; // manager already covers every branch in this seed
-    const res = await get(manager, `/v1/admin/reports/attendance?${range('2026-08-01', '2026-08-18')}&branchId=${outside.id}`);
+    const res = await get(manager, `/v1/admin/reports/attendance?${range(shortFrom, lastSettled)}&branchId=${outside.id}`);
     expect(res.status).toBe(403);
   });
 
   it('never reports more than the sum of the branches in scope', async () => {
     const all = branches();
-    const whole = (await (await get(owner, `/v1/admin/reports/attendance?${range('2026-06-01', '2026-08-18')}`)).json()) as {
+    const whole = (await (await get(owner, `/v1/admin/reports/attendance?${range(wideFrom, lastSettled)}`)).json()) as {
       visits: { value: number };
     };
     let summed = 0;
     for (const branch of all) {
-      const one = (await (await get(owner, `/v1/admin/reports/attendance?${range('2026-06-01', '2026-08-18')}&branchId=${branch.id}`)).json()) as {
+      const one = (await (await get(owner, `/v1/admin/reports/attendance?${range(wideFrom, lastSettled)}&branchId=${branch.id}`)).json()) as {
         visits: { value: number };
       };
       summed += one.visits.value;
@@ -222,7 +240,7 @@ describe('PF-MBR — a user scoped to some branches sees only those', () => {
 
 describe('PF-RPT-002 — day boundaries are the branch’s, not the server’s', () => {
   it('states the zone every boundary was computed in', async () => {
-    const res = await get(owner, `/v1/admin/reports/revenue?${range('2026-08-01', '2026-08-18')}`);
+    const res = await get(owner, `/v1/admin/reports/revenue?${range(shortFrom, lastSettled)}`);
     const body = (await res.json()) as { meta: { timeZone: string } };
     expect(body.meta.timeZone).toBe(tz);
   });
@@ -236,10 +254,11 @@ describe('PF-RPT-002 — day boundaries are the branch’s, not the server’s',
       .limit(1)
       .get()!;
 
-    // 23:30 local on a quiet historical day. In UTC that instant belongs to the
+    // 23:30 local on a quiet historical day — one that predates the seed, so
+    // no seeded sale can share it. In UTC that instant belongs to the
     // *previous* calendar day, which is exactly how a night's takings end up
     // filed against the wrong date when the server's zone decides.
-    const day = '2026-06-10';
+    const day = '2018-06-10';
     const at = startOfLocalDay(day, branch.timezone) + 23.5 * 3_600_000;
     const invoiceId = id('inv');
     db.insert(schema.invoices)
@@ -275,7 +294,7 @@ describe('PF-RPT-002 — day boundaries are the branch’s, not the server’s',
     expect(onDay.grossMinor).toBeGreaterThanOrEqual(100_000);
 
     // And it is absent from the following day.
-    const next = '2026-06-11';
+    const next = '2018-06-11';
     const after = (await (await get(owner, `/v1/admin/reports/revenue?${range(next, next)}&branchId=${branch.id}`)).json()) as {
       series: Array<{ date: string; grossMinor: number }>;
     };
@@ -291,73 +310,64 @@ describe('PF-RPT-002 — day boundaries are the branch’s, not the server’s',
 /* ——— Currency ————————————————————————————————————————————— */
 
 describe('PF-RPT edge case — a currency change inside the range', () => {
+  /** A paid invoice on a historical day this suite owns, so the answer does
+   *  not depend on what the seed happened to bill that week. */
+  const paidInvoice = (branchId: string, day: string, timeZone: string, currency: string, totalMinor: number): string => {
+    const invoiceId = id('inv');
+    const at = startOfLocalDay(day, timeZone) + 10 * 3_600_000;
+    db.insert(schema.invoices).values({
+      id: invoiceId, tenantId: tenantId(), branchId, memberId: memberAt(branchId),
+      number: `${currency}-${invoiceId}`, state: 'paid', issuedOn: day, dueOn: day, currency,
+      subtotalMinor: totalMinor, discountMinor: 0, taxMinor: 0, totalMinor,
+      paidMinor: totalMinor, refundedMinor: 0, voided: false, createdAt: at, updatedAt: at,
+    }).run();
+    return invoiceId;
+  };
+
+  const forget = (invoiceIds: string[], day: string): void => {
+    for (const invoiceId of invoiceIds) db.delete(schema.invoices).where(eq(schema.invoices.id, invoiceId)).run();
+    db.delete(schema.metricRollups).where(and(eq(schema.metricRollups.tenantId, tenantId()), eq(schema.metricRollups.onDate, day))).run();
+  };
+
   it('reports each currency separately and refuses to state one total', async () => {
     const branch = branches()[0]!;
-    const member = db
-      .select({ id: schema.members.id })
-      .from(schema.members)
-      .where(and(eq(schema.members.tenantId, tenantId()), eq(schema.members.homeBranchId, branch.id)))
-      .limit(1)
-      .get()!;
+    const day = '2018-06-12';
+    // Two rupee invoices to one dirham: the series is drawn in the currency
+    // with the most invoices, so the rupee line is the expected one.
+    const inr = [
+      paidInvoice(branch.id, day, branch.timezone, 'INR', 120_000),
+      paidInvoice(branch.id, day, branch.timezone, 'INR', 80_000),
+    ];
+    const aed = paidInvoice(branch.id, day, branch.timezone, 'AED', 50_000);
+    // try/finally: a stray AED row left behind by a failed assertion turns
+    // every later revenue read over this day into a mixed-currency answer.
+    try {
+      const res = await get(owner, `/v1/admin/reports/revenue?${range(day, day)}&branchId=${branch.id}`);
+      const body = (await res.json()) as {
+        mixedCurrency: boolean;
+        byCurrency: Array<{ currency: string; grossMinor: number }>;
+        totals: unknown;
+        seriesCurrency: string | null;
+        meta: { restricted: string[] };
+      };
 
-    const day = '2026-06-12';
-    const at = startOfLocalDay(day, branch.timezone) + 10 * 3_600_000;
-    const aed = id('inv');
-    db.insert(schema.invoices)
-      .values({
-        id: aed,
-        tenantId: tenantId(),
-        branchId: branch.id,
-        memberId: member.id,
-        number: `AED-${Date.now()}`,
-        state: 'paid',
-        issuedOn: day,
-        dueOn: day,
-        currency: 'AED',
-        subtotalMinor: 50_000,
-        discountMinor: 0,
-        taxMinor: 0,
-        totalMinor: 50_000,
-        paidMinor: 50_000,
-        refundedMinor: 0,
-        voided: false,
-        createdAt: at,
-        updatedAt: at,
-      })
-      .run();
-
-    const res = await get(owner, `/v1/admin/reports/revenue?${range('2026-06-01', '2026-06-30')}&branchId=${branch.id}`);
-    const body = (await res.json()) as {
-      mixedCurrency: boolean;
-      byCurrency: Array<{ currency: string; grossMinor: number }>;
-      totals: unknown;
-      seriesCurrency: string | null;
-      meta: { restricted: string[] };
-    };
-
-    expect(body.mixedCurrency).toBe(true);
-    expect(body.byCurrency.map((c) => c.currency).sort()).toEqual(['AED', 'INR']);
-    // No single total, because adding rupees to dirhams produces a number that
-    // is wrong in a way nobody can see by looking at it.
-    expect(body.totals).toBeNull();
-    expect(body.meta.restricted).toContain('totals:mixed-currency');
-    // The series still has to be one currency to be a line, and says which.
-    expect(body.seriesCurrency).toBe('INR');
-
-    db.delete(schema.invoices).where(eq(schema.invoices.id, aed)).run();
+      expect(body.mixedCurrency).toBe(true);
+      expect(body.byCurrency.map((c) => c.currency).sort()).toEqual(['AED', 'INR']);
+      // No single total, because adding rupees to dirhams produces a number that
+      // is wrong in a way nobody can see by looking at it.
+      expect(body.totals).toBeNull();
+      expect(body.meta.restricted).toContain('totals:mixed-currency');
+      // The series still has to be one currency to be a line, and says which.
+      expect(body.seriesCurrency).toBe('INR');
+    } finally {
+      forget([...inr, aed], day);
+    }
   });
 
   it('states a single total when the range holds one currency', async () => {
     const branch = branches()[0]!;
     const day = '2018-06-12';
-    const at = startOfLocalDay(day, branch.timezone) + 10 * 3_600_000;
-    const invoiceId = id('inv');
-    db.insert(schema.invoices).values({
-      id: invoiceId, tenantId: tenantId(), branchId: branch.id, memberId: memberAt(branch.id),
-      number: `INR-${invoiceId}`, state: 'paid', issuedOn: day, dueOn: day, currency: 'INR',
-      subtotalMinor: 12_500, discountMinor: 0, taxMinor: 0, totalMinor: 12_500,
-      paidMinor: 12_500, refundedMinor: 0, voided: false, createdAt: at, updatedAt: at,
-    }).run();
+    const invoiceId = paidInvoice(branch.id, day, branch.timezone, 'INR', 12_500);
     try {
       const res = await get(owner, `/v1/admin/reports/revenue?${range(day, day)}&branchId=${branch.id}`);
       const body = (await res.json()) as { mixedCurrency: boolean; totals: unknown; byCurrency: unknown[] };
@@ -366,8 +376,7 @@ describe('PF-RPT edge case — a currency change inside the range', () => {
       expect(body.totals).toMatchObject({ grossMinor: { value: 12_500 }, netMinor: { value: 12_500 } });
       expect(body.byCurrency).toEqual([expect.objectContaining({ currency: 'INR', grossMinor: 12_500, netMinor: 12_500, invoices: 1 })]);
     } finally {
-      db.delete(schema.invoices).where(eq(schema.invoices.id, invoiceId)).run();
-      db.delete(schema.metricRollups).where(and(eq(schema.metricRollups.tenantId, tenantId()), eq(schema.metricRollups.onDate, day))).run();
+      forget([invoiceId], day);
     }
   });
 });
@@ -376,7 +385,7 @@ describe('PF-RPT edge case — a currency change inside the range', () => {
 
 describe('PF-RPT-001 — the product breakdown carries the identity it has', () => {
   it('groups a membership sale by its catalogue product, not by its description', async () => {
-    const res = await get(owner, `/v1/admin/reports/revenue?${range('2026-06-01', '2026-08-18')}`);
+    const res = await get(owner, `/v1/admin/reports/revenue?${range(wideFrom, lastSettled)}`);
     const body = (await res.json()) as {
       byProduct: Array<{ productId: string | null; productName: string; identified: boolean; units: number }>;
     };
@@ -598,8 +607,8 @@ describe('PF-RPT-003 and PF-RPT-005 — export', () => {
     // any data is assembled.
     const res = await post(trainer, '/v1/admin/reports/export', {
       kind: 'revenue',
-      from: '2026-08-01',
-      to: '2026-08-18',
+      from: shortFrom,
+      to: lastSettled,
     });
     expect(res.status).toBe(403);
   });
@@ -655,8 +664,8 @@ describe('PF-RPT-003 and PF-RPT-005 — export', () => {
   it('leaves a withheld financial column empty rather than writing a zero', async () => {
     const res = await post(manager, '/v1/admin/reports/export', {
       kind: 'revenue',
-      from: '2026-08-01',
-      to: '2026-08-07',
+      from: weekFrom,
+      to: lastSettled,
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { csv: string };
@@ -673,7 +682,7 @@ describe('PF-RPT-003 and PF-RPT-005 — export', () => {
 
   it('exports every report kind', async () => {
     for (const kind of ['revenue', 'membership', 'attendance', 'trainer', 'retention']) {
-      const res = await post(owner, '/v1/admin/reports/export', { kind, from: '2026-08-01', to: '2026-08-18' });
+      const res = await post(owner, '/v1/admin/reports/export', { kind, from: shortFrom, to: lastSettled });
       expect(res.status, kind).toBe(200);
       const body = (await res.json()) as { csv: string };
       expect(body.csv.length, kind).toBeGreaterThan(0);
@@ -685,7 +694,7 @@ describe('PF-RPT-003 and PF-RPT-005 — export', () => {
 
 describe('the five reports answer their own question', () => {
   it('revenue nets refunds off gross rather than flattering the month', async () => {
-    const res = await get(owner, `/v1/admin/reports/revenue?${range('2026-06-01', '2026-08-18')}`);
+    const res = await get(owner, `/v1/admin/reports/revenue?${range(wideFrom, lastSettled)}`);
     const body = (await res.json()) as {
       totals: { grossMinor: { value: number }; netMinor: { value: number }; refundedMinor: number };
     };
@@ -693,14 +702,14 @@ describe('the five reports answer their own question', () => {
   });
 
   it('attendance reports the busiest local hour', async () => {
-    const res = await get(owner, `/v1/admin/reports/attendance?${range('2026-06-01', '2026-08-18')}`);
+    const res = await get(owner, `/v1/admin/reports/attendance?${range(wideFrom, lastSettled)}`);
     const body = (await res.json()) as { byHour: Array<{ hour: number; visits: number }> };
     expect(body.byHour).toHaveLength(24);
     expect(body.byHour.reduce((n, h) => n + h.visits, 0)).toBeGreaterThan(0);
   });
 
   it('trainer utilisation is seats taken over seats offered', async () => {
-    const res = await get(owner, `/v1/admin/reports/trainer?${range('2026-08-12', '2026-08-18')}`);
+    const res = await get(owner, `/v1/admin/reports/trainer?${range(weekFrom, lastSettled)}`);
     const body = (await res.json()) as {
       rows: Array<{ seatsBooked: number; seatsCapacity: number; utilisationBp: number | null }>;
     };
@@ -712,7 +721,7 @@ describe('the five reports answer their own question', () => {
   });
 
   it('retention buckets members by joining month and never claims a rate over nobody', async () => {
-    const res = await get(owner, `/v1/admin/reports/retention?${range('2026-08-01', '2026-08-18')}`);
+    const res = await get(owner, `/v1/admin/reports/retention?${range(shortFrom, lastSettled)}`);
     const body = (await res.json()) as {
       bands: { high: number; watch: number; low: number };
       cohorts: Array<{ cohort: string; joined: number; retainedBp: number | null }>;
@@ -735,14 +744,14 @@ describe('the five reports answer their own question', () => {
 
 describe('tenant isolation', () => {
   it('answers only for the caller’s own tenant', async () => {
-    const res = await get(owner, `/v1/admin/reports/revenue?${range('2026-06-01', '2026-08-18')}`);
+    const res = await get(owner, `/v1/admin/reports/revenue?${range(wideFrom, lastSettled)}`);
     const body = (await res.json()) as { meta: { branchIds: string[] } };
     const mine = new Set(branches().map((b) => b.id));
     for (const branchId of body.meta.branchIds) expect(mine.has(branchId)).toBe(true);
   });
 
   it('refuses an unauthenticated read', async () => {
-    const res = await app.request(`/v1/admin/reports/revenue?${range('2026-08-01', '2026-08-18')}`);
+    const res = await app.request(`/v1/admin/reports/revenue?${range(shortFrom, lastSettled)}`);
     expect(res.status).toBe(401);
   });
 });
