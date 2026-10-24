@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { BusinessProfile, Consequence } from '@shark/contracts';
+import { parseGstin } from '@shark/domain';
 import { ApiError, api } from '../../lib/api';
 import { ErrorState, Field, SelectField, Skeleton } from '../../ui/console';
 import { ConsequenceDialog, SettingsSection, consequencesOf, useDraft } from './shared';
@@ -61,8 +62,15 @@ export default function Business({ canManage }: { canManage: boolean }) {
 
   const draft = identity.draft;
   const taxDraft = tax ?? draft.taxProfile ?? {
-    registrationNumber: '', label: 'GST', defaultRateBp: 0, pricesIncludeTax: true,
+    registrationNumber: '', label: 'GST', defaultRateBp: 0, pricesIncludeTax: false,
   };
+  // Checked as it is typed, with the same rule the server applies on save, so a
+  // typo is caught here rather than on a tax invoice a member has filed.
+  const isGst = taxDraft.label.trim().toUpperCase() === 'GST';
+  const gstin = isGst && taxDraft.registrationNumber.trim() ? parseGstin(taxDraft.registrationNumber) : null;
+  // Older profiles may say prices include tax. Nothing ever read that: every
+  // invoice has added tax to the catalogue price. Saving records what happens.
+  const savedSaysInclusive = profile.data.taxProfile?.pricesIncludeTax === true;
   const errorFor = (section: 'identity' | 'tax'): string | null => {
     if (!save.isError || pendingChange) return null;
     if (save.variables && ('taxProfile' in save.variables) !== (section === 'tax')) return null;
@@ -133,19 +141,26 @@ export default function Business({ canManage }: { canManage: boolean }) {
       <SettingsSection
         title="Tax"
         description="Printed on every invoice from the moment you save it. Invoices already raised keep the details they were raised with."
-        dirty={taxDirty}
+        dirty={taxDirty || savedSaysInclusive}
         pending={save.isPending && 'taxProfile' in (save.variables ?? {})}
         error={errorFor('tax')}
         onReset={() => {
           setTax(undefined);
           setTaxDirty(false);
         }}
-        onSave={() => save.mutate({ taxProfile: taxDraft })}
+        onSave={() => save.mutate({ taxProfile: { ...taxDraft, pricesIncludeTax: false } })}
       >
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           <Field
             label="Registration number"
-            hint="GSTIN, VAT number — whatever your jurisdiction issues."
+            hint={
+              gstin?.valid
+                ? `GSTIN for ${gstin.stateName} (${gstin.stateCode}). New invoices print as GST tax invoices.`
+                : isGst
+                  ? 'Your 15-character GSTIN. Without one, invoices print as plain invoices, not tax invoices.'
+                  : 'The VAT or sales-tax number your jurisdiction issues.'
+            }
+            error={gstin && !gstin.valid ? gstin.reason : undefined}
             value={taxDraft.registrationNumber}
             onChange={(e) => {
               setTax({ ...taxDraft, registrationNumber: e.target.value });
@@ -176,19 +191,28 @@ export default function Business({ canManage }: { canManage: boolean }) {
               setTaxDirty(true);
             }}
           />
-          <SelectField
-            label="Prices include tax"
-            hint="Off means tax is added at checkout rather than already inside the price."
-            value={taxDraft.pricesIncludeTax ? 'yes' : 'no'}
+          <Field
+            label="Invoice number prefix"
+            hint={`Starts every new invoice number: ${taxDraft.invoicePrefix || 'SF'}-${new Date().getFullYear()}-00042. Up to five letters or digits.`}
+            maxLength={5}
+            value={taxDraft.invoicePrefix ?? ''}
             onChange={(e) => {
-              setTax({ ...taxDraft, pricesIncludeTax: e.target.value === 'yes' });
+              const prefix = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+              setTax({ ...taxDraft, invoicePrefix: prefix || undefined });
               setTaxDirty(true);
             }}
-            options={[
-              { value: 'yes', label: 'Yes — catalogue prices are what a member pays' },
-              { value: 'no', label: 'No — tax is added at checkout' },
-            ]}
           />
+        </div>
+        <div className="border border-line px-3 py-2.5 text-[12px] leading-relaxed text-foam-65">
+          <p>
+            <span className="text-foam">Catalogue prices are before tax.</span> Each invoice adds the product's tax rate on top, and
+            a GST tax invoice shows that as CGST and SGST. Tax-inclusive pricing is not available yet.
+          </p>
+          {savedSaysInclusive ? (
+            <p className="mt-1.5 text-flare">
+              Your saved profile says prices include tax, but invoices have always added it. Saving records how they work.
+            </p>
+          ) : null}
         </div>
       </SettingsSection>
 
