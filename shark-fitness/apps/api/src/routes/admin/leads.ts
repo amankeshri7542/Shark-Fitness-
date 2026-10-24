@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { and, desc, eq, inArray, like, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { validate } from '../../middleware/validate.js';
+import { validate, queryFlag } from '../../middleware/validate.js';
 import { channels, LeadStage } from '@shark/contracts';
 import { db, schema, transact } from '../../db/client.js';
 import { ctxOf } from '../../middleware/index.js';
@@ -28,7 +28,7 @@ const ListQuery = z.object({
   q: z.string().optional(),
   stage: LeadStage.optional(),
   ownerId: z.string().optional(),
-  slaBreached: z.coerce.boolean().optional(),
+  slaBreached: queryFlag.optional(),
   limit: z.coerce.number().int().min(1).max(500).default(200),
   offset: z.coerce.number().int().min(0).default(0),
 });

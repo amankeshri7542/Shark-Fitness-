@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, like, sql } from 'drizzle-orm';
 import type { Product } from '@shark/contracts';
 import { channels } from '@shark/contracts';
 import { canTransition, invoiceStateFor, totalsFor } from '@shark/domain';
@@ -11,18 +11,34 @@ import { id } from '../lib/ids.js';
 import { addDays, isoDate, now } from '../lib/time.js';
 import { branchScope, requirePermission, type RequestContext } from '../lib/context.js';
 import { branchTimeZone } from '../lib/branch-time.js';
+import { FITNESS_SERVICE_CODE, recordTaxDocument } from './tax-invoice.js';
 
 /** Must be called inside the transaction that inserts the invoice it numbers
  *  — this process is single-connection/synchronous (db/client.ts), so nothing
- *  else can read a stale max between this call and the insert that follows. */
+ *  else can read a stale max between this call and the insert that follows.
+ *
+ *  The prefix is the gym's own (`taxProfile.invoicePrefix`), "SF" when unset.
+ *  Each prefix and year is its own series, `SF-2026-00001` onwards. A number
+ *  is therefore unique within a financial year however often the prefix
+ *  changes, and never more than 5 + 1 + 4 + 1 + 5 = 16 characters, the most a
+ *  GST invoice number may be. A full series is refused in words: the old
+ *  single counter read invoice 100000 back as 0 and then failed every insert
+ *  on the unique index. */
 export function nextInvoiceNumber(tenantId: string): string {
   const year = new Date(now()).getUTCFullYear();
+  const tenant = db.select({ taxProfile: schema.tenants.taxProfile }).from(schema.tenants).where(eq(schema.tenants.id, tenantId)).get();
+  const prefix = (tenant?.taxProfile as { invoicePrefix?: string } | null)?.invoicePrefix || 'SF';
+  const series = `${prefix}-${year}-`;
   const row = db
-    .select({ max: sql<number>`max(cast(substr(${schema.invoices.number}, -5) as integer))` })
+    .select({ max: sql<number>`max(cast(substr(${schema.invoices.number}, ${series.length + 1}) as integer))` })
     .from(schema.invoices)
-    .where(eq(schema.invoices.tenantId, tenantId))
+    .where(and(eq(schema.invoices.tenantId, tenantId), like(schema.invoices.number, `${series}%`)))
     .get();
-  return `SF-${year}-${String((row?.max ?? 0) + 1).padStart(5, '0')}`;
+  const next = (row?.max ?? 0) + 1;
+  if (next > 99_999) {
+    throw conflict(`The invoice series ${series} is full. Change the invoice prefix in Settings to start a new one.`);
+  }
+  return `${series}${String(next).padStart(5, '0')}`;
 }
 
 export interface CreateInvoiceInput {
@@ -90,6 +106,9 @@ export function createInvoiceForProduct(input: CreateInvoiceInput): { invoiceId:
       productId: refType === 'membership' ? product.id : null,
     })
     .run();
+
+  // Frozen with the invoice: the GSTIN, address and state it was raised under.
+  recordTaxDocument(ctx.tenantId, invoiceId, FITNESS_SERVICE_CODE);
 
   emit({
     tenantId: ctx.tenantId,

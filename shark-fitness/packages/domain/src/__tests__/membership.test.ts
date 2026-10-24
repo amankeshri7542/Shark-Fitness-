@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  planSoldAt,
   applyFreeze,
   canTransition,
   deriveState,
@@ -115,5 +116,17 @@ describe('pilot effective dates', () => {
   });
   it('allows staff immediate cancellation with a reason', () => {
     expect(canTransition({ from: 'active', to: 'cancelled', actorRole: 'staff', reason: 'Member requested immediate cancellation' }).ok).toBe(true);
+  });
+});
+
+describe('planSoldAt — where a plan can be sold', () => {
+  it('sells an every-branch plan anywhere and a listed plan only where it is listed', () => {
+    expect(planSoldAt({ allBranches: true, branchIds: [] }, 'br_ind')).toBe(true);
+    expect(planSoldAt({ allBranches: false, branchIds: ['br_kor'] }, 'br_kor')).toBe(true);
+    expect(planSoldAt({ allBranches: false, branchIds: ['br_kor'] }, 'br_hsr')).toBe(false);
+  });
+
+  it('sells a plan with no floor access at any branch, since there is no branch for it to be missing from', () => {
+    expect(planSoldAt({ allBranches: false, branchIds: [] }, 'br_hsr')).toBe(true);
   });
 });

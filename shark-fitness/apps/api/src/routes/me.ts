@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNull, ne, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
 import { db, schema } from '../db/client.js';
@@ -8,7 +8,7 @@ import { listSessions, revokeSession, viewerFor } from '../services/auth.js';
 import { audit } from '../lib/audit.js';
 import { id } from '../lib/ids.js';
 import { now, relativeTime } from '../lib/time.js';
-import { notFound } from '../lib/errors.js';
+import { conflict, forbidden, notFound } from '../lib/errors.js';
 import { issueRealtimeTicket } from '../lib/realtime-ticket.js';
 import { impersonationBanner } from '../services/platform.js';
 import { submitPrivacyRequest } from '../services/privacy.js';
@@ -284,6 +284,32 @@ meRoutes.post('/data-export', (c) => {
 meRoutes.post('/deletion-request', validate('json', z.object({ reason: z.string().max(500).optional() })), (c) => {
   const ctx = ctxOf(c);
   const { reason } = c.req.valid('json');
+
+  // A deletion request locks the account at once, and an owner reviews it. A
+  // support session must never file one for the owner whose authority it
+  // borrows, and the gym's last owner filing one would lock out the only
+  // person who can review it or run the gym, with nobody able to undo it.
+  if (ctx.impersonatorId) {
+    throw forbidden('A support session cannot request deletion of the account it is using.');
+  }
+  if (ctx.role === 'owner') {
+    const otherOwners = db
+      .select({ n: sql<number>`count(*)` })
+      .from(schema.users)
+      .where(
+        and(
+          eq(schema.users.tenantId, ctx.tenantId),
+          eq(schema.users.role, 'owner'),
+          eq(schema.users.accountState, 'active'),
+          isNull(schema.users.deletedAt),
+          ne(schema.users.id, ctx.userId),
+        ),
+      )
+      .get();
+    if (!otherOwners?.n) {
+      throw conflict('You are this gym’s only owner. Add another owner before closing your account: nobody else could review the request or run the gym.');
+    }
+  }
   db.update(schema.users)
     .set({ accountState: 'deletion_requested', updatedAt: now() })
     .where(and(eq(schema.users.id, ctx.userId), eq(schema.users.tenantId, ctx.tenantId)))

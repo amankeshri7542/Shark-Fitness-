@@ -49,6 +49,12 @@ export const TaxProfile = z.object({
   defaultRateBp: z.number().int().min(0).max(10_000),
   /** True when catalogue prices already include tax. */
   pricesIncludeTax: z.boolean(),
+  /**
+   * Starts every invoice number: `SF-2026-00042`. Up to five letters or
+   * digits, which keeps a number inside the 16 characters a GST invoice
+   * allows. Absent means "SF".
+   */
+  invoicePrefix: z.string().trim().regex(/^[A-Z0-9]{1,5}$/, 'Use one to five capital letters or digits.').optional(),
 });
 export type TaxProfile = z.infer<typeof TaxProfile>;
 

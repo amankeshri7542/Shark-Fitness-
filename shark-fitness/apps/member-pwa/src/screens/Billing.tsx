@@ -27,6 +27,8 @@ interface BillingPayload {
     dueMinor: number;
     dueLabel: string;
     payable: boolean;
+    /** "Tax invoice" when raised under a valid GSTIN, else "Invoice". */
+    document?: { kind: 'gst_tax_invoice' | 'invoice'; title: string };
   }>;
 }
 
@@ -146,6 +148,11 @@ export default function BillingScreen() {
                     Pay {inv.dueLabel} at reception. Online payment is unavailable.
                   </p>
                 ) : null}
+                <div className="mt-2.5 flex flex-wrap gap-4 text-[13px]">
+                  <span className="text-foam-45">{inv.document?.title ?? 'Invoice'}</span>
+                  <a className="underline" href={`${API_ORIGIN}/v1/member/billing/invoices/${inv.id}/tax-invoice`} download>Download</a>
+                  <a className="underline" href={`${API_ORIGIN}/v1/member/billing/invoices/${inv.id}/tax-invoice?format=html`} target="_blank" rel="noreferrer">Print / PDF</a>
+                </div>
               </SeamCell>
             ))}
           </Seam>

@@ -182,13 +182,64 @@ describe('PF-TEN-001 — the business profile', () => {
 
   it('stores a tax profile and a data-processing policy', async () => {
     const res = await patch(owner, '/v1/admin/settings/business', {
-      taxProfile: { registrationNumber: '29ABCDE1234F1Z5', label: 'GST', defaultRateBp: 1800, pricesIncludeTax: false },
+      taxProfile: { registrationNumber: '29ABCDE1234F1ZW', label: 'GST', defaultRateBp: 1800, pricesIncludeTax: false },
       dataProcessing: { privacyContact: 'privacy@sharkfitness.in', retentionDays: 1095, consentVersion: '2026-01', jurisdiction: 'India' },
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { taxProfile: { label: string }; dataProcessing: { retentionDays: number } };
     expect(body.taxProfile.label).toBe('GST');
     expect(body.dataProcessing.retentionDays).toBe(1095);
+  });
+
+  describe('a GST tax profile is checked before any invoice prints it', () => {
+    const gst = (registrationNumber: string, extra: Record<string, unknown> = {}) => ({
+      taxProfile: { registrationNumber, label: 'GST', defaultRateBp: 1800, pricesIncludeTax: false, ...extra },
+    });
+
+    it('refuses a GSTIN whose check character does not match, and says why', async () => {
+      // The old fixture: the right shape, the wrong last character.
+      const res = await patch(owner, '/v1/admin/settings/business', gst('29ABCDE1234F1Z5'));
+      expect(res.status).toBe(422);
+      expect(((await res.json()) as { error: { message: string } }).error.message).toMatch(/GSTIN: .*does not match the rest/);
+    });
+
+    it('stores a pasted lowercase GSTIN in capitals', async () => {
+      const res = await patch(owner, '/v1/admin/settings/business', gst(' 29abcde1234f1zw '));
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { taxProfile: { registrationNumber: string } }).taxProfile.registrationNumber).toBe('29ABCDE1234F1ZW');
+    });
+
+    it('refuses tax-inclusive prices, which no invoice would honour', async () => {
+      const res = await patch(owner, '/v1/admin/settings/business', gst('29ABCDE1234F1ZW', { pricesIncludeTax: true }));
+      expect(res.status).toBe(422);
+      expect(((await res.json()) as { error: { message: string } }).error.message).toMatch(/Tax-inclusive prices are not supported/);
+    });
+
+    it('leaves a non-GST registration number alone', async () => {
+      const res = await patch(owner, '/v1/admin/settings/business', {
+        taxProfile: { registrationNumber: 'GB123456789', label: 'VAT', defaultRateBp: 2000, pricesIncludeTax: false },
+      });
+      expect(res.status).toBe(200);
+      // Put the GST profile back for the suites that raise invoices after this one.
+      expect((await patch(owner, '/v1/admin/settings/business', gst('29ABCDE1234F1ZW'))).status).toBe(200);
+    });
+
+    it('leaves a GST number alone outside India, where GST is not a GSTIN', async () => {
+      // Australia, New Zealand, Singapore and Canada also print "GST".
+      const t = db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId())).get()!;
+      db.update(schema.tenants).set({ currency: 'AUD' }).where(eq(schema.tenants.id, t.id)).run();
+      try {
+        const res = await patch(owner, '/v1/admin/settings/business', gst('51 824 753 556'));
+        expect(res.status).toBe(200);
+      } finally {
+        db.update(schema.tenants).set({ currency: t.currency, taxProfile: t.taxProfile as never }).where(eq(schema.tenants.id, t.id)).run();
+      }
+    });
+
+    it('refuses an invoice prefix that would push a number past 16 characters', async () => {
+      const res = await patch(owner, '/v1/admin/settings/business', gst('29ABCDE1234F1ZW', { invoicePrefix: 'SHARKF' }));
+      expect(res.status).toBe(422);
+    });
   });
 
   it('audits the change with a field-level diff, not two blobs', async () => {

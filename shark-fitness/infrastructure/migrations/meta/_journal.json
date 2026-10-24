@@ -120,6 +120,13 @@
       "when": 1790100001000,
       "tag": "0016_payment_receipts",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1790100002000,
+      "tag": "0017_invoice_tax_documents",
+      "breakpoints": true
     }
   ]
 }

@@ -9,7 +9,8 @@ import { ConfirmDialog, Drawer, Modal } from '../ui/overlay';
 import { useIdempotentAttempt } from '../lib/idempotent-attempt';
 
 interface Summary {
-  revenueThisMonthLabel: string;
+  /** Null for a role without report.financial: withheld, not zero. */
+  revenueThisMonthLabel: string | null;
   outstandingLabel: string;
   outstandingInvoiceCount: number;
   overdueCount: number;
@@ -53,6 +54,8 @@ interface InvoiceDetail {
     voidReason: string | null;
     memberName: string;
     memberNo: string;
+    /** "Tax invoice" when it was raised under a valid GSTIN, else "Invoice". */
+    document: { kind: 'gst_tax_invoice' | 'invoice'; title: string };
   };
   lines: Array<{ id: string; description: string; quantity: number; unitLabel: string; taxLabel: string; totalLabel: string }>;
   payments: Array<{ id: string; method: string; state: string; amountLabel: string; provider: string | null; failureReason: string | null; recordedByName: string | null; createdAt: string }>;
@@ -138,7 +141,11 @@ export default function BillingScreen() {
         <div className="min-w-[150px] flex-1 px-3.5 py-3">
           <Label>Revenue this month</Label>
           <div className="mt-1.5">
-            <Metric value={summary.data.revenueThisMonthLabel} size="md" tone="good" />
+            {summary.data.revenueThisMonthLabel === null ? (
+              <p className="text-[12px] text-foam-45">Owner and accounts only</p>
+            ) : (
+              <Metric value={summary.data.revenueThisMonthLabel} size="md" tone="good" />
+            )}
           </div>
         </div>
         <div className="min-w-[150px] flex-1 px-3.5 py-3">
@@ -287,8 +294,16 @@ function InvoiceDetailPanel({
           </div>
         ) : (
           <>
-            <header className="flex items-center gap-2 border-b border-line px-4 py-2.5">
+            <header className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-line px-4 py-2.5 text-[12px]">
               <Chip tone={STATE_TONE[data.invoice.state] ?? 'neutral'}>{data.invoice.state.replace(/_/g, ' ')}</Chip>
+              <span className="flex-1" />
+              <span className="text-foam-45">{data.invoice.document.title}</span>
+              <a className="text-sonar underline underline-offset-2" href={`${API_ORIGIN}/v1/admin/billing/invoices/${data.invoice.id}/tax-invoice`} download>
+                Download
+              </a>
+              <a className="text-sonar underline underline-offset-2" href={`${API_ORIGIN}/v1/admin/billing/invoices/${data.invoice.id}/tax-invoice?format=html`} target="_blank" rel="noreferrer">
+                Print / PDF
+              </a>
             </header>
 
             <div className="flex flex-col gap-3.5 p-4">

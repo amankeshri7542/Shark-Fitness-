@@ -15,6 +15,7 @@ import {
   estimate1rm,
   levelFor,
   retentionRisk,
+  roundToLoadable,
   sessionVolumeKg,
   totalsFor,
   XP_AWARDS,
@@ -25,6 +26,7 @@ import { id, initialsOf, normalizeEmail, normalizePhone, referralCode, token } f
 import { DAY, HOUR, MINUTE, addDays, daysBetween, isoDate, startOfWeek } from '../lib/time.js';
 import { RESPONSE_MINUTES as SUPPORT_RESPONSE_MINUTES } from '../services/support.js';
 import { backfillRollups } from '../services/reports.js';
+import { FITNESS_SERVICE_CODE, recordTaxDocument } from '../services/tax-invoice.js';
 import { EXERCISES } from './seed/exercises.js';
 import { makeRandom } from './seed/random.js';
 import { wipeSeedTables } from './seed-tables.js';
@@ -99,7 +101,9 @@ db.insert(schema.tenants)
       registrationNumber: '29AABCS1429B1ZQ',
       label: 'GST',
       defaultRateBp: 1800,
-      pricesIncludeTax: true,
+      // Catalogue prices are before tax: every invoice adds 18% on top.
+      pricesIncludeTax: false,
+      invoicePrefix: 'SF',
     },
     dataProcessing: {
       privacyContact: 'privacy@sharkfitness.in',
@@ -291,7 +295,9 @@ const PRODUCTS: ProductSeed[] = [
     kind: 'membership',
     name: 'Elite Annual',
     description: 'Every branch, every class included, priority booking, two guest passes a month.',
-    price: 2_499_00,
+    // A year for about eight months of Depot Monthly. The old ₹2,499 sat
+    // below a single month, which a gym owner spots on the first screen.
+    price: 24_999_00,
     cadence: 'annual',
     durationDays: 365,
     credits: null,
@@ -354,7 +360,8 @@ const PRODUCTS: ProductSeed[] = [
     kind: 'pt_credits',
     name: 'Personal Training — 10 sessions',
     description: 'Ten one-to-one sessions with your assigned coach.',
-    price: 2_200_00,
+    // ₹1,200 a session; ₹220 a session read as a typo.
+    price: 12_000_00,
     cadence: 'one_time',
     durationDays: 120,
     credits: 10,
@@ -741,18 +748,29 @@ const STATE_MIX: Array<{ state: string; lifecycle: string; weight: number }> = [
 
 const weighted = STATE_MIX.flatMap((s) => Array<typeof s>(s.weight).fill(s));
 
+/** Whether a member at this branch could hold the plan: it is sold there, or it
+ *  has no floor access at all (Digital Only), so the branch does not matter. */
+const coversBranch = (productId: string, branchId: string): boolean => {
+  const access = productRows.get(productId)!.access;
+  return access.allBranches || access.branchIds.length === 0 || access.branchIds.includes(branchId);
+};
+
 MEMBER_NAMES.forEach(([first, last], index) => {
   if (last === 'Bhaskar') return; // already seeded as the grace demo
   const mix = weighted[index % weighted.length]!;
+  // The trial is sold only at Koramangala. Everyone else holds a plan their own
+  // branch sells: picked blind, a third of the members held one their front
+  // desk would refuse (Depot Monthly at HSR, say).
+  const branchId = mix.lifecycle === 'trial' ? 'br_kor' : rng.pick(['br_kor', 'br_kor', 'br_ind', 'br_hsr']);
   const productId =
     mix.lifecycle === 'trial'
       ? 'prd_trial'
-      : rng.pick(['prd_elite_annual', 'prd_monthly', 'prd_monthly', 'prd_offpeak', 'prd_digital']);
+      : rng.pick(['prd_elite_annual', 'prd_monthly', 'prd_monthly', 'prd_offpeak', 'prd_digital'].filter((id) => coversBranch(id, branchId)));
   seedMember({
     firstName: first,
     lastName: last,
     memberNo: `SF-${40220 + index}`,
-    branchId: rng.pick(['br_kor', 'br_kor', 'br_ind', 'br_hsr']),
+    branchId,
     productId,
     membershipState: mix.state,
     lifecycle: mix.lifecycle,
@@ -907,6 +925,10 @@ function seedInvoice(args: {
     })
     .run();
 
+  // The GSTIN, branch address and member it was raised under, as a real
+  // invoice records them, so the demo prints tax invoices rather than legacy ones.
+  recordTaxDocument(tenantId, invoiceId, FITNESS_SERVICE_CODE);
+
   if (args.paid) {
     db.insert(schema.payments)
       .values({
@@ -974,14 +996,36 @@ function seedInvoice(args: {
   return invoiceId;
 }
 
+const billedMonthly = (m: SeededMember): boolean => productRows.get(m.productId)!.cadence === 'monthly';
+
+// Each plan bills on its own cycle. Billing every plan monthly showed an annual
+// member paying for a year twelve times over.
 for (const m of membersSeeded) {
-  const history = rng.int(1, 4);
-  for (let n = history; n >= 1; n--) {
+  const product = productRows.get(m.productId)!;
+  if (product.priceMinor === 0) continue; // a free trial raises no invoice
+
+  if (billedMonthly(m)) {
+    const history = rng.int(1, 4);
+    for (let n = history; n >= 1; n--) {
+      seedInvoice({
+        memberId: m.memberId,
+        branchId: m.branchId,
+        productId: m.productId,
+        issuedDaysAgo: n * 30 + rng.int(0, 5),
+        paid: true,
+      });
+    }
+  } else {
+    // Annual and one-time products are paid once, when the current term
+    // starts, and never before the member joined: a grace or expired term's
+    // end is pinned near today, which can put a year-long term's start before
+    // the join date.
+    const termStart = addDays(m.endsOn, -(product.durationDays ?? 365));
     seedInvoice({
       memberId: m.memberId,
       branchId: m.branchId,
       productId: m.productId,
-      issuedDaysAgo: n * 30 + rng.int(0, 5),
+      issuedDaysAgo: Math.max(0, Math.min(daysBetween(termStart, TODAY), daysBetween(m.joinedOn, TODAY))),
       paid: true,
     });
   }
@@ -989,9 +1033,10 @@ for (const m of membersSeeded) {
 
 // Takings inside the current calendar month. Without these the revenue KPI
 // reads zero on any day early in a month, which looks like a broken metric
-// rather than a quiet month.
+// rather than a quiet month. Monthly plans only: an annual member is not
+// billed again mid-term.
 const daysIntoMonth = Number(TODAY.slice(8, 10));
-for (const m of rng.shuffle(membersSeeded.filter((x) => x.membershipState === 'active')).slice(0, 14)) {
+for (const m of rng.shuffle(membersSeeded.filter((x) => x.membershipState === 'active' && billedMonthly(x))).slice(0, 14)) {
   seedInvoice({
     memberId: m.memberId,
     branchId: m.branchId,
@@ -1011,8 +1056,9 @@ const graceInvoiceId = seedInvoice({
   failed: true,
 });
 
-// A handful of other unpaid invoices so the billing board is not empty.
-for (const m of rng.shuffle(membersSeeded.filter((x) => x.membershipState === 'active')).slice(0, 5)) {
+// A handful of other unpaid invoices so the billing board is not empty: the
+// latest monthly renewal, still owed.
+for (const m of rng.shuffle(membersSeeded.filter((x) => x.membershipState === 'active' && billedMonthly(x))).slice(0, 5)) {
   seedInvoice({
     memberId: m.memberId,
     branchId: m.branchId,
@@ -1148,7 +1194,9 @@ for (let week = 1; week <= 6; week++) {
     day.items.forEach((item, order) => {
       // Load creeps up across the block; deload in week 4.
       const factor = week === 4 ? 0.85 : 1 + (week - 1) * 0.025;
-      const load = item.load > 0 ? Math.round(item.load * factor * 4) / 4 : 0;
+      // Rounded to what a bar can carry: 2.5 kg steps. Quarter-kilo targets
+      // such as 97.25 kg cannot be loaded with plates.
+      const load = item.load > 0 ? roundToLoadable(item.load * factor) : 0;
 
       db.insert(schema.programItems)
         .values({
@@ -1268,7 +1316,7 @@ function seedHistoryFor(m: SeededMember, weeks: number): HistoryResult {
         const exerciseId = exerciseIdBySlug.get(item.slug)!;
         // Load trends up as the weeks come forward.
         const progress = 1 + (weeks - w) * 0.012;
-        const base = item.load > 0 ? Math.round(item.load * progress * 4) / 4 : 0;
+        const base = item.load > 0 ? roundToLoadable(item.load * progress) : 0;
 
         for (let s = 0; s < item.sets; s++) {
           const reps = rng.int(item.repLow, item.repHigh);
@@ -1446,7 +1494,7 @@ const DAILY_GRID = [
   { time: 21.0, type: 'Reef Yoga', trainer: coachPriya, room: 'Studio 2' },
 ];
 
-const sessionsSeeded: Array<{ id: string; branchId: string; startsAt: number; capacity: number; name: string }> = [];
+const sessionsSeeded: Array<{ id: string; branchId: string; startsAt: number; endsAt: number; capacity: number; name: string }> = [];
 
 /** The recurrence rules behind the grid below.
  *
@@ -1516,7 +1564,7 @@ for (let dayOffset = -7; dayOffset <= 14; dayOffset++) {
         });
       }
 
-      sessionsSeeded.push({ id: sessionId, branchId: b.id, startsAt, capacity: room.capacity, name: ct.name });
+      sessionsSeeded.push({ id: sessionId, branchId: b.id, startsAt, endsAt: startsAt + ct.duration * MINUTE, capacity: room.capacity, name: ct.name });
 
       db.insert(schema.classSessions)
         .values({
@@ -1561,17 +1609,40 @@ for (const series of seriesSeeded.values()) {
 /** Fill seats. One evening class is deliberately full with a waitlist. */
 const bookableMembers = membersSeeded.filter((m) => m.membershipState === 'active' || m.membershipState === 'frozen');
 
+/** Seats each member holds. The booking rule refuses a class that overlaps one
+ *  the member already holds; the seed inserts rows directly, so it has to keep
+ *  the same rule or the demo shows a member in two rooms at 20:00. */
+const seatsHeld = new Map<string, Array<{ sessionId: string; startsAt: number; endsAt: number }>>();
+const holdsSeatIn = (memberId: string, sessionId: string): boolean =>
+  (seatsHeld.get(memberId) ?? []).some((held) => held.sessionId === sessionId);
+const overlapsSeat = (memberId: string, s: { startsAt: number; endsAt: number }): boolean =>
+  (seatsHeld.get(memberId) ?? []).some((held) => held.startsAt < s.endsAt && s.startsAt < held.endsAt);
+const holdSeat = (memberId: string, s: { id: string; startsAt: number; endsAt: number }): void => {
+  seatsHeld.set(memberId, [...(seatsHeld.get(memberId) ?? []), { sessionId: s.id, startsAt: s.startsAt, endsAt: s.endsAt }]);
+};
+
+/** The demo member's evening booking today — the one Home surfaces. Held
+ *  before the fill so no random booking lands on top of it. */
+const todayEvening = sessionsSeeded.find(
+  (s) => s.branchId === 'br_kor' && s.name === 'Apex HIIT' && isoDate(s.startsAt, TZ) === TODAY && s.startsAt > NOW,
+);
+if (todayEvening) holdSeat(demoMember.memberId, todayEvening);
+
 for (const s of sessionsSeeded) {
   const isFuture = s.startsAt > NOW;
   const eligible = bookableMembers.filter((m) => m.branchId === s.branchId);
   if (eligible.length === 0) continue;
 
   const fillTarget = rng.int(Math.floor(s.capacity * 0.3), s.capacity);
-  const attendees = rng.shuffle(eligible).slice(0, Math.min(fillTarget, eligible.length));
+  const attendees = rng
+    .shuffle(eligible)
+    .filter((m) => !overlapsSeat(m.memberId, s))
+    .slice(0, Math.min(fillTarget, eligible.length));
 
   let seat = 0;
   for (const m of attendees) {
     seat++;
+    holdSeat(m.memberId, s);
     db.insert(schema.bookings)
       .values({
         id: id('bkg'),
@@ -1597,11 +1668,6 @@ for (const s of sessionsSeeded) {
     .where(sql`${schema.classSessions.id} = ${s.id}`)
     .run();
 }
-
-/** The demo member's evening booking today — the one Home surfaces. */
-const todayEvening = sessionsSeeded.find(
-  (s) => s.branchId === 'br_kor' && s.name === 'Apex HIIT' && isoDate(s.startsAt, TZ) === TODAY && s.startsAt > NOW,
-);
 
 if (todayEvening) {
   const already = db
@@ -1647,7 +1713,10 @@ if (fullSession) {
     .where(sql`${schema.classSessions.id} = ${fullSession.id}`)
     .run();
 
-  const waiters = rng.shuffle(bookableMembers.filter((m) => m.memberId !== demoMember.memberId)).slice(0, 2);
+  // Nobody waits for a seat they already hold.
+  const waiters = rng
+    .shuffle(bookableMembers.filter((m) => m.memberId !== demoMember.memberId && !holdsSeatIn(m.memberId, fullSession.id)))
+    .slice(0, 2);
   waiters.forEach((m, index) => {
     db.insert(schema.waitlistEntries)
       .values({

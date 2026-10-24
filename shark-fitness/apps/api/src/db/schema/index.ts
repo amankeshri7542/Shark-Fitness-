@@ -6,3 +6,4 @@ export * from './engagement.js';
 
 export * from './account-recovery.js';
 export * from './payment-receipts.js';
+export * from './invoice-tax-documents.js';

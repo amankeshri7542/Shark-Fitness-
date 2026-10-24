@@ -55,6 +55,20 @@ export function canTransition(req: TransitionRequest): TransitionOutcome {
   return { ok: true };
 }
 
+/**
+ * Whether a plan can be sold to a member whose home branch is `branchId`.
+ *
+ * Every branch, or the branches it lists. A plan that lists none grants no
+ * floor access at all (Digital Only: programming and the content library), so
+ * there is no branch for it to be unavailable at. Reading an empty list as
+ * "sold nowhere" made such a plan impossible to assign or renew, and hid it
+ * from the front desk's catalogue. Door access is a separate rule and still
+ * refuses these members, which is the point of the plan.
+ */
+export function planSoldAt(access: { allBranches: boolean; branchIds: readonly string[] }, branchId: string): boolean {
+  return access.allBranches || access.branchIds.length === 0 || access.branchIds.includes(branchId);
+}
+
 export const TERMINAL_STATES: MembershipState[] = ['cancelled', 'expired'];
 
 /** States that let a member through the door, before outstanding-balance and

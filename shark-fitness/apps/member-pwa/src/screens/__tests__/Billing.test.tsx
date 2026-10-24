@@ -44,3 +44,25 @@ it('offers canonical payment downloads and makes expiry discrepancies and unavai
   expect(screen.getByText('2025-01-01 · Expired 2026-01-01')).toBeVisible();
   expect(api).not.toHaveBeenCalled();
 });
+
+it('links each invoice to its tax invoice, named for what it is', () => {
+  const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } });
+  const invoice = { state: 'paid', issuedOn: '2026-08-31', dueOn: '2026-09-07', totalLabel: '₹29,498.82', dueMinor: 0, dueLabel: '₹0', payable: false };
+  client.setQueryData(['billing'], {
+    outstandingMinor: 0, outstandingLabel: '₹0', membership: null,
+    invoices: [
+      { ...invoice, id: 'inv-gst', number: 'SF-2026-00001', document: { kind: 'gst_tax_invoice', title: 'Tax invoice' } },
+      { ...invoice, id: 'inv-plain', number: 'SF-2026-00002', document: { kind: 'invoice', title: 'Invoice' } },
+    ],
+  });
+  render(<QueryClientProvider client={client}><Billing /></QueryClientProvider>);
+  // A plain invoice is never labelled a tax invoice: that claim is what a member files.
+  expect(screen.getByText('Tax invoice')).toBeInTheDocument();
+  expect(screen.getByText('Invoice')).toBeInTheDocument();
+  const downloads = screen.getAllByRole('link', { name: 'Download' });
+  expect(downloads.map((link) => link.getAttribute('href'))).toEqual([
+    '/v1/member/billing/invoices/inv-gst/tax-invoice',
+    '/v1/member/billing/invoices/inv-plain/tax-invoice',
+  ]);
+  expect(screen.getAllByRole('link', { name: 'Print / PDF' })[0]).toHaveAttribute('href', '/v1/member/billing/invoices/inv-gst/tax-invoice?format=html');
+});

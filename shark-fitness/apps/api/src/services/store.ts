@@ -38,6 +38,7 @@ import { id } from '../lib/ids.js';
 import { branchTimeZone } from '../lib/branch-time.js';
 import { addDays, isoDate, now } from '../lib/time.js';
 import { nextInvoiceNumber } from './billing.js';
+import { recordTaxDocument } from './tax-invoice.js';
 import { loadMemberInScope } from './members.js';
 
 /**
@@ -948,6 +949,10 @@ function raiseAccountInvoice(ctx: RequestContext, input: AccountInvoiceInput): s
       productId: null,
     })
     .run();
+
+  // Retail goods carry their own HSN codes, which the till does not record,
+  // so the basket line is printed without one.
+  recordTaxDocument(ctx.tenantId, invoiceId, null);
 
   emit({
     tenantId: ctx.tenantId,

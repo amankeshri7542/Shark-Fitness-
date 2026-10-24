@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { ctxOf } from '../../middleware/index.js';
-import { validate } from '../../middleware/validate.js';
+import { changing, validate } from '../../middleware/validate.js';
 import { requirePermission } from '../../lib/context.js';
 import { runIdempotently } from '../../lib/idempotency.js';
 import {
@@ -214,7 +214,7 @@ storeRoutes.post('/products', validate('json', ProductBody), (c) => {
   return c.json({ product: createProduct(ctxOf(c), c.req.valid('json')) }, 201);
 });
 
-storeRoutes.patch('/products/:productId', validate('json', ProductPatch), (c) => {
+storeRoutes.patch('/products/:productId', validate('json', changing(ProductPatch)), (c) => {
   return c.json({ product: updateProduct(ctxOf(c), c.req.param('productId'), c.req.valid('json')) });
 });
 
