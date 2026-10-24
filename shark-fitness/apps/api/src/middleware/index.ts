@@ -1,5 +1,6 @@
 import type { Context, MiddlewareHandler, Next } from 'hono';
 import { getCookie } from 'hono/cookie';
+import { HTTPException } from 'hono/http-exception';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { isIP } from 'node:net';
 import { ZodError } from 'zod';
@@ -86,6 +87,16 @@ export const errorHandler = (err: unknown, c: Context): Response => {
           requestId: requestIdValue,
         },
       },
+      422,
+    );
+  }
+
+  // Hono's validator refuses a body it cannot parse as JSON with a 400
+  // HTTPException. That is the caller's mistake, but it fell through to the
+  // 500 below and reported an exception to the team on every typo.
+  if (err instanceof HTTPException && err.status === 400) {
+    return c.json(
+      { error: { code: 'VALIDATION_FAILED', message: 'The request body is not valid JSON.', requestId: requestIdValue } },
       422,
     );
   }
