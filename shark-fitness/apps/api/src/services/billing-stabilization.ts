@@ -1,7 +1,7 @@
 import { and, eq, sql } from 'drizzle-orm';
 import type { MembershipState, Product } from '@shark/contracts';
 import { channels } from '@shark/contracts';
-import { canTransition } from '@shark/domain';
+import { canTransition, planSoldAt } from '@shark/domain';
 import { db, schema } from '../db/client.js';
 import { audit } from '../lib/audit.js';
 import { conflict, invalid, notFound, precondition } from '../lib/errors.js';
@@ -34,7 +34,7 @@ export function validateMembershipProduct(member: MemberRow, product: ProductRow
     );
   }
   if (product.status !== 'active') throw invalid('That product is not published.');
-  if (!product.access.allBranches && !product.access.branchIds.includes(member.homeBranchId)) {
+  if (!planSoldAt(product.access, member.homeBranchId)) {
     throw invalid("That product is not available at this member's branch.");
   }
 

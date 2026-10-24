@@ -9,7 +9,8 @@ import { ConfirmDialog, Drawer, Modal } from '../ui/overlay';
 import { useIdempotentAttempt } from '../lib/idempotent-attempt';
 
 interface Summary {
-  revenueThisMonthLabel: string;
+  /** Null for a role without report.financial: withheld, not zero. */
+  revenueThisMonthLabel: string | null;
   outstandingLabel: string;
   outstandingInvoiceCount: number;
   overdueCount: number;
@@ -140,7 +141,11 @@ export default function BillingScreen() {
         <div className="min-w-[150px] flex-1 px-3.5 py-3">
           <Label>Revenue this month</Label>
           <div className="mt-1.5">
-            <Metric value={summary.data.revenueThisMonthLabel} size="md" tone="good" />
+            {summary.data.revenueThisMonthLabel === null ? (
+              <p className="text-[12px] text-foam-45">Owner and accounts only</p>
+            ) : (
+              <Metric value={summary.data.revenueThisMonthLabel} size="md" tone="good" />
+            )}
           </div>
         </div>
         <div className="min-w-[150px] flex-1 px-3.5 py-3">

@@ -165,7 +165,45 @@ describe('billing — products', () => {
   });
 });
 
+describe('billing — the summary strip', () => {
+  it('withholds this month’s revenue from roles without report.financial, as absent rather than zero', async () => {
+    for (const email of ['reception@sharkfitness.in', 'manager@sharkfitness.in']) {
+      const body = (await (await app.request('/v1/admin/billing/summary', { headers: headers(await signIn(email)) })).json()) as {
+        revenueThisMonthMinor: number | null; revenueThisMonthLabel: string | null; restricted: string[]; outstandingMinor: number;
+      };
+      expect(body.revenueThisMonthMinor, email).toBeNull();
+      expect(body.revenueThisMonthLabel, email).toBeNull();
+      expect(body.restricted, email).toContain('revenueThisMonth');
+      // The balances the desk works from are still there.
+      expect(typeof body.outstandingMinor, email).toBe('number');
+    }
+    const accounts = (await (await app.request('/v1/admin/billing/summary', { headers: headers(await signIn('accounts@sharkfitness.in')) })).json()) as {
+      revenueThisMonthMinor: number | null; restricted: string[];
+    };
+    expect(typeof accounts.revenueThisMonthMinor).toBe('number');
+    expect(accounts.restricted).toEqual([]);
+  });
+});
+
 describe('billing — plan assignment', () => {
+  it('sells a plan with no floor access to a member at any branch, and shows it at the desk', async () => {
+    // Digital Only lists no branches: it grants no floor access. Read as
+    // "sold nowhere", it could never be assigned or renewed and was missing
+    // from reception's catalogue.
+    const owner = await signIn('owner@sharkfitness.in');
+    const reception = await signIn('reception@sharkfitness.in');
+    const catalogue = (await (await app.request('/v1/admin/billing/products', { headers: headers(reception) })).json()) as { items: Array<{ id: string }> };
+    expect(catalogue.items.map((p) => p.id)).toContain('prd_digital');
+
+    const memberId = await freshMember(owner);
+    const assign = await app.request(`/v1/admin/billing/members/${memberId}/assign-plan`, {
+      method: 'POST',
+      headers: headers(reception, true),
+      body: JSON.stringify({ productId: 'prd_digital' }),
+    });
+    expect(assign.status).toBe(201);
+  });
+
   it('assigns a paid plan, creating a pending_payment membership and an open invoice', async () => {
     const owner = await signIn('owner@sharkfitness.in');
     const memberId = await freshMember(owner);

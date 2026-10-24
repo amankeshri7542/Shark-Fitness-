@@ -8,7 +8,7 @@ import { DAY, isoDate, now } from '../lib/time.js';
 import type { RequestContext } from '../lib/context.js';
 import { createInvoiceForProduct } from './billing.js';
 import { branchTimeZone } from '../lib/branch-time.js';
-import { formatMoney, totalsFor } from '@shark/domain';
+import { formatMoney, totalsFor, planSoldAt } from '@shark/domain';
 import { requestHash } from '../lib/crypto.js';
 import { loadMemberInScope } from './members.js';
 import { notFound } from '../lib/errors.js';
@@ -32,7 +32,7 @@ export function validateMembershipProduct(
     );
   }
   if (product.status !== 'active') throw invalid('That product is not published.');
-  if (!product.access.allBranches && !product.access.branchIds.includes(member.homeBranchId)) {
+  if (!planSoldAt(product.access, member.homeBranchId)) {
     throw invalid("That product is not available at this member's branch.");
   }
 

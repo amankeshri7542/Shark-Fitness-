@@ -4,7 +4,7 @@ import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { validate } from '../../middleware/validate.js';
 import { BillingCadence, ProductKind, RecordPaymentInput, type Product } from '@shark/contracts';
-import { can, formatMoney } from '@shark/domain';
+import { can, formatMoney, planSoldAt } from '@shark/domain';
 import { db, schema, transact } from '../../db/client.js';
 import { ctxOf } from '../../middleware/index.js';
 import type { RequestContext } from '../../lib/context.js';
@@ -132,7 +132,7 @@ billingRoutes.get('/products', (c) => {
     eq(schema.products.tenantId, ctx.tenantId),
     canManage ? undefined : eq(schema.products.status, 'active'),
   )).orderBy(desc(schema.products.updatedAt)).all().filter((p) =>
-    canManage || (scope.length > 0 && (p.access.allBranches || p.access.branchIds.some((branchId) => scope.includes(branchId)))),
+    canManage || (scope.length > 0 && scope.some((branchId) => planSoldAt(p.access, branchId))),
   );
   return c.json({
     items: rows.map((p) => ({
@@ -298,11 +298,17 @@ billingRoutes.get('/summary', (c) => {
   monthStart.setUTCDate(1);
   monthStart.setUTCHours(0, 0, 0, 0);
 
-  const revenueThisMonth = db
-    .select({ total: sql<number>`coalesce(sum(${schema.payments.amountMinor}), 0)` })
-    .from(schema.payments)
-    .where(and(eq(schema.payments.tenantId, ctx.tenantId), inArray(schema.payments.branchId, scope), eq(schema.payments.state, 'succeeded'), gte(schema.payments.createdAt, monthStart.getTime())))
-    .get();
+  // Revenue is report.financial's, as it is on Reports and the dashboard:
+  // reception and a branch manager work the balances, not the takings. The
+  // figure is withheld as absent, never as zero.
+  const canSeeRevenue = can(ctx.role, 'report.financial');
+  const revenueThisMonth = canSeeRevenue
+    ? db
+        .select({ total: sql<number>`coalesce(sum(${schema.payments.amountMinor}), 0)` })
+        .from(schema.payments)
+        .where(and(eq(schema.payments.tenantId, ctx.tenantId), inArray(schema.payments.branchId, scope), eq(schema.payments.state, 'succeeded'), gte(schema.payments.createdAt, monthStart.getTime())))
+        .get()
+    : null;
 
   const outstanding = db
     .select({ total: sql<number>`coalesce(sum(${schema.invoices.totalMinor} - ${schema.invoices.paidMinor}), 0)`, count: sql<number>`count(*)` })
@@ -323,8 +329,9 @@ billingRoutes.get('/summary', (c) => {
     .get()?.n ?? 0;
 
   return c.json({
-    revenueThisMonthMinor: revenueThisMonth?.total ?? 0,
-    revenueThisMonthLabel: formatMoney(revenueThisMonth?.total ?? 0, 'INR'),
+    revenueThisMonthMinor: revenueThisMonth ? revenueThisMonth.total : null,
+    revenueThisMonthLabel: revenueThisMonth ? formatMoney(revenueThisMonth.total, 'INR') : null,
+    restricted: canSeeRevenue ? [] : ['revenueThisMonth'],
     outstandingMinor: outstanding?.total ?? 0,
     outstandingLabel: formatMoney(outstanding?.total ?? 0, 'INR'),
     outstandingInvoiceCount: outstanding?.count ?? 0,
@@ -565,7 +572,7 @@ billingRoutes.post('/members/:memberId/assign-plan', validate('json', AssignPlan
   const product = db.select().from(schema.products).where(and(eq(schema.products.id, productId), eq(schema.products.tenantId, ctx.tenantId))).get();
   if (!product) throw notFound('That product');
   if (product.status !== 'active') throw invalid('That product is not published.');
-  if (!product.access.allBranches && !product.access.branchIds.includes(member.homeBranchId)) {
+  if (!planSoldAt(product.access, member.homeBranchId)) {
     throw invalid("That product is not available at this member's branch.");
   }
 
