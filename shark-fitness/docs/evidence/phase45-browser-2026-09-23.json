@@ -1,0 +1,207 @@
+{
+  "dateLocal": "2026-09-23",
+  "scope": "Local synthetic browser rehearsal only; prepared accounts, no fresh onboarding or real pilot acceptance",
+  "sourceSha": "b9da05ce7c6290ecac07b3f6437b1d3d64eb9a37",
+  "initialImplementationSha": "c3d26f6318529deff99608331f936130589050dc",
+  "origin": "http://localhost:8898",
+  "readinessAfterRestart": {
+    "ok": true,
+    "database": "ready",
+    "schema": "ready",
+    "status": "ready",
+    "release": "b9da05ce7c6290ecac07b3f6437b1d3d64eb9a37",
+    "configuration": "ready",
+    "scheduler": "disabled"
+  },
+  "servedAssetSha256": {
+    "/admin/assets/index-tKUTRPku.js": "fc0d54ac1214ab6df5403a231a428fed5b0c99884abde7ca66284cba436064fe",
+    "/admin/assets/react-vendor-COepQrKg.js": "be0addafdbbf3fb93d1663a60684a66f8306eb9c755dfb88f34610ecabac9d50",
+    "/admin/assets/tanstack-vendor-DLyHWCoI.js": "f04d7aa3343798a58dc07b0c0c3eb3cc111dbef2c4819514fb4ab08fcf5fab44",
+    "/admin/assets/index-a_4r91I4.css": "0d631aa346ceb5abd9b353ee852b7ebc92c24ceb31bd9c09be7676e3c5d8ebea",
+    "/assets/index-CPqudMbj.js": "224e3890d5cbb681f0f91330b4f79bd0cfb8a4bcba8b7cf5f6aec57f26bf926d",
+    "/assets/react-vendor-COepQrKg.js": "be0addafdbbf3fb93d1663a60684a66f8306eb9c755dfb88f34610ecabac9d50",
+    "/assets/tanstack-vendor-Dc-ntDnI.js": "d02785388a080d3ac2a4e55bc2a4b3d42200ff0a1bdc7d8bbe6e9b6bf84c280c",
+    "/assets/index-evhaUhhz.css": "9ca53b3e482e67d1221506b69341399cbd222531e0f4f96cf6bd049df646ee58",
+    "/registerSW.js": "9742073ef7fc795e7673d98f272992843298426a0ffd8cb3507784df5143608b"
+  },
+  "fixture": {
+    "initialBranchMemberCount": 23,
+    "finalBranchMemberCount": 78,
+    "rosterRows": 57,
+    "validContacts": 55,
+    "duplicateExistingContact": 1,
+    "invalidEmail": 1,
+    "preexistingAccounts": true
+  },
+  "reception": {
+    "receptionIdentityControlHidden": true,
+    "receptionRecoveryControlHidden": true,
+    "simulatedStale409VisibleAndNoWrite": true,
+    "receptionCorrectionStored": true,
+    "correctionPreservesLoginIdentity": true,
+    "phoneProfileLiveRefreshWithoutReload": true,
+    "correctedFullNameLookup": true,
+    "previewCounts": {
+      "ready": 55,
+      "skipped": 1,
+      "rejected": 1
+    },
+    "previewNoMemberWrites": true,
+    "explicitConfirmationRequired": true,
+    "importLostResponseRetry": {
+      "attempts": 2,
+      "sameKeyAndBody": true,
+      "sameImportId": true,
+      "imported": 55,
+      "skipped": 1,
+      "rejected": 1,
+      "noDuplicateMembers": true
+    },
+    "rowReportDownloaded": true,
+    "directoryPageBeyond50": true,
+    "importedFinancialHistoryDisclosure": true,
+    "importedNoMembership": true
+  },
+  "owner": {
+    "ownerRecoveryFormPresent": true,
+    "ownerRecoveryRequiresHumanInputs": true,
+    "ownerRecoveryPrivatePasswordNotSubmitted": true,
+    "activeRenewalRefused": true,
+    "cancelledViaOwnerWorkflow": true
+  },
+  "renewal": {
+    "cancelledThroughOwnerUI": true,
+    "confirmationRequiredAfterQuote": true,
+    "firstResponseLostAfterServerCommit": true,
+    "retryAttempts": 2,
+    "sameIdempotencyKeyAndBody": true,
+    "sameResponseReturned": true,
+    "storedResultReadOnlyVerification": {
+      "memberships": [
+        {
+          "id": "msh_0mud4opkzocek7w",
+          "state": "cancelled",
+          "previous_membership_id": null,
+          "auto_renew": 0
+        },
+        {
+          "id": "msh_0mud527nariirw5",
+          "state": "pending_payment",
+          "previous_membership_id": "msh_0mud4opkzocek7w",
+          "auto_renew": 0
+        }
+      ],
+      "invoiceCount": 2
+    },
+    "newInvoice": "SF-2026-00108",
+    "newUnpaidPrincipalMinor": 353882,
+    "newTermState": "pending_payment",
+    "automaticCollection": false
+  },
+  "receipt": {
+    "downloadedTextAcknowledgement": true,
+    "printableHtmlOpened": true,
+    "pdfGenerated": true,
+    "invoiceAndPaymentUnchangedAfterDownloads": true,
+    "canonicalFieldsVisible": true
+  },
+  "phone": {
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "checks": {
+      "liveCorrectedNameWithoutRefresh": true,
+      "memberAndAdminBalanceAgree": true,
+      "creditBalanceAndPolicyBoundaryVisible": true,
+      "noRequestStormOr429": true
+    },
+    "responseCounts": {
+      "/v1/auth/password:200": 1,
+      "/v1/me:200": 7,
+      "/v1/me/realtime-ticket:200": 3,
+      "/v1/me/branches:200": 3,
+      "/v1/member/home:200": 1,
+      "/v1/me/consents:200": 1,
+      "/v1/me/sessions:200": 1,
+      "/v1/member/billing:200": 1
+    },
+    "outstandingMinor": 0,
+    "physicalDeviceTest": false
+  },
+  "failureThenFix": {
+    "initialSourceSha": "c3d26f6318529deff99608331f936130589050dc",
+    "symptom": "Profile refresh replaced viewer object, restarted realtime and replayed the event until Billing requests were rate-limited",
+    "threeSecondBeforeCounts": {
+      "me200": 213,
+      "realtimeTicket200": 212,
+      "billing200": 174,
+      "billing429": 1,
+      "realtimeTicket429": 1
+    },
+    "fixedSourceSha": "b9da05ce7c6290ecac07b3f6437b1d3d64eb9a37",
+    "fixedJourney": {
+      "me200": 7,
+      "realtimeTicket200": 3,
+      "billing200": 1,
+      "rateLimitedResponses": 0
+    }
+  },
+  "recoveryDisplay": {
+    "capturedAt": "2026-09-22T20:46:10.105Z",
+    "checks": {
+      "/sign-in": {
+        "recoveryModeViaFragment": true,
+        "newPasswordButtonDisabledWhenEmpty": true,
+        "normalLoginIdentityHidden": true
+      },
+      "/admin/sign-in": {
+        "recoveryModeViaFragment": true,
+        "newPasswordButtonDisabledWhenEmpty": true,
+        "normalLoginIdentityHidden": true
+      }
+    },
+    "recoverySubmissions": 0,
+    "humanPending": [
+      "owner current-password authorization",
+      "recipient private new-password submission",
+      "eligible imported-account first-time activation"
+    ]
+  },
+  "productionSmoke": {
+    "script": "scripts/admin-browser-smoke.mjs",
+    "exitCode": 0,
+    "memberWorkerActivated": true,
+    "memberWorkerControlledAdmin": true,
+    "adminRuntimeLoaded": true,
+    "phoneDirectoryLayout": true,
+    "activationFragmentDisplayOnly": true
+  },
+  "restartPersistence": {
+    "readyAfterExactCommitRestart": true,
+    "correctedNamePersisted": true,
+    "memberTotal78Persisted": true,
+    "importedContactDisclosureAndNoMembershipPersisted": true,
+    "renewalPendingTermAndSingleNewInvoicePersisted": true,
+    "servedAssetsMatchFinalBuild": true
+  },
+  "pending": [
+    "Private owner recovery reauthentication and recipient new-password submission",
+    "Fresh-empty-gym and imported-account private activation journey",
+    "Physical-phone verification",
+    "Uncoached staff acceptance",
+    "Hosted persistence, off-instance restore and alert delivery",
+    "Actual 10\u201325-member pilot over 1\u20132 weeks",
+    "Credit sale/refund/consumption policy decisions"
+  ],
+  "privateLocalArtifacts": {
+    "directory": "/var/folders/y1/5qgpl44s7w5_6cx9hmsh969h0000gn/T/shark-phase45-browser-6mmov1gd",
+    "database": "shark.db",
+    "fullBuildHashes": "final-dist-hashes.json",
+    "phoneScreenshot": "phone-billing-fixed.png",
+    "printScreenshot": "printable-receipt.png",
+    "receiptPdf": "payment-receipt.pdf",
+    "csvRowReport": "roster-results.csv",
+    "productionSmokeLog": "production-smoke.log"
+  }
+}

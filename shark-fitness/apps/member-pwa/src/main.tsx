@@ -2,11 +2,9 @@ import { StrictMode, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
-import { channels } from '@shark/contracts';
 import { router } from './router';
 import { useSession } from './lib/store';
-import { connectRealtime, disconnectRealtime } from './lib/realtime';
-import { startOutbox, stopOutbox } from './lib/outbox';
+import { useMemberConnection } from './lib/realtime';
 import { API_ORIGIN, ApiError } from './lib/api';
 import { hasMemberSessionHint, setMemberSessionHint } from './lib/session-hint';
 import './styles.css';
@@ -75,27 +73,7 @@ function Boot() {
     if (status === 'signed-out') setMemberSessionHint(false);
   }, [status]);
 
-  useEffect(() => {
-    if (!viewer) {
-      disconnectRealtime();
-      stopOutbox();
-      return;
-    }
-
-    const ownerKey = `${viewer.tenantId}:${viewer.userId}`;
-    const stop = startOutbox(ownerKey);
-    const subscribe = [
-      channels.tenant(viewer.tenantId),
-      ...viewer.permittedBranchIds.map(channels.branch),
-      ...(viewer.memberId ? [channels.member(viewer.memberId)] : []),
-    ];
-    void connectRealtime(queryClient, subscribe);
-
-    return () => {
-      stop();
-      disconnectRealtime();
-    };
-  }, [viewer]);
+  useMemberConnection(viewer, queryClient);
 
   if (status === 'loading') {
     return (

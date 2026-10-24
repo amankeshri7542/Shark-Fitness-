@@ -5,6 +5,7 @@ import { api } from '../lib/api';
 import { useAdmin, usePermission } from '../lib/store';
 import { Page } from '../ui/shell';
 import { MembersBulkActions } from './members/BulkActions';
+import { RosterImport } from './RosterImport';
 import {
   Button,
   Chip,
@@ -179,6 +180,7 @@ export default function MembersScreen() {
         ) : null}
       </Seam>
 
+      <RosterImport />
       <Toolbar>
         <Field
           label="Search"

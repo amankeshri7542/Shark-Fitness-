@@ -20,4 +20,12 @@ describe('admin API client activation', () => {
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: 'POST', credentials: 'include', body: JSON.stringify(body) });
     expect(csrf.get()).toBe('new-session-csrf');
   });
+  it('redeems recovery without trying to refresh an expired session first', async () => {
+    fetchMock.mockImplementation(async (url: string) => String(url).endsWith('/auth/csrf')
+      ? reply(401, envelope('UNAUTHENTICATED', 'Sign in again.')) : reply(200, { recovered: true }));
+    const body = { recoveryId: 'recovery', token: 'synthetic-token', password: 'synthetic-password' };
+    await expect(api('/auth/recovery/redeem', { method: 'POST', body })).resolves.toEqual({ recovered: true });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/v1/auth/recovery/redeem');
+  });
 });

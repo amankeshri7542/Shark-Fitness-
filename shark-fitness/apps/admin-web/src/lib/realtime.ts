@@ -66,17 +66,18 @@ function setConnection(next: Connection): void {
  * subscribe to, so mapping them here would be dead code.
  */
 const INVALIDATES: Partial<Record<EventTopic, string[][]>> = {
+  'member.profile_updated': [['members'], ['member'], ['floor']],
   'attendance.checked_in': [['floor'], ['dashboard']],
   'attendance.checked_out': [['floor'], ['dashboard']],
   'attendance.denied': [['floor'], ['dashboard']],
   'occupancy.changed': [['floor'], ['dashboard']],
-  'booking.confirmed': [['schedule'], ['dashboard']],
-  'booking.cancelled': [['schedule'], ['dashboard']],
+  'booking.confirmed': [['schedule'], ['dashboard'], ['member-credits']],
+  'booking.cancelled': [['schedule'], ['dashboard'], ['member-credits']],
   'booking.seat_changed': [['schedule']],
   'waitlist.offered': [['schedule']],
-  'waitlist.promoted': [['schedule']],
+  'waitlist.promoted': [['schedule'], ['member-credits']],
   'session.updated': [['schedule']],
-  'session.cancelled': [['schedule'], ['dashboard']],
+  'session.cancelled': [['schedule'], ['dashboard'], ['member-credits']],
   'lead.stage_changed': [['leads']],
   // An escalated ticket raises this too, and the support queue is where it has
   // to be acted on.

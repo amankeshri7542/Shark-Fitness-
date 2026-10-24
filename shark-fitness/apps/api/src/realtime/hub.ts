@@ -18,10 +18,17 @@ interface Client {
 
 const clients = new Set<Client>();
 
+export function disconnectUser(tenantId: string, userId: string): void {
+  for (const client of clients) {
+    if (client.ctx.tenantId === tenantId && client.ctx.userId === userId) client.socket.close(4401, 'unauthenticated');
+  }
+}
+
 // Staff clients use events only to refetch their permission-scoped HTTP views.
 // Never send row payloads: a branch includes other trainers' members and private
 // support records. Unknown topics/kinds stay private until explicitly reviewed.
 const STAFF_TOPICS: Partial<Record<EventTopic, Permission>> = {
+  'member.profile_updated': 'member.view',
   'attendance.checked_in': 'attendance.view',
   'attendance.checked_out': 'attendance.view',
   'attendance.denied': 'attendance.view',

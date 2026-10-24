@@ -1,9 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
-import { api } from '../lib/api';
+import type { CreditAccount } from '@shark/contracts';
+import { api, API_ORIGIN } from '../lib/api';
 import { ScreenBody, Stack } from '../ui/shell';
 import { Chip, Display, EmptyState, ErrorState, Label, Metric, Panel, Seam, SeamCell, SectionRule, Skeleton, type Tone } from '../ui/primitives';
 
 interface BillingPayload {
+  credits?: CreditAccount;
+  receipts?: Array<{ id: string; amountLabel: string; method: string; settledAt: string }>;
   outstandingMinor: number;
   outstandingLabel: string;
   membership: {
@@ -147,6 +150,31 @@ export default function BillingScreen() {
             ))}
           </Seam>
         )}
+        {data.credits ? <>
+          <SectionRule>Credit account</SectionRule>
+          <Panel><div className="space-y-3 p-4 text-[13px]">
+            {data.credits.balances.map((balance) => <div key={balance.kind}><p>{balance.kind === 'class' ? 'Class' : 'PT'}: {balance.signedBalance} units after expiry.</p>
+              <p>{balance.consumptionAvailable ? `${balance.usableUnits} usable units; booking eligibility also applies.` : 'PT consumption is unavailable.'}</p>
+              {balance.warning ? <p role="alert">Your credit balance needs reception review. No adjustment has been made.</p> : null}</div>)}
+            <p>New credit sales are awaiting gym policy approval.</p>
+            <details><summary className="cursor-pointer underline">Credit history</summary><p className="my-2">{data.credits.historyNotice}</p>
+              {data.credits.entries.length ? <ul className="space-y-3">{data.credits.entries.map((entry) => <li key={entry.id}>
+                <p>{entry.kind}: {entry.delta > 0 ? '+' : ''}{entry.delta} units · {entry.reason}</p>
+                <p>{entry.createdAt.slice(0, 10)} · {entry.expiresOn ? `${entry.expired ? 'Expired' : 'Expires'} ${entry.expiresOn}` : 'No recorded expiry'}</p>
+                <p className="break-all text-[11px] text-foam-45">{entry.id}</p>
+              </li>)}</ul> : <p>No credit ledger entries.</p>}
+            </details>
+          </div></Panel>
+        </> : null}
+        {data.receipts?.length ? <>
+          <SectionRule>Payment records</SectionRule>
+          <Panel><div className="divide-y divide-line">{data.receipts.map((receipt) => <div key={receipt.id} className="space-y-2 p-4 text-[13px]">
+            <p>{receipt.amountLabel} · {receipt.method} · {receipt.settledAt.slice(0, 10)}</p>
+            <p className="break-all text-foam-45">{receipt.id}</p>
+            <div className="flex flex-wrap gap-4"><a className="underline" href={`${API_ORIGIN}/v1/member/billing/payments/${receipt.id}/receipt`} download>Download record</a>
+              <a className="underline" href={`${API_ORIGIN}/v1/member/billing/payments/${receipt.id}/receipt?format=html`} target="_blank" rel="noreferrer">Print / PDF</a></div>
+          </div>)}</div></Panel>
+        </> : null}
       </Stack>
     </ScreenBody>
   );

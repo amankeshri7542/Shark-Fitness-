@@ -1,3 +1,5 @@
+import { receiptHtml, receiptRecord } from '../../services/payment-receipt.js';
+import { readCreditAccount } from '../../services/credit-account.js';
 import { reconcileMembershipDates } from '../../services/membership-dates.js';
 import { Hono } from 'hono';
 import { and, desc, eq, sql } from 'drizzle-orm';
@@ -7,6 +9,13 @@ import { ctxOf } from '../../middleware/index.js';
 import { notFound, precondition } from '../../lib/errors.js';
 
 export const billingRoutes = new Hono();
+
+billingRoutes.get('/credits', (c) => {
+  const ctx = ctxOf(c);
+  const member = db.select().from(schema.members).where(and(eq(schema.members.tenantId, ctx.tenantId), eq(schema.members.id, ctx.memberId!))).get();
+  if (!member) throw notFound('Your membership account');
+  return c.json(readCreditAccount(member));
+});
 
 
 billingRoutes.get('/', (c) => {
@@ -27,9 +36,15 @@ billingRoutes.get('/', (c) => {
     .from(schema.invoices).where(and(eq(schema.invoices.memberId, memberId),
       sql`${schema.invoices.voided} = 0 and ${schema.invoices.totalMinor} > ${schema.invoices.paidMinor}`,
     )).get()?.total ?? 0;
+  const member = db.select().from(schema.members).where(and(eq(schema.members.tenantId, ctx.tenantId), eq(schema.members.id, memberId))).get()!;
   return c.json({
     outstandingMinor: outstanding,
     outstandingLabel: formatMoney(outstanding, 'INR'),
+    credits: readCreditAccount(member),
+    receipts: db.select().from(schema.payments).where(and(eq(schema.payments.tenantId, ctx.tenantId), eq(schema.payments.memberId, memberId), eq(schema.payments.state, 'succeeded'))).orderBy(desc(schema.payments.createdAt)).limit(24).all().map((payment) => ({
+      id: payment.id, amountLabel: formatMoney(payment.amountMinor, payment.currency), method: payment.method,
+      settledAt: new Date(payment.settledAt ?? payment.createdAt).toISOString(),
+    })),
     membership: membership
       ? {
           id: membership.id,
@@ -90,3 +105,14 @@ const receptionSettlement = () => {
 };
 billingRoutes.post('/checkout-intent', receptionSettlement);
 billingRoutes.post('/checkout-intent/:intentId/confirm', receptionSettlement);
+
+billingRoutes.get('/payments/:paymentId/receipt', (c) => {
+  const ctx = ctxOf(c);
+  const payment = db.select().from(schema.payments).where(and(eq(schema.payments.id, c.req.param('paymentId')), eq(schema.payments.tenantId, ctx.tenantId), eq(schema.payments.memberId, ctx.memberId!))).get();
+  if (!payment) throw notFound('That payment');
+  const record = receiptRecord(ctx.tenantId, payment.id);
+  c.header('Cache-Control', 'no-store');
+  if (c.req.query('format') === 'html') return c.html(receiptHtml(record.content));
+  c.header('Content-Disposition', `attachment; filename="receipt-${payment.id.replace(/[^a-zA-Z0-9_-]/g, '')}.txt"`);
+  return c.text(record.content);
+});

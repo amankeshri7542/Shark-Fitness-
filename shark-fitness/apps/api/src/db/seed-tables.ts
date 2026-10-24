@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 
 /** All application tables, ordered child-first for a deterministic reseed. */
 export const SEED_WIPE_TABLES = [
+  'account_recoveries', 'payment_receipts',
   'media_progress', 'media_assets', 'live_sessions', 'usage_meters',
   'ticket_events', 'interventions', 'feedback',
   'messages', 'conversations', 'tickets',

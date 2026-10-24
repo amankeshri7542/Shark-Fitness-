@@ -23,6 +23,7 @@ const proofSuffix = randomUUID().replaceAll('-', '');
 const auditId = `aud_recovery_${proofSuffix}`;
 const ledgerId = `stk_recovery_${proofSuffix}`;
 let paymentProof;
+let accountRecoveryProof;
 const baseEnvironment = {
   ...process.env,
   SHARK_PASS_SECRET: 'recovery-proof-pass-secret-with-at-least-48-bytes-long',
@@ -64,9 +65,9 @@ async function expectRestoreRefusal(action, pattern, label) {
 function snapshot(databasePath) {
   const database = new Database(databasePath, { readonly: true, fileMustExist: true });
   try {
-    const tables = ['members', 'products', 'memberships', 'membership_events', 'invoices', 'invoice_lines', 'payments', 'refunds', 'check_ins', 'tickets', 'audit_log', 'stock_ledger'];
+    const tables = ['members', 'products', 'memberships', 'membership_events', 'invoices', 'invoice_lines', 'payments', 'refunds', 'check_ins', 'tickets', 'audit_log', 'stock_ledger', 'account_recoveries', 'payment_receipts'];
     return Object.fromEntries(tables.map((table) => {
-      const rows = database.prepare(`select * from ${table} order by id`).all();
+      const rows = database.prepare(`select * from ${table} order by ${table === 'payment_receipts' ? 'payment_id' : 'id'}`).all();
       assert.ok(rows.length > 0, `Representative ${table} records are missing.`);
       return [table, { count: rows.length, sha256: createHash('sha256').update(JSON.stringify(rows)).digest('hex') }];
     }));
@@ -117,6 +118,10 @@ function verifyState(databasePath, expected) {
     } catch (error) {
       if (!String(error).includes('append-only')) throw error;
     }
+    assert.ok(database.prepare('select id from account_recoveries where id = ? and user_id = ?').get(accountRecoveryProof.recoveryId, accountRecoveryProof.userId), 'Issued account recovery identity is missing.');
+    assert.ok(database.prepare('select payment_id from payment_receipts where payment_id = ?').get(paymentProof.paymentId), 'Issued payment receipt identity is missing.');
+    assert.throws(() => database.prepare("update payment_receipts set member_name = 'tampered' where payment_id = ?").run(paymentProof.paymentId), /immutable/);
+    assert.throws(() => database.prepare('delete from payment_receipts where payment_id = ?').run(paymentProof.paymentId), /immutable/);
     if (database.pragma('integrity_check', { simple: true }) !== 'ok') throw new Error('Restored integrity_check failed.');
     return actual;
   } finally {
@@ -194,8 +199,22 @@ async function proveBootAndRead(databasePath, label, apiDirectory = resolve(repo
       const fixture = new Database(databasePath, { readonly: true });
       const invoice = fixture.prepare(`select i.* from invoices i join tenants t on t.id = i.tenant_id
         where t.slug = 'shark' and i.voided = 0 and i.total_minor - i.paid_minor > 20000 order by i.id limit 1`).get();
+      const recoveryMember = fixture.prepare(`select m.id, m.user_id from members m
+        join users u on u.id = m.user_id and u.tenant_id = m.tenant_id
+        join tenants t on t.id = m.tenant_id
+        where t.slug = 'shark' and u.email = 'rohit@sharkfitness.in' and u.role = 'member'
+          and u.account_state = 'active' and u.password_hash is not null and u.deleted_at is null and m.deleted_at is null`).get();
       fixture.close();
       assert.ok(invoice, 'A synthetic invoice with unpaid principal is required.');
+      assert.ok(recoveryMember, 'An active ordinary synthetic member is required for recovery issuance.');
+      // Issue through the owner/password/verified-identity boundary. The raw
+      // handoff token is deliberately discarded, never retained in evidence.
+      const { recoveryId } = await (await request('/v1/auth/recovery/issue', {
+        memberId: recoveryMember.id, currentPassword: 'shark1234', identityVerified: true,
+        reason: 'Synthetic owner-verified recovery preservation rehearsal',
+      })).json();
+      assert.equal(typeof recoveryId, 'string');
+      accountRecoveryProof = { recoveryId, userId: recoveryMember.user_id, memberId: recoveryMember.id, state: 'issued-not-redeemed' };
       const body = { method: 'cash', amountMinor: 10000, idempotencyKey: `recovery-payment-${proofSuffix}`, note: 'Synthetic recovery rehearsal: independently received cash' };
       const payment = await (await request(`/v1/admin/billing/invoices/${invoice.id}/payments`, body)).json();
       const retry = await (await request(`/v1/admin/billing/invoices/${invoice.id}/payments`, body)).json();
@@ -341,6 +360,7 @@ const evidence = {
   rowCounts: Object.fromEntries(Object.entries(restoredState).map(([table, value]) => [table, value.count])),
   recordFingerprints: restoredState,
   manualPaymentAndRefund: paymentProof,
+  accountRecovery: accountRecoveryProof,
   runtimes: [initialProof, restartProof, replacementProof, runtimeProof],
   readiness: runtimeProof.ready,
   authenticatedReadStatus: runtimeProof.authenticatedReadStatus,

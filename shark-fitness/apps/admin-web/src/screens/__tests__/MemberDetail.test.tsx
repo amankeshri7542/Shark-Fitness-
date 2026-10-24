@@ -7,7 +7,7 @@ vi.mock('@tanstack/react-router', () => ({
   useParams: () => ({ memberId: 'new-member' }),
   Link: ({ children }: { children: ReactNode }) => <a>{children}</a>,
 }));
-vi.mock('../../lib/store', () => ({ usePermission: () => true }));
+vi.mock('../../lib/store', () => ({ usePermission: () => true, useAdmin: (select: (state: unknown) => unknown) => select({ viewer: { role: 'reception' }, branches: [] }) }));
 vi.mock('../../ui/shell', () => ({ Page: ({ children, actions }: { children: ReactNode; actions: ReactNode }) => <main>{actions}{children}</main> }));
 vi.mock('../../lib/api', async (importOriginal) => ({ ...await importOriginal<typeof import('../../lib/api')>(), api: vi.fn() }));
 import { api } from '../../lib/api';
@@ -21,6 +21,7 @@ it('shows awaiting plan and pending payment honestly, and offers retry when the 
     credits: [], visits: [], workouts: [], bookings: [], audit: [],
   };
   vi.mocked(api).mockImplementation(async (path) => {
+    if (path.endsWith('/credits')) return { balances: [], entries: [] } as never;
     if (path === '/admin/billing/products') throw new Error('offline');
     return member as never;
   });

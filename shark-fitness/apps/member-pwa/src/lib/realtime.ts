@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import type { QueryClient } from '@tanstack/react-query';
-import type { EventTopic } from '@shark/contracts';
+import { channels, type EventTopic, type Viewer } from '@shark/contracts';
 import { API_ORIGIN, api } from './api';
+import { useSession } from './store';
+import { startOutbox, stopOutbox } from './outbox';
 
 export type Connection = 'connecting' | 'open' | 'closed';
 
@@ -35,13 +37,14 @@ const INVALIDATES: Partial<Record<EventTopic, string[][]>> = {
   'attendance.checked_out': [['pass'], ['occupancy']],
   'attendance.denied': [['pass']],
   'occupancy.changed': [['occupancy'], ['home']],
-  'booking.confirmed': [['schedule'], ['home']],
-  'booking.cancelled': [['schedule'], ['home']],
+  'booking.confirmed': [['schedule'], ['home'], ['billing']],
+  'booking.cancelled': [['schedule'], ['home'], ['billing']],
   'booking.seat_changed': [['schedule']],
   'waitlist.offered': [['schedule'], ['notifications']],
-  'waitlist.promoted': [['schedule']],
+  'waitlist.promoted': [['schedule'], ['billing']],
   'session.updated': [['schedule']],
-  'session.cancelled': [['schedule'], ['home'], ['notifications']],
+  'session.cancelled': [['schedule'], ['home'], ['notifications'], ['billing']],
+  'member.profile_updated': [['home'], ['pass'], ['billing'], ['profile']],
   'membership.state_changed': [['home'], ['billing'], ['pass']],
   'payment.succeeded': [['billing'], ['home'], ['pass']],
   'payment.failed': [['billing'], ['notifications']],
@@ -101,6 +104,16 @@ async function open(): Promise<void> {
 
       const event = data as RealtimeEvent;
       lastSeq = Math.max(lastSeq, event.seq);
+      if (event.topic === 'member.profile_updated') {
+        const prior = useSession.getState().viewer;
+        void api<{ viewer: Viewer }>('/me').then(({ viewer }) => {
+          const current = useSession.getState();
+          if (socket === nextSocket && current.status === 'signed-in' && current.viewer === prior
+            && viewer.role === 'member' && viewer.userId === prior?.userId && viewer.tenantId === prior.tenantId) {
+            current.setViewer(viewer);
+          }
+        }).catch(() => { /* Existing connection/session handling covers a revoked or offline session. */ });
+      }
       for (const key of INVALIDATES[event.topic] ?? []) {
         void client?.invalidateQueries({ queryKey: key });
       }
@@ -170,4 +183,33 @@ export function useOnline(): boolean {
     };
   }, []);
   return online;
+}
+
+/** Keep the session connection alive across ordinary profile refreshes. */
+export function useMemberConnection(viewer: Viewer | null, queryClient: QueryClient): void {
+  const tenantId = viewer?.tenantId;
+  const userId = viewer?.userId;
+  const memberId = viewer?.memberId;
+  const branchKey = JSON.stringify(viewer?.permittedBranchIds ?? []);
+  useEffect(() => {
+    if (!tenantId || !userId) {
+      disconnectRealtime();
+      stopOutbox();
+      return;
+    }
+
+    const ownerKey = `${tenantId}:${userId}`;
+    const stop = startOutbox(ownerKey);
+    const subscribe = [
+      channels.tenant(tenantId),
+      ...(JSON.parse(branchKey) as string[]).map(channels.branch),
+      ...(memberId ? [channels.member(memberId)] : []),
+    ];
+    void connectRealtime(queryClient, subscribe);
+
+    return () => {
+      stop();
+      disconnectRealtime();
+    };
+  }, [tenantId, userId, memberId, branchKey, queryClient]);
 }

@@ -191,6 +191,10 @@ export function applyPaymentToInvoice(input: ApplyPaymentInput): ApplyPaymentRes
     .run();
 
   db.update(schema.invoices).set({ paidMinor: newPaidMinor, state: newState, updatedAt: now() }).where(eq(schema.invoices.id, invoiceId)).run();
+  const issuer = db.select().from(schema.tenants).where(eq(schema.tenants.id, ctx.tenantId)).get()!;
+  const recipient = db.select().from(schema.members).where(and(eq(schema.members.id, invoice.memberId), eq(schema.members.tenantId, ctx.tenantId))).get()!;
+  db.insert(schema.paymentReceipts).values({ paymentId, tenantId: ctx.tenantId, issuerName: issuer.legalName,
+    memberName: `${recipient.firstName} ${recipient.lastName}`, memberNo: recipient.memberNo, createdAt: now() }).run();
 
   // Money arrived: stop chasing it. Without this a member who settles at the
   // desk still gets next week's reminder, because the dunning worker only
@@ -284,6 +288,8 @@ export interface ApplyRefundInput {
  *  itself, it only records that a caller asserted they handled it. */
 export function applyRefund(input: ApplyRefundInput): { refundId: string; invoiceState: string } {
   const { ctx, paymentId, amountMinor, reason, entitlementReversed, actorName } = input;
+  requirePermission(ctx, 'billing.refund');
+  if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) throw invalid('Refund amount must be a positive safe integer.');
 
   const payment = db
     .select()
@@ -292,6 +298,13 @@ export function applyRefund(input: ApplyRefundInput): { refundId: string; invoic
     .get();
   if (!payment) throw notFound('That payment');
   const invoice = loadInvoiceInScope(ctx, payment.invoiceId ?? '');
+  const creditKinds = new Set(['class_pack', 'pt_credits']);
+  const referencedProduct = invoice.refType === 'product' && invoice.refId ? db.select().from(schema.products).where(and(eq(schema.products.id, invoice.refId), eq(schema.products.tenantId, ctx.tenantId))).get() : undefined;
+  const membership = invoice.refType === 'membership' && invoice.refId ? db.select().from(schema.memberships).where(and(eq(schema.memberships.id, invoice.refId), eq(schema.memberships.tenantId, ctx.tenantId))).get() : undefined;
+  const productLines = db.select({ kind: schema.products.kind }).from(schema.invoiceLines).innerJoin(schema.products, eq(schema.products.id, schema.invoiceLines.productId)).where(and(eq(schema.invoiceLines.invoiceId, invoice.id), eq(schema.products.tenantId, ctx.tenantId))).all();
+  if (['credits', 'credit_purchase', 'class_pack', 'pt_credits'].includes(invoice.refType ?? '') || (referencedProduct && creditKinds.has(referencedProduct.kind)) || (membership && creditKinds.has(membership.productSnapshot.kind)) || productLines.some((product) => creditKinds.has(product.kind))) {
+    throw precondition('Credit-product refunds are unavailable until the gym approves allocation, consumed/expired-credit and cancellation rules. No money or credit units were changed.');
+  }
   if (payment.state !== 'succeeded') throw conflict('Only a succeeded payment can be refunded.');
 
   const priorRefunds = db

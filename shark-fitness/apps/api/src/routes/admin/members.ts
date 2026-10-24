@@ -23,6 +23,7 @@ import {
 } from '../../services/member-bulk.js';
 import { loadMemberInScope } from '../../services/members.js';
 import { branchTimeZone } from '../../lib/branch-time.js';
+import { readCreditAccount } from '../../services/credit-account.js';
 
 export const membersRoutes = new Hono();
 
@@ -90,13 +91,15 @@ membersRoutes.get(
   }
 
   if (q.q) {
-    const term = `%${q.q.trim().toLowerCase()}%`;
+    const term = `%${q.q.trim().replace(/\s+/g, ' ').toLowerCase()}%`;
     // Staff type a phone the way it is printed ("98123 45678") as often as
     // they type it bare, so compare digits against the normalized number.
     const digits = q.q.replace(/\D/g, '');
     filters.push(
       or(
-        like(sql`lower(${schema.members.firstName} || ' ' || ${schema.members.lastName})`, term),
+        like(sql`lower(trim(${schema.members.firstName} || ' ' || ${schema.members.lastName}))`, term),
+        like(sql`lower(${schema.members.firstName})`, term),
+        like(sql`lower(${schema.members.lastName})`, term),
         like(sql`lower(${schema.members.email})`, term),
         like(sql`lower(${schema.members.memberNo})`, term),
         like(schema.members.phone, term),
@@ -375,12 +378,7 @@ membersRoutes.get('/:memberId', (c) => {
     .limit(10)
     .all();
 
-  const credits = db
-    .select({ kind: schema.credits.kind, balance: sql<number>`sum(${schema.credits.delta})` })
-    .from(schema.credits)
-    .where(eq(schema.credits.memberId, memberId))
-    .groupBy(schema.credits.kind)
-    .all();
+  const credits = readCreditAccount(member).balances.map((entry) => ({ kind: entry.kind, balance: entry.signedBalance }));
 
   const xp = db
     .select({ total: sql<number>`coalesce(sum(${schema.xpLedger.delta}), 0)` })
@@ -441,6 +439,7 @@ membersRoutes.get('/:memberId', (c) => {
       riskBand: member.riskScore === null ? null : member.riskScore >= 55 ? 'high' : member.riskScore >= 28 ? 'watch' : 'low',
       riskReasons: member.riskReasons ?? [],
       version: member.version,
+      importedContactOnly: Boolean(db.select({ id: schema.auditLog.id }).from(schema.auditLog).where(and(eq(schema.auditLog.tenantId, ctx.tenantId), eq(schema.auditLog.entityId, member.id), eq(schema.auditLog.action, 'member.imported'))).get()),
     },
     training: memberTrainingSummary(ctx, memberId),
     level: levelFor(xp?.total ?? 0),

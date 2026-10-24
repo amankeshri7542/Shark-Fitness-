@@ -361,9 +361,10 @@ function InvoiceDetailPanel({
                         <div className="flex items-center gap-2">
                           <span className="font-display">{p.amountLabel}</span>
                           {p.state === 'succeeded' ? (
-                            <a className="text-sonar underline" href={`${API_ORIGIN}/v1/admin/billing/payments/${p.id}/receipt`} download>
+                            <><a className="text-sonar underline" href={`${API_ORIGIN}/v1/admin/billing/payments/${p.id}/receipt`} download>
                               Download receipt
                             </a>
+                      <a className="text-sonar underline underline-offset-2" href={`${API_ORIGIN}/v1/admin/billing/payments/${p.id}/receipt?format=html`} target="_blank" rel="noreferrer">Print / PDF</a></>
                           ) : null}
                           {canRefund && p.state === 'succeeded' ? (
                             <Button variant="outline" onClick={() => setSheet({ refundPaymentId: p.id })}>

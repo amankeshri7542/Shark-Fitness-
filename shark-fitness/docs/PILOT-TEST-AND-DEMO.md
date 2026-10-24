@@ -1,5 +1,9 @@
 # Staffed-gym testing and demonstration
 
+## Phase 4/5 continuation — 23 September 2026
+
+Everyday corrections, contact import, owner-supervised recovery, supported renewal and printable acknowledgements now have a separate [acceptance matrix](PHASE-4-5-PROGRESS.md), [operator pack](PILOT-OPERATING-PACK.md) and [local browser rehearsal](phase45-browser-rehearsal.md). Credit sales/allocations and credit-linked refunds remain unavailable pending policy. Use the new artifact identities for new-feature demonstrations; the historical runs below keep their original SHA and limits. Private human activation/recovery, physical-phone and uncoached staff checks remain pending. Phase 3 is not complete and no real-member pilot was run.
+
 This guide uses synthetic people and test money. It does not authorize a live deployment or real-member launch. The offering is reception-led enrollment, independently verified manual payments, receipts, membership rules and attendance. Physical doors, integrated collection, automated messaging, automatic renewal, waitlists, workouts/offline logging and advanced modules are not part of this demonstration.
 
 ## Setup and safe reset

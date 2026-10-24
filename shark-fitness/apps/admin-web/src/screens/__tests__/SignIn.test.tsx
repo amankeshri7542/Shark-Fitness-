@@ -23,6 +23,22 @@ it('uses a private fragment link to activate a staff account', async () => {
   await waitFor(() => expect(mocks.api).toHaveBeenCalledWith('/auth/activation/redeem', { method: 'POST', body: { activationId: 'one', token: 'secret', password: 'fresh-password' } }));
 });
 
+it('uses distinct recovery authority and returns to sign-in after replacing the password', async () => {
+  window.history.replaceState(null, '', '/sign-in#recoveryId=one&recoveryToken=private-token&gym=fresh-gym');
+  mocks.api.mockResolvedValue({ recovered: true });
+  render(<SignIn />);
+  expect(screen.queryByRole('button', { name: 'Activate account' })).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('Work email')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'replacement-password' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Set new password' }));
+  await screen.findByRole('status');
+  expect(mocks.api).toHaveBeenCalledWith('/auth/recovery/redeem', { method: 'POST', body: { recoveryId: 'one', token: 'private-token', password: 'replacement-password' } });
+  expect(screen.getByLabelText('Password')).toHaveValue('');
+  expect(screen.getByLabelText('Work email')).toHaveValue('');
+  expect(window.location.hash).toBe('');
+  expect(screen.getByRole('button', { name: 'Sign in' })).toBeDisabled();
+});
+
 it('updates activation credentials when a link changes the mounted page fragment', async () => {
   window.history.replaceState(null, '', '/sign-in');
   mocks.api.mockReset().mockRejectedValue(new Error('offline'));

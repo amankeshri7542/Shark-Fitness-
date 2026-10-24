@@ -68,7 +68,7 @@ export interface RequestOptions {
 }
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
-const CSRF_EXEMPT = new Set(['/auth/password', '/auth/otp/start', '/auth/otp/verify', '/auth/activation/redeem']);
+const CSRF_EXEMPT = new Set(['/auth/password', '/auth/otp/start', '/auth/otp/verify', '/auth/activation/redeem', '/auth/recovery/redeem']);
 
 export async function api<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const method = options.method ?? 'GET';

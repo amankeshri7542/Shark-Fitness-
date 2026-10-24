@@ -13,3 +13,6 @@ export * from './schemas/support.js';
 export * from './schemas/reports.js';
 export * from './schemas/settings.js';
 export * from './schemas/platform.js';
+
+export * from './schemas/member-operations.js';
+export * from './schemas/credit-account.js';

@@ -59,6 +59,22 @@ describe('member sign-in', () => {
     expect(apiMock).toHaveBeenCalledWith('/auth/activation/redeem', { method: 'POST', body: { activationId: 'one', token: 'secret', password: 'fresh-password-123' } });
   });
 
+  it('handles recovery separately from first-time activation and requires a new normal sign-in', async () => {
+    window.history.replaceState(null, '', '/sign-in#recoveryId=one&recoveryToken=private-token&gym=fresh-gym');
+    apiMock.mockResolvedValue({ recovered: true });
+    render(<SignInScreen />);
+    expect(screen.queryByRole('button', { name: 'Activate account' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Request a code' })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'replacement-password' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Set new password' }));
+    await screen.findByRole('status');
+    expect(apiMock).toHaveBeenCalledWith('/auth/recovery/redeem', { method: 'POST', body: { recoveryId: 'one', token: 'private-token', password: 'replacement-password' } });
+    expect(screen.getByLabelText('Password')).toHaveValue('');
+    expect(screen.getByLabelText('Email')).toHaveValue('');
+    expect(window.location.hash).toBe('');
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   it('explains that sign-in is the one thing needing a connection', async () => {
     const user = userEvent.setup();
     apiMock.mockRejectedValueOnce(new OfflineError());

@@ -264,7 +264,8 @@ describe('phase 3 stabilization', () => {
     const first = await assign(owner, member.memberId, 'prd_trial');
     db.update(schema.memberships).set({ state: 'expired', updatedAt: now() }).where(eq(schema.memberships.id, first.membershipId)).run();
     const response = await app.request(`/v1/admin/billing/members/${member.memberId}/renew`, {
-      method: 'POST', headers: headers(owner, true), body: JSON.stringify({ productId: 'prd_daypass' }),
+      method: 'POST', headers: { ...headers(owner, true), 'idempotency-key': unique('renew') },
+      body: JSON.stringify({ productId: 'prd_daypass', quoteToken: (await (await app.request(`/v1/admin/billing/members/${member.memberId}/renewal-quote?productId=prd_daypass`, { headers: headers(owner) })).json() as { quoteToken: string }).quoteToken }),
     });
     expect(response.status).toBe(201);
     const body = (await response.json()) as { membershipId: string };
@@ -368,7 +369,8 @@ describe('pilot membership dates', () => {
     expect(membershipStanding(member.memberId).entitled).toBe(false);
     expect(db.select().from(schema.memberships).where(eq(schema.memberships.id, membership.id)).get()?.state).toBe('cancelled');
     const renewal = await app.request(`/v1/admin/billing/members/${member.memberId}/renew`, {
-      method: 'POST', headers: headers(owner, true), body: JSON.stringify({ productId: 'prd_daypass' }),
+      method: 'POST', headers: { ...headers(owner, true), 'idempotency-key': unique('renew') },
+      body: JSON.stringify({ productId: 'prd_daypass', quoteToken: (await (await app.request(`/v1/admin/billing/members/${member.memberId}/renewal-quote?productId=prd_daypass`, { headers: headers(owner) })).json() as { quoteToken: string }).quoteToken }),
     });
     expect(renewal.status).toBe(201);
   });

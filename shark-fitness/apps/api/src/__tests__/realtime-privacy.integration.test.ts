@@ -34,10 +34,10 @@ it('rejects tickets issued before session revocation', () => {
 });
 
 it.each([
-  ['reception@sharkfitness.in', [0, 1, 2, 3, 4, 5]],
-  ['rehan@sharkfitness.in', [0, 4, 6]],
-  ['accounts@sharkfitness.in', [3]],
-  ['manager@sharkfitness.in', [0, 1, 2, 3, 4, 5, 6]],
+  ['reception@sharkfitness.in', [0, 1, 2, 3, 4, 5, 9]],
+  ['rehan@sharkfitness.in', [0, 4, 6, 9]],
+  ['accounts@sharkfitness.in', [3, 9]],
+  ['manager@sharkfitness.in', [0, 1, 2, 3, 4, 5, 6, 9]],
 ])('limits %s replay and live delivery to permitted, payload-free invalidations', async (email, expectedIndices) => {
   const session = memberSession(email);
   const branchId = session.ctx.branchIds[0]!;
@@ -52,6 +52,7 @@ it.each([
     { topic: 'alert.raised', payload: { kind: 'equipment_down', equipmentId: 'private-equipment' } },
     { topic: 'alert.raised', payload: { kind: 'unknown_future_alert', secret: true } },
     { topic: 'notification.created', payload: { secret: true } },
+    { topic: 'member.profile_updated', payload: { memberId: 'another-member', email: 'private@test.invalid' } },
   ];
   const publish = () => fixtures.map((event) => emit({ tenantId: session.ctx.tenantId, branchId, channel, ...event }));
   const since = latestSeq();
