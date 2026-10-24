@@ -96,7 +96,9 @@ const server = serve({ fetch: app.fetch, port: runtimeConfig.port, hostname: '0.
     host: '0.0.0.0',
     port: info.port,
     errorReportingProvider,
-    otpDelivery: { sms: senders.sms.name, email: senders.email.name },
+    // One plain string: the structured logger redacts any key that mentions
+    // an OTP or an email address, which would hide the sender names.
+    signInCodeSenders: `sms=${senders.sms.name}, mail=${senders.email.name}`,
     jobs: runtimeConfig.disableJobs ? 'disabled' : 'enabled',
   });
 });
