@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { validate } from '../../middleware/validate.js';
+import { validate, queryFlag } from '../../middleware/validate.js';
 import { Equipment, MuscleGroup, PrescribedSet } from '@shark/contracts';
 import { requirePermission } from '../../lib/context.js';
 import { ctxOf } from '../../middleware/index.js';
@@ -42,7 +42,7 @@ export const trainingRoutes = new Hono();
 const ExerciseListQuery = z.object({
   q: z.string().optional(),
   equipment: Equipment.optional(),
-  archived: z.coerce.boolean().optional(),
+  archived: queryFlag.optional(),
 });
 
 trainingRoutes.get('/exercises', validate('query', ExerciseListQuery), (c) => {
@@ -100,7 +100,7 @@ trainingRoutes.post('/exercises/:exerciseId/archive', (c) => {
 const ProgramListQuery = z.object({
   state: z.enum(['draft', 'published', 'archived']).optional(),
   q: z.string().optional(),
-  all: z.coerce.boolean().optional(),
+  all: queryFlag.optional(),
 });
 
 trainingRoutes.get('/programs', validate('query', ProgramListQuery), (c) => {

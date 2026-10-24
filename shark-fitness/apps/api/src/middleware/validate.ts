@@ -1,7 +1,17 @@
 import { zValidator as honoZValidator } from '@hono/zod-validator';
 import type { ValidationTargets } from 'hono';
-import type { ZodSchema } from 'zod';
+import { z, type ZodSchema } from 'zod';
 import { AppError } from '../lib/errors.js';
+
+/**
+ * A `true`/`false` query flag, parsed exactly.
+ *
+ * `z.coerce.boolean()` is `Boolean(value)`, so the string "false" became
+ * `true`: the console's exercise library sent `archived=false` and was shown
+ * only archived exercises, which is to say none. Anything other than the two
+ * words is refused rather than guessed at.
+ */
+export const queryFlag = z.enum(['true', 'false']).transform((value) => value === 'true');
 
 /**
  * `zValidator` with our error envelope.
