@@ -10,6 +10,7 @@ import type {
   ResolvedSetting,
   RoomInput,
   SetupChecklist,
+  TaxProfile,
   WeekHours,
 } from '@shark/contracts';
 import { BranchState } from '@shark/contracts';
@@ -21,6 +22,7 @@ import {
   canTransitionBranch,
   currencyChangeConsequences,
   nextBranchStates,
+  parseGstin,
   resolvePolicy,
   setupChecklist,
   timezoneChangeConsequences,
@@ -387,6 +389,27 @@ function gate(consequences: Consequence[], acknowledged: string[] | undefined): 
 
 /* ——— Writing ————————————————————————————————————————— */
 
+/**
+ * The tax profile is printed on every invoice raised after it is saved, so it
+ * is checked here rather than discovered on a tax invoice.
+ *
+ * A GSTIN must pass its check character: a mistyped one would otherwise be
+ * printed on documents members file. "Prices include tax" is refused because
+ * nothing reads it — every invoice adds tax to the catalogue price — and a
+ * setting that says otherwise would make the taxable value on a tax invoice
+ * contradict what the owner believes they configured.
+ */
+function checkedTaxProfile(profile: TaxProfile | null): TaxProfile | null {
+  if (!profile) return null;
+  if (profile.pricesIncludeTax) {
+    throw invalid('Tax-inclusive prices are not supported yet. Enter catalogue prices before tax; tax is added on each invoice.');
+  }
+  if (profile.label.trim().toUpperCase() !== 'GST' || !profile.registrationNumber.trim()) return profile;
+  const gstin = parseGstin(profile.registrationNumber);
+  if (!gstin.valid) throw invalid(`GSTIN: ${gstin.reason}`);
+  return { ...profile, registrationNumber: gstin.gstin };
+}
+
 export function updateBusinessProfile(ctx: RequestContext, patch: BusinessProfilePatch): BusinessProfile & { slug: string; plan: string; status: string } {
   requirePermission(ctx, 'settings.manage');
   const tenant = tenantRow(ctx.tenantId);
@@ -411,7 +434,7 @@ export function updateBusinessProfile(ctx: RequestContext, patch: BusinessProfil
     currency: patch.currency ?? tenant.currency,
     timezone: patch.timezone ?? tenant.timezone,
     unitSystem: patch.unitSystem ?? tenant.unitSystem,
-    taxProfile: patch.taxProfile !== undefined ? patch.taxProfile : (tenant.taxProfile as never),
+    taxProfile: patch.taxProfile !== undefined ? checkedTaxProfile(patch.taxProfile) : (tenant.taxProfile as never),
     dataProcessing: patch.dataProcessing !== undefined ? patch.dataProcessing : (tenant.dataProcessing as never),
   };
 

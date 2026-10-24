@@ -26,6 +26,7 @@ import { id, initialsOf, normalizeEmail, normalizePhone, referralCode, token } f
 import { DAY, HOUR, MINUTE, addDays, daysBetween, isoDate, startOfWeek } from '../lib/time.js';
 import { RESPONSE_MINUTES as SUPPORT_RESPONSE_MINUTES } from '../services/support.js';
 import { backfillRollups } from '../services/reports.js';
+import { FITNESS_SERVICE_CODE, recordTaxDocument } from '../services/tax-invoice.js';
 import { EXERCISES } from './seed/exercises.js';
 import { makeRandom } from './seed/random.js';
 import { wipeSeedTables } from './seed-tables.js';
@@ -100,7 +101,9 @@ db.insert(schema.tenants)
       registrationNumber: '29AABCS1429B1ZQ',
       label: 'GST',
       defaultRateBp: 1800,
-      pricesIncludeTax: true,
+      // Catalogue prices are before tax: every invoice adds 18% on top.
+      pricesIncludeTax: false,
+      invoicePrefix: 'SF',
     },
     dataProcessing: {
       privacyContact: 'privacy@sharkfitness.in',
@@ -910,6 +913,10 @@ function seedInvoice(args: {
       productId: args.productId,
     })
     .run();
+
+  // The GSTIN, branch address and member it was raised under, as a real
+  // invoice records them, so the demo prints tax invoices rather than legacy ones.
+  recordTaxDocument(tenantId, invoiceId, FITNESS_SERVICE_CODE);
 
   if (args.paid) {
     db.insert(schema.payments)

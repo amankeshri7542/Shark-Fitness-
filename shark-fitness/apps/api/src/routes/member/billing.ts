@@ -1,4 +1,5 @@
 import { receiptHtml, receiptRecord } from '../../services/payment-receipt.js';
+import { taxDocumentKind, taxInvoiceFilename, taxInvoiceHtml, taxInvoiceRecord, taxInvoiceText } from '../../services/tax-invoice.js';
 import { readCreditAccount } from '../../services/credit-account.js';
 import { reconcileMembershipDates } from '../../services/membership-dates.js';
 import { Hono } from 'hono';
@@ -65,6 +66,7 @@ billingRoutes.get('/', (c) => {
       dueMinor: i.voided ? 0 : Math.max(0, i.totalMinor - i.paidMinor),
       dueLabel: formatMoney(i.voided ? 0 : Math.max(0, i.totalMinor - i.paidMinor), i.currency),
       payable: !i.voided && i.totalMinor - i.paidMinor > 0,
+      document: taxDocumentKind(ctx.tenantId, i),
     })),
   });
 });
@@ -115,4 +117,19 @@ billingRoutes.get('/payments/:paymentId/receipt', (c) => {
   if (c.req.query('format') === 'html') return c.html(receiptHtml(record.content));
   c.header('Content-Disposition', `attachment; filename="receipt-${payment.id.replace(/[^a-zA-Z0-9_-]/g, '')}.txt"`);
   return c.text(record.content);
+});
+
+billingRoutes.get('/invoices/:invoiceId/tax-invoice', (c) => {
+  const ctx = ctxOf(c);
+  const invoice = db
+    .select({ id: schema.invoices.id, number: schema.invoices.number })
+    .from(schema.invoices)
+    .where(and(eq(schema.invoices.id, c.req.param('invoiceId')), eq(schema.invoices.tenantId, ctx.tenantId), eq(schema.invoices.memberId, ctx.memberId!)))
+    .get();
+  if (!invoice) throw notFound('That invoice');
+  const record = taxInvoiceRecord(ctx.tenantId, invoice.id);
+  c.header('Cache-Control', 'no-store');
+  if (c.req.query('format') === 'html') return c.html(taxInvoiceHtml(record));
+  c.header('Content-Disposition', `attachment; filename="${taxInvoiceFilename(record.title, invoice.number)}"`);
+  return c.text(taxInvoiceText(record));
 });

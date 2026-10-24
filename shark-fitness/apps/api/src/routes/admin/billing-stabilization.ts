@@ -1,5 +1,6 @@
 import { reconcileMembershipDates } from '../../services/membership-dates.js';
 import { receiptHtml, receiptRecord } from '../../services/payment-receipt.js';
+import { taxInvoiceFilename, taxInvoiceHtml, taxInvoiceRecord, taxInvoiceText } from '../../services/tax-invoice.js';
 import { readCreditAccount } from '../../services/credit-account.js';
 import { runIdempotently } from '../../lib/idempotency.js';
 import { Hono } from 'hono';
@@ -71,6 +72,19 @@ billingStabilizationRoutes.get('/payments/:paymentId/receipt', (c) => {
   if (c.req.query('format') === 'html') return c.html(receiptHtml(record.content));
   c.header('Content-Disposition', `attachment; filename="receipt-${record.payment.id.replace(/[^a-zA-Z0-9_-]/g, '')}.txt"`);
   return c.text(record.content);
+});
+
+/** The invoice as a GST tax invoice, or a plain invoice where no valid GSTIN
+ *  was configured when it was raised. Same scope as the invoice itself. */
+billingStabilizationRoutes.get('/invoices/:invoiceId/tax-invoice', (c) => {
+  const ctx = ctxOf(c);
+  requirePermission(ctx, 'billing.view');
+  const invoice = loadInvoiceInScope(ctx, c.req.param('invoiceId'));
+  const record = taxInvoiceRecord(ctx.tenantId, invoice.id);
+  c.header('Cache-Control', 'no-store');
+  if (c.req.query('format') === 'html') return c.html(taxInvoiceHtml(record));
+  c.header('Content-Disposition', `attachment; filename="${taxInvoiceFilename(record.title, invoice.number)}"`);
+  return c.text(taxInvoiceText(record));
 });
 billingStabilizationRoutes.post(
   '/invoices/:invoiceId/void',

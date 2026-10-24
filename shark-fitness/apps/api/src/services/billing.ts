@@ -11,18 +11,26 @@ import { id } from '../lib/ids.js';
 import { addDays, isoDate, now } from '../lib/time.js';
 import { branchScope, requirePermission, type RequestContext } from '../lib/context.js';
 import { branchTimeZone } from '../lib/branch-time.js';
+import { FITNESS_SERVICE_CODE, recordTaxDocument } from './tax-invoice.js';
 
 /** Must be called inside the transaction that inserts the invoice it numbers
  *  — this process is single-connection/synchronous (db/client.ts), so nothing
- *  else can read a stale max between this call and the insert that follows. */
+ *  else can read a stale max between this call and the insert that follows.
+ *
+ *  The prefix is the gym's own (`taxProfile.invoicePrefix`), "SF" when unset.
+ *  The counter runs across every prefix and year, so a number stays unique
+ *  within a financial year however often the prefix changes, and at most
+ *  5 + 1 + 4 + 1 + 5 = 16 characters, the most a GST invoice number may be. */
 export function nextInvoiceNumber(tenantId: string): string {
   const year = new Date(now()).getUTCFullYear();
+  const tenant = db.select({ taxProfile: schema.tenants.taxProfile }).from(schema.tenants).where(eq(schema.tenants.id, tenantId)).get();
+  const prefix = (tenant?.taxProfile as { invoicePrefix?: string } | null)?.invoicePrefix || 'SF';
   const row = db
     .select({ max: sql<number>`max(cast(substr(${schema.invoices.number}, -5) as integer))` })
     .from(schema.invoices)
     .where(eq(schema.invoices.tenantId, tenantId))
     .get();
-  return `SF-${year}-${String((row?.max ?? 0) + 1).padStart(5, '0')}`;
+  return `${prefix}-${year}-${String((row?.max ?? 0) + 1).padStart(5, '0')}`;
 }
 
 export interface CreateInvoiceInput {
@@ -90,6 +98,9 @@ export function createInvoiceForProduct(input: CreateInvoiceInput): { invoiceId:
       productId: refType === 'membership' ? product.id : null,
     })
     .run();
+
+  // Frozen with the invoice: the GSTIN, address and state it was raised under.
+  recordTaxDocument(ctx.tenantId, invoiceId, FITNESS_SERVICE_CODE);
 
   emit({
     tenantId: ctx.tenantId,
