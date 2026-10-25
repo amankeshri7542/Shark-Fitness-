@@ -236,6 +236,15 @@ jobs:
           echo "container user: $user"
           test "$user" = 'node'
 
+      - name: Confirm pnpm ships in the image
+        run: |
+          set -euo pipefail
+          # Prepared in root's cache, pnpm was invisible to the node user and
+          # every start downloaded it. With no network at all, it must run.
+          version="$(docker run --rm --network none --entrypoint pnpm shark-fitness:ci --version)"
+          echo "pnpm $version"
+          test "$version" = '10.28.0'
+
       - name: Smoke-test the container
         run: |
           set -euo pipefail

@@ -54,10 +54,16 @@ ENV NODE_ENV=production \
     CI=true \
     PORT=8787 \
     SHARK_SERVE_STATIC=true \
-    SHARK_DB=/var/lib/shark-fitness/shark.db
+    SHARK_DB=/var/lib/shark-fitness/shark.db \
+    COREPACK_HOME=/opt/corepack
 
 WORKDIR /app/shark-fitness
-RUN corepack enable && corepack prepare pnpm@10.28.0 --activate
+# Corepack keeps pnpm under COREPACK_HOME, which defaults to the current
+# user's cache. Prepared there as root, it was invisible to the node user the
+# container runs as, so every start downloaded pnpm again: about 14 seconds on
+# Render's free plan, and a start that failed without the registry. A shared
+# home owned by node ships it in the image.
+RUN corepack enable && corepack prepare pnpm@10.28.0 --activate && chown -R node:node /opt/corepack
 
 # Dependency trees (root plus each workspace project) resolved in stage 2.
 COPY --from=prod-deps /app/shark-fitness/node_modules ./node_modules
@@ -90,6 +96,10 @@ RUN chmod +x /usr/local/bin/shark-entrypoint
 # The database lives outside the image; the node user must be able to write it.
 RUN mkdir -p /var/lib/shark-fitness && chown -R node:node /var/lib/shark-fitness /app
 USER node
+# pnpm ships in the image, so a start never needs the registry. If the copy
+# above ever goes missing again, this makes the container fail at once rather
+# than quietly downloading it on every start.
+ENV COREPACK_ENABLE_NETWORK=0
 
 EXPOSE 8787
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
