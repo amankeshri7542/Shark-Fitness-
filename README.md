@@ -59,6 +59,8 @@ covers fresh-account setup, failure cases and safe reset.
 Real-member use remains **NO-GO** until the target deployment's persistence,
 off-instance backup/restore and operator acceptance checks are proven. Local
 recovery tools exist and are tested; a local proof is not a hosted recovery test.
+[PILOT-HOSTING.md](shark-fitness/docs/PILOT-HOSTING.md) is the step-by-step
+setup for the real-gym pilot server, backups, restore drill and alerts.
 Physical door scanning, integrated payment collection, automatic renewal and
 waitlists are outside this offering. The member pass is a reception ID card;
 waitlist joins/offers are disabled. Existing-password recovery and automated

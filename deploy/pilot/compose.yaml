@@ -1,0 +1,69 @@
+# Shark Fitness pilot: one server running the app behind Caddy for HTTPS, with
+# SQLite on a host directory that survives restarts, rebuilds and redeploys.
+# Steps and every variable: shark-fitness/docs/PILOT-HOSTING.md.
+#
+# Run docker compose from this directory. `.env` here is a symlink to
+# $SHARK_HOME/shark.env, which holds the secrets and never enters git;
+# provision.sh and deploy.sh create it.
+
+name: shark-pilot
+
+services:
+  app:
+    build:
+      context: ../..
+    image: shark-fitness:pilot
+    restart: unless-stopped
+    env_file:
+      - path: .env
+      # Written by deploy.sh: SHARK_RELEASE, the git commit being served.
+      - path: ${SHARK_HOME:-/srv/shark-fitness}/release.env
+        required: false
+    # The same for every pilot deployment. These win over anything in .env, so
+    # a typo there cannot seed demo data, echo sign-in codes or move the database.
+    environment:
+      NODE_ENV: production
+      PORT: "8787"
+      SHARK_SERVE_STATIC: "true"
+      SHARK_DB: /var/lib/shark-fitness/shark.db
+      SHARK_SEED_DEMO: "false"
+      SHARK_ECHO_OTP: "false"
+      SHARK_ALLOW_BEARER_AUTH: "false"
+      # Caddy is the only proxy, and it replaces any X-Forwarded-For a client sends.
+      SHARK_TRUST_PROXY_HOPS: "1"
+      SHARK_PUBLIC_ORIGIN: https://${SHARK_DOMAIN:?Set SHARK_DOMAIN in shark.env}
+    volumes:
+      # Both directories belong to uid 1000, the image's node user.
+      - ${SHARK_HOME:-/srv/shark-fitness}/data:/var/lib/shark-fitness
+      - ${SHARK_HOME:-/srv/shark-fitness}/backups:/var/backups/shark-fitness
+    # Reachable from Caddy only; never published on the host.
+    expose:
+      - "8787"
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "5" }
+
+  caddy:
+    image: caddy:2.11.6-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SHARK_DOMAIN: ${SHARK_DOMAIN:?Set SHARK_DOMAIN in shark.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates and the ACME account. Losing this only means Caddy asks
+      # Let's Encrypt again.
+      - caddy-data:/data
+      - caddy-config:/config
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "5" }
+
+volumes:
+  caddy-data:
+  caddy-config:

@@ -1,0 +1,9 @@
+# HTTPS for the pilot. Caddy gets and renews a Let's Encrypt certificate for
+# SHARK_DOMAIN by itself, which needs the domain's A record pointing at this
+# server and ports 80 and 443 open. Plain HTTP redirects to HTTPS.
+#
+# The app sets its own security headers, HSTS included, so none are added here.
+{$SHARK_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:8787
+}

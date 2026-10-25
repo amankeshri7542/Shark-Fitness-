@@ -1,0 +1,151 @@
+name: Pilot stack
+
+# Runs deploy/pilot end to end on a runner, the way the pilot server uses it:
+# provision (app part), deploy behind Caddy, bootstrap an empty gym, the owner
+# signs in, the nightly backup unit, a restore drill, and a redeploy that must
+# keep the gym. Only when those scripts or what they call change.
+on:
+  pull_request:
+    paths:
+      - deploy/pilot/**
+      - Dockerfile
+      - docker-entrypoint.sh
+      - .github/workflows/pilot-stack.yml
+      - shark-fitness/apps/api/src/db/**
+      - shark-fitness/scripts/sqlite-backup.mjs
+      - shark-fitness/scripts/verify-backup-restore.mjs
+  push:
+    branches: [main]
+    paths:
+      - deploy/pilot/**
+      - Dockerfile
+      - docker-entrypoint.sh
+      - .github/workflows/pilot-stack.yml
+      - shark-fitness/apps/api/src/db/**
+      - shark-fitness/scripts/sqlite-backup.mjs
+      - shark-fitness/scripts/verify-backup-restore.mjs
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pilot-stack-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  stack:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PILOT: /srv/shark-fitness/src/deploy/pilot
+      # A throwaway gym on a throwaway runner; not a secret.
+      OWNER_EMAIL: owner@pilot-ci.example
+      OWNER_PASSWORD: pilot-ci-owner-password-not-secret
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Lint the scripts
+        run: shellcheck -S warning deploy/pilot/*.sh
+
+      - name: Provision the app part
+        run: |
+          # The checkout under test stands in for provision.sh's clone. Root
+          # owns it, as on the server, so git run by root accepts it.
+          sudo install -d /srv/shark-fitness
+          sudo cp -r "$GITHUB_WORKSPACE" /srv/shark-fitness/src
+          sudo bash "$PILOT/provision.sh" --skip-system localhost
+          sudo grep -Eq '^SHARK_PASS_SECRET=.{64}$' /srv/shark-fitness/shark.env
+          test "$(sudo stat -c %a /srv/shark-fitness/shark.env)" = 600
+          systemctl is-enabled shark-backup.timer
+
+      - name: Deploy
+        run: sudo "$PILOT/deploy.sh" --current
+
+      - name: Serves HTTPS through Caddy
+        run: |
+          # Captured first: under pipefail, grep -q quitting early can fail curl.
+          ready=$(curl -fsSk https://localhost/ready)
+          echo "$ready"
+          [[ $ready == *'"status":"ready"'* ]]
+          [[ $(curl -fsSk https://localhost/admin/) == *'<html'* ]]
+          [[ $(curl -fsSk https://localhost/) == *'<html'* ]]
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost/ready)" = 308
+          [[ $(curl -fsSk -o /dev/null -D - https://localhost/ready) == *[Ss]trict-[Tt]ransport-[Ss]ecurity:* ]]
+
+      - name: Bootstrap an empty gym
+        run: |
+          printf '%s' "{\"slug\":\"pilot-ci\",\"legalName\":\"Pilot CI Gym Pvt Ltd\",\"displayName\":\"Pilot CI Gym\",\"timezone\":\"Asia/Kolkata\",\"owner\":{\"name\":\"CI Owner\",\"email\":\"$OWNER_EMAIL\",\"password\":\"$OWNER_PASSWORD\"},\"branch\":{\"name\":\"Main\",\"slug\":\"main\",\"addressLine\":\"1 Test Road\",\"city\":\"Bengaluru\",\"capacity\":60,\"opensMinutes\":360,\"closesMinutes\":1320}}" \
+            | sudo "$PILOT/bootstrap.sh"
+          # The same gym code again is refused, not overwritten.
+          if printf '%s' "{\"slug\":\"pilot-ci\",\"legalName\":\"X\",\"displayName\":\"X\",\"timezone\":\"Asia/Kolkata\",\"owner\":{\"name\":\"X\",\"email\":\"x@pilot-ci.example\",\"password\":\"another-password-123\"},\"branch\":{\"name\":\"Main\",\"slug\":\"main\",\"addressLine\":\"1\",\"city\":\"X\",\"capacity\":1,\"opensMinutes\":360,\"closesMinutes\":1320}}" \
+            | sudo "$PILOT/bootstrap.sh"; then
+            echo "A duplicate gym code was accepted." >&2
+            exit 1
+          fi
+
+      - name: The owner signs in to an empty gym
+        run: |
+          jar=$(mktemp)
+          curl -fsSk -c "$jar" -H 'origin: https://localhost' -H 'content-type: application/json' \
+            -d "{\"tenantSlug\":\"pilot-ci\",\"email\":\"$OWNER_EMAIL\",\"password\":\"$OWNER_PASSWORD\"}" \
+            https://localhost/v1/auth/password -o /dev/null
+          curl -fsSk -b "$jar" -H 'origin: https://localhost' https://localhost/v1/admin/dashboard -o /dev/null
+          cd "$PILOT"
+          sudo docker compose exec -T app node -e '
+            const D = require("./apps/api/node_modules/better-sqlite3");
+            const db = new D(process.env.SHARK_DB, { readonly: true });
+            const count = (t) => db.prepare("select count(*) from " + t).pluck().get();
+            const counts = { tenants: count("tenants"), users: count("users"), members: count("members"), invoices: count("invoices") };
+            console.log(counts);
+            if (counts.tenants !== 1 || counts.users !== 1 || counts.members !== 0 || counts.invoices !== 0) process.exit(1);
+          '
+
+      - name: Nightly backup unit
+        run: |
+          sudo systemctl start shark-backup.service
+          log=$(sudo journalctl -u shark-backup --no-pager -o cat)
+          echo "$log"
+          grep -qx 'restore_probe=ok' <<<"$log"
+          sudo sh -c 'ls -l /srv/shark-fitness/backups/nightly/shark-*.db /srv/shark-fitness/backups/nightly/shark-*.db.manifest.json'
+          systemctl list-timers shark-backup.timer --no-pager
+
+      - name: Restore drill from a copy brought back to the server
+        run: |
+          backup=$(sudo sh -c 'ls -1t /srv/shark-fitness/backups/nightly/shark-*.db | head -n 1')
+          sudo cp "$backup" "$backup.manifest.json" /srv/shark-fitness/drill/inbox/
+          printf '%s\n' "$OWNER_PASSWORD" \
+            | sudo "$PILOT/restore-drill.sh" --gym pilot-ci --email "$OWNER_EMAIL" "/srv/shark-fitness/drill/inbox/$(basename "$backup")" \
+            | tee drill.log
+          grep -q '^synthetic_proof=passed' drill.log
+          grep -q '^owner_sign_in=200$' drill.log
+          grep -q '^members=0$' drill.log
+          grep -q '^drill=passed' drill.log
+          # The drill copy is gone afterwards; the live database is untouched.
+          test -z "$(sudo find /srv/shark-fitness/drill -mindepth 1 -maxdepth 1 -type d -name '20*')"
+          curl -fsSk https://localhost/ready -o /dev/null
+
+      - name: A redeploy backs up first and keeps the gym
+        run: |
+          sudo "$PILOT/deploy.sh" --current
+          sudo sh -c 'ls /srv/shark-fitness/backups/pre-deploy/shark-*.db'
+          curl -fsSk -H 'origin: https://localhost' -H 'content-type: application/json' \
+            -d "{\"tenantSlug\":\"pilot-ci\",\"email\":\"$OWNER_EMAIL\",\"password\":\"$OWNER_PASSWORD\"}" \
+            https://localhost/v1/auth/password -o /dev/null
+
+      - name: A replaced container keeps the gym
+        run: |
+          # The same commit redeployed leaves the container alone, so force a
+          # new one onto the same data directory.
+          cd "$PILOT"
+          sudo docker compose up -d --force-recreate
+          for _ in $(seq 1 60); do curl -fsSk https://localhost/ready -o /dev/null && break; sleep 2; done
+          curl -fsSk -H 'origin: https://localhost' -H 'content-type: application/json' \
+            -d "{\"tenantSlug\":\"pilot-ci\",\"email\":\"$OWNER_EMAIL\",\"password\":\"$OWNER_PASSWORD\"}" \
+            https://localhost/v1/auth/password -o /dev/null
+
+      - name: Logs on failure
+        if: failure()
+        run: |
+          cd "$PILOT" && sudo docker compose logs --tail 200 || true
+          sudo journalctl -u shark-backup --no-pager || true

@@ -1,0 +1,12 @@
+# 02:00 India time, while the gym is closed. Persistent=true runs a missed
+# backup as soon as the server is back up.
+[Unit]
+Description=Nightly Shark Fitness database backup
+
+[Timer]
+OnCalendar=*-*-* 02:00:00 Asia/Kolkata
+Persistent=true
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target
