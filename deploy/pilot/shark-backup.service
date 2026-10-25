@@ -1,0 +1,11 @@
+# Installed by provision.sh, which replaces /srv/shark-fitness with SHARK_HOME.
+# Logs: journalctl -u shark-backup
+[Unit]
+Description=Shark Fitness nightly database backup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+Environment=SHARK_HOME=/srv/shark-fitness
+ExecStart=/srv/shark-fitness/src/deploy/pilot/backup.sh nightly
