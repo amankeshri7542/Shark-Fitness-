@@ -60,6 +60,11 @@ jobs:
           SHARK_DB=/tmp/shark-fresh.db pnpm -F @shark/api seed
           sqlite3 /tmp/shark-fresh.db 'pragma integrity_check;' | grep -qx ok
 
+      - name: Fail if the schema has changes no migration records
+        # drizzle-kit generate against a scratch database must write nothing;
+        # otherwise the next generated migration would carry a wrong diff.
+        run: pnpm -F @shark/api db:check-drift
+
       - name: Prove backup, checksum, restore, migrate, immutable rows and restored API boot
         run: pnpm db:backup:verify
 

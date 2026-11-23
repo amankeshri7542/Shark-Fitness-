@@ -79,6 +79,7 @@ export default tseslint.config(
       'apps/api/**/*.ts',
       'packages/**/*.ts',
       'scripts/**/*.{js,mjs}',
+      'apps/api/scripts/**/*.mjs',
       '*.config.{js,ts}',
       'apps/*/vite.config.ts',
     ],
