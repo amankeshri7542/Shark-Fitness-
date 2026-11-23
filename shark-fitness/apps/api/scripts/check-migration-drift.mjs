@@ -24,7 +24,7 @@ const before = new Set(listing());
 const journalBefore = readFileSync(journal, 'utf8');
 const scratch = mkdtempSync(join(tmpdir(), 'shark-drift-'));
 
-let output = '';
+let output;
 try {
   output = execFileSync('pnpm', ['exec', 'drizzle-kit', 'generate', '--name', 'drift_check'], {
     cwd: apiRoot,
