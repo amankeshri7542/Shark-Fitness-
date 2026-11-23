@@ -1,3 +1,4 @@
+import { runtimeConfig } from './config.js';
 import { rateLimited } from './errors.js';
 import { DAY, HOUR } from './time.js';
 
@@ -10,16 +11,9 @@ import { DAY, HOUR } from './time.js';
  * instance needs these counters in a shared store.
  */
 
-const num = (key: string, fallback: number) => {
-  const value = Number(process.env[key]);
-  return Number.isFinite(value) && value > 0 ? value : fallback;
-};
-
-export const OTP_LIMITS = {
-  resendCooldownMs: num('SHARK_OTP_RESEND_COOLDOWN_SEC', 30) * 1000,
-  perDestinationPerDay: num('SHARK_OTP_MAX_PER_DESTINATION_PER_DAY', 10),
-  perIpPerHour: num('SHARK_OTP_MAX_PER_IP_PER_HOUR', 30),
-};
+/** SHARK_OTP_RESEND_COOLDOWN_SEC, SHARK_OTP_MAX_PER_DESTINATION_PER_DAY and
+ * SHARK_OTP_MAX_PER_IP_PER_HOUR, validated at boot by lib/config.ts. */
+export const OTP_LIMITS = runtimeConfig.otp.limits;
 
 type Window = { count: number; resetAt: number };
 const windows = new Map<string, Window>();

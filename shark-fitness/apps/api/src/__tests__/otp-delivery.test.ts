@@ -51,15 +51,15 @@ describe('OTP sender selection', () => {
 describe('OTP senders', () => {
   it('log sender prints the code in development and hides it in production', async () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
-    await logSender({ NODE_ENV: 'development' }).send(sms);
-    await logSender({ NODE_ENV: 'production' }).send(sms);
+    await logSender(false).send(sms);
+    await logSender(true).send(sms);
     expect(log.mock.calls[0]?.[0]).toContain('482913');
     expect(log.mock.calls[1]?.[0]).not.toContain('482913');
   });
 
   it('msg91 sends the code to the OTP API without the plus sign', async () => {
     const { fn, calls } = recordingFetch();
-    await msg91Sender({ SHARK_MSG91_AUTH_KEY: 'key', SHARK_MSG91_TEMPLATE_ID: 'tpl' }, fn).send(sms);
+    await msg91Sender({ authKey: 'key', templateId: 'tpl' }, fn).send(sms);
     const url = new URL(calls[0]!.url);
     expect(url.origin + url.pathname).toBe('https://control.msg91.com/api/v5/otp');
     expect(url.searchParams.get('mobile')).toBe('919812345678');
@@ -69,7 +69,7 @@ describe('OTP senders', () => {
   });
 
   it('twilio sends SMS with a body, and WhatsApp with a template when configured', async () => {
-    const base = { SHARK_TWILIO_ACCOUNT_SID: 'AC1', SHARK_TWILIO_AUTH_TOKEN: 'tok', SHARK_TWILIO_FROM: '+15550001111' };
+    const base = { accountSid: 'AC1', authToken: 'tok', from: '+15550001111', channel: 'sms' as const, contentSid: null };
     const smsFetch = recordingFetch();
     await twilioSender(base, smsFetch.fn).send(sms);
     expect(smsFetch.calls[0]!.url).toBe('https://api.twilio.com/2010-04-01/Accounts/AC1/Messages.json');
@@ -78,7 +78,7 @@ describe('OTP senders', () => {
     expect(smsForm.get('Body')).toContain('482913');
 
     const waFetch = recordingFetch();
-    await twilioSender({ ...base, SHARK_TWILIO_CHANNEL: 'whatsapp', SHARK_TWILIO_CONTENT_SID: 'HX1' }, waFetch.fn).send(sms);
+    await twilioSender({ ...base, channel: 'whatsapp', contentSid: 'HX1' }, waFetch.fn).send(sms);
     const waForm = new URLSearchParams(String(waFetch.calls[0]!.init.body));
     expect(waForm.get('To')).toBe('whatsapp:+919812345678');
     expect(waForm.get('From')).toBe('whatsapp:+15550001111');
@@ -89,7 +89,7 @@ describe('OTP senders', () => {
 
   it('resend emails the code', async () => {
     const { fn, calls } = recordingFetch();
-    await resendSender({ SHARK_RESEND_API_KEY: 're_1', SHARK_OTP_EMAIL_FROM: 'no-reply@shark.in' }, fn).send(email);
+    await resendSender({ apiKey: 're_1', from: 'no-reply@shark.in' }, fn).send(email);
     const body = JSON.parse(String(calls[0]!.init.body)) as { to: string[]; subject: string };
     expect(body.to).toEqual(['aman@sharkfitness.in']);
     expect(body.subject).toContain('482913');
@@ -98,7 +98,7 @@ describe('OTP senders', () => {
   it('turns a provider rejection into a retryable PROVIDER_UNAVAILABLE error', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const { fn } = recordingFetch(500);
-    const error = await resendSender({ SHARK_RESEND_API_KEY: 'k', SHARK_OTP_EMAIL_FROM: 'a@b.c' }, fn)
+    const error = await resendSender({ apiKey: 'k', from: 'a@b.c' }, fn)
       .send(email)
       .catch((e: unknown) => e);
     expect(error).toBeInstanceOf(AppError);

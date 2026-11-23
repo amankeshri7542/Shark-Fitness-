@@ -81,6 +81,71 @@ const OriginList = z.preprocess(
   z.array(Origin),
 );
 
+/** Optional values that historically treated an empty assignment (`KEY=`) as
+ * "not set". The OTP variables shipped that way in .env.example, so they keep it. */
+const blankAsUnset = (value: unknown) => (typeof value === 'string' && value.trim() === '' ? undefined : value);
+const OptionalText = z.preprocess(blankAsUnset, z.string().trim().min(1).optional());
+
+function providerName<const T extends readonly [string, ...string[]]>(variable: string, names: T) {
+  return z.preprocess(
+    blankAsUnset,
+    z
+      .enum(names, {
+        errorMap: (_issue, ctx) => ({
+          message: `Unknown ${variable} "${String(ctx.data).slice(0, 40)}". Use ${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}.`,
+        }),
+      })
+      .optional(),
+  );
+}
+
+export const ERROR_REPORTERS = ['auto', 'none', 'console', 'http', 'sentry'] as const;
+export type ErrorReporterName = Exclude<(typeof ERROR_REPORTERS)[number], 'auto'>;
+
+/** A Sentry-protocol DSN: `https://<public key>@<host>[/<path>]/<project id>`.
+ * Any Sentry-compatible collector (Sentry, GlitchTip, self-hosted) issues one. */
+export interface ErrorDsn {
+  dsn: string;
+  publicKey: string;
+  envelopeUrl: string;
+  protocol: 'http:' | 'https:';
+  hostname: string;
+}
+
+const Dsn = z.string().trim().min(1).transform((value, ctx): ErrorDsn => {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'SHARK_ERROR_DSN is not a valid DSN URL.' });
+    return z.NEVER;
+  }
+  const segments = url.pathname.split('/').filter(Boolean);
+  const projectId = segments.pop();
+  if (
+    (url.protocol !== 'http:' && url.protocol !== 'https:') ||
+    url.username === '' ||
+    !projectId ||
+    !/^\d+$/.test(projectId) ||
+    url.search !== '' ||
+    url.hash !== ''
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'SHARK_ERROR_DSN must look like https://<public key>@<host>/<numeric project id>.',
+    });
+    return z.NEVER;
+  }
+  const prefix = segments.length > 0 ? `/${segments.join('/')}` : '';
+  return {
+    dsn: url.toString(),
+    publicKey: decodeURIComponent(url.username),
+    envelopeUrl: `${url.protocol}//${url.host}${prefix}/api/${projectId}/envelope/`,
+    protocol: url.protocol,
+    hostname: url.hostname,
+  };
+});
+
 const Reader = z.object({
   key: z.string().min(16),
   tenantSlug: z.string().trim().min(1).refine((value) => value !== '*', 'must identify one tenant'),
@@ -100,8 +165,7 @@ const ReaderKeys = z.preprocess(
   z.record(Reader),
 );
 
-const RuntimeEnvironment = z
-  .object({
+const RuntimeEnvironmentShape = z.object({
     NODE_ENV: z.enum(['development', 'test', 'production']).optional(),
     PORT: Port.optional(),
     SHARK_DB: z.string().trim().min(1).optional(),
@@ -117,6 +181,30 @@ const RuntimeEnvironment = z
     SHARK_DEMO_READER_KEY: z.string().min(1).optional(),
     SHARK_MEDIA_BUCKET: z.string().transform((value) => value.trim()).optional(),
     SHARK_ERROR_REPORTING_ENDPOINT: HttpEndpoint.optional(),
+    SHARK_ERROR_REPORTER: providerName('SHARK_ERROR_REPORTER', ERROR_REPORTERS),
+    SHARK_ERROR_DSN: Dsn.optional(),
+    SHARK_METRICS_TOKEN: z.string().min(1).optional(),
+    SHARK_OTP_SMS_PROVIDER: providerName('SHARK_OTP_SMS_PROVIDER', ['log', 'msg91', 'twilio'] as const),
+    SHARK_OTP_EMAIL_PROVIDER: providerName('SHARK_OTP_EMAIL_PROVIDER', ['log', 'resend'] as const),
+    SHARK_OTP_DEFAULT_COUNTRY_CODE: z.preprocess(
+      blankAsUnset,
+      z.string().regex(/^[1-9]\d{0,2}$/, 'SHARK_OTP_DEFAULT_COUNTRY_CODE must be 1 to 3 digits, without +.').optional(),
+    ),
+    SHARK_MSG91_AUTH_KEY: OptionalText,
+    SHARK_MSG91_TEMPLATE_ID: OptionalText,
+    SHARK_TWILIO_ACCOUNT_SID: OptionalText,
+    SHARK_TWILIO_AUTH_TOKEN: OptionalText,
+    SHARK_TWILIO_FROM: OptionalText,
+    SHARK_TWILIO_CHANNEL: providerName('SHARK_TWILIO_CHANNEL', ['sms', 'whatsapp'] as const),
+    SHARK_TWILIO_CONTENT_SID: OptionalText,
+    SHARK_RESEND_API_KEY: OptionalText,
+    SHARK_OTP_EMAIL_FROM: OptionalText,
+    SHARK_OTP_RESEND_COOLDOWN_SEC: z.preprocess(blankAsUnset, boundedInteger('SHARK_OTP_RESEND_COOLDOWN_SEC', 1, 3_600).optional()),
+    SHARK_OTP_MAX_PER_DESTINATION_PER_DAY: z.preprocess(
+      blankAsUnset,
+      boundedInteger('SHARK_OTP_MAX_PER_DESTINATION_PER_DAY', 1, 1_000).optional(),
+    ),
+    SHARK_OTP_MAX_PER_IP_PER_HOUR: z.preprocess(blankAsUnset, boundedInteger('SHARK_OTP_MAX_PER_IP_PER_HOUR', 1, 10_000).optional()),
     SHARK_IDEMPOTENCY_RETENTION_DAYS: boundedInteger('SHARK_IDEMPOTENCY_RETENTION_DAYS', 7, 365).optional(),
     SHARK_OUTBOX_RETENTION_DAYS: boundedInteger('SHARK_OUTBOX_RETENTION_DAYS', 7, 365).optional(),
     SHARK_SESSION_RETENTION_DAYS: boundedInteger('SHARK_SESSION_RETENTION_DAYS', 1, 365).optional(),
@@ -130,13 +218,54 @@ const RuntimeEnvironment = z
     RENDER_EXTERNAL_URL: OptionalOrigin,
     RENDER_GIT_COMMIT: z.string().trim().optional(),
     GITHUB_SHA: z.string().trim().optional(),
-  })
-  .superRefine((environment, ctx) => {
+  });
+
+/** Every environment variable the API reads. A unit test keeps
+ * shark-fitness/.env.example in step with this list, and another refuses
+ * `process.env` anywhere else under src/. */
+export const RUNTIME_ENV_KEYS = Object.keys(RuntimeEnvironmentShape.shape) as Array<keyof typeof RuntimeEnvironmentShape.shape>;
+
+const OTP_CREDENTIALS = {
+  msg91: ['SHARK_MSG91_AUTH_KEY', 'SHARK_MSG91_TEMPLATE_ID'],
+  twilio: ['SHARK_TWILIO_ACCOUNT_SID', 'SHARK_TWILIO_AUTH_TOKEN', 'SHARK_TWILIO_FROM'],
+  resend: ['SHARK_RESEND_API_KEY', 'SHARK_OTP_EMAIL_FROM'],
+} as const;
+
+const RuntimeEnvironment = RuntimeEnvironmentShape.superRefine((environment, ctx) => {
     if (environment.SHARK_MEDIA_BUCKET) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['SHARK_MEDIA_BUCKET'],
         message: 'SHARK_MEDIA_BUCKET is not supported until an object-storage upload provider is implemented.',
+      });
+    }
+    for (const [variable, provider] of [
+      ['SHARK_OTP_SMS_PROVIDER', environment.SHARK_OTP_SMS_PROVIDER],
+      ['SHARK_OTP_EMAIL_PROVIDER', environment.SHARK_OTP_EMAIL_PROVIDER],
+    ] as const) {
+      if (!provider || provider === 'log') continue;
+      for (const key of OTP_CREDENTIALS[provider]) {
+        if (!environment[key]) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [key],
+            message: `${key} is required when ${variable}=${provider}.`,
+          });
+        }
+      }
+    }
+    if (environment.SHARK_ERROR_REPORTER === 'sentry' && !environment.SHARK_ERROR_DSN) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['SHARK_ERROR_DSN'],
+        message: 'SHARK_ERROR_REPORTER=sentry needs SHARK_ERROR_DSN.',
+      });
+    }
+    if (environment.SHARK_ERROR_REPORTER === 'http' && !environment.SHARK_ERROR_REPORTING_ENDPOINT) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['SHARK_ERROR_REPORTING_ENDPOINT'],
+        message: 'SHARK_ERROR_REPORTER=http needs SHARK_ERROR_REPORTING_ENDPOINT.',
       });
     }
     if (environment.NODE_ENV !== 'production') return;
@@ -213,6 +342,20 @@ const RuntimeEnvironment = z
         });
       }
     }
+    if (environment.SHARK_ERROR_DSN && environment.SHARK_ERROR_DSN.protocol !== 'https:') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['SHARK_ERROR_DSN'],
+        message: 'SHARK_ERROR_DSN must use HTTPS in production.',
+      });
+    }
+    if (environment.SHARK_METRICS_TOKEN !== undefined && environment.SHARK_METRICS_TOKEN.length < 32) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['SHARK_METRICS_TOKEN'],
+        message: 'SHARK_METRICS_TOKEN must be at least 32 characters in production.',
+      });
+    }
   });
 
 export interface ReaderConfig {
@@ -238,6 +381,13 @@ export interface RuntimeConfig {
   demoReaderKey: string;
   mediaBucket: string | null;
   errorReportingEndpoint: string | null;
+  errorDsn: ErrorDsn | null;
+  /** The reporter `auto` resolved to: DSN, then endpoint, then console in
+   * development, otherwise none. */
+  errorReporter: ErrorReporterName;
+  /** Bearer token for GET /metrics. Null disables the endpoint (404). */
+  metricsToken: string | null;
+  otp: OtpConfig;
   release: string;
   retention: {
     idempotencyKeysMs: number;
@@ -249,6 +399,17 @@ export interface RuntimeConfig {
     jobRunsMs: number;
   };
   pruning: { batchSize: number; maxBatches: number };
+}
+
+export interface OtpConfig {
+  smsProvider: 'log' | 'msg91' | 'twilio';
+  emailProvider: 'log' | 'resend';
+  /** Used when a stored phone number has no + prefix. */
+  defaultCountryCode: string;
+  msg91: { authKey: string; templateId: string } | null;
+  twilio: { accountSid: string; authToken: string; from: string; channel: 'sms' | 'whatsapp'; contentSid: string | null } | null;
+  resend: { apiKey: string; from: string } | null;
+  limits: { resendCooldownMs: number; perDestinationPerDay: number; perIpPerHour: number };
 }
 
 export function parseRuntimeConfig(environment: Record<string, string | undefined>): RuntimeConfig {
@@ -277,6 +438,41 @@ export function parseRuntimeConfig(environment: Record<string, string | undefine
     demoReaderKey: parsed.SHARK_DEMO_READER_KEY ?? 'demo-reader-secret-change-me',
     mediaBucket: parsed.SHARK_MEDIA_BUCKET || null,
     errorReportingEndpoint: parsed.SHARK_ERROR_REPORTING_ENDPOINT ?? null,
+    errorDsn: parsed.SHARK_ERROR_DSN ?? null,
+    errorReporter: resolveErrorReporter(parsed.SHARK_ERROR_REPORTER ?? 'auto', {
+      dsn: Boolean(parsed.SHARK_ERROR_DSN),
+      endpoint: Boolean(parsed.SHARK_ERROR_REPORTING_ENDPOINT),
+      nodeEnv,
+    }),
+    metricsToken: parsed.SHARK_METRICS_TOKEN ?? null,
+    otp: {
+      smsProvider: parsed.SHARK_OTP_SMS_PROVIDER ?? 'log',
+      emailProvider: parsed.SHARK_OTP_EMAIL_PROVIDER ?? 'log',
+      defaultCountryCode: parsed.SHARK_OTP_DEFAULT_COUNTRY_CODE ?? '91',
+      msg91:
+        parsed.SHARK_MSG91_AUTH_KEY && parsed.SHARK_MSG91_TEMPLATE_ID
+          ? { authKey: parsed.SHARK_MSG91_AUTH_KEY, templateId: parsed.SHARK_MSG91_TEMPLATE_ID }
+          : null,
+      twilio:
+        parsed.SHARK_TWILIO_ACCOUNT_SID && parsed.SHARK_TWILIO_AUTH_TOKEN && parsed.SHARK_TWILIO_FROM
+          ? {
+              accountSid: parsed.SHARK_TWILIO_ACCOUNT_SID,
+              authToken: parsed.SHARK_TWILIO_AUTH_TOKEN,
+              from: parsed.SHARK_TWILIO_FROM,
+              channel: parsed.SHARK_TWILIO_CHANNEL ?? 'sms',
+              contentSid: parsed.SHARK_TWILIO_CONTENT_SID ?? null,
+            }
+          : null,
+      resend:
+        parsed.SHARK_RESEND_API_KEY && parsed.SHARK_OTP_EMAIL_FROM
+          ? { apiKey: parsed.SHARK_RESEND_API_KEY, from: parsed.SHARK_OTP_EMAIL_FROM }
+          : null,
+      limits: {
+        resendCooldownMs: (parsed.SHARK_OTP_RESEND_COOLDOWN_SEC ?? 30) * 1_000,
+        perDestinationPerDay: parsed.SHARK_OTP_MAX_PER_DESTINATION_PER_DAY ?? 10,
+        perIpPerHour: parsed.SHARK_OTP_MAX_PER_IP_PER_HOUR ?? 30,
+      },
+    },
     release: parsed.SHARK_RELEASE || parsed.RENDER_GIT_COMMIT || parsed.GITHUB_SHA || 'local',
     retention: {
       idempotencyKeysMs: (parsed.SHARK_IDEMPOTENCY_RETENTION_DAYS ?? 30) * DAY_MS,
@@ -292,6 +488,16 @@ export function parseRuntimeConfig(environment: Record<string, string | undefine
       maxBatches: parsed.SHARK_PRUNE_MAX_BATCHES ?? 10,
     },
   };
+}
+
+function resolveErrorReporter(
+  choice: (typeof ERROR_REPORTERS)[number],
+  available: { dsn: boolean; endpoint: boolean; nodeEnv: RuntimeConfig['nodeEnv'] },
+): ErrorReporterName {
+  if (choice !== 'auto') return choice;
+  if (available.dsn) return 'sentry';
+  if (available.endpoint) return 'http';
+  return available.nodeEnv === 'development' ? 'console' : 'none';
 }
 
 function isLoopback(hostname: string): boolean {
