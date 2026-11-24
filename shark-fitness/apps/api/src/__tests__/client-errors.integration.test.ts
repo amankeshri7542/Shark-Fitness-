@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { app } from '../app.js';
 import { setErrorReporterForTest, type ErrorReportContext } from '../lib/error-reporting.js';
 import { errorHandler, rateLimit, resetRateLimitsForTest } from '../middleware/index.js';
-import { CLIENT_ERROR_MAX_BYTES, normalizeClientRoute } from '../routes/client-errors.js';
+import { CLIENT_ERROR_MAX_BYTES } from '@shark/contracts';
+import { normalizeClientRoute } from '../routes/client-errors.js';
 import { SENSITIVE, SENSITIVE_SENTENCE, SENSITIVE_VALUES } from './fixtures/redaction.js';
 
 const ORIGIN = 'http://localhost:5173';

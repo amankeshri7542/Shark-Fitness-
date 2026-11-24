@@ -1,11 +1,10 @@
 import { Hono, type MiddlewareHandler } from 'hono';
 import { getCookie } from 'hono/cookie';
-import { z } from 'zod';
+import { CLIENT_ERROR_MAX_BYTES, ClientErrorReport } from '@shark/contracts';
 import { AppError } from '../lib/errors.js';
 import { captureException } from '../lib/error-reporting.js';
 import { log } from '../lib/observability.js';
-import { SESSION_COOKIE } from '../lib/security.js';
-import { allowedOrigins } from '../lib/security.js';
+import { SESSION_COOKIE, allowedOrigins } from '../lib/security.js';
 import { rateLimit } from '../middleware/index.js';
 import { validate } from '../middleware/validate.js';
 import { resolveSession } from '../services/auth.js';
@@ -20,23 +19,6 @@ import { resolveSession } from '../services/auth.js';
  * report is redacted by the same code that handles server errors, and only
  * the session's tenant and user ids are attached — never the page's data.
  */
-export const CLIENT_ERROR_MAX_BYTES = 8 * 1024;
-
-export const ClientErrorReport = z
-  .object({
-    source: z.enum(['admin', 'member']),
-    kind: z.enum(['boundary', 'error', 'unhandledrejection']),
-    name: z.string().trim().min(1).max(120),
-    message: z.string().max(2_000),
-    stack: z.string().max(6_000).optional(),
-    /** The SPA route, e.g. /admin/members/mem_123. Ids are collapsed below. */
-    route: z.string().max(300).optional(),
-    /** The id the recovery screen shows, so support can find this report. */
-    reference: z.string().regex(/^[A-Za-z0-9-]{8,40}$/),
-    release: z.string().max(80).optional(),
-  })
-  .strict();
-
 export const clientErrorRoutes = new Hono();
 
 const requireKnownOrigin: MiddlewareHandler = async (c, next) => {

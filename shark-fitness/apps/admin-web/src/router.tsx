@@ -15,6 +15,7 @@ import { useAdmin } from './lib/store';
 // demand. Reception never downloads the platform console, and `defaultPreload:
 // 'intent'` warms a chunk as soon as its rail item is hovered.
 import SignInScreen from './screens/SignIn';
+import { RecoveryScreen } from './ui/ErrorBoundary';
 
 const CommandCenterScreen = lazyRouteComponent(() => import('./screens/CommandCenter'));
 const LeadsScreen = lazyRouteComponent(() => import('./screens/Leads'));
@@ -316,6 +317,9 @@ export const router = createRouter({
   routeTree,
   defaultPreload: 'intent',
   defaultPendingComponent: RoutePending,
+  // A screen that throws while rendering or loading shows the recovery panel
+  // inside the console shell, so the rail still works; see ui/ErrorBoundary.
+  defaultErrorComponent: ({ error }) => <RecoveryScreen error={error} />,
   basepath: '/admin',
 });
 
