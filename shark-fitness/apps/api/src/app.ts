@@ -6,6 +6,8 @@ import { authenticate, errorHandler, logger, memberOnly, rateLimit, requestId, s
 import { allowedOrigins, csrfProtection, securityHeaders } from './lib/security.js';
 
 import { accountRecoveryRoutes } from './routes/account-recovery.js';
+import { clientErrorRoutes } from './routes/client-errors.js';
+import { metricsRoutes } from './routes/metrics.js';
 import { authRoutes } from './routes/auth.js';
 import { authStabilizationRoutes } from './routes/auth-stabilization.js';
 import { meRoutes } from './routes/me.js';
@@ -102,6 +104,9 @@ app.get('/ready', (c) => {
   };
   return readiness.ok ? c.json(body) : c.json(body, 503);
 });
+
+app.route('/metrics', metricsRoutes);
+app.route('/v1/client-errors', clientErrorRoutes);
 
 app.route('/v1/auth', authStabilizationRoutes);
 app.route('/v1/auth', accountRecoveryRoutes);

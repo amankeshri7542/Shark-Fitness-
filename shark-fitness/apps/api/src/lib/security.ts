@@ -69,6 +69,14 @@ function safeEqual(a: string, b: string): boolean {
 const SESSION_ENTRY_PATHS = new Set(['/v1/auth/password', '/v1/auth/otp/start', '/v1/auth/otp/verify', '/v1/auth/activation/redeem', '/v1/auth/recovery/redeem']);
 
 /**
+ * Public, write-only endpoints that never act on the session. The browser
+ * error reporter has to reach /v1/client-errors even when the page crashed
+ * before it could read its CSRF token, so the Origin check is its boundary;
+ * the route itself also demands an Origin header.
+ */
+const CSRF_TOKEN_EXEMPT_PATHS = new Set(['/v1/client-errors']);
+
+/**
  * Rejects cross-origin unsafe requests and requires a double-submit token for
  * browser sessions. Login endpoints do not have a session cookie yet, so the
  * strict Origin check is their CSRF boundary.
@@ -85,7 +93,7 @@ export const csrfProtection: MiddlewareHandler = async (c, next) => {
     throw new AppError('FORBIDDEN', 'This request did not come from an allowed Shark Fitness app.');
   }
 
-  if (SESSION_ENTRY_PATHS.has(c.req.path)) {
+  if (SESSION_ENTRY_PATHS.has(c.req.path) || CSRF_TOKEN_EXEMPT_PATHS.has(c.req.path)) {
     await next();
     return;
   }

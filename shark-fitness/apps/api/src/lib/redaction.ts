@@ -5,6 +5,7 @@ export function redactSensitiveText(value: string, maximumLength = 500): string 
     .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[redacted-email]')
     .replace(/\+?\d[\d\s()-]{8,}\d/g, '[redacted-phone]')
     .replace(/\b(?:Bearer\s+)?[A-Za-z0-9_-]{32,}\b/g, '[redacted-token]')
-    .replace(/(?:password|secret|token|cookie|authorization|otp)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]')
+    .replace(/\b(shark_session|shark_csrf)=[^\s,;]+/gi, '$1=[redacted]')
+    .replace(/(password|secret|token|cookie|authorization|otp)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]')
     .slice(0, maximumLength);
 }
