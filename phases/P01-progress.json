@@ -5,14 +5,14 @@
     {
       "id": 1,
       "text": "PR #27 commit 654e2ac and files on branch; shellcheck -S warning silent; bash -n passes for every script",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "git merge-base --is-ancestor 654e2ac HEAD -> true; /tmp/shellcheck (v0.10.0) -S warning deploy/pilot/*.sh -> no output, exit 0; bash -n on every deploy/pilot/*.sh -> pass"
     },
     {
       "id": 2,
       "text": "backup.sh optional age+rclone off-site step (offsite=skipped when unset, prune after upload, /fail on upload failure); provision installs rclone+age; restore-drill --from-offsite --age-identity; pilot-stack.yml steps; PILOT-HOSTING docs",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "backup.sh off-site step + restore-drill --from-offsite + provision installs age/rclone + 3 pilot-stack.yml steps + PILOT-HOSTING docs (commits 4d2533d, cc6acb6). Local harness (stub docker, real age 1.2.1/rclone 1.68.2, rclone local remote): unset -> offsite=skipped; set -> remote holds *.db.age + *.manifest.json.age; drill -> offsite_download=verified, drill=passed; wrong key -> exit 1, nothing left; unreachable WebDAV remote -> offsite=failed, exit 1, local copy kept, old local copy not pruned, /fail pinged. NOT run here: the Docker/systemd flow in pilot-stack.yml (GitHub only)."
     },
     {
       "id": 3,
@@ -35,14 +35,14 @@
     {
       "id": 6,
       "text": "POST /v1/client-errors (204/413/422/403/429 tests); both SPAs error listeners + top-level boundary with recovery screen, once per fingerprint (component tests)",
-      "status": "todo",
-      "evidence": "API half done: client-errors.integration.test.ts 9 tests (204/413/422/403/429). SPA half pending."
+      "status": "done",
+      "evidence": "client-errors.integration.test.ts 9 tests (204/413/422/403/429); admin + member ErrorBoundary.test.tsx 4 tests each (recovery screen, reference, posts once per fingerprint, default reporter POSTs /v1/client-errors); contracts client-errors.test.ts 6 tests"
     },
     {
       "id": 7,
       "text": "GET /metrics bearer-gated (404/401/200), listed metric families, no ids in HTTP labels; docs/OPERATIONS-ALERTS.md",
-      "status": "todo",
-      "evidence": "metrics.integration.test.ts 5 tests (404/401/200, families, no ids in HTTP labels). OPERATIONS-ALERTS.md pending."
+      "status": "done",
+      "evidence": "metrics.integration.test.ts 5 tests (404 unset / 401 wrong / 200 text/plain with families; no ten_/usr_/mem_/mbr_/br_ in HTTP labels); docs/OPERATIONS-ALERTS.md (commit cc6acb6)"
     },
     {
       "id": 8,
