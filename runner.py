@@ -44,8 +44,8 @@ def load_state():
 def save_state(s, sync=True):
     STATE.write_text(json.dumps(s, indent=2)); write_status(s)
     if sync: sync_state("state: " + ", ".join(f"{k}={v.get('state')}" for k, v in s.get("phases", {}).items()))
-def sh(cmd, cwd=REPO, check=False, env=None):
-    r = subprocess.run(cmd, cwd=cwd, shell=True, capture_output=True, text=True, env=env or ENV)
+def sh(cmd, cwd=None, check=False, env=None):
+    r = subprocess.run(cmd, cwd=cwd or REPO, shell=True, capture_output=True, text=True, env=env or ENV)
     if check and r.returncode: raise RuntimeError(f"{cmd}: {r.stderr[-2000:]}")
     return r
 
@@ -81,15 +81,19 @@ def render(tpl, p, base):
 def push_branch(b):
     """Push local branch b to origin if it is ahead. Refuses (and records a blocker) if origin has diverged."""
     if not b or b in ("main", "master") or not b.startswith("phase/"): return False
+    msg = ""
     with GIT_LOCK:
         if sh(f"git rev-parse --verify --quiet refs/heads/{b}").returncode: return False
         sh(f"git fetch origin --quiet {b}")
-        remote = sh(f"git rev-parse --verify --quiet refs/remotes/origin/{b}").returncode == 0
-        if remote:
+        if sh(f"git rev-parse --verify --quiet refs/remotes/origin/{b}").returncode == 0:
             if sh(f"git rev-list --count origin/{b}..{b}").stdout.strip() == "0": return False
             if sh(f"git merge-base --is-ancestor origin/{b} {b}").returncode:
-                log(f"push of {b} skipped: origin/{b} has diverged from local (no force-push; needs a human)"); return False
-        r = sh(f"git push --quiet -u origin refs/heads/{b}:refs/heads/{b}")
+                msg = f"push of {b} skipped: origin/{b} has diverged from local (no force-push; needs a human)"
+        if not msg: r = sh(f"git push --quiet -u origin refs/heads/{b}:refs/heads/{b}")
+    if msg:
+        log(msg); s = load_state(); bl = s.setdefault("blockers", [])
+        if msg not in bl: bl.append(msg); save_state(s)
+        return False
     if r.returncode: log(f"push of {b} failed: {r.stderr.strip()[-300:]}"); return False
     head = sh(f"git rev-parse --short {b}").stdout.strip()
     log(f"pushed {b} @ {head}")
