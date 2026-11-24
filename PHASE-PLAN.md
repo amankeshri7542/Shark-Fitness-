@@ -26,7 +26,7 @@ Each `## Phase Pxx` section below is written to be handed, on its own, to a fres
 - Monorepo `shark-fitness/` (pnpm 10.28 workspaces, TypeScript 5.7 strict, ESLint 10, Vitest 3): `apps/api`, `apps/admin-web`, `apps/member-pwa`, `packages/contracts`, `packages/domain`, `packages/design-tokens`, `scripts/`, `infrastructure/migrations/` (0000–0017). 120 commits on `main`; HEAD `386daaa` (PR #26). Root: Dockerfile (non-root, ships pnpm), `docker-entrypoint.sh` (migrate on start, seed only when `SHARK_SEED_DEMO=true` and the DB is new), `render.yaml` (free disposable demo, DB in `/tmp`), `.github/workflows/ci.yml`.
 - Release posture recorded in the repo (README, STABILIZATION report, PRD 05 header): **supervised one-staffed-gym demo; real-member pilot NO-GO** until hosted persistence/off-instance restore and human acceptance are proven. Several features were deliberately switched off during stabilization: online payment, waitlist joins/offers, the QR pass, credit-pack sales.
 - Runtime per ADR-001: single Node 22 process, Hono 4.6 on `@hono/node-server` run with `tsx`, SQLite via `better-sqlite3` 11.8 + Drizzle 0.38 (WAL, FK on, busy_timeout), in-process WebSocket hub with a durable SQLite outbox (7-day replay), 10 in-process `setInterval` jobs with durable `job_runs`. The PRD's Cloudflare Workers/D1/Durable Objects/Expo stack is **not** used; ADR-001 records that deviation.
-- **Node version:** the repo pins Node 22 (`.node-version`, `engines`, `.npmrc engine-strict=true`). On this box's default Node 24.22.1, `pnpm install` fails with `ERR_PNPM_UNSUPPORTED_ENGINE`. With engine-strict overridden it still fails, because `better-sqlite3@11.8.1` has no Node 24 prebuild and node-gyp cannot build it here. All results below were produced with Node 22.23.5 downloaded to `/tmp/node22` (see "Environment bootstrap").
+- **Node version:** the repo pins Node 22 (`.node-version`, `engines`, `.npmrc engine-strict=true`). On this box's default Node 24.22.1, `pnpm install` fails with `ERR_PNPM_UNSUPPORTED_ENGINE`. With engine-strict overridden it still fails, because `better-sqlite3@11.8.1` has no Node 24 prebuild and node-gyp cannot build it here. All results below were produced with Node 22.23.5 downloaded to `/home/box/opt/node22` (see "Environment bootstrap").
 
 ### Baseline results (commands run in `shark-fitness/`, Node 22.23.5, pnpm 10.28.0)
 
@@ -84,7 +84,7 @@ Adds `deploy/pilot/`, which runs the existing Dockerfile on one DigitalOcean dro
 
 ### Orchestration notes found on this box
 
-`/workspace/shark-fitness-orchestration/runner.py` starts P01 from `claude/musing-wilbur-d67503` and stacks each phase on the previous branch. The implementation template tells sessions the box is Node 24, so every phase below begins with the Node 22 bootstrap. The runner's own `checks()` runs `pnpm` with the box default Node and will report FAIL unless `/tmp/node22/bin` is first on its PATH.
+`/workspace/shark-fitness-orchestration/runner.py` starts P01 from `claude/musing-wilbur-d67503` and stacks each phase on the previous branch. The implementation template tells sessions the box is Node 24, so every phase below begins with the Node 22 bootstrap. The runner's own `checks()` runs `pnpm` with the box default Node and will report FAIL unless `/home/box/opt/node22/bin` is first on its PATH.
 
 ## Gaps vs PRDs
 
@@ -175,8 +175,8 @@ Deferred PRD scope (not planned in this engagement; P12 records each in the trac
 
 ```bash
 # Node 22 is mandatory: better-sqlite3 11.8 has no Node 24 build and shark-fitness/.npmrc sets engine-strict=true.
-test -x /tmp/node22/bin/node || { V=$(curl -fsSL https://nodejs.org/dist/index.json | python3 -c 'import json,sys;print(next(r["version"] for r in json.load(sys.stdin) if r["version"].startswith("v22.")))'); mkdir -p /tmp/node22 && curl -fsSL https://nodejs.org/dist/$V/node-$V-linux-x64.tar.xz | tar -xJ -C /tmp/node22 --strip-components=1; }
-export PATH=/tmp/node22/bin:$PATH COREPACK_HOME=/home/box/.corepack && corepack enable --install-directory /tmp/node22/bin pnpm
+test -x /home/box/opt/node22/bin/node || { V=$(curl -fsSL https://nodejs.org/dist/index.json | python3 -c 'import json,sys;print(next(r["version"] for r in json.load(sys.stdin) if r["version"].startswith("v22.")))'); mkdir -p /home/box/opt/node22 && curl -fsSL https://nodejs.org/dist/$V/node-$V-linux-x64.tar.xz | tar -xJ -C /home/box/opt/node22 --strip-components=1; }
+export PATH=/home/box/opt/node22/bin:$PATH COREPACK_HOME=/home/box/.corepack && corepack enable --install-directory /home/box/opt/node22/bin pnpm
 node -v   # must print v22.x; shell state does not persist, so repeat the export line in every new shell command
 ```
 
@@ -225,7 +225,7 @@ Out: creating any server, bucket, DSN project or alert account; running `deploy.
 ### How to verify
 ```bash
 # Node 22 bootstrap (see "Environment bootstrap" in PHASE-PLAN.md), then in every shell:
-export PATH=/tmp/node22/bin:$PATH COREPACK_HOME=/home/box/.corepack
+export PATH=/home/box/opt/node22/bin:$PATH COREPACK_HOME=/home/box/.corepack
 cd /workspace/shark-fitness-repo/shark-fitness
 pnpm install --frozen-lockfile && pnpm typecheck && pnpm lint && pnpm test > /tmp/p01-test.log 2>&1; grep -E "Test Files|Tests " /tmp/p01-test.log
 pnpm build && pnpm e2e && pnpm e2e        # two consecutive green runs
@@ -287,7 +287,7 @@ Out: live mode; subscriptions/UPI Autopay/eMandate; stored instruments; Stripe c
 
 ### How to verify
 ```bash
-export PATH=/tmp/node22/bin:$PATH COREPACK_HOME=/home/box/.corepack   # after the Node 22 bootstrap in PHASE-PLAN.md
+export PATH=/home/box/opt/node22/bin:$PATH COREPACK_HOME=/home/box/.corepack   # after the Node 22 bootstrap in PHASE-PLAN.md
 cd /workspace/shark-fitness-repo/shark-fitness
 pnpm install --frozen-lockfile && pnpm typecheck && pnpm lint && pnpm test > /tmp/p02-test.log 2>&1; grep -E "Test Files|Tests " /tmp/p02-test.log
 pnpm -F @shark/api test -- razorpay payment webhook reconciliation refund
@@ -348,7 +348,7 @@ Out: blog/CMS, online purchase on the website (it links to the app's plan purcha
 
 ### How to verify
 ```bash
-export PATH=/tmp/node22/bin:$PATH COREPACK_HOME=/home/box/.corepack   # after the Node 22 bootstrap
+export PATH=/home/box/opt/node22/bin:$PATH COREPACK_HOME=/home/box/.corepack   # after the Node 22 bootstrap
 cd /workspace/shark-fitness-repo/shark-fitness
 pnpm install --frozen-lockfile && pnpm typecheck && pnpm lint && pnpm test > /tmp/p03-test.log 2>&1; grep -E "Test Files|Tests " /tmp/p03-test.log
 pnpm build && pnpm e2e
@@ -432,7 +432,7 @@ Out: Expo/Capacitor projects, Play/App Store submission, real push sends, health
 
 ### How to verify
 ```bash
-export PATH=/tmp/node22/bin:$PATH COREPACK_HOME=/home/box/.corepack   # after the Node 22 bootstrap
+export PATH=/home/box/opt/node22/bin:$PATH COREPACK_HOME=/home/box/.corepack   # after the Node 22 bootstrap
 cd /workspace/shark-fitness-repo/shark-fitness
 pnpm install --frozen-lockfile && pnpm typecheck && pnpm lint && pnpm test > /tmp/p04-test.log 2>&1; grep -E "Test Files|Tests " /tmp/p04-test.log
 pnpm build && pnpm e2e -- --project="member-pixel7" --project="member-iphone13" && pnpm e2e
@@ -497,7 +497,7 @@ Out: physical door controllers, an offline kiosk eligibility cache, NFC/wallet p
 
 ### How to verify
 ```bash
-export PATH=/tmp/node22/bin:$PATH COREPACK_HOME=/home/box/.corepack   # after the Node 22 bootstrap
+export PATH=/home/box/opt/node22/bin:$PATH COREPACK_HOME=/home/box/.corepack   # after the Node 22 bootstrap
 cd /workspace/shark-fitness-repo/shark-fitness
 pnpm install --frozen-lockfile && pnpm typecheck && pnpm lint && pnpm test > /tmp/p05-test.log 2>&1; grep -E "Test Files|Tests " /tmp/p05-test.log
 pnpm -F @shark/api test -- scan waitlist credit media progress-photo
@@ -559,7 +559,7 @@ Out: passkeys/WebAuthn, SSO/SCIM, a custom role editor, public API keys/OAuth, I
 
 ### How to verify
 ```bash
-export PATH=/tmp/node22/bin:$PATH COREPACK_HOME=/home/box/.corepack   # after the Node 22 bootstrap
+export PATH=/home/box/opt/node22/bin:$PATH COREPACK_HOME=/home/box/.corepack   # after the Node 22 bootstrap
 cd /workspace/shark-fitness-repo/shark-fitness
 pnpm install --frozen-lockfile && pnpm typecheck && pnpm lint && pnpm test > /tmp/p06-test.log 2>&1; grep -E "Test Files|Tests " /tmp/p06-test.log
 pnpm -F @shark/api test -- mfa step-up session csp webhook
@@ -619,7 +619,7 @@ Out: AI drafting, campaign attribution beyond delivery counts, group chats beyon
 
 ### How to verify
 ```bash
-export PATH=/tmp/node22/bin:$PATH COREPACK_HOME=/home/box/.corepack   # after the Node 22 bootstrap
+export PATH=/home/box/opt/node22/bin:$PATH COREPACK_HOME=/home/box/.corepack   # after the Node 22 bootstrap
 cd /workspace/shark-fitness-repo/shark-fitness
 pnpm install --frozen-lockfile && pnpm typecheck && pnpm lint && pnpm test > /tmp/p07-test.log 2>&1; grep -E "Test Files|Tests " /tmp/p07-test.log
 pnpm -F @shark/api test -- notification messaging community task coach broadcast palette
@@ -678,7 +678,7 @@ Out: native device farms, visual-regression baselines (font rendering differs ac
 
 ### How to verify
 ```bash
-export PATH=/tmp/node22/bin:$PATH COREPACK_HOME=/home/box/.corepack   # after the Node 22 bootstrap
+export PATH=/home/box/opt/node22/bin:$PATH COREPACK_HOME=/home/box/.corepack   # after the Node 22 bootstrap
 cd /workspace/shark-fitness-repo/shark-fitness
 pnpm install --frozen-lockfile && pnpm typecheck && pnpm lint && pnpm test > /tmp/p08-test.log 2>&1; grep -E "Test Files|Tests " /tmp/p08-test.log
 pnpm -F @shark/api test:route-coverage
@@ -733,7 +733,7 @@ Out: new features, visual redesign (P10/P11), dependency major upgrades unless t
 
 ### How to verify
 ```bash
-export PATH=/tmp/node22/bin:$PATH COREPACK_HOME=/home/box/.corepack   # after the Node 22 bootstrap
+export PATH=/home/box/opt/node22/bin:$PATH COREPACK_HOME=/home/box/.corepack   # after the Node 22 bootstrap
 cd /workspace/shark-fitness-repo/shark-fitness
 pnpm install --frozen-lockfile && pnpm typecheck && pnpm lint && pnpm test > /tmp/p09-test.log 2>&1; grep -E "Test Files|Tests " /tmp/p09-test.log
 pnpm audit --prod; /tmp/gitleaks detect --source /workspace/shark-fitness-repo --report-path /tmp/gitleaks.json
@@ -803,7 +803,7 @@ Out: fixing anything (P11), redesigning the brand direction (Sonar is fixed by D
 
 ### How to verify
 ```bash
-export PATH=/tmp/node22/bin:$PATH COREPACK_HOME=/home/box/.corepack   # after the Node 22 bootstrap
+export PATH=/home/box/opt/node22/bin:$PATH COREPACK_HOME=/home/box/.corepack   # after the Node 22 bootstrap
 cd /workspace/shark-fitness-repo/shark-fitness
 pnpm install --frozen-lockfile && pnpm build && pnpm -F @shark/e2e audit
 node e2e/audit/validate-findings.mjs docs/ux-audit/findings.json   # schema + counts
@@ -847,7 +847,7 @@ Out: new features, brand redesign.
 
 ### How to verify
 ```bash
-export PATH=/tmp/node22/bin:$PATH COREPACK_HOME=/home/box/.corepack   # after the Node 22 bootstrap
+export PATH=/home/box/opt/node22/bin:$PATH COREPACK_HOME=/home/box/.corepack   # after the Node 22 bootstrap
 cd /workspace/shark-fitness-repo/shark-fitness
 pnpm install --frozen-lockfile && pnpm typecheck && pnpm lint && pnpm test > /tmp/p11-test.log 2>&1; grep -E "Test Files|Tests " /tmp/p11-test.log
 pnpm build && node scripts/check-bundle-budgets.mjs && for i in 1 2 3; do pnpm e2e || break; done
@@ -899,7 +899,7 @@ Out: deploying, creating accounts, merging PRs, real-device or human acceptance 
 
 ### How to verify
 ```bash
-export PATH=/tmp/node22/bin:$PATH COREPACK_HOME=/home/box/.corepack   # after the Node 22 bootstrap
+export PATH=/home/box/opt/node22/bin:$PATH COREPACK_HOME=/home/box/.corepack   # after the Node 22 bootstrap
 RC=$(mktemp -d) && git clone /workspace/shark-fitness-repo "$RC/repo" && cd "$RC/repo" && git checkout phase/P12-release-handover && cd shark-fitness
 pnpm install --frozen-lockfile && pnpm typecheck && pnpm lint && pnpm test > /tmp/p12-test.log 2>&1; grep -E "Test Files|Tests " /tmp/p12-test.log
 pnpm build && pnpm e2e && pnpm -F @shark/api test:route-coverage && pnpm db:backup:verify && pnpm perf:concurrency && node scripts/check-bundle-budgets.mjs

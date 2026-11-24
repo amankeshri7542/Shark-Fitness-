@@ -23,7 +23,7 @@ You are an independent senior reviewer brought in by the client to check another
 </task>
 
 <constraints>
-- Commit only to {{BRANCH}}. No push, merge, rebase, force, --no-verify, `git reset --hard`, or branch deletion.
+- Commit only to {{BRANCH}}. No push, merge, rebase, force, --no-verify, `git reset --hard`, or branch deletion. The orchestrator pushes {{BRANCH}} automatically after each of your commits; commit each fix as soon as it is verified, because the machine can be reset and uncommitted work is then lost.
 - No deploys, no real secrets, no real emails/messages, no real payments.
 - Keep fixes minimal and targeted; do not refactor or add features beyond what an issue requires. Never delete or weaken tests to get green.
 - Remove any temporary scratch files you created.

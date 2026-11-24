@@ -1,6 +1,6 @@
 # P01 notes — Finish pilot hosting (PR #27) and production readiness
 
-Branch `phase/P01-prod-readiness`, based on `claude/musing-wilbur-d67503` (HEAD `654e2ac`, PR #27). Node 22.23.5 from `/tmp/node22`, pnpm 10.28.0.
+Branch `phase/P01-prod-readiness`, based on `claude/musing-wilbur-d67503` (HEAD `654e2ac`, PR #27). Node 22.23.5 from `/home/box/opt/node22`, pnpm 10.28.0.
 
 ## Plan
 
