@@ -2,8 +2,10 @@ name: Pilot stack
 
 # Runs deploy/pilot end to end on a runner, the way the pilot server uses it:
 # provision (app part), deploy behind Caddy, bootstrap an empty gym, the owner
-# signs in, the nightly backup unit, a restore drill, and a redeploy that must
-# keep the gym. Only when those scripts or what they call change.
+# signs in, the nightly backup unit, a restore drill, encrypted off-site copies
+# (an rclone local remote and a throwaway age key) with a drill from them and a
+# forced upload failure, and a redeploy that must keep the gym. Only when those
+# scripts or what they call change.
 on:
   pull_request:
     paths:
@@ -14,6 +16,10 @@ on:
       - shark-fitness/apps/api/src/db/**
       - shark-fitness/scripts/sqlite-backup.mjs
       - shark-fitness/scripts/verify-backup-restore.mjs
+      # What the app reads at boot from shark.env, which now carries the
+      # off-site backup settings too.
+      - shark-fitness/apps/api/src/lib/config.ts
+      - shark-fitness/apps/api/src/server.ts
   push:
     branches: [main]
     paths:
@@ -24,6 +30,10 @@ on:
       - shark-fitness/apps/api/src/db/**
       - shark-fitness/scripts/sqlite-backup.mjs
       - shark-fitness/scripts/verify-backup-restore.mjs
+      # What the app reads at boot from shark.env, which now carries the
+      # off-site backup settings too.
+      - shark-fitness/apps/api/src/lib/config.ts
+      - shark-fitness/apps/api/src/server.ts
 
 permissions:
   contents: read
@@ -107,6 +117,8 @@ jobs:
           log=$(sudo journalctl -u shark-backup --no-pager -o cat)
           echo "$log"
           grep -qx 'restore_probe=ok' <<<"$log"
+          # Off-site copies are off until configured, and say so.
+          grep -qx 'offsite=skipped' <<<"$log"
           sudo sh -c 'ls -l /srv/shark-fitness/backups/nightly/shark-*.db /srv/shark-fitness/backups/nightly/shark-*.db.manifest.json'
           systemctl list-timers shark-backup.timer --no-pager
 
@@ -125,10 +137,89 @@ jobs:
           test -z "$(sudo find /srv/shark-fitness/drill -mindepth 1 -maxdepth 1 -type d -name '20*')"
           curl -fsSk https://localhost/ready -o /dev/null
 
+      - name: Encrypted off-site backup through the nightly unit
+        run: |
+          # provision.sh --skip-system leaves out system packages; on a server
+          # provision.sh installs these two.
+          sudo apt-get install -yq age rclone >/dev/null
+          # A throwaway key pair. The identity (private key) stays in the
+          # runner's temp dir, the way it stays off the pilot server.
+          age-keygen -o "$RUNNER_TEMP/offsite-identity.txt" 2>/dev/null
+          recipient=$(age-keygen -y "$RUNNER_TEMP/offsite-identity.txt")
+          sudo rclone config create offsite local >/dev/null
+          sudo install -d -m 700 /srv/offsite-ci
+          # healthchecks.io stand-in: records each ping's path and last line.
+          cat > "$RUNNER_TEMP/ping.py" <<'EOF'
+          import http.server, sys
+          class Ping(http.server.BaseHTTPRequestHandler):
+              def do_POST(self):
+                  body = self.rfile.read(int(self.headers.get('content-length') or 0)).decode()
+                  with open(sys.argv[2], 'a') as log:
+                      log.write(f"{self.path} {(body.splitlines() or [''])[-1]}\n")
+                  self.send_response(200)
+                  self.end_headers()
+              def log_message(self, *args):
+                  pass
+          http.server.HTTPServer(('127.0.0.1', int(sys.argv[1])), Ping).serve_forever()
+          EOF
+          nohup python3 "$RUNNER_TEMP/ping.py" 18999 "$RUNNER_TEMP/pings.log" >/dev/null 2>&1 &
+          printf 'SHARK_BACKUP_PING_URL=http://127.0.0.1:18999/ci\nSHARK_BACKUP_OFFSITE_REMOTE=offsite:/srv/offsite-ci\nSHARK_BACKUP_AGE_RECIPIENT=%s\nSHARK_BACKUP_OFFSITE_KEEP_DAYS=30\n' "$recipient" \
+            | sudo tee -a /srv/shark-fitness/shark.env >/dev/null
+
+          cursor=$(sudo journalctl -u shark-backup -n 0 --show-cursor --no-pager | sed -n 's/^-- cursor: //p')
+          sudo systemctl start shark-backup.service
+          log=$(sudo journalctl -u shark-backup --no-pager -o cat --after-cursor "$cursor")
+          echo "$log"
+          grep -qx 'offsite=uploaded' <<<"$log"
+          object=$(sed -n 's/^offsite_object=//p' <<<"$log")
+          echo "OFFSITE_OBJECT=$object" >> "$GITHUB_ENV"
+          sudo sh -c 'ls -l /srv/offsite-ci/nightly/shark-*.db.age /srv/offsite-ci/nightly/shark-*.db.manifest.json.age'
+          # What left the server is ciphertext, not SQLite. (`! cmd` cannot
+          # fail a step under bash -e, hence the if.)
+          if sudo sh -c 'cat /srv/offsite-ci/nightly/shark-*.db.age' | grep -aq 'SQLite format'; then
+            echo "An off-site copy is not encrypted." >&2
+            exit 1
+          fi
+          grep -q '^/ci offsite=uploaded$' "$RUNNER_TEMP/pings.log"
+
+      - name: Restore drill from the encrypted off-site copy
+        run: |
+          printf '%s\n' "$OWNER_PASSWORD" \
+            | sudo "$PILOT/restore-drill.sh" --skip-synthetic --gym pilot-ci --email "$OWNER_EMAIL" \
+                --from-offsite "$OFFSITE_OBJECT" --age-identity "$RUNNER_TEMP/offsite-identity.txt" \
+            | tee offsite-drill.log
+          grep -q '^offsite_download=verified' offsite-drill.log
+          grep -q '^owner_sign_in=200$' offsite-drill.log
+          grep -q '^drill=passed' offsite-drill.log
+          # No decrypted copy is left behind.
+          test -z "$(sudo find /srv/shark-fitness/drill -name 'shark-*.db*')"
+
+      - name: A failed off-site upload keeps local copies and pings /fail
+        run: |
+          # An unreachable remote: nothing listens on port 9.
+          sudo rclone config create down webdav url http://127.0.0.1:9 vendor other >/dev/null
+          sudo sed -i 's|^SHARK_BACKUP_OFFSITE_REMOTE=.*|SHARK_BACKUP_OFFSITE_REMOTE=down:shark|' /srv/shark-fitness/shark.env
+          before=$(sudo sh -c 'ls /srv/shark-fitness/backups/nightly/shark-*.db | wc -l')
+          : > "$RUNNER_TEMP/pings.log"
+          # The default run shell has no pipefail; this pipeline must fail
+          # when backup.sh does.
+          set -o pipefail
+          if sudo "$PILOT/backup.sh" nightly | tee failed.log; then
+            echo "A nightly run with a failed upload exited 0." >&2
+            exit 1
+          fi
+          grep -qx 'offsite=failed' failed.log
+          after=$(sudo sh -c 'ls /srv/shark-fitness/backups/nightly/shark-*.db | wc -l')
+          test "$after" -eq $((before + 1))
+          grep -q '^/ci/fail offsite=failed$' "$RUNNER_TEMP/pings.log"
+          sudo sed -i 's|^SHARK_BACKUP_OFFSITE_REMOTE=.*|SHARK_BACKUP_OFFSITE_REMOTE=offsite:/srv/offsite-ci|' /srv/shark-fitness/shark.env
+
       - name: A redeploy backs up first and keeps the gym
         run: |
           sudo "$PILOT/deploy.sh" --current
           sudo sh -c 'ls /srv/shark-fitness/backups/pre-deploy/shark-*.db'
+          # Pre-deploy copies go off-site too.
+          sudo sh -c 'ls /srv/offsite-ci/pre-deploy/shark-*.db.age'
           curl -fsSk -H 'origin: https://localhost' -H 'content-type: application/json' \
             -d "{\"tenantSlug\":\"pilot-ci\",\"email\":\"$OWNER_EMAIL\",\"password\":\"$OWNER_PASSWORD\"}" \
             https://localhost/v1/auth/password -o /dev/null
@@ -149,3 +240,4 @@ jobs:
         run: |
           cd "$PILOT" && sudo docker compose logs --tail 200 || true
           sudo journalctl -u shark-backup --no-pager || true
+          cat "$RUNNER_TEMP/pings.log" 2>/dev/null || true
