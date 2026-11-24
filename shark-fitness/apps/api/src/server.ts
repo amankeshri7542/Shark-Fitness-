@@ -4,13 +4,15 @@ import type { Context } from 'hono';
 import { readFile } from 'node:fs/promises';
 import { relative, resolve } from 'node:path';
 import { runtimeConfig } from './lib/config.js';
-import { initializeErrorReporting } from './lib/error-reporting.js';
+import { flushErrorReports, initializeErrorReporting } from './lib/error-reporting.js';
 import { log } from './lib/observability.js';
+import { installProcessHandlers } from './lib/process-handlers.js';
 import { otpSenders } from './services/otp-delivery.js';
 
 // Configuration must fail before importing the application graph: those
 // modules open the database and register static/runtime integrations.
-const errorReportingProvider = initializeErrorReporting();
+const errorReporter = initializeErrorReporting();
+installProcessHandlers();
 const [{ app }, { attachRealtime }, { startScheduler }] = await Promise.all([
   import('./app.js'),
   import('./realtime/hub.js'),
@@ -95,7 +97,8 @@ const server = serve({ fetch: app.fetch, port: runtimeConfig.port, hostname: '0.
   log('info', 'api_listening', {
     host: '0.0.0.0',
     port: info.port,
-    errorReportingProvider,
+    errorReporter,
+    metrics: runtimeConfig.metricsToken ? 'enabled' : 'disabled',
     // One plain string: the structured logger redacts any key that mentions
     // an OTP or an email address, which would hide the sender names.
     signInCodeSenders: `sms=${senders.sms.name}, mail=${senders.email.name}`,
@@ -109,6 +112,8 @@ startScheduler();
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
     log('info', 'api_shutdown_requested', { signal });
-    server.close(() => process.exit(0));
+    server.close(() => {
+      void flushErrorReports(2_000).finally(() => process.exit(0));
+    });
   });
 }

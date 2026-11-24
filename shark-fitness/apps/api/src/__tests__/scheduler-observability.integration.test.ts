@@ -1,12 +1,65 @@
 import { desc, eq } from 'drizzle-orm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { db, schema, sqlite } from '../db/client.js';
-import { jobsForTest, scheduledJobs } from '../jobs/scheduler.js';
+import { jobsForTest, runScheduledJob, scheduledJobs } from '../jobs/scheduler.js';
+import { setErrorReporterForTest, type ErrorReportContext, type ErrorReporter } from '../lib/error-reporting.js';
+import { renderMetrics, resetMetricsForTest } from '../lib/metrics.js';
 import { id } from '../lib/ids.js';
 import { DAY, MINUTE, localClockOnDay, now } from '../lib/time.js';
 
 afterEach(() => {
   sqlite.exec('DROP TRIGGER IF EXISTS fail_job_completion_probe');
+  setErrorReporterForTest(null);
+});
+
+describe('scheduler failure reporting', () => {
+  it('reports a throwing job exactly once, tagged with the job, and records the failed run', () => {
+    const captures: Array<{ error: unknown; context: ErrorReportContext }> = [];
+    const recording: ErrorReporter = {
+      name: 'console',
+      capture: (error, context) => captures.push({ error, context }),
+      flush: async () => undefined,
+    };
+    setErrorReporterForTest(recording);
+    resetMetricsForTest();
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const job = {
+      name: 'probe-failing-job',
+      everyMs: MINUTE,
+      run: () => {
+        throw new Error('probe job could not finish');
+      },
+    };
+
+    try {
+      expect(() => runScheduledJob(job)).not.toThrow();
+
+      expect(captures).toHaveLength(1);
+      expect(captures[0]!.context).toEqual({ job: 'probe-failing-job', source: 'scheduler' });
+      expect((captures[0]!.error as Error).message).toBe('probe job could not finish');
+
+      const rows = db.select().from(schema.jobRuns).where(eq(schema.jobRuns.job, 'probe-failing-job')).all();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ status: 'failed', error: 'probe job could not finish', errorCategory: 'Error' });
+      expect(renderMetrics({ jobLastSuccess: [], outboxUndelivered: 0, sqliteDbSizeBytes: 0, dataFilesystem: null, release: 'test' }))
+        .toContain('job_runs_total{job="probe-failing-job",outcome="failure"} 1');
+    } finally {
+      consoleError.mockRestore();
+      db.delete(schema.jobRuns).where(eq(schema.jobRuns.job, 'probe-failing-job')).run();
+    }
+  });
+
+  it('reports nothing for a job that succeeds', () => {
+    const captures: unknown[] = [];
+    setErrorReporterForTest({ name: 'console', capture: (error) => captures.push(error), flush: async () => undefined });
+    try {
+      runScheduledJob({ name: 'probe-passing-job', everyMs: MINUTE, run: () => ({ done: 1 }) });
+      expect(captures).toEqual([]);
+      expect(db.select().from(schema.jobRuns).where(eq(schema.jobRuns.job, 'probe-passing-job')).get()?.status).toBe('succeeded');
+    } finally {
+      db.delete(schema.jobRuns).where(eq(schema.jobRuns.job, 'probe-passing-job')).run();
+    }
+  });
 });
 
 describe('durable scheduler execution history', () => {

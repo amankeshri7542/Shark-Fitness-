@@ -14,6 +14,7 @@ import { rollUpCompletedDays } from '../services/reports.js';
 import { DAY, HOUR, MINUTE, addDays, isoDate, localClockOnDay, localDayIndex, now, startOfLocalDay } from '../lib/time.js';
 import { id } from '../lib/ids.js';
 import { log, reportException } from '../lib/observability.js';
+import { recordJobRun } from '../lib/metrics.js';
 import { redactSensitiveText } from '../lib/redaction.js';
 
 /**
@@ -24,7 +25,7 @@ import { redactSensitiveText } from '../lib/redaction.js';
  * mid-run.
  */
 
-type Job = { name: string; everyMs: number; run: () => unknown };
+export type Job = { name: string; everyMs: number; run: () => unknown };
 type JobSummary = Record<string, string | number | boolean | null>;
 
 /** Memberships move to grace, then expire, on their dates rather than whenever
@@ -247,6 +248,9 @@ const JOBS: Job[] = [
   { name: 'prune-operational-data', everyMs: DAY, run: pruneOperationalRows },
 ];
 
+/** The fixed job names: the only values the `job` metric label takes. */
+export const SCHEDULED_JOB_NAMES: readonly string[] = JOBS.map((job) => job.name);
+
 export function executeJob(job: Job, clock: () => number = now): void {
   const runId = id('jobr');
   const startedAt = clock();
@@ -278,6 +282,7 @@ export function executeJob(job: Job, clock: () => number = now): void {
       })
       .where(eq(schema.jobRuns.id, runId))
       .run();
+    recordJobRun(job.name, 'success');
     log('info', 'scheduler_job_finished', {
       job: job.name,
       runId,
@@ -300,6 +305,7 @@ export function executeJob(job: Job, clock: () => number = now): void {
       })
       .where(eq(schema.jobRuns.id, runId))
       .run();
+    recordJobRun(job.name, 'failure');
     log('error', 'scheduler_job_finished', {
       job: job.name,
       runId,
@@ -333,6 +339,16 @@ function safeErrorMessage(error: unknown): string {
   return redactSensitiveText(error instanceof Error ? error.message : String(error));
 }
 
+/** One scheduled tick: run the job, and report a failure once, tagged with
+ *  the job's name. executeJob has already recorded it in job_runs. */
+export function runScheduledJob(job: Job, clock: () => number = now): void {
+  try {
+    executeJob(job, clock);
+  } catch (err) {
+    reportException(err, { job: job.name, source: 'scheduler' });
+  }
+}
+
 export function startScheduler(): void {
   if (runtimeConfig.disableJobs) {
     log('info', 'scheduler_disabled');
@@ -340,13 +356,7 @@ export function startScheduler(): void {
   }
 
   for (const job of JOBS) {
-    const tick = () => {
-      try {
-        executeJob(job);
-      } catch (err) {
-        reportException(err, { job: job.name, source: 'scheduler' });
-      }
-    };
+    const tick = () => runScheduledJob(job);
     tick();
     setInterval(tick, job.everyMs).unref();
   }

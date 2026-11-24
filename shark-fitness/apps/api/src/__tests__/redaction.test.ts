@@ -1,17 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { redactSensitiveText } from '../lib/redaction.js';
+import { SENSITIVE, SENSITIVE_SENTENCE, SENSITIVE_VALUES } from './fixtures/redaction.js';
 
 describe('observability text redaction', () => {
   it('removes common PII and credential shapes before truncating', () => {
-    const source = 'owner@example.com +91 98765 43210 password=hunter2 token=short-secret Bearer abcdefghijklmnopqrstuvwxyz123456';
-    const redacted = redactSensitiveText(source);
+    const redacted = redactSensitiveText(SENSITIVE_SENTENCE);
 
-    expect(redacted).not.toContain('owner@example.com');
-    expect(redacted).not.toContain('98765');
-    expect(redacted).not.toContain('hunter2');
-    expect(redacted).not.toContain('short-secret');
-    expect(redacted).not.toContain('abcdefghijklmnopqrstuvwxyz123456');
+    for (const value of SENSITIVE_VALUES) expect(redacted).not.toContain(value);
     expect(redacted).toContain('[redacted-email]');
     expect(redacted).toContain('[redacted-phone]');
+  });
+
+  it('keeps the name of a redacted credential so the report stays readable', () => {
+    expect(redactSensitiveText(`password=${SENSITIVE.password}`)).toBe('password=[redacted]');
+    expect(redactSensitiveText(SENSITIVE.sessionCookie)).toBe('shark_session=[redacted]');
   });
 });

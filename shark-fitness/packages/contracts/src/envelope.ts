@@ -22,6 +22,7 @@ export const ERROR_CODES = [
   'TENANT_SUSPENDED',
   'LEGAL_HOLD',
   'STALE_VERSION',
+  'PAYLOAD_TOO_LARGE',
   'INTERNAL',
 ] as const;
 
@@ -68,6 +69,7 @@ export const HTTP_STATUS_FOR: Record<ErrorCode, number> = {
   TENANT_SUSPENDED: 403,
   LEGAL_HOLD: 423,
   STALE_VERSION: 409,
+  PAYLOAD_TOO_LARGE: 413,
   INTERNAL: 500,
 };
 
