@@ -2,7 +2,7 @@
 
 How to run Shark Fitness for the two-week pilot at one branch: one small server in India, the app behind HTTPS, the database on a disk that keeps its data, nightly backups, a restore drill and alerts. Everything here is in [`deploy/pilot/`](../../deploy/pilot) at the repository root.
 
-**Status, 2026-10-25: ready to provision, not provisioned.** The owner chose to wait before paying for a server. The scripts were run on a Mac against a stand-in for Docker (see [Evidence](#evidence)), and the [Pilot stack](../../.github/workflows/pilot-stack.yml) workflow runs them on a real Docker host for every change to them. Three checks can only happen on the real server and are still open: `/ready` there, the owner signing in to the empty gym, and a backup plus restore drill.
+**Status, 2026-11-24: ready to provision, not provisioned.** Encrypted off-site copies, Sentry-compatible error reporting and `/metrics` were added in November and are off until configured. The owner chose to wait before paying for a server. The scripts were run on a Mac against a stand-in for Docker (see [Evidence](#evidence)), and the [Pilot stack](../../.github/workflows/pilot-stack.yml) workflow runs them on a real Docker host for every change to them. Three checks can only happen on the real server and are still open: `/ready` there, the owner signing in to the empty gym, and a backup plus restore drill.
 
 The free Render demo is a separate thing and stays as it is: `render.yaml` and the `shark-fitness-demo` service are untouched, and its database still resets on every sleep or deploy. Never point the pilot at it, and never run `scripts/postman/run.mjs` against the pilot: that suite expects the demo seed.
 
@@ -14,8 +14,8 @@ The free Render demo is a separate thing and stays as it is: `render.yaml` and t
 | DigitalOcean backups | Off. They would add 20% (weekly) or 30% (daily). | $0 |
 | HTTPS | Caddy, with a free Let's Encrypt certificate for your own domain | $0 |
 | Database | SQLite at `/srv/shark-fitness/data/shark.db` on the droplet's own disk | included |
-| Backups | Nightly on the server; copies pulled to your Mac with `pull-backup.sh` | $0 |
-| Alerts | UptimeRobot for `/ready`, healthchecks.io for missed backups, ntfy.sh for server errors | $0 (free plans) |
+| Backups | Nightly on the server, plus optional encrypted off-site copies (`age` + `rclone` to any object store, e.g. Backblaze B2 or Cloudflare R2); copies can also be pulled to your Mac with `pull-backup.sh` | $0 on the stores' free 10 GB tiers; off-site is off until configured |
+| Alerts | UptimeRobot for `/ready`, healthchecks.io for missed backups, ntfy.sh or a Sentry-compatible DSN for server and browser errors, DigitalOcean Monitoring for disk ([OPERATIONS-ALERTS.md](OPERATIONS-ALERTS.md)) | $0 (free plans) |
 | Member sign-in | Activation links that reception hands over; members set their own password | $0 |
 
 One origin serves everything: the member app at `/`, the console at `/admin/`, the API at `/v1/`, plus `/health` and `/ready`.
@@ -34,9 +34,9 @@ Why not the others: a paid Render web service with a disk costs $7.25 a month an
 | `provision.sh` | One-time server setup: Docker, swap, firewall, automatic security updates, directories, `shark.env` with a new secret, the backup timer |
 | `deploy.sh` | Backs up, builds a git ref, restarts, then waits for `/ready` to report that commit |
 | `bootstrap.sh` | Creates the empty gym and the owner's account; asks each question |
-| `backup.sh` | `pnpm db:backup` plus a restore check, pruning, and healthchecks.io pings |
+| `backup.sh` | `pnpm db:backup` plus a restore check, optional encrypted off-site upload, pruning, and healthchecks.io pings |
 | `shark-backup.service`, `shark-backup.timer` | Run `backup.sh nightly` at 02:00 India time |
-| `restore-drill.sh` | Restores a backup into a throwaway copy, boots it with no network, and signs in as the owner |
+| `restore-drill.sh` | Restores a backup (local, or downloaded and decrypted from off-site with `--from-offsite`) into a throwaway copy, boots it with no network, and signs in as the owner |
 | `pull-backup.sh` | Run on your Mac: takes a backup on the server, copies it down, checks the checksum |
 
 ### Layout on the server
@@ -145,13 +145,24 @@ SHARK_BACKUP_PING_URL=https://hc-ping.com/<uuid>
 
 `backup.sh nightly` pings `/start` when it begins and the plain URL on success, with the backup's path and SHA-256. On failure it pings `/fail`, which emails you at once; a night with no ping at all emails you after the grace period. Test it with `systemctl start shark-backup` and watch the check turn green.
 
-**Server errors: ntfy.sh.** Install the ntfy app on your phone and subscribe to a long random topic. Anyone who knows the name can read it, so generate one with `openssl rand -hex 16`. Then:
+**Server and browser errors.** Two choices; set one.
+
+- *Sentry-compatible (recommended once someone triages errors):* create a project in Sentry, GlitchTip or a self-hosted collector and put its DSN in `shark.env` as `SHARK_ERROR_DSN=https://<public key>@<host>/<project id>`. Reports arrive grouped, with stack frames, the release, the request id and the route. No SDK is installed; the app speaks the envelope protocol itself.
+- *ntfy.sh (simplest):* below.
+
+`SHARK_ERROR_REPORTER` defaults to `auto` (DSN first, then the ntfy endpoint, otherwise none in production). The startup log line `api_listening` names the reporter in use. Browser crashes in the member app and the console reach the same reporter through `POST /v1/client-errors`, tagged `source=member` or `source=admin`, with the reference the person sees on the "Something went wrong" screen.
+
+**ntfy.sh.** Install the ntfy app on your phone and subscribe to a long random topic. Anyone who knows the name can read it, so generate one with `openssl rand -hex 16`. Then:
 
 ```text
 SHARK_ERROR_REPORTING_ENDPOINT=https://ntfy.sh/shark-pilot-<random>
 ```
 
-Unexpected server errors arrive as notifications. The reporter sends only the error's name and redacted message, the route, and tenant/actor IDs: no request bodies, member fields, cookies or headers. Test the channel from the server with `curl -d "Shark pilot test" https://ntfy.sh/shark-pilot-<random>`.
+Unexpected server errors arrive as notifications. The reporter sends only the error's name, redacted message and stack frames, the route, the request id and tenant/actor IDs: no request bodies, member fields, cookies or headers. Test the channel from the server with `curl -d "Shark pilot test" https://ntfy.sh/shark-pilot-<random>`.
+
+**Disk and memory: DigitalOcean Monitoring.** Tick *Monitoring* when creating the droplet (free), then add alert policies for disk utilization above 80 % and memory above 75 % for 15 minutes.
+
+**Metrics (optional).** Setting `SHARK_METRICS_TOKEN` (`openssl rand -hex 32`) turns on `GET /metrics` for a Prometheus-compatible scraper. Every alert rule, with what to do when it fires, is in [OPERATIONS-ALERTS.md](OPERATIONS-ALERTS.md).
 
 ### 9. Backups
 
@@ -159,19 +170,48 @@ The timer runs `backup.sh nightly` at 02:00 India time; `Persistent=true` catche
 
 1. Runs `pnpm db:backup` in a one-off container with the app's mounts. That is SQLite's online backup, so the gym stays open while it runs. It checks the copy's integrity and writes a manifest with its size and SHA-256.
 2. Restores that copy into a throwaway path with `pnpm db:restore`, which re-checks the manifest, size, checksum and integrity.
-3. Deletes copies older than `SHARK_BACKUP_KEEP_DAYS` (14), but only after a good backup, so a run of failures never removes the last copy.
+3. With off-site copies configured, encrypts the copy and its manifest with `age` and uploads both with `rclone` (below). Prints `offsite=uploaded`, `offsite=failed` or, when not configured, `offsite=skipped`.
+4. Deletes copies older than `SHARK_BACKUP_KEEP_DAYS` (14), but only after a good backup and (when configured) a good upload, so a run of failures never removes the last copy.
 
 `deploy.sh` also takes a `pre-deploy` copy before every deploy, because the new release migrates the database and migrations only go forward. For a copy on demand, run `backup.sh` (it goes to `backups/manual/`). Logs: `journalctl -u shark-backup`. Next run: `systemctl list-timers shark-backup.timer`.
 
 Each copy is one self-contained `.db` file plus its `.manifest.json`. The empty `-shm` and `-wal` files beside it are left by SQLite when the backup tool reopens the copy read-only to check it. They hold nothing and are pruned with it.
 
-**These copies share a disk with the database.** They cover a bad deploy or a mistake. They do not cover losing the droplet (account problem, accidental destroy, disk failure). Off-server storage was deliberately skipped for the pilot to keep it free, so the only off-server copies are the ones you pull to the Mac:
+**These copies share a disk with the database.** They cover a bad deploy or a mistake, not losing the droplet (account problem, accidental destroy, disk failure). Off-site copies cover that.
+
+#### Encrypted off-site copies
+
+Off until both `SHARK_BACKUP_OFFSITE_REMOTE` and `SHARK_BACKUP_AGE_RECIPIENT` are set. Then every backup (nightly, pre-deploy and manual) is encrypted on the server with [age](https://age-encryption.org) to your public key and uploaded with [rclone](https://rclone.org) to `<remote>/<kind>/shark-<time>.db.age` plus `.manifest.json.age`. Nothing readable leaves the server, and the storage provider only ever holds ciphertext. `provision.sh` installs both tools.
+
+Set it up once:
+
+1. **Make the key on your Mac, not on the server:** `brew install age`, then `age-keygen -o ~/shark-pilot-offsite.key`. It prints the public key (`age1…`). Store the key file in your password manager and on one offline USB stick. Without it the off-site copies cannot be read by anyone, you included.
+2. **Create a bucket** (Backblaze B2 or Cloudflare R2; this creates an account) and an API key limited to that one bucket. Turn on the bucket's object lock or versioning if offered, so a stolen server key cannot erase history.
+3. **On the server**, `sudo rclone config` and create a remote, e.g. named `offsite`, with that key. Its credentials stay in `/root/.config/rclone/rclone.conf` (mode 600), never in `shark.env`.
+4. **In `shark.env`:**
+
+   ```text
+   SHARK_BACKUP_OFFSITE_REMOTE=offsite:shark-pilot-backups
+   SHARK_BACKUP_AGE_RECIPIENT=age1<your public key>
+   SHARK_BACKUP_OFFSITE_KEEP_DAYS=30
+   ```
+
+   Several recipients may be given, comma-separated (for example the owner's key and a second key kept by whoever maintains the server).
+5. Run `/srv/shark-fitness/src/deploy/pilot/backup.sh` and check it prints `offsite=uploaded` and an `offsite_object=` line. Then do the off-site drill in step 10.
+
+**Key custody.** The server only holds the *public* key, so a compromised server can add copies but not read old ones. The private key lives with the owner (password manager plus offline copy). It is brought to a machine only to restore or drill, kept in `/run` or `/dev/shm` (memory, not disk), and deleted straight after. Never put it in `shark.env`, the backups directory or the repository. If it is lost, make a new key, update `SHARK_BACKUP_AGE_RECIPIENT`, and treat the old copies as unreadable; if it leaks, do the same and delete the old copies.
+
+**When an upload fails** (remote unreachable, credentials revoked, bucket full): the local copy is kept, local pruning is skipped until an upload succeeds, a nightly run pings healthchecks.io's `/fail` and the systemd unit is marked failed. A pre-deploy or manual run warns and carries on with its good local copy. Off-site copies older than `SHARK_BACKUP_OFFSITE_KEEP_DAYS` are deleted only after an upload succeeds, so a broken remote never prunes the last good copy.
+
+**Retention and deleted members.** Engineering PRD 02 requires backups to follow the same deletion and retention commitments as the live data. An erasure request anonymises the member in the live database at once, but copies taken before it still hold their data until they age out: at most `SHARK_BACKUP_KEEP_DAYS` (14) days on the server and `SHARK_BACKUP_OFFSITE_KEEP_DAYS` (30) days off-site. The privacy notice must state that window (30 days with these defaults; keep it short and do not raise it without updating the notice). Backups are never restored partially to read one person's data. After a full restore (step 12), the erasures completed after the copy was taken must be applied again: in the restored database they show as still open in the console's Settings → Privacy (apply them there), and requests submitted after the copy are missing entirely. So keep a short off-server log of completed erasures (date and member number only, nothing else personal) and re-enter any that the restored copy lacks before reopening.
+
+#### Pulling a copy by hand
 
 ```bash
 deploy/pilot/pull-backup.sh root@203.0.113.10
 ```
 
-That takes a fresh backup on the server, copies it and its manifest to `~/shark-pilot-backups/` (mode 700), and checks the SHA-256. Do it at least weekly during the pilot, and after any day with a lot of payments. The files hold members' personal data: keep that folder off shared drives. For production, add an upload step to `backup.sh` that writes to object storage (Cloudflare R2 or Backblaze B2; both have a free 10 GB tier) and verifies the uploaded copy.
+That takes a fresh backup on the server, copies it and its manifest to `~/shark-pilot-backups/` (mode 700), and checks the SHA-256. Without off-site copies, do it at least weekly and after any day with a lot of payments. The files are not encrypted and hold members' personal data: keep that folder off shared drives.
 
 ### 10. Restore drill
 
@@ -201,6 +241,20 @@ It asks for the owner's password (hidden), then:
 
 A pass ends with `synthetic_proof=passed`, `owner_sign_in=200`, `owner_dashboard=200` and `drill=passed`; any failure exits non-zero. The drill copy is deleted afterwards (`--keep` keeps it). Record the output under [Evidence](#evidence).
 
+**Drilling an off-site copy.** This is the one that proves the droplet can be lost. Copy the private key into memory on the server for the drill only, run it, and delete the key:
+
+```bash
+scp ~/shark-pilot-offsite.key root@203.0.113.10:/run/shark-offsite.key
+```
+
+```bash
+/srv/shark-fitness/src/deploy/pilot/restore-drill.sh --gym <gym code> --email <owner email> \
+  --from-offsite nightly/shark-<time>.db --age-identity /run/shark-offsite.key
+shred -u /run/shark-offsite.key
+```
+
+`--from-offsite` takes the `offsite_object=` line `backup.sh` printed, or a path under `SHARK_BACKUP_OFFSITE_REMOTE` (`rclone ls offsite:shark-pilot-backups` lists them). It downloads the copy and its manifest, decrypts both, prints `offsite_download=verified` when the SHA-256 matches, then runs the drill above. The decrypted copy is deleted afterwards, also when the drill fails.
+
 ### 11. Updating and rolling back
 
 After a change is merged to main:
@@ -213,7 +267,18 @@ Pass a commit or tag to deploy something else: `deploy.sh 6f7d3d6`. To roll back
 
 ### 12. Recovering onto a new server
 
-If the droplet is lost, create a new one (steps 1–4, with the same domain and your saved `shark.env` copied to `/srv/shark-fitness/shark.env` before running `deploy.sh`). Then put the newest off-server copy back:
+If the droplet is lost, create a new one (steps 1–4, with the same domain and your saved `shark.env` copied to `/srv/shark-fitness/shark.env` before running `deploy.sh`). With off-site copies, recreate the rclone remote (`sudo rclone config`), bring the private key into `/run` as in step 10, and fetch and decrypt the newest copy:
+
+```bash
+cd /srv/shark-fitness
+rclone lsf offsite:shark-pilot-backups/nightly | sort | tail -n 2
+rclone copy --include 'shark-<time>.db*' offsite:shark-pilot-backups/nightly ./incoming
+age -d -i /run/shark-offsite.key -o shark-<time>.db incoming/shark-<time>.db.age
+age -d -i /run/shark-offsite.key -o shark-<time>.db.manifest.json incoming/shark-<time>.db.manifest.json.age
+shred -u /run/shark-offsite.key && rm -rf incoming
+```
+
+Then put the copy back (from the Mac's `~/shark-pilot-backups/` instead, if that is the newest):
 
 ```bash
 cd /srv/shark-fitness/src/deploy/pilot
@@ -255,6 +320,12 @@ These override anything in `shark.env`.
 | `SHARK_ERROR_REPORTING_ENDPOINT` | no | `https://ntfy.sh/shark-pilot-<random>` | HTTPS only. Receives redacted JSON for unexpected errors |
 | `SHARK_BACKUP_PING_URL` | no | `https://hc-ping.com/<uuid>` | Read by `backup.sh` (nightly runs only) |
 | `SHARK_BACKUP_KEEP_DAYS` | no | `14` | Read by `backup.sh` |
+| `SHARK_BACKUP_OFFSITE_REMOTE` | no | `offsite:shark-pilot-backups` | rclone `remote:path`; set together with the next one, or neither. Read by `backup.sh` and `restore-drill.sh` |
+| `SHARK_BACKUP_AGE_RECIPIENT` | no | `age1…` (public key) | One or more age public keys, comma-separated. Never the private key |
+| `SHARK_BACKUP_OFFSITE_KEEP_DAYS` | no | `30` | Off-site retention; pruned only after a successful upload |
+| `SHARK_ERROR_REPORTER` | no | `auto` | `auto`, `none`, `console`, `http` or `sentry`. `auto`: DSN, then endpoint, otherwise none in production |
+| `SHARK_ERROR_DSN` | no | `https://<key>@<host>/<project id>` | Sentry-protocol DSN (Sentry, GlitchTip, self-hosted). HTTPS in production |
+| `SHARK_METRICS_TOKEN` | no | `openssl rand -hex 32` | Turns on `GET /metrics` with this bearer token; at least 32 characters in production. Unset: `/metrics` is a 404 |
 
 ### Written by `deploy.sh`
 
@@ -309,6 +380,7 @@ With these unset, both channels use the log sender, which in production neither 
 | `SHARK_REPO` | this GitHub repository | `provision.sh`, when it clones |
 | `SHARK_SSH_KEY` | `~/.ssh/shark_pilot_ed25519` | `pull-backup.sh` |
 | `SHARK_REMOTE_HOME` | `/srv/shark-fitness` | `pull-backup.sh` |
+| `RCLONE_CONFIG` | `/root/.config/rclone/rclone.conf` | `backup.sh`, `restore-drill.sh` (named explicitly because the systemd unit runs without `$HOME`) |
 
 ### Not used on this host
 
@@ -327,9 +399,20 @@ There is no Docker on the Mac, so a stand-in `docker` ran each container command
 - `pull-backup.sh` worked under macOS's bash 3.2, with and without the SSH key file. It copied the backup and manifest at mode 600 and verified the SHA-256; a one-byte change fails that check.
 - `restore-drill.sh` on that pulled copy: `synthetic_proof=passed`, the restore checksum verified, the restored copy reported ready with `scheduler: disabled`, row counts matched the two empty gyms, and owner sign-in and the dashboard both returned 200. The drill copy was removed afterwards. With a wrong password the drill printed `owner_sign_in=401` and exited 1.
 
+### Local, 2026-11-24: off-site copies (no Docker)
+
+On a Linux box without Docker, a stand-in `docker` produced a fake backup and manifest, a stand-in `install` dropped the root-only ownership flags, and the real `age` 1.2.1 and `rclone` 1.68.2 binaries did the rest, against an rclone `local` remote and a throwaway key:
+
+- Unset: `offsite=skipped`, pings `/start` then success, exit 0. Half a configuration (only a recipient): refused before backing up, exit 1.
+- Set: the remote held `shark-<time>.db.age` and `.manifest.json.age`; `offsite=uploaded`; healthchecks stand-in got `/start` then success.
+- `restore-drill.sh --skip-synthetic --from-offsite <object> --age-identity <key>`, with the full `remote:path` and with `nightly/shark-<time>.db`: `offsite_download=verified`, `drill=passed`, and no decrypted file left in `drill/inbox`. With another key: `age: error: no identity matched`, exit 1, nothing left behind.
+- Unreachable remote (WebDAV on a closed port): `offsite=failed`, exit 1, the new local copy kept, a 40-day-old local copy *not* pruned, and `/fail` pinged. Back on the good remote, the upload succeeded and only then were the 40-day-old off-site objects and the old local copy pruned.
+
+The flows that need Docker (the real `pnpm db:backup` in the container, systemd, the restore container) run only in the Pilot stack workflow below.
+
 ### CI
 
-The Pilot stack workflow runs the same flow on an Ubuntu 24.04 runner with real Docker, Caddy (`SHARK_DOMAIN=localhost`, using Caddy's own local CA) and systemd. It checks shellcheck, provisioning, HTTPS and the 308 redirect, the empty gym, the nightly unit, the restore drill, a redeploy, and a replaced container that still has the gym.
+The Pilot stack workflow runs the same flow on an Ubuntu 24.04 runner with real Docker, Caddy (`SHARK_DOMAIN=localhost`, using Caddy's own local CA) and systemd. It checks shellcheck, provisioning, HTTPS and the 308 redirect, the empty gym, the nightly unit (`offsite=skipped`), the restore drill, encrypted off-site copies through the nightly unit to an rclone `local` remote with a key generated in the job, a drill from that off-site copy, a forced upload failure that keeps local copies and pings `/fail`, a redeploy whose pre-deploy copy also goes off-site, and a replaced container that still has the gym.
 
 ### Hosted: pending
 
@@ -339,5 +422,6 @@ The Pilot stack workflow runs the same flow on an Ubuntu 24.04 runner with real 
 | Owner signs in at `/admin/` to an empty gym | not run |
 | `systemctl start shark-backup` succeeds and healthchecks.io turns green | not run |
 | `pull-backup.sh`, then `restore-drill.sh` on the returned copy, passes | not run |
+| Off-site upload to a real bucket, then `restore-drill.sh --from-offsite` passes | not run: no bucket or key yet |
 | UptimeRobot alert on `docker compose stop app`, and recovery | not run |
 | ntfy test message reaches the phone | not run |
