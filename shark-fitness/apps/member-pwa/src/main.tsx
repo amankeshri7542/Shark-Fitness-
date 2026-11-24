@@ -7,6 +7,8 @@ import { useSession } from './lib/store';
 import { useMemberConnection } from './lib/realtime';
 import { API_ORIGIN, ApiError } from './lib/api';
 import { hasMemberSessionHint, setMemberSessionHint } from './lib/session-hint';
+import { installGlobalErrorListeners } from './lib/error-reporting';
+import { AppErrorBoundary } from './ui/ErrorBoundary';
 import './styles.css';
 
 const queryClient = new QueryClient({
@@ -94,10 +96,14 @@ function Boot() {
   return <RouterProvider router={router} />;
 }
 
+installGlobalErrorListeners();
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <Boot />
-    </QueryClientProvider>
+    <AppErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <Boot />
+      </QueryClientProvider>
+    </AppErrorBoundary>
   </StrictMode>,
 );

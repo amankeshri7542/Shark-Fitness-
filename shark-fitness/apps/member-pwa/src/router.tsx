@@ -16,6 +16,7 @@ import { useActiveBranch, useSession } from './lib/store';
 // and `defaultPreload: 'intent'` warms the chunk as soon as a tab is hovered
 // or touched, so navigation still feels immediate.
 import SignInScreen from './screens/SignIn';
+import { RecoveryScreen } from './ui/ErrorBoundary';
 
 const HomeScreen = lazyRouteComponent(() => import('./screens/Home'));
 const PassScreen = lazyRouteComponent(() => import('./screens/Pass'));
@@ -163,6 +164,9 @@ export const router = createRouter({
   routeTree,
   defaultPreload: 'intent',
   defaultPendingComponent: RoutePending,
+  // A screen that throws while rendering or loading shows the recovery panel
+  // in place of that screen; see ui/ErrorBoundary.
+  defaultErrorComponent: ({ error }) => <RecoveryScreen error={error} />,
 });
 
 declare module '@tanstack/react-router' {
