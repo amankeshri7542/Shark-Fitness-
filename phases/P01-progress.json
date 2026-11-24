@@ -2,15 +2,65 @@
   "phase": "P01",
   "status": "in_progress",
   "items": [
-    {"id": 1, "text": "PR #27 commit 654e2ac and files on branch; shellcheck -S warning silent; bash -n passes for every script", "status": "todo", "evidence": ""},
-    {"id": 2, "text": "backup.sh optional age+rclone off-site step (offsite=skipped when unset, prune after upload, /fail on upload failure); provision installs rclone+age; restore-drill --from-offsite --age-identity; pilot-stack.yml steps; PILOT-HOSTING docs", "status": "todo", "evidence": ""},
-    {"id": 3, "text": "lib/config.ts declares/validates every env var (OTP, limits, reporter, DSN, metrics token); otp-delivery/otp-limits read runtimeConfig; guard tests for process.env and .env.example; refusal tests", "status": "todo", "evidence": ""},
-    {"id": 4, "text": "Error reporters none/console/http/sentry with auto selection; Sentry envelope test with local server; no-PII test; boot log names reporter", "status": "todo", "evidence": ""},
-    {"id": 5, "text": "Scheduler job failure captured once with job tag + failed job_runs row; unhandledRejection/uncaughtException handlers tested in child processes", "status": "todo", "evidence": ""},
-    {"id": 6, "text": "POST /v1/client-errors (204/413/422/403/429 tests); both SPAs error listeners + top-level boundary with recovery screen, once per fingerprint (component tests)", "status": "todo", "evidence": ""},
-    {"id": 7, "text": "GET /metrics bearer-gated (404/401/200), listed metric families, no ids in HTTP labels; docs/OPERATIONS-ALERTS.md", "status": "todo", "evidence": ""},
-    {"id": 8, "text": "drizzle.config lists 8 schema files; drizzle-kit generate reports no changes; no applied SQL changed; CI drift step", "status": "todo", "evidence": ""},
-    {"id": 9, "text": "@shark/e2e Playwright package; pnpm e2e 3 specs green twice; no leftovers; CI e2e job", "status": "todo", "evidence": ""},
-    {"id": 10, "text": "Docs (.env.example, PRODUCTION-READINESS, README) updated; typecheck/lint/test/build gates pass", "status": "todo", "evidence": ""}
+    {
+      "id": 1,
+      "text": "PR #27 commit 654e2ac and files on branch; shellcheck -S warning silent; bash -n passes for every script",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 2,
+      "text": "backup.sh optional age+rclone off-site step (offsite=skipped when unset, prune after upload, /fail on upload failure); provision installs rclone+age; restore-drill --from-offsite --age-identity; pilot-stack.yml steps; PILOT-HOSTING docs",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 3,
+      "text": "lib/config.ts declares/validates every env var (OTP, limits, reporter, DSN, metrics token); otp-delivery/otp-limits read runtimeConfig; guard tests for process.env and .env.example; refusal tests",
+      "status": "done",
+      "evidence": "config.test.ts 75 tests pass (OTP provider w/o creds, non-numeric limits, unknown reporter, DSN malformed/non-HTTPS in prod, metrics token <32 in prod, process.env guard, .env.example keys); commit e25e473"
+    },
+    {
+      "id": 4,
+      "text": "Error reporters none/console/http/sentry with auto selection; Sentry envelope test with local server; no-PII test; boot log names reporter",
+      "status": "done",
+      "evidence": "error-reporting.test.ts 10 tests pass: local HTTP server receives one envelope per error at /api/7/envelope/ with X-Sentry-Auth, frames>=1, release/environment/request_id; SENSITIVE_VALUES fixtures absent; console+none tested; boot log field errorReporter (server.ts)"
+    },
+    {
+      "id": 5,
+      "text": "Scheduler job failure captured once with job tag + failed job_runs row; unhandledRejection/uncaughtException handlers tested in child processes",
+      "status": "done",
+      "evidence": "scheduler-observability: throwing job -> 1 capture {job, source:scheduler} + job_runs failed + job_runs_total failure; process-handlers.test.ts 3 child-process tests (rejection captured+logged; uncaught exits 1 in prod, survives in dev)"
+    },
+    {
+      "id": 6,
+      "text": "POST /v1/client-errors (204/413/422/403/429 tests); both SPAs error listeners + top-level boundary with recovery screen, once per fingerprint (component tests)",
+      "status": "todo",
+      "evidence": "API half done: client-errors.integration.test.ts 9 tests (204/413/422/403/429). SPA half pending."
+    },
+    {
+      "id": 7,
+      "text": "GET /metrics bearer-gated (404/401/200), listed metric families, no ids in HTTP labels; docs/OPERATIONS-ALERTS.md",
+      "status": "todo",
+      "evidence": "metrics.integration.test.ts 5 tests (404/401/200, families, no ids in HTTP labels). OPERATIONS-ALERTS.md pending."
+    },
+    {
+      "id": 8,
+      "text": "drizzle.config lists 8 schema files; drizzle-kit generate reports no changes; no applied SQL changed; CI drift step",
+      "status": "done",
+      "evidence": "drizzle.config.ts lists 8 schema files; SHARK_DB=tmp drizzle-kit generate -> 'No schema changes, nothing to migrate'; pnpm db:check-drift -> migration_drift=none; git diff origin/claude/musing-wilbur-d67503 -- migrations shows only meta/0014-0017 snapshots; CI step in ci.yml (commit 730a02d)"
+    },
+    {
+      "id": 9,
+      "text": "@shark/e2e Playwright package; pnpm e2e 3 specs green twice; no leftovers; CI e2e job",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 10,
+      "text": "Docs (.env.example, PRODUCTION-READINESS, README) updated; typecheck/lint/test/build gates pass",
+      "status": "todo",
+      "evidence": ""
+    }
   ]
 }

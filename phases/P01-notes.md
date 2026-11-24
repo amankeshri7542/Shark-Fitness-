@@ -30,3 +30,7 @@ Branch `phase/P01-prod-readiness`, based on `claude/musing-wilbur-d67503` (HEAD 
 
 - **Snapshots 0014–0017 were derived, not hand-written.** `drizzle-kit generate` with all 8 schema files emitted SQL identical in effect to 0014–0017 (minus triggers, which drizzle does not model). A script verified that the generated snapshot minus those four changes equals 0013 exactly, then wrote 0014, 0015, 0016 and 0017 as a `prevId` chain. The generated SQL was discarded; no applied SQL was touched.
 - `drizzle.config.ts` `dbCredentials.url` now honours `SHARK_DB` (only push/studio/introspect open it), so tooling can be pointed at a scratch DB.
+- **Session 2 (resume):** found the observability WIP (error reporters, crash handlers, metrics, client-error route) uncommitted after a box reset; reviewed it, ran all 875 API tests green, committed it as d6a9202, then added integration tests for /v1/client-errors and /metrics.
+- Member ids are `mbr_` (not `mem_` as the phase spec says); the label test refuses `ten_|usr_|mem_|mbr_|br_`.
+- `/v1/client-errors` is exempt from the CSRF double-submit token (a crashed page may not have read its token) but still passes the global Origin check, and the route itself demands a known Origin. Rate limits: 30/min/IP, then 300/min per signed-in tenant or one shared anonymous budget.
+- `/metrics` disabled returns the API's normal 404 JSON. Extra gauges beyond the spec: `data_filesystem_size_bytes`/`data_filesystem_avail_bytes` (for the disk > 80 % alert) and `app_build_info`.
