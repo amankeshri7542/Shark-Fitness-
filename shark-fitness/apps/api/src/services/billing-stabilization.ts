@@ -13,6 +13,7 @@ import {
   applyPaymentToInvoice,
   applyRefund,
   loadInvoiceInScope,
+  retireStaleOnlineAttempts,
   type ApplyPaymentInput,
 } from './billing.js';
 import { stopDunning } from './dunning.js';
@@ -233,6 +234,7 @@ export function voidInvoiceSafely(ctx: RequestContext, invoiceId: string, reason
   // Through the shared helper so "stop chasing this" means the same thing
   // whether the debt was paid, written off or voided.
   stopDunning(ctx.tenantId, invoiceId, 'invoice_voided');
+  retireStaleOnlineAttempts(ctx.tenantId, invoiceId, 0);
   audit(ctx, {
     action: 'invoice.voided',
     entityType: 'invoice',

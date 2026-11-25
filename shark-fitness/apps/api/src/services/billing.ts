@@ -1,4 +1,4 @@
-import { and, eq, like, sql } from 'drizzle-orm';
+import { and, eq, inArray, like, ne, sql } from 'drizzle-orm';
 import type { Product } from '@shark/contracts';
 import { channels } from '@shark/contracts';
 import { canTransition, invoiceStateFor, totalsFor } from '@shark/domain';
@@ -244,6 +244,7 @@ export function settleInvoicePayment(input: SettleInvoicePaymentInput): ApplyPay
     .run();
 
   db.update(schema.invoices).set({ paidMinor: newPaidMinor, state: newState, updatedAt: now() }).where(eq(schema.invoices.id, invoiceId)).run();
+  retireStaleOnlineAttempts(ctx.tenantId, invoiceId, invoice.totalMinor - newPaidMinor);
   const issuer = db.select().from(schema.tenants).where(eq(schema.tenants.id, ctx.tenantId)).get()!;
   const recipient = db.select().from(schema.members).where(and(eq(schema.members.id, invoice.memberId), eq(schema.members.tenantId, ctx.tenantId))).get()!;
   db.insert(schema.paymentReceipts).values({ paymentId, tenantId: ctx.tenantId, issuerName: issuer.legalName,
@@ -403,6 +404,28 @@ export function applyRefund(input: ApplyRefundInput): { refundId: string; invoic
   });
 
   return { refundId, invoiceState: newState };
+}
+
+/**
+ * Online attempts (Checkout orders, payment links) made for a balance the
+ * invoice no longer has are retired, so neither the member app nor the
+ * console offers them again: an invoice paid at the desk or voided must not
+ * keep a payable link on screen. Money that still arrives through one is never
+ * settled — settlement re-checks what is owed and opens a reconciliation
+ * exception instead. In the caller's transaction.
+ */
+export function retireStaleOnlineAttempts(tenantId: string, invoiceId: string, stillDueMinor: number): void {
+  db.update(schema.paymentIntents)
+    .set({ state: 'superseded', updatedAt: now() })
+    .where(
+      and(
+        eq(schema.paymentIntents.tenantId, tenantId),
+        eq(schema.paymentIntents.invoiceId, invoiceId),
+        inArray(schema.paymentIntents.state, ['created', 'processing', 'failed']),
+        stillDueMinor > 0 ? ne(schema.paymentIntents.amountMinor, stillDueMinor) : undefined,
+      ),
+    )
+    .run();
 }
 
 /** Credit products are refused until the gym approves a refund policy for

@@ -43,7 +43,9 @@ export function PaymentLinkSection({ invoiceId, links, canCreate, payable, onCre
     onError: (e) => setError(e instanceof ApiError ? e.message : 'The link could not be created. Try again.'),
   });
 
-  const active = (created?.state === 'active' ? created : null) ?? links.find((link) => link.state === 'active') ?? null;
+  // Never offer a link to copy for an invoice that is no longer owed (paid at
+  // the desk or voided while this drawer was open).
+  const active = payable ? ((created?.state === 'active' ? created : null) ?? links.find((link) => link.state === 'active') ?? null) : null;
   const past = links.filter((link) => link.intentId !== active?.intentId);
 
   const copy = async (url: string) => {

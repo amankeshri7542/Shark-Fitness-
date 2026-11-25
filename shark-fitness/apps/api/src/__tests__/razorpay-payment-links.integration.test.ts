@@ -4,6 +4,7 @@ import { setPaymentProviderForTests } from '../lib/payment-provider.js';
 import {
   auditFor,
   createMember,
+  exceptionsFor,
   invoiceRow,
   membershipRow,
   openInvoice,
@@ -90,6 +91,30 @@ describe('payment links', () => {
 
     // A link for a paid invoice is refused.
     expect((await createLink(invoiceId)).status).toBe(409);
+  });
+
+  it('stops offering a link once the invoice is paid at the desk or voided; money through it later is an exception, not a second payment', async () => {
+    const owner = await signIn('owner@sharkfitness.in');
+    const linkState = async (invoiceId: string) =>
+      ((await (await request('GET', `/admin/billing/invoices/${invoiceId}`, owner)).json()) as { paymentLinks: Array<{ state: string }> }).paymentLinks.map((link) => link.state);
+
+    const desk = openInvoice(member);
+    expect((await createLink(desk.invoiceId)).status).toBe(201);
+    const providerLink = [...harness.fake.links.values()].at(-1)!;
+    const cash = await request('POST', `/admin/billing/invoices/${desk.invoiceId}/payments`, owner, { method: 'cash', amountMinor: 29_500, idempotencyKey: randomUUID(), note: 'Paid at the desk' });
+    expect(cash.status).toBeLessThan(300);
+    expect(await linkState(desk.invoiceId)).toEqual(['superseded']);
+
+    // The member pays the old link anyway: recorded for staff, never settled twice.
+    const { payment, order } = harness.fake.payLink(String(providerLink.id));
+    expect((await postWebhook(harness, 'payment_link.paid', { payment_link: providerLink, order, payment })).status).toBe(200);
+    expect(paymentsFor(desk.invoiceId)).toHaveLength(1);
+    expect(exceptionsFor(desk.invoiceId).map((row) => row.kind)).toEqual(['invoice_already_settled']);
+
+    const voided = openInvoice(member);
+    expect((await createLink(voided.invoiceId)).status).toBe(201);
+    expect((await request('POST', `/admin/billing/invoices/${voided.invoiceId}/void`, owner, { reason: 'Raised in error' })).status).toBeLessThan(300);
+    expect(await linkState(voided.invoiceId)).toEqual(['superseded']);
   });
 
   it('refuses staff without billing.record_payment, and invoices outside the tenant', async () => {
