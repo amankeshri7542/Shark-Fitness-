@@ -59,4 +59,21 @@ I found four real-money and data-integrity bugs around retries, retired attempts
 
 ## Final verification (after all fixes)
 
-FINAL_RESULTS_PLACEHOLDER
+Run on the branch head `2ffa570`, Node 22, from `shark-fitness/`:
+
+| Command | Result |
+|---|---|
+| `pnpm install --frozen-lockfile` | pass |
+| `pnpm typecheck` | pass (0 errors) |
+| `pnpm lint` | pass |
+| `pnpm test` | contracts 6/6 (1 file), domain 271/271 (12), member-pwa 52/52 (12), admin-web 305/305 (39), api **966/966 (71)**. Total **1,600**, all passing |
+| `pnpm -F @shark/api test -- razorpay payment webhook reconciliation refund` | 966/966 (the package script runs the whole API suite; the filters don't narrow it) |
+| `pnpm build` | pass |
+| `pnpm -F @shark/api db:check-drift` | `migration_drift=none` |
+| `pnpm e2e` | 4 passed (3 desktop + `@payments` on Pixel 7); no unexpected fake-Razorpay requests |
+| `pnpm e2e -- --grep "@payments"` | 1 passed (mobile-chromium) |
+| `git grep -n "rzp_live_" -- ':!docs' ':!**/__tests__/**'` | no output |
+
+Test count: the API went from 959 to 966 (+7 regression tests from this review), and the total from 1,593 to 1,600. No tests were deleted or weakened. The one P01 test I changed (`phase3-stabilization` `makeMember`) changes only how it generates member numbers.
+
+The first baseline run of this review failed in `apps/api` at 958/959 (finding 6). One mid-review full run timed out once in `process-handlers.test.ts` (it spawns a child process, and the machine had load average ~5); it passed when re-run alone and in the final run.
