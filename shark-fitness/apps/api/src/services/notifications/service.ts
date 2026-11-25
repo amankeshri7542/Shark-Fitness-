@@ -160,49 +160,62 @@ function quietEndsAt(atMs: number, window: { fromMin: number; toMin: number; tim
   return candidate;
 }
 
+/** Why a message would not go (or not yet), as a stable code for counting. */
+export type ExclusionCode =
+  | 'inactive'
+  | 'no_consent'
+  | 'opted_out'
+  | 'channel_unavailable'
+  | 'no_destination'
+  | 'missing_variable'
+  | 'quiet_hours';
+
 type Check =
   | { kind: 'ok'; text: string; params: string[]; destination: string }
-  | { kind: 'suppress'; reason: string }
-  | { kind: 'fail'; reason: string }
-  | { kind: 'defer'; dueAt: number; reason: string };
+  | { kind: 'suppress'; code: ExclusionCode; reason: string }
+  | { kind: 'fail'; code: ExclusionCode; reason: string }
+  | { kind: 'defer'; code: 'quiet_hours'; dueAt: number; reason: string };
+
+type CheckInput = Pick<DeliveryRow, 'tenantId' | 'userId' | 'memberId' | 'branchId' | 'channel' | 'purpose' | 'bodyTemplate' | 'variables'>;
 
 /**
  * Everything that decides whether this message may go now. Run at enqueue and
  * again immediately before the driver is called.
  */
-function check(row: DeliveryRow, atMs: number, stage: 'enqueue' | 'send'): Check {
+function check(row: CheckInput, atMs: number, stage: 'enqueue' | 'send'): Check {
   const channel = row.channel as NotificationChannel;
   const purpose = row.purpose as NotificationPurpose;
   const recipient = recipientOf(row.tenantId, row.userId, row.memberId);
-  if (!recipient.active) return { kind: 'suppress', reason: 'The member account is not active.' };
+  if (!recipient.active) return { kind: 'suppress', code: 'inactive', reason: 'The member account is not active.' };
 
   const consent = consentAllows(purpose, channel, consentsOf(row.tenantId, row.userId));
   if (!consent.allowed) {
     return {
       kind: 'suppress',
+      code: consent.code === 'opted_out' ? 'opted_out' : 'no_consent',
       reason: stage === 'send' ? `${consent.reason} (changed after this was queued; not sent).` : consent.reason,
     };
   }
 
   if (channel !== 'in_app' && !notificationDrivers()[channel as DriverChannel].available) {
-    return { kind: 'suppress', reason: `${channelLabel(channel)} is not set up on this server.` };
+    return { kind: 'suppress', code: 'channel_unavailable', reason: `${channelLabel(channel)} is not set up on this server.` };
   }
 
   const destination = destinationFor(channel, recipient, row.userId);
   if (!destination) {
-    return { kind: 'suppress', reason: `No ${channel === 'email' ? 'email address' : 'mobile number'} on file.` };
+    return { kind: 'suppress', code: 'no_destination', reason: `No ${channel === 'email' ? 'email address' : 'mobile number'} on file.` };
   }
 
   // A variable that is missing now would reach the member as "{{firstName}}".
   const rendered = renderTemplate(row.bodyTemplate, row.variables);
   if (rendered.missing.length > 0) {
-    return { kind: 'fail', reason: `Not sent: the message needs ${rendered.missing.map((v) => `{{${v}}}`).join(', ')} and it has no value.` };
+    return { kind: 'fail', code: 'missing_variable', reason: `Not sent: the message needs ${rendered.missing.map((v) => `{{${v}}}`).join(', ')} and it has no value.` };
   }
 
   if (quietHoursApply(purpose, channel)) {
     const window = quietWindow(row.tenantId, row.branchId ?? recipient.branchId);
     if (window && insideWindow(window.fromMin, window.toMin, localMinutes(atMs, window.timeZone))) {
-      return { kind: 'defer', dueAt: quietEndsAt(atMs, window), reason: 'Held for quiet hours at the branch.' };
+      return { kind: 'defer', code: 'quiet_hours', dueAt: quietEndsAt(atMs, window), reason: 'Held for quiet hours at the branch.' };
     }
   }
 
@@ -244,6 +257,34 @@ function deliverInApp(row: DeliveryRow, text: string, atMs: number): string {
     atMs,
   );
   return notificationId;
+}
+
+/**
+ * What would happen to a message for this person right now, without writing
+ * anything — the broadcast preview and dry run use exactly the checks the
+ * send path uses, so the preview cannot promise what the send will refuse.
+ */
+export function evaluateRecipient(
+  input: Pick<NotifyInput, 'tenantId' | 'userId' | 'memberId' | 'branchId' | 'channel' | 'purpose' | 'body' | 'variables'>,
+  atMs = now(),
+): { outcome: 'send' | 'defer' | 'exclude'; code: ExclusionCode | null; reason: string } {
+  const verdict = check(
+    {
+      tenantId: input.tenantId,
+      userId: input.userId,
+      memberId: input.memberId ?? null,
+      branchId: input.branchId ?? null,
+      channel: input.channel,
+      purpose: input.purpose,
+      bodyTemplate: input.body,
+      variables: input.variables ?? {},
+    },
+    atMs,
+    'enqueue',
+  );
+  if (verdict.kind === 'ok') return { outcome: 'send', code: null, reason: '' };
+  if (verdict.kind === 'defer') return { outcome: 'defer', code: verdict.code, reason: verdict.reason };
+  return { outcome: 'exclude', code: verdict.code, reason: verdict.reason };
 }
 
 /* ——— Enqueue ——————————————————————————————————————————————— */
