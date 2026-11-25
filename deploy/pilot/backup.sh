@@ -6,8 +6,10 @@
 #
 # pnpm db:backup uses SQLite's online backup, so the app keeps serving and
 # writing. It checks the copy's integrity and writes a checksummed manifest
-# beside it. The copy is then restored into a throwaway path, which checks the
-# manifest end to end. Copies land in $SHARK_HOME/backups/<kind>/.
+# beside it, and archives the private media directory (SHARK_MEDIA_DIR) as
+# <copy>.media.tar with every file's SHA-256 in that manifest. The copy is
+# then restored into a throwaway path, which checks the manifest (and every
+# media file) end to end. Copies land in $SHARK_HOME/backups/<kind>/.
 #
 # The systemd timer runs `backup.sh nightly`. Only nightly runs ping
 # SHARK_BACKUP_PING_URL, so a deploy's backup cannot hide a broken timer.
@@ -82,6 +84,7 @@ offsite_upload() {
   {
     age "${recipients[@]}" -o "$work/$name.age" "$database" \
       && age "${recipients[@]}" -o "$work/$name.manifest.json.age" "$database.manifest.json" \
+      && { [ ! -f "$database.media.tar" ] || age "${recipients[@]}" -o "$work/$name.media.tar.age" "$database.media.tar"; } \
       && rclone copy --no-traverse "$work" "$offsite_remote/$kind" \
       && rclone check --one-way "$work" "$offsite_remote/$kind"
   } || status=1
@@ -113,7 +116,8 @@ result=$(docker compose run --rm --no-deps -T --entrypoint sh app -euc '
   out=$(pnpm -s run db:backup "$SHARK_DB" "/var/backups/shark-fitness/$1")
   backup=$(printf "%s\n" "$out" | sed -n "s/^backup=//p")
   probe=$(mktemp -d)
-  pnpm -s run db:restore "$backup" "$probe/shark.db" >/dev/null
+  # Media restores into the probe too, never over the live SHARK_MEDIA_DIR.
+  SHARK_MEDIA_DIR="$probe/media" pnpm -s run db:restore "$backup" "$probe/shark.db" >/dev/null
   rm -rf "$probe"
   printf "%s\nrestore_probe=ok\n" "$out"
 ' sh "$kind")
@@ -143,8 +147,8 @@ if [ "$offsite" = failed ]; then
 fi
 
 # Only after a good backup, so a run of failures never prunes the last copy.
-# shark-*.db* also takes the manifest and the empty -shm/-wal files SQLite
-# leaves when the backup tool reopens a copy read-only to check it.
+# shark-*.db* also takes the manifest, the media archive and the empty
+# -shm/-wal files SQLite leaves when the backup tool reopens a copy read-only.
 find "$SHARK_HOME/backups" -type f -name 'shark-*.db*' -mtime +"$keep_days" -print -delete | sed 's/^/pruned=/'
 
 ping "" "$result"
