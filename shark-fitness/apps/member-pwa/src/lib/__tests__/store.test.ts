@@ -7,8 +7,11 @@ const doubles = vi.hoisted(() => ({
   authGet: vi.fn(() => 'cookie-session'),
 }));
 
+const offline = vi.hoisted(() => class OfflineError extends Error {});
+
 vi.mock('../api', () => ({
   api: doubles.api,
+  OfflineError: offline,
   auth: {
     clear: doubles.authClear,
     get: doubles.authGet,
@@ -51,5 +54,36 @@ describe('member session bootstrap', () => {
       activeBranchId: null,
       status: 'signed-out',
     });
+  });
+
+  const MEMBER_VIEWER = { userId: 'usr_aman', tenantId: 'ten_shark', name: 'Aman', role: 'member', homeBranchId: 'br_kor', permittedBranchIds: ['br_kor'] } as unknown as Viewer;
+  const BRANCHES = [{ id: 'br_kor', name: 'Koramangala' }];
+
+  it('remembers a confirmed member session, and an offline reload resumes it (P05, PF-WORK-005)', async () => {
+    localStorage.clear();
+    doubles.api.mockResolvedValueOnce({ viewer: MEMBER_VIEWER }).mockResolvedValueOnce({ items: BRANCHES, activeBranchId: null });
+    await useSession.getState().bootstrap();
+    expect(useSession.getState().status).toBe('signed-in');
+
+    useSession.setState({ viewer: null, branches: [], activeBranchId: null, status: 'loading' });
+    doubles.api.mockReset().mockRejectedValue(new offline('No connection'));
+    await useSession.getState().bootstrap();
+    expect(useSession.getState()).toMatchObject({ status: 'signed-in', viewer: { userId: 'usr_aman' }, activeBranchId: 'br_kor' });
+    expect(doubles.authClear).not.toHaveBeenCalled();
+  });
+
+  it('offline with nothing remembered is signed out, as before', async () => {
+    localStorage.clear();
+    doubles.api.mockRejectedValue(new offline('No connection'));
+    await useSession.getState().bootstrap();
+    expect(useSession.getState().status).toBe('signed-out');
+  });
+
+  it('a refused session is signed out and forgotten even if one was remembered', async () => {
+    localStorage.setItem('shark.member.session', JSON.stringify({ viewer: MEMBER_VIEWER, branches: BRANCHES, activeBranchId: 'br_kor' }));
+    doubles.api.mockRejectedValue(new Error('401'));
+    await useSession.getState().bootstrap();
+    expect(useSession.getState().status).toBe('signed-out');
+    expect(localStorage.getItem('shark.member.session')).toBeNull();
   });
 });

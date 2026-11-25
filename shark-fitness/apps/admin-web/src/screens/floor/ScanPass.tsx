@@ -112,7 +112,8 @@ export function ScanPass({
   const loopRef = useRef<number | null>(null);
   const resultId = useId();
 
-  const effectiveBranch = defaultBranchId ?? branchId;
+  // The branch list can arrive after first render; never scan "nowhere".
+  const effectiveBranch = defaultBranchId ?? (branchId || branches[0]?.branchId || '');
 
   const scan = useMutation({
     mutationFn: (token: string) =>
@@ -213,7 +214,7 @@ export function ScanPass({
         {defaultBranchId === null && branches.length > 1 ? (
           <SelectField
             label="Scanning at"
-            value={branchId}
+            value={effectiveBranch}
             onChange={(e) => setBranchId(e.target.value)}
             options={branches.map((b) => ({ value: b.branchId, label: b.branchName }))}
             className="w-[200px]"

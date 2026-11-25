@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { Branch, Viewer } from '@shark/contracts';
 import { forgetPassCards } from './pass';
 import { PREDATOR_COPY, type CopyKey, type CopySurface, type Register, registerFor } from '@shark/design-tokens';
-import { api, auth } from './api';
+import { OfflineError, api, auth } from './api';
 
 interface SessionState {
   viewer: Viewer | null;
@@ -46,15 +46,28 @@ export const useSession = create<SessionState>((set, get) => ({
       }
       set({ viewer, status: 'signed-in' });
       const branches = await api<{ items: Branch[]; activeBranchId: string | null }>('/me/branches');
+      const activeBranchId = branches.activeBranchId ?? viewer.homeBranchId ?? branches.items[0]?.id ?? null;
       set({
         branches: branches.items,
         // The member's own gym, not whichever branch the tenant lists first.
         // `activeBranchId` from the server means "a branch this request
         // selected", which for a fresh session is nothing at all.
-        activeBranchId: branches.activeBranchId ?? viewer.homeBranchId ?? branches.items[0]?.id ?? null,
+        activeBranchId,
       });
-    } catch {
+      rememberSession({ viewer, branches: branches.items, activeBranchId });
+    } catch (error) {
+      // No network is not "signed out". A member mid-workout in a basement
+      // reloads the app and must land back in their session, logging into
+      // the outbox (PF-WORK-005). The cookie decides once the server answers:
+      // the check runs again as soon as the phone is back online.
+      const remembered = error instanceof OfflineError ? rememberedSession() : null;
+      if (remembered) {
+        set({ viewer: remembered.viewer, branches: remembered.branches, activeBranchId: remembered.activeBranchId, status: 'signed-in' });
+        window.addEventListener('online', () => void get().bootstrap(), { once: true });
+        return;
+      }
       auth.clear();
+      forgetSession();
       set({ viewer: null, status: 'signed-out' });
     }
   },
@@ -67,10 +80,48 @@ export const useSession = create<SessionState>((set, get) => ({
     }
     auth.clear();
     forgetPassCards();
+    forgetSession();
     set({ viewer: null, branches: [], activeBranchId: null, status: 'signed-out' });
     void get;
   },
 }));
+
+/* — The last confirmed session, for an offline reload only. Not a credential:
+     the HttpOnly cookie is, and the server re-checks it on reconnect. ————— */
+
+const SESSION_KEY = 'shark.member.session';
+
+interface RememberedSession {
+  viewer: Viewer;
+  branches: Branch[];
+  activeBranchId: string | null;
+}
+
+function rememberSession(session: RememberedSession): void {
+  try {
+    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  } catch {
+    /* private mode: an offline reload then shows sign-in, as before */
+  }
+}
+
+function rememberedSession(): RememberedSession | null {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    const parsed = raw ? (JSON.parse(raw) as RememberedSession) : null;
+    return parsed?.viewer?.role === 'member' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function forgetSession(): void {
+  try {
+    localStorage.removeItem(SESSION_KEY);
+  } catch {
+    /* nothing stored */
+  }
+}
 
 export const useViewer = (): Viewer | null => useSession((s) => s.viewer);
 
