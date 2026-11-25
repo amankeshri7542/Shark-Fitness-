@@ -9,6 +9,7 @@ import { Modal } from '../ui/overlay';
 import { useIdempotentAttempt } from '../lib/idempotent-attempt';
 import { MemberEditor } from './MemberEditor';
 import { MemberPurchases } from './MemberPurchases';
+import { MemberCredits } from './members/MemberCredits';
 import { AccountRecovery } from '../ui/AccountRecovery';
 import { AccountActivation } from '../ui/AccountActivation';
 import { RecordPaymentSheet } from './Billing';
@@ -166,6 +167,7 @@ export default function MemberDetailScreen() {
       {canEdit ? <MemberEditor key={`${memberId}:${m.version}`} member={m} onSaved={() => { void queryClient.invalidateQueries({ queryKey: ['member', memberId] }); void queryClient.invalidateQueries({ queryKey: ['members'] }); }} /> : null}
       <AccountRecovery key={`recovery:${memberId}`} memberId={memberId} />
       {canManage ? <MemberPurchases key={`purchases:${memberId}`} memberId={memberId} /> : null}
+      <MemberCredits key={`credits:${memberId}`} memberId={memberId} />
       <Seam className="border-b border-line">
         <div className="min-w-[190px] flex-1 px-3.5 py-3">
           <Label>Status</Label>

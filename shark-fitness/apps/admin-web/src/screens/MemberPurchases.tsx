@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { AccessRules, CancellationPolicy, CreditAccount, FreezeRules } from '@shark/contracts';
+import type { AccessRules, CancellationPolicy, FreezeRules } from '@shark/contracts';
 import { api } from '../lib/api';
 import { usePermission } from '../lib/store';
 import { useIdempotentAttempt } from '../lib/idempotent-attempt';
@@ -18,26 +18,9 @@ interface Quote {
 export function MemberPurchases({ memberId }: { memberId: string }) {
   const canManage = usePermission('membership.manage');
   const [renew, setRenew] = useState(false);
-  const [history, setHistory] = useState(false);
-  const credits = useQuery({ queryKey: ['member-credits', memberId], queryFn: () => api<CreditAccount>(`/admin/billing/members/${memberId}/credits`) });
   return <Panel title="Purchases and renewals"><div className="space-y-3 p-3.5 text-[13px]">
     <p>Manual renewal is available after a term expires or is cancelled. Pending, active, frozen, grace and suspended terms must be resolved first.</p>
     {canManage ? <Button onClick={() => setRenew(true)}>Review renewal</Button> : null}
-    {credits.isLoading ? <p>Loading credit ledger…</p> : null}
-    {credits.error ? <ErrorState title="Could not load credits" body={credits.error.message} onRetry={() => void credits.refetch()} /> : null}
-    {credits.data ? <>
-      <div className="border-t border-line pt-3"><strong>Credit balances</strong>{credits.data.balances.map((balance) => <div key={balance.kind} className="mt-2">
-        <p>{balance.kind === 'class' ? 'Class' : 'PT'}: {balance.signedBalance} units after expiry. {balance.consumptionAvailable ? `${balance.usableUnits} usable units; booking eligibility also applies.` : 'Consumption unavailable.'}</p>
-        {balance.warning ? <p role="alert" className="text-chum">{balance.warning}</p> : null}
-      </div>)}</div>
-      <p>{credits.data.saleUnavailableReason}</p>
-      <Button onClick={() => setHistory(!history)}>{history ? 'Hide credit history' : 'View credit history'}</Button>
-      {history ? <><p>{credits.data.historyNotice}</p>{credits.data.entries.length ? <ul className="divide-y divide-line">{credits.data.entries.map((entry) => <li key={entry.id} className="py-2">
-        <p>{entry.kind}: {entry.delta > 0 ? '+' : ''}{entry.delta} units · {entry.reason}</p>
-        <p>{entry.createdAt.slice(0, 10)} · {entry.expiresOn ? `${entry.expired ? 'Expired' : 'Expires'} ${entry.expiresOn}` : 'No recorded expiry'}</p>
-        <p className="break-all text-[11px] text-foam-45">{entry.id}{entry.refId ? ` · ${entry.refType}: ${entry.refId}` : ''}</p>
-      </li>)}</ul> : <p>No credit ledger entries.</p>}</> : null}
-    </> : null}
     {renew ? <RenewalDialog memberId={memberId} onClose={() => setRenew(false)} /> : null}
   </div></Panel>;
 }
