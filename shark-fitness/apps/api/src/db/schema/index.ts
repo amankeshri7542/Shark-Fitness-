@@ -8,3 +8,4 @@ export * from './account-recovery.js';
 export * from './payment-receipts.js';
 export * from './invoice-tax-documents.js';
 export * from './payments.js';
+export * from './member-core.js';

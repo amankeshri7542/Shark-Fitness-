@@ -112,6 +112,17 @@ const extras = [
      BEFORE DELETE ON xp_ledger
      BEGIN SELECT RAISE(ABORT, 'xp_ledger is append-only'); END`,
 
+  // And the credit ledger (decision 11). A balance is a replay of rows; a
+  // spend, a restored credit, a refund and its reversal are all new rows that
+  // cite the lot they touch.
+  `CREATE TRIGGER IF NOT EXISTS credits_no_update
+     BEFORE UPDATE ON credits
+     BEGIN SELECT RAISE(ABORT, 'credits is append-only'); END`,
+
+  `CREATE TRIGGER IF NOT EXISTS credits_no_delete
+     BEFORE DELETE ON credits
+     BEGIN SELECT RAISE(ABORT, 'credits is append-only'); END`,
+
   // And the stock ledger — stock on hand is a sum, never a stored counter.
   `CREATE TRIGGER IF NOT EXISTS stock_ledger_no_update
      BEFORE UPDATE ON stock_ledger

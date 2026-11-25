@@ -7,6 +7,7 @@ import { ScreenBody, Stack } from '../ui/shell';
 import { Button, Chip, Display, EmptyState, ErrorState, Label, Metric, Panel, Seam, SeamCell, SectionRule, Skeleton, type Tone } from '../ui/primitives';
 import { CheckoutPanel } from './billing/CheckoutPanel';
 import { PlanSheet } from './billing/PlanSheet';
+import { CreditsPanel } from './billing/CreditsPanel';
 
 interface BillingPayload {
   /** Absent or unavailable: no payment provider, members pay at reception. */
@@ -210,22 +211,9 @@ export default function BillingScreen() {
             ))}
           </Seam>
         )}
-        {data.credits ? <>
-          <SectionRule>Credit account</SectionRule>
-          <Panel><div className="space-y-3 p-4 text-[13px]">
-            {data.credits.balances.map((balance) => <div key={balance.kind}><p>{balance.kind === 'class' ? 'Class' : 'PT'}: {balance.signedBalance} units after expiry.</p>
-              <p>{balance.consumptionAvailable ? `${balance.usableUnits} usable units; booking eligibility also applies.` : 'PT consumption is unavailable.'}</p>
-              {balance.warning ? <p role="alert">Your credit balance needs reception review. No adjustment has been made.</p> : null}</div>)}
-            <p>New credit sales are awaiting gym policy approval.</p>
-            <details><summary className="cursor-pointer underline">Credit history</summary><p className="my-2">{data.credits.historyNotice}</p>
-              {data.credits.entries.length ? <ul className="space-y-3">{data.credits.entries.map((entry) => <li key={entry.id}>
-                <p>{entry.kind}: {entry.delta > 0 ? '+' : ''}{entry.delta} units · {entry.reason}</p>
-                <p>{entry.createdAt.slice(0, 10)} · {entry.expiresOn ? `${entry.expired ? 'Expired' : 'Expires'} ${entry.expiresOn}` : 'No recorded expiry'}</p>
-                <p className="break-all text-[11px] text-foam-45">{entry.id}</p>
-              </li>)}</ul> : <p>No credit ledger entries.</p>}
-            </details>
-          </div></Panel>
-        </> : null}
+        {data.credits ? (
+          <CreditsPanel credits={data.credits} online={online} busy={checkout.busy} pay={(target) => void checkout.pay(target)} />
+        ) : null}
         {data.receipts?.length ? <>
           <SectionRule>Payment records</SectionRule>
           <Panel><div className="divide-y divide-line">{data.receipts.map((receipt) => <div key={receipt.id} className="space-y-2 p-4 text-[13px]">

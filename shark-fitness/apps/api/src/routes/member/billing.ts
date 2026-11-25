@@ -13,6 +13,7 @@ import { validate } from '../../middleware/validate.js';
 import { resolvePaymentProvider } from '../../lib/payment-provider.js';
 import { confirmCheckout, memberCheckoutStatus, requireIdempotencyKey, requireProvider, startInvoiceCheckout } from '../../services/payments/checkout.js';
 import { memberPlanOptions, startPlanCheckout } from '../../services/payments/plans.js';
+import { sellCreditPack } from '../../services/credit-packs.js';
 
 export const billingRoutes = new Hono();
 
@@ -23,6 +24,25 @@ billingRoutes.get('/credits', (c) => {
   return c.json(readCreditAccount(member));
 });
 
+
+/* A member buying a pack gets an invoice; the credits follow payment.
+   Online when a provider is connected (the app then opens Checkout for the
+   invoice), otherwise at reception. */
+billingRoutes.post('/credit-packs', validate('json', z.object({ productId: z.string().min(1) })), (c) => {
+  const ctx = ctxOf(c);
+  const key = requireIdempotencyKey(c.req.header('idempotency-key'));
+  const sale = sellCreditPack(ctx, { memberId: ctx.memberId!, productId: c.req.valid('json').productId, idempotencyKey: `member:${ctx.memberId}:${key}`, soldBy: 'member' });
+  const online = resolvePaymentProvider() !== null;
+  return c.json({
+    ...sale,
+    payOnline: online && !sale.creditsAllocated,
+    message: sale.creditsAllocated
+      ? 'Your credits are ready to use.'
+      : online
+        ? 'Pay now and your credits are added as soon as the payment is confirmed.'
+        : 'Your invoice is ready. Pay at reception and the credits are added straight away.',
+  });
+});
 
 billingRoutes.get('/', (c) => {
   const ctx = ctxOf(c);

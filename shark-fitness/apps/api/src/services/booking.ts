@@ -1,4 +1,5 @@
 import { reconcileMembershipDates } from './membership-dates.js';
+import { creditBalance, restoreSpend, spendCredits } from './credit-ledger.js';
 import { and, desc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { channels, type BranchState } from '@shark/contracts';
 import { branchTrades, evaluateEligibility, holdIsLive, isEntitled } from '@shark/domain';
@@ -157,14 +158,10 @@ export function membershipStanding(memberId: string): MembershipStanding {
   };
 }
 
-/** Class credits on hand. Expired grants drop out; spends never do. */
+/** Class credits a member can spend today: unexpired lots, net of spends
+ *  (services/credit-ledger.ts, decision 11). */
 export function classCreditsHeld(memberId: string, today: string): number {
-  return db
-    .select({ delta: schema.credits.delta, expiresOn: schema.credits.expiresOn })
-    .from(schema.credits)
-    .where(and(eq(schema.credits.memberId, memberId), eq(schema.credits.kind, 'class')))
-    .all()
-    .reduce((total, row) => total + (row.expiresOn !== null && row.expiresOn < today ? 0 : row.delta), 0);
+  return creditBalance(memberId, 'class', today).usable;
 }
 
 /** A held seat whose hold has lapsed is not a seat. `booked` is denormalised,
@@ -254,34 +251,20 @@ export function liveOfferFor(memberId: string, sessionId: string, atMs: number) 
   return offer && offer.offerExpiresAt !== null && offer.offerExpiresAt > atMs ? offer : null;
 }
 
-/** Takes class credits for a booking. The single place credits are spent, so
- *  the consumption order lives in one function. */
+/** Takes class credits for a booking, earliest-expiring lot first. */
 export function spendClassCredits(
   tenantId: string,
   memberId: string,
   units: number,
   ref: { reason: string; refType: string; refId: string },
-  _today: string,
+  today: string,
   atMs: number,
 ): void {
-  db.insert(schema.credits)
-    .values({
-      id: id('crd'),
-      tenantId,
-      memberId,
-      kind: 'class',
-      delta: -units,
-      reason: ref.reason,
-      refType: ref.refType,
-      refId: ref.refId,
-      expiresOn: null,
-      createdAt: atMs,
-    })
-    .run();
+  spendCredits(tenantId, memberId, 'class', units, ref, today, atMs);
 }
 
-/** Gives back the credits a booking spent, when the cancellation policy says
- *  they come back. Returns the units restored. */
+/** Gives back the credits a booking spent, to the lots they came from (so
+ *  they keep their original expiry). Returns the units restored. */
 export function restoreBookingCredits(
   tenantId: string,
   booking: { id: string; memberId: string; creditsUsed: number },
@@ -289,6 +272,17 @@ export function restoreBookingCredits(
   atMs: number,
 ): number {
   if (booking.creditsUsed <= 0) return 0;
+  const ref = { refType: 'booking', refId: booking.id };
+  const touched = db
+    .select({ id: schema.credits.id })
+    .from(schema.credits)
+    .where(and(eq(schema.credits.memberId, booking.memberId), eq(schema.credits.refType, ref.refType), eq(schema.credits.refId, ref.refId)))
+    .get();
+  if (touched) return restoreSpend(tenantId, booking.memberId, ref, reason, atMs);
+
+  // A booking from before the ledger recorded its spend (seeded or legacy
+  // data) has nothing to point back to: return the units as they were always
+  // returned, without an expiry, rather than silently keeping them.
   db.insert(schema.credits)
     .values({
       id: id('crd'),
@@ -301,6 +295,8 @@ export function restoreBookingCredits(
       refId: booking.id,
       expiresOn: null,
       createdAt: atMs,
+      lotId: null,
+      packId: null,
     })
     .run();
   return booking.creditsUsed;

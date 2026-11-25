@@ -22,6 +22,7 @@ import { loadInvoiceInScope } from '../../services/billing.js';
 import { loadMemberInScope } from '../../services/members.js';
 import { requireIdempotencyKey } from '../../services/payments/checkout.js';
 import { requestProviderRefund } from '../../services/payments/refunds.js';
+import { recordPtSession, refundCreditPack, sellCreditPack } from '../../services/credit-packs.js';
 
 export const billingStabilizationRoutes = new Hono();
 
@@ -32,6 +33,57 @@ billingStabilizationRoutes.get('/members/:memberId/credits', (c) => {
   requireAssignedMember(ctx, member.trainerId);
   return c.json(readCreditAccount(member));
 });
+
+/* ——— Credit packs (P05, decision 11) ——————————————————————————— */
+
+billingStabilizationRoutes.post(
+  '/members/:memberId/credit-packs',
+  validate('json', z.object({ productId: z.string().min(1) })),
+  (c) => {
+    const ctx = ctxOf(c);
+    requirePermission(ctx, 'billing.record_payment');
+    const member = loadMemberInScope(ctx, c.req.param('memberId'));
+    const sale = sellCreditPack(ctx, {
+      memberId: member.id,
+      productId: c.req.valid('json').productId,
+      idempotencyKey: `staff:${requireIdempotencyKey(c.req.header('idempotency-key'))}`,
+      soldBy: 'staff',
+    });
+    return c.json({
+      ...sale,
+      message: sale.creditsAllocated
+        ? 'The pack is on the account and its credits are ready to use.'
+        : 'Invoice raised. The credits appear as soon as it is paid in full.',
+    });
+  },
+);
+
+billingStabilizationRoutes.post(
+  '/credit-packs/:packId/refund',
+  validate('json', z.object({ reason: z.string().trim().min(4).max(280) })),
+  async (c) => {
+    const ctx = ctxOf(c);
+    requirePermission(ctx, 'billing.refund');
+    return c.json(
+      await refundCreditPack(ctx, c.req.param('packId'), {
+        reason: c.req.valid('json').reason,
+        idempotencyKey: `pack:${requireIdempotencyKey(c.req.header('idempotency-key'))}`,
+      }),
+    );
+  },
+);
+
+billingStabilizationRoutes.post(
+  '/members/:memberId/pt-sessions',
+  validate('json', z.object({ note: z.string().trim().max(280).nullable().default(null), trainerId: z.string().min(1).nullable().default(null) })),
+  (c) => {
+    const ctx = ctxOf(c);
+    const key = requireIdempotencyKey(c.req.header('idempotency-key'));
+    if (!/^[A-Za-z0-9:_-]{8,120}$/.test(key)) throw invalid('That request key is not valid.');
+    const body = c.req.valid('json');
+    return c.json(recordPtSession(ctx, c.req.param('memberId'), { idempotencyKey: key.replace(/[^A-Za-z0-9_-]/g, '_'), note: body.note, trainerId: body.trainerId }));
+  },
+);
 
 billingStabilizationRoutes.post(
   '/invoices/:invoiceId/payments',
