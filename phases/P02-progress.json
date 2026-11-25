@@ -11,44 +11,44 @@
     {
       "id": 2,
       "text": "AC2 config refuses rzp_live_ in dev/test/prod and razorpay with a missing secret",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "apps/api/src/__tests__/razorpay-config.test.ts: rzp_live_ refused in development/test/production (also with provider=none); each missing secret refused at boot in every env; 15/15 pass (vitest run src/__tests__/razorpay-config.test.ts)"
     },
     {
       "id": 3,
       "text": "AC3 checkout integration tests (a-f) against a fake Razorpay server; unexpected outbound requests fail",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "razorpay-checkout.integration.test.ts 16/16 (a) settle once+membership+receipt+audit+realtime (b) bad signature 400 (c) authorized captured (d) createOrder timeout -> FAILED, same key retry works (e) other member 404 (f) void/paid 409; harness fails on any non-loopback fetch or unserved fake route"
     },
     {
       "id": 4,
       "text": "AC4 webhook tests: each event, duplicate, tampered, missing signature, out-of-order, captured-before-confirm, amount mismatch, unknown",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "razorpay-webhooks.integration.test.ts 18/18: captured/authorized/order.paid/failed/unknown/unrouted, duplicate id, failed-after-captured, captured-before-confirm, redelivery after processing failure, amount/currency mismatch -> exception, tampered/missing/wrong-secret 400, 413, 412 without provider"
     },
     {
       "id": 5,
       "text": "AC5 refund tests: full/partial provider refund pending->refunded, over-refund refused, refund.failed, manual path unchanged",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "razorpay-refunds.integration.test.ts 9/9: full+partial pending->succeeded on refund.processed, over-refund 422, same-key retry, timeout then retry, refund.failed restores balance, Razorpay refusal, permission, Dashboard refund before capture converges, manual cash refund unchanged"
     },
     {
       "id": 6,
       "text": "AC6 payment link test: notify flags false, payment_link.paid settles",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "razorpay-payment-links.integration.test.ts 3/3: request body notify {sms:false,email:false}, reminder_enable false, no customer; payment_link.paid settles; 403/404/412"
     },
     {
       "id": 7,
       "text": "AC7 reconciliation job: concurrent double run settles once; mismatch listed; resolve requires reason and audits",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "razorpay-reconciliation.integration.test.ts 9/9: two overlapping runs -> one payment, one audit; mismatch listed by GET /v1/admin/billing/reconciliation; resolve needs reason (422), billing.refund (403), writes payment.reconciliation_resolved audit"
     },
     {
       "id": 8,
       "text": "AC8 no provider call inside transact() (runtime guard + test)",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "db/client.ts assertNoOpenTransaction() guards every adapter request; harness records provider calls made while sqlite.inTransaction and asserts none after every test; explicit test that a call inside transact() is refused before reaching the fake"
     },
     {
       "id": 9,
@@ -65,8 +65,8 @@
     {
       "id": 11,
       "text": "AC11 shadowed billing handlers and duplicate services removed; one createMembershipPurchase",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "commit 7309e70: shadowed handlers removed from routes/admin/billing.ts, duplicate validateMembershipProduct/createMembershipPurchase removed from services/billing-stabilization.ts; git grep shows one createMembershipPurchase (services/billing-membership.ts); API suite 889/889 after removal (no tests deleted)"
     },
     {
       "id": 12,
