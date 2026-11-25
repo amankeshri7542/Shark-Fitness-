@@ -107,11 +107,19 @@ test('the member and console workers never control each other’s pages', async 
   );
   expect(scopes).toEqual(['/admin/', '/app/']);
 
-  await page.reload();
-  expect(await page.evaluate(() => new URL(navigator.serviceWorker.controller!.scriptURL).pathname)).toBe('/admin/sw.js');
+  // Which worker controls a page once one does (a navigation can race a
+  // worker that has only just activated, so reload until it is controlled).
+  const controllerOf = async (): Promise<string> => {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await page.reload();
+      const script = await page.evaluate(() => navigator.serviceWorker.controller?.scriptURL ?? null);
+      if (script) return new URL(script).pathname;
+    }
+    throw new Error('No service worker took control of the page');
+  };
+  expect(await controllerOf()).toBe('/admin/sw.js');
   await page.goto('/app/');
-  await page.reload();
-  expect(await page.evaluate(() => new URL(navigator.serviceWorker.controller!.scriptURL).pathname)).toBe('/app/sw.js');
+  expect(await controllerOf()).toBe('/app/sw.js');
   // The API is never under either scope.
   const apiControlled = await page.evaluate(async () => Boolean(await navigator.serviceWorker.getRegistration('/v1/me')));
   expect(apiControlled).toBe(false);
