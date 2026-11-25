@@ -98,7 +98,16 @@ export default function MessagesScreen() {
           </Panel>
         ) : null}
 
-        <SectionRule>
+        <SectionRule
+          action={
+            <Link
+              to="/messages/new"
+              className="inline-flex min-h-11 items-center border border-line-strong px-3 font-utility text-[11px] font-semibold uppercase tracking-[0.12em] text-foam hover:border-sonar hover:text-sonar"
+            >
+              New message
+            </Link>
+          }
+        >
           {data.unreadTotal > 0 ? `${data.unreadTotal} unread` : `${data.branch.name} · ${data.items.length} threads`}
         </SectionRule>
 
@@ -106,6 +115,11 @@ export default function MessagesScreen() {
           <EmptyState
             title="No messages yet"
             body="Your coach and the front desk can reach you here, and you can reach them. Anything about billing or access gets answered fastest at reception."
+            action={
+              <Link to="/messages/new" className="inline-flex min-h-11 items-center border border-sonar px-4 font-utility text-[11px] font-semibold uppercase tracking-[0.12em] text-sonar">
+                Write to the gym
+              </Link>
+            }
           />
         ) : (
           data.items.map((conversation) => (
