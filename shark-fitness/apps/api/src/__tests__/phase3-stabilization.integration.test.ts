@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { app } from '../app.js';
 import { db, schema } from '../db/client.js';
+import { randomUUID } from 'node:crypto';
 import { hashToken, hashPassword } from '../lib/crypto.js';
 import { id } from '../lib/ids.js';
 import { now, isoDate, addDays } from '../lib/time.js';
@@ -101,7 +102,9 @@ function makeMember(branchId = 'br_kor', invited = true, dob: string | null = nu
     tenantId,
     userId,
     homeBranchId: branchId,
-    memberNo: `SF-${Math.floor(50000 + Math.random() * 40000)}`,
+    // Not numeric after the prefix: enrollment numbers new members max+1 in
+    // the SF-5xxxx band, so a random number there collided now and then.
+    memberNo: `SF-T${randomUUID().slice(0, 8)}`,
     firstName: 'Phase',
     lastName: 'Member',
     initials: 'PM',
