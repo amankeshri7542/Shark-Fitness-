@@ -13,7 +13,7 @@ Last pushes: {"phase/P01-prod-readiness": "128aec1 at 2026-11-25 09:37 IST"}
 | P01 | Finish pilot hosting (PR #27) and production readiness | implementing | `phase/P01-prod-readiness` | `claude/musing-wilbur-d67503` |  |  |  |
 | P02 | Razorpay payments in test mode | implementing | `phase/P02-payments-razorpay` | `phase/P01-prod-readiness` |  |  |  |
 | P06 | Staff security: MFA, step-up auth, sessions, CSP, outbound webhooks | implementing | `phase/P06-staff-security` | `phase/P01-prod-readiness` |  |  |  |
-| P04 | Installable member app (PWA + Android TWA) and staff console PWA | pending | `phase/P04-member-mobile-app` | `phase/P01-prod-readiness` |  |  |  |
+| P04 | Installable member app (PWA + Android TWA) and staff console PWA | implementing | `phase/P04-member-mobile-app` | `phase/P01-prod-readiness` |  |  |  |
 | P03 | Public website, public API and lead capture | pending | `phase/P03-public-website` | `` |  |  |  |
 | P05 | QR check-in, safe waitlist, credit packs, private media and progress photos | pending | `phase/P05-member-core-gaps` | `` |  |  |  |
 | P07 | Messaging channels, member messaging, community moderation, tasks, coaching, broadcasts | pending | `phase/P07-engagement-ops-modules` | `` |  |  |  |
