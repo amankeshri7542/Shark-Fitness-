@@ -3,6 +3,7 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useCopy } from '../lib/store';
+import { useUnits } from '../lib/preferences';
 import { Hero, ScreenBody, Stack, Surface } from '../ui/shell';
 import {
   Bar,
@@ -86,6 +87,7 @@ const rupees = (minor: number): string => `₹${(minor / 100).toLocaleString('en
 
 export default function HomeScreen() {
   const copy = useCopy();
+  const units = useUnits();
   const navigate = useNavigate();
 
   const { data, isLoading, error, refetch } = useQuery({
@@ -356,7 +358,11 @@ export default function HomeScreen() {
                 <Label className="mt-0.5 block">{copy('streakLabel')}</Label>
               </SeamCell>
               <SeamCell className="px-3 py-2.5">
-                <Metric value={(data.monthVolumeKg / 1000).toFixed(1)} unit="t" size="md" />
+                <Metric
+                  value={(units.value(data.monthVolumeKg, 0) / 1000).toFixed(1)}
+                  unit={units.system === 'imperial' ? 'k lb' : 't'}
+                  size="md"
+                />
                 <Label className="mt-0.5 block">Volume / mo</Label>
               </SeamCell>
               <SeamCell className="px-3 py-2.5">

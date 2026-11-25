@@ -16,7 +16,7 @@ export function UpdateBar() {
   return (
     <div
       role="status"
-      className="sf-safe-x flex flex-none items-center gap-3 border-b border-line-accent bg-wash-sonar px-4 py-1.5"
+      className="sf-safe-x flex flex-none items-center gap-3 border-b border-line-accent bg-wash-sonar py-1.5"
       data-testid="update-bar"
     >
       <p className="min-w-0 flex-1 text-[13px]">Update ready</p>

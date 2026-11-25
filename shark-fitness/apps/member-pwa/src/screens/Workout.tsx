@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import type { MuscleGroup } from '@shark/contracts';
@@ -6,6 +6,8 @@ import { MUSCLE_LABEL, muscleShare, platesPerSide, sessionVolumeKg } from '@shar
 import { api } from '../lib/api';
 import { enqueue, useOutboxCount } from '../lib/outbox';
 import { useOnline } from '../lib/realtime';
+import { haptic, useUnits } from '../lib/preferences';
+import { QK } from '../lib/query-keys';
 import { type ActiveSet, useCopy, useWorkout } from '../lib/store';
 import { ScreenBody } from '../ui/shell';
 import {
@@ -308,6 +310,7 @@ function clock(totalSec: number): string {
 
 export default function WorkoutScreen() {
   const copy = useCopy();
+  const units = useUnits();
   const navigate = useNavigate();
   const online = useOnline();
   const queued = useOutboxCount();
@@ -323,7 +326,7 @@ export default function WorkoutScreen() {
   const resuming = active.clientId !== null;
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['training', 'plan'],
+    queryKey: QK.plan,
     queryFn: () => api<PlanPayload>('/member/training/plan'),
     // A resumed session already has everything it needs cached locally, so a
     // failed plan fetch must never block logging.
@@ -493,6 +496,15 @@ export default function WorkoutScreen() {
   const restRemaining = active.restEndsAt ? Math.max(0, (active.restEndsAt - now) / 1000) : 0;
   const resting = restRemaining > 0;
 
+  // One buzz when a rest runs out, once per rest period.
+  const restBuzzed = useRef<number | null>(null);
+  useEffect(() => {
+    if (active.restEndsAt && !resting && restBuzzed.current !== active.restEndsAt) {
+      restBuzzed.current = active.restEndsAt;
+      haptic('timer-done');
+    }
+  }, [active.restEndsAt, resting]);
+
   const plates =
     exercise?.usesBarbell && current ? platesPerSide(current.weightKg) : null;
 
@@ -501,6 +513,7 @@ export default function WorkoutScreen() {
   const logSet = (set: ActiveSet): void => {
     const rest = exercise?.sets.find((s) => s.setIndex === set.setIndex)?.restSec ?? 90;
     useWorkout.getState().logSet(set.clientId, rest);
+    haptic('set-complete');
     setLastLogged(set.clientId);
     queueDraft(set.clientId, false);
 
@@ -728,7 +741,7 @@ export default function WorkoutScreen() {
   const targetLine = [
     `Exercise ${exerciseIndex + 1} of ${exercises.length}`,
     exercise.targetLabel,
-    prescribed?.targetWeightKg ? `${prescribed.targetWeightKg} kg` : null,
+    prescribed?.targetWeightKg ? units.format(prescribed.targetWeightKg) : null,
   ]
     .filter(Boolean)
     .join(' · ');
@@ -834,7 +847,7 @@ export default function WorkoutScreen() {
               <div className="mt-3 flex gap-2.5">
                 {session.adaptive.newLoadKg ? (
                   <Button variant="cta" size="sm" className="flex-1" onClick={applyAdaptive}>
-                    Use {session.adaptive.newLoadKg} kg
+                    Use {units.format(session.adaptive.newLoadKg)}
                   </Button>
                 ) : null}
                 <Button
@@ -912,7 +925,7 @@ export default function WorkoutScreen() {
                   <button
                     type="button"
                     onClick={() => useWorkout.getState().goToExercise(exerciseIndex)}
-                    aria-label={`Set ${set.setIndex + 1}, ${set.weightKg} kilos for ${set.reps} reps`}
+                    aria-label={`Set ${set.setIndex + 1}, ${units.format(set.weightKg)} for ${set.reps} reps`}
                     className="flex min-h-[52px] flex-1 cursor-pointer items-center px-3 text-left"
                   >
                     <span
@@ -924,8 +937,8 @@ export default function WorkoutScreen() {
                       {target?.isWarmup ? 'W' : set.setIndex + 1}
                     </span>
                     <span className="flex-1 font-utility text-[17px] font-semibold tabular-nums">
-                      {set.weightKg}
-                      <span className="ml-1 text-[12px] text-foam-45">kg</span>
+                      {units.value(set.weightKg)}
+                      <span className="ml-1 text-[12px] text-foam-45">{units.unit}</span>
                     </span>
                     <span className="w-14 font-utility text-[17px] font-semibold tabular-nums">{set.reps}</span>
                   </button>
@@ -974,7 +987,7 @@ export default function WorkoutScreen() {
                 <Label>Set {current.setIndex + 1}</Label>
                 <span className="flex-1" />
                 {exercise.lastPerformance ? (
-                  <span className="text-[11px] text-foam-50">Last time {exercise.lastPerformance.label}</span>
+                  <span className="text-[11px] text-foam-50">Last time {units.text(exercise.lastPerformance.label)}</span>
                 ) : (
                   <span className="text-[11px] text-foam-35">First time on this lift</span>
                 )}
@@ -982,10 +995,12 @@ export default function WorkoutScreen() {
 
               <Stepper
                 label="Weight"
-                unit="kg"
-                value={current.weightKg}
-                step={2.5}
-                onAdjust={(delta) => useWorkout.getState().adjust(current.clientId, 'weightKg', delta)}
+                unit={units.unit}
+                value={units.value(current.weightKg)}
+                step={units.system === 'imperial' ? 5 : 2.5}
+                onAdjust={(delta) =>
+                  useWorkout.getState().setValue(current.clientId, 'weightKg', units.step(current.weightKg, delta > 0 ? 1 : -1))
+                }
               />
               <Stepper
                 label="Reps"
@@ -1140,12 +1155,17 @@ export default function WorkoutScreen() {
                 </div>
                 <div className="flex-1 px-3 py-2.5">
                   <Metric
-                    value={sessionVolumeKg(
-                      active.sets
-                        .filter((s) => s.done)
-                        .map((s) => ({ weightKg: s.weightKg, reps: s.reps, isWarmup: warmupOf(s) })),
-                    ).toLocaleString('en-IN')}
-                    unit="kg"
+                    value={units
+                      .value(
+                        sessionVolumeKg(
+                          active.sets
+                            .filter((s) => s.done)
+                            .map((s) => ({ weightKg: s.weightKg, reps: s.reps, isWarmup: warmupOf(s) })),
+                        ),
+                        0,
+                      )
+                      .toLocaleString('en-IN')}
+                    unit={units.unit}
                     size="md"
                   />
                   <Label className="mt-0.5 block">Volume</Label>

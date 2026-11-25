@@ -4,6 +4,7 @@ import { channels, type EventTopic, type Viewer } from '@shark/contracts';
 import { API_ORIGIN, api } from './api';
 import { useSession } from './store';
 import { startOutbox, stopOutbox } from './outbox';
+import { haptic } from './preferences';
 
 export type Connection = 'connecting' | 'open' | 'closed';
 
@@ -49,7 +50,7 @@ const INVALIDATES: Partial<Record<EventTopic, string[][]>> = {
   'payment.succeeded': [['billing'], ['home'], ['pass']],
   'payment.failed': [['billing'], ['notifications']],
   'invoice.updated': [['billing']],
-  'workout.synced': [['progress'], ['home']],
+  'workout.synced': [['progress'], ['home'], ['training', 'plan']],
   'pr.achieved': [['progress'], ['pack']],
   'message.created': [['messages'], ['notifications']],
   'notification.created': [['notifications']],
@@ -104,6 +105,13 @@ async function open(): Promise<void> {
 
       const event = data as RealtimeEvent;
       lastSeq = Math.max(lastSeq, event.seq);
+      if (
+        event.topic === 'attendance.checked_in' &&
+        (event.payload as { memberId?: string } | null)?.memberId === useSession.getState().viewer?.memberId
+      ) {
+        // The reception desk let this member in: the phone in their pocket says so.
+        haptic('check-in');
+      }
       if (event.topic === 'member.profile_updated') {
         const prior = useSession.getState().viewer;
         void api<{ viewer: Viewer }>('/me').then(({ viewer }) => {

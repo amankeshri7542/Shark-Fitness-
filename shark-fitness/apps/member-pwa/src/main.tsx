@@ -10,6 +10,7 @@ import { hasMemberSessionHint, setMemberSessionHint } from './lib/session-hint';
 import { installGlobalErrorListeners } from './lib/error-reporting';
 import { AppErrorBoundary } from './ui/ErrorBoundary';
 import { registerServiceWorker } from './lib/sw-update';
+import { useAppearance } from './lib/preferences';
 import './styles.css';
 
 const queryClient = new QueryClient({
@@ -77,6 +78,7 @@ function Boot() {
   }, [status]);
 
   useMemberConnection(viewer, queryClient);
+  useAppearance();
 
   if (status === 'loading') {
     return (

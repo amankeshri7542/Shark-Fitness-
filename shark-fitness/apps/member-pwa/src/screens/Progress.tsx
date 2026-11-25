@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useCopy } from '../lib/store';
+import { useUnits, type Units } from '../lib/preferences';
 import { ScreenBody, Stack, Surface } from '../ui/shell';
 import {
   Bar,
@@ -45,7 +46,15 @@ interface ProgressPayload {
   bodyComposition: {
     takenOn: string;
     comparedWith: string | null;
-    items: Array<{ label: string; value: string; unit: string | null; delta: string | null; improving: boolean | null }>;
+    // Numbers from the API (routes/member/progress.ts); load is in kg.
+    items: Array<{
+      label: string;
+      value: number | string | null;
+      unit: string | null;
+      delta: number | string | null;
+      improving?: boolean | null;
+      lowerIsBetter?: boolean;
+    }>;
   } | null;
   goals: Array<{
     id: string;
@@ -68,6 +77,7 @@ interface Records {
 
 export default function ProgressScreen() {
   const copy = useCopy();
+  const units = useUnits();
   const [region, setRegion] = useState<string>('chest');
 
   const progress = useQuery({
@@ -134,7 +144,7 @@ export default function ProgressScreen() {
                         <div
                           className={cx('w-full', recent ? 'bg-sonar' : 'bg-[rgba(120,190,215,.35)]')}
                           style={{ height: `${Math.max(2, (week.value / peakTonnage) * 100)}%` }}
-                          title={`${week.label}: ${Math.round(week.value).toLocaleString('en-IN')} kg`}
+                          title={`${week.label}: ${units.format(week.value, 0)}`}
                         />
                         <span className="text-center text-[8px] tracking-[0.04em] text-foam-25">{week.label}</span>
                       </div>
@@ -211,9 +221,9 @@ export default function ProgressScreen() {
                         <span className="min-w-0 flex-1 truncate font-utility text-[14px] font-semibold">
                           {pr.exerciseName}
                         </span>
-                        <span className="font-display text-[17px] tabular-nums">{pr.display}</span>
+                        <span className="font-display text-[17px] tabular-nums">{units.text(pr.display)}</span>
                         {pr.delta ? (
-                          <span className="w-12 text-right text-[11px] text-sonar">{pr.delta}</span>
+                          <span className="w-14 text-right text-[11px] text-sonar">{units.text(pr.delta)}</span>
                         ) : null}
                       </div>
                     ))}
@@ -274,16 +284,20 @@ export default function ProgressScreen() {
                       <SeamCell key={item.label}>
                         <Label>{item.label}</Label>
                         <div className="mt-1.5">
-                          <Metric value={item.value} unit={item.unit ?? undefined} size="md" />
+                          <Metric
+                            value={item.value === null ? '—' : item.unit === 'kg' ? units.value(Number(item.value)) : item.value}
+                            unit={(item.unit === 'kg' ? units.unit : item.unit) ?? undefined}
+                            size="md"
+                          />
                         </div>
-                        {item.delta ? (
+                        {item.delta !== null && Number(item.delta) !== 0 ? (
                           <p
                             className={cx(
                               'mt-1 text-[11px]',
-                              item.improving === null ? 'text-foam-45' : item.improving ? 'text-kelp' : 'text-flare',
+                              (item.improving ?? null) === null ? 'text-foam-45' : item.improving ? 'text-kelp' : 'text-flare',
                             )}
                           >
-                            {item.delta}
+                            {signedDelta(item.delta, item.unit, units)}
                           </p>
                         ) : null}
                       </SeamCell>
@@ -313,9 +327,9 @@ export default function ProgressScreen() {
                           <Chip tone={goal.onTrack ? 'good' : 'warn'}>{goal.onTrack ? 'On track' : 'Behind'}</Chip>
                         </div>
                         <div className="mt-2 flex items-baseline gap-1.5">
-                          <Metric value={goal.current} size="sm" />
+                          <Metric value={goal.unit === 'kg' ? units.value(goal.current) : goal.current} size="sm" />
                           <span className="text-[11px] text-foam-45">
-                            of {goal.target} {goal.unit} · by {goal.targetDate}
+                            of {goal.unit === 'kg' ? units.format(goal.target) : `${goal.target} ${goal.unit}`} · by {goal.targetDate}
                           </span>
                         </div>
                         <Bar className="mt-2" value={goal.progressPct} tone={goal.onTrack ? 'accent' : 'warn'} />
@@ -431,4 +445,13 @@ function ProgressSkeleton() {
       </Stack>
     </ScreenBody>
   );
+}
+
+/** "+1.2 kg" / "−2.6 lb" / "−0.5 %" from a numeric (or already formatted) delta. */
+function signedDelta(delta: number | string | null, unit: string | null, units: Units): string {
+  if (delta === null) return '';
+  if (typeof delta === 'string') return unit === 'kg' ? units.text(delta) : delta;
+  const sign = delta > 0 ? '+' : '−';
+  const magnitude = Math.abs(delta);
+  return unit === 'kg' ? `${sign}${units.format(magnitude)}` : `${sign}${magnitude}${unit ? ` ${unit}` : ''}`;
 }

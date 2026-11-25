@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Viewer } from '@shark/contracts';
 import { ApiError, api } from '../lib/api';
-import { useViewer } from '../lib/store';
+import { useSession, useViewer } from '../lib/store';
 import { ScreenBody, Stack } from '../ui/shell';
 import {
   Button,
@@ -62,16 +62,27 @@ export default function ProfileScreen() {
   const fail = (err: unknown): void =>
     setError(err instanceof ApiError ? err.message : 'That did not go through. Nothing has changed.');
 
+  // Applied at once (theme, motion, units and tone change on screen before
+  // the server answers) and rolled back if the save fails. The viewer lives in
+  // the session store, not the query cache, so the server's answer goes there.
   const savePreferences = useMutation({
-    mutationFn: (patch: Record<string, unknown>) =>
+    mutationFn: (patch: Partial<Viewer['preferences']>) =>
       api<{ viewer: Viewer }>('/me/preferences', { method: 'PATCH', body: patch }),
-    onSuccess: () => {
-      setError(null);
-      void queryClient.invalidateQueries({ queryKey: ['viewer'] });
-      // The register and unit system change copy across every screen.
-      void queryClient.invalidateQueries();
+    onMutate: (patch) => {
+      const before = useSession.getState().viewer;
+      if (before) useSession.getState().setViewer({ ...before, preferences: { ...before.preferences, ...patch } });
+      return { before };
     },
-    onError: fail,
+    onSuccess: (result, patch) => {
+      setError(null);
+      useSession.getState().setViewer(result.viewer);
+      // Tone changes server-composed copy; nothing else needs a refetch.
+      if (patch.register) void queryClient.invalidateQueries();
+    },
+    onError: (err, _patch, context) => {
+      if (context?.before) useSession.getState().setViewer(context.before);
+      fail(err);
+    },
   });
 
   const setConsent = useMutation({
@@ -217,7 +228,7 @@ export default function ProfileScreen() {
             <div className="flex flex-col gap-2">
               <ToggleRow
                 label="Haptics"
-                hint="A short tap when a set is logged."
+                hint="A short buzz when you log a set, a rest ends, reception checks you in or you set a record. Phones that cannot vibrate ignore it."
                 checked={prefs.haptics}
                 onChange={(haptics) => savePreferences.mutate({ haptics })}
               />
