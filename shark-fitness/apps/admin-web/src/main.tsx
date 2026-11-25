@@ -11,6 +11,15 @@ import { installGlobalErrorListeners } from './lib/error-reporting';
 import { AppErrorBoundary } from './ui/ErrorBoundary';
 import './styles.css';
 
+/** Installable console: a shell-only worker scoped to /admin/ (src/sw/sw.ts). */
+function registerConsoleWorker(): void {
+  if (!('serviceWorker' in navigator) || import.meta.env.DEV || import.meta.env.MODE === 'test') return;
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker.register('/admin/sw.js', { scope: '/admin/', updateViaCache: 'none' }).catch(() => undefined);
+  });
+}
+registerConsoleWorker();
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
