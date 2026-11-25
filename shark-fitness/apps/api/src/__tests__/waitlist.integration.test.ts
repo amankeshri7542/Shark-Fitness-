@@ -300,6 +300,32 @@ describe('offers hold the seat', () => {
     expectSeatsConsistent(sessionId);
   });
 
+  it('booking another open seat with a lapsed, unprocessed offer does not strand the held seat', async () => {
+    const sessionId = createClassSession({ capacity: 2 });
+    const [a, b, w1] = await members(3, 'Stale');
+    const bookingA = await bookingIdOf(a!.session, sessionId);
+    const bookingB = await bookingIdOf(b!.session, sessionId);
+    await join(w1!.session, sessionId);
+    await send(a!.session, 'DELETE', `/v1/member/schedule/booking/${bookingA}`);
+    const offered = entryOf(sessionId, w1!.memberId)!;
+    expect(offered.state).toBe('offered');
+
+    // The offer runs out, the job has not run yet, and a second seat opens
+    // with nobody else in line to offer it to.
+    db.update(schema.waitlistEntries).set({ offerExpiresAt: now() - 1 }).where(eq(schema.waitlistEntries.id, offered.id)).run();
+    await send(b!.session, 'DELETE', `/v1/member/schedule/booking/${bookingB}`);
+    expectSeatsConsistent(sessionId);
+
+    // The member books the open seat directly.
+    expect((await book(w1!.session, sessionId)).status).toBe(200);
+    expectSeatsConsistent(sessionId);
+
+    // Once the job runs, the counter and the rows still agree.
+    expireWaitlistOffers(now() + 1);
+    expectSeatsConsistent(sessionId);
+    expect(liveBookings(sessionId).filter((row) => row.memberId === w1!.memberId)).toHaveLength(1);
+  });
+
   it('accept racing expiry produces exactly one outcome, every time', async () => {
     for (let round = 0; round < 8; round += 1) {
       const sessionId = createClassSession({ capacity: 1 });

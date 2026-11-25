@@ -549,7 +549,13 @@ export function claimSeat(ctx: RequestContext, input: ClaimSeatInput): ClaimSeat
 
     const creditsUsed = payingCash ? 0 : fresh.creditsRequired;
     const chargeMinor = payingCash ? (fresh.dropInPriceMinor ?? 0) : 0;
-    const cameFromWaitlist = heldOffer !== null || Boolean(myWaitlistFor(memberId, fresh.id));
+    // Only a place still waiting in line converts here. An offer whose deadline
+    // passed but which the expiry job has not reached yet still holds its own
+    // seat in `booked`; it is left `offered` so that expiry releases that seat
+    // and passes it on. Confirming it here would strand the held seat for good.
+    const waitingEntry = heldOffer ? null : myWaitlistFor(memberId, fresh.id);
+    const stillWaiting = waitingEntry?.state === 'waiting' ? waitingEntry : null;
+    const cameFromWaitlist = heldOffer !== null || stillWaiting !== null;
 
     const bookingId = id('bkg');
     db.insert(schema.bookings)
@@ -577,7 +583,6 @@ export function claimSeat(ctx: RequestContext, input: ClaimSeatInput): ClaimSeat
 
     // A member who was waiting and booked a seat directly (one opened after
     // the offer cut-off) leaves the queue as confirmed rather than hanging on.
-    const stillWaiting = myWaitlistFor(memberId, fresh.id);
     if (stillWaiting) {
       db.update(schema.waitlistEntries).set({ state: 'confirmed', resolvedAt: input.atMs }).where(eq(schema.waitlistEntries.id, stillWaiting.id)).run();
     }
