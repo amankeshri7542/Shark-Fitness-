@@ -3,7 +3,13 @@
     "P01": {
       "state": "implementing",
       "base": "claude/musing-wilbur-d67503",
-      "base_sha": ""
+      "base_sha": "",
+      "running": {
+        "tag": "P01-impl",
+        "pid": 20670,
+        "started": "2026-11-25 09:40 IST",
+        "activity": "2026-11-25 09:40 IST"
+      }
     },
     "P02": {
       "state": "pending",
