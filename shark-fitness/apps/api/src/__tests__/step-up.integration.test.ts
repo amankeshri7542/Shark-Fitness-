@@ -371,6 +371,19 @@ describe('support sessions', () => {
     const platformAdmin = db.select().from(schema.users).where(eq(schema.users.email, 'platform@sharkfitness.io')).get()!;
     expect((await operator.request('/auth/step-up', { body: { password: 'shark1234', code: testTotp(platformAdmin.id) } })).status).toBe(200);
 
+    // The account holder's devices are theirs: a support session can sign
+    // none of them out, one at a time or all at once.
+    const desk = await signInMfa('reception@sharkfitness.in');
+    const deskSession = db
+      .select()
+      .from(schema.sessions)
+      .where(and(eq(schema.sessions.userId, target.id), sql`${schema.sessions.impersonatorId} is null`, sql`${schema.sessions.revokedAt} is null`))
+      .orderBy(sql`${schema.sessions.createdAt} desc`)
+      .get()!;
+    expect((await operator.request(`/me/sessions/${deskSession.id}`, { method: 'DELETE' })).status).toBe(403);
+    expect((await operator.request('/me/sessions/sign-out-others', { method: 'POST' })).status).toBe(403);
+    expect((await desk.request('/me')).status).toBe(200);
+
     // /platform/impersonate/end: signed out → 401; an ordinary session → 412; the support session → ends itself.
     expect((await new Browser().request('/platform/impersonate/end', { method: 'POST' })).status).toBe(401);
     const ordinary = await signInMfa('owner@sharkfitness.in');

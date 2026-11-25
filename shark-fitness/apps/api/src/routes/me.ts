@@ -172,6 +172,8 @@ meRoutes.get('/sessions', (c) => {
 
 meRoutes.delete('/sessions/:id', (c) => {
   const ctx = ctxOf(c);
+  // Same rule as "sign out everywhere else": the devices belong to the account holder.
+  if (ctx.impersonatorId) throw forbidden('A support session cannot sign the account holder out of their devices.');
   const sessionId = c.req.param('id');
   const session = db.select().from(schema.sessions).where(eq(schema.sessions.id, sessionId)).get();
   if (!session || session.userId !== ctx.userId || session.tenantId !== ctx.tenantId) throw notFound('That session');
