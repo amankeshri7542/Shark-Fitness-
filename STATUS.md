@@ -28,8 +28,6 @@ Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "ph
 ## Running sessions
 | Node | Session tag | pid | Last activity | Started |
 |---|---|---|---|---|
-| P04 | P04-review | 8129 | 2026-11-25 23:08 IST | 2026-11-25 23:08 IST |
-| P03 | P03-review | 8394 | 2026-11-25 23:08 IST | 2026-11-25 23:08 IST |
 | P05 | P05-impl | 8712 | 2026-11-25 23:09 IST | 2026-11-25 23:09 IST |
 
 ## Blockers / waiting
