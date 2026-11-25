@@ -37,7 +37,17 @@ See `P05-progress.json` (same items).
 
 ## Decisions
 
-(Filled in as made; also copied to the PR.)
+(Also copied to the PR.)
+
+- **D1 Pass tokens.** `/v1/member/pass` returns a short run (6) of 30 s single-use codes with `no-store`; the client rotates early (before the window ends) and re-fetches the run. QR via pinned `uqr` (ECC M, 4-module quiet zone), dark on a light panel in both themes.
+- **D2 Scan "already checked in".** A valid code from a member already inside (open visit) returns outcome `already_checked_in` with no second check-in row; the code window is still burned. Expired codes return `denied_token_expired` (separate from forged `denied_token_invalid`); a code minted by another tenant returns `denied_wrong_tenant` and names nobody.
+- **D3 Decoder.** BarcodeDetector where available, else `jsqr@1.4.0` loaded by dynamic import only when the camera starts.
+- **D4 Waitlist hold = seat.** An offer increments `class_sessions.booked`; accept converts without incrementing; decline/expiry/withdrawal decrements and re-offers. DB triggers count live bookings + live offers; the counter guard refuses only increases past capacity (so a shrunk class can still give seats back).
+- **D5 Offer timing (decision 12).** Deadline = min(now + `waitlistOfferMinutes` (30), start − `waitlistOfferCutoffMinutes` (60)); both are branch-overridable policies. If less than a minute would remain, no offer is made and the freed seat is open to anyone (members waiting keep their place; first-come after the cut-off).
+- **D6 No-show release.** No-shows are marked after class start, which is always past the offer cut-off, so marking a no-show does not create an offer (it would be unusable). Releasing a booking before class from the roster (`releaseBooking`) is the "release" path and does offer the seat. Recorded rather than building a dead path.
+- **D7 Skipped members.** A member who is no longer eligible when their turn comes is moved to a new `skipped` state (added to `WaitlistState`), with the reason audited and an in-app note; they can rejoin (back of the line).
+- **D8 Capacity reduction.** Allowed below bookings; cancels nobody. Live offers that no longer fit are withdrawn newest-first and those members return to `waiting` at their original position. Remaining excess → audit `session.overbooked`, realtime `alert.raised`, and a derived dashboard alert `overbooked_class` that stays until resolved. Two phase-5 tests that asserted the old refusal / "no offer" behaviour were rewritten to the decided behaviour (requirement change, not weakened).
+- **D9 Leaving the line** marks the entry `declined` instead of deleting it (auditable history); rejoining reuses the row (`waitlist_uq`) at the back of the line.
 
 ## Integration notes
 
