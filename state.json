@@ -46,7 +46,12 @@
       "state": "implementing",
       "base": "phase/P01-prod-readiness",
       "base_sha": "2c15353fd",
-      "running": null
+      "running": {
+        "tag": "P03-impl",
+        "pid": 259584,
+        "started": "2026-11-25 15:23 IST",
+        "activity": "2026-11-25 15:23 IST"
+      }
     },
     "P05": {
       "state": "pending"
@@ -80,7 +85,7 @@
     "phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST",
     "phase/P02-payments-razorpay": "4402905 at 2026-11-25 14:21 IST",
     "phase/P06-staff-security": "df25704 at 2026-11-25 10:14 IST",
-    "phase/P04-member-mobile-app": "7af9b73 at 2026-11-25 10:13 IST",
+    "phase/P04-member-mobile-app": "6ae6f8f at 2026-11-25 15:24 IST",
     "phase/P03-public-website": "ffc6df2 at 2026-11-25 10:25 IST"
   },
   "blockers": []
