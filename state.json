@@ -49,7 +49,12 @@
       "state": "reviewing",
       "base": "phase/P02-payments-razorpay",
       "base_sha": "2ffa5700a",
-      "running": null,
+      "running": {
+        "tag": "P05-review",
+        "pid": 345772,
+        "started": "2026-11-26 02:06 IST",
+        "activity": "2026-11-26 02:11 IST"
+      },
       "note": ""
     },
     "P07": {
@@ -60,7 +65,7 @@
         "tag": "P07-impl",
         "pid": 153750,
         "started": "2026-11-26 01:03 IST",
-        "activity": "2026-11-26 02:05 IST"
+        "activity": "2026-11-26 02:10 IST"
       }
     },
     "INT1": {
@@ -92,7 +97,7 @@
     "phase/P04-member-mobile-app": "3f01e21 at 2026-11-26 00:56 IST",
     "phase/P03-public-website": "41af417 at 2026-11-26 00:51 IST",
     "phase/P05-member-core-gaps": "b4e0ca2 at 2026-11-26 02:02 IST",
-    "phase/P07-engagement-ops-modules": "a673ca7 at 2026-11-26 02:05 IST"
+    "phase/P07-engagement-ops-modules": "3118cf1 at 2026-11-26 02:11 IST"
   },
   "blockers": []
 }
