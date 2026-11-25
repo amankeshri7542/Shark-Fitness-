@@ -26,7 +26,7 @@
         "tag": "P06-review",
         "pid": 64515,
         "started": "2026-11-26 00:43 IST",
-        "activity": "2026-11-26 00:49 IST"
+        "activity": "2026-11-26 00:51 IST"
       },
       "note": ""
     },
@@ -95,7 +95,7 @@
     "phase/P02-payments-razorpay": "2ffa570 at 2026-11-25 20:21 IST",
     "phase/P06-staff-security": "d9e656c at 2026-11-26 00:51 IST",
     "phase/P04-member-mobile-app": "1398e88 at 2026-11-26 00:49 IST",
-    "phase/P03-public-website": "75348e0 at 2026-11-25 20:51 IST",
+    "phase/P03-public-website": "41af417 at 2026-11-26 00:51 IST",
     "phase/P05-member-core-gaps": "c931eab at 2026-11-26 00:46 IST"
   },
   "blockers": []
