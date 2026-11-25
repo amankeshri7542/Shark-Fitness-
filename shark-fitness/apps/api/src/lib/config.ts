@@ -146,6 +146,23 @@ const Dsn = z.string().trim().min(1).transform((value, ctx): ErrorDsn => {
   };
 });
 
+/** Razorpay's own API, or a loopback fake (integration tests, the E2E
+ * harness). Never any other host: the key secret travels in every request. */
+const RAZORPAY_API_BASE = 'https://api.razorpay.com/v1';
+const RazorpayApiBase = HttpEndpoint.transform((value, ctx) => {
+  const url = new URL(value);
+  const normalized = value.replace(/\/$/, '');
+  if (normalized === RAZORPAY_API_BASE || isLoopback(url.hostname)) return normalized;
+  ctx.addIssue({
+    code: z.ZodIssueCode.custom,
+    message: `SHARK_RAZORPAY_API_BASE must be ${RAZORPAY_API_BASE} or a loopback URL for a local fake.`,
+  });
+  return z.NEVER;
+});
+
+/** Test mode only for this release (PHASE-PLAN decision 5). */
+export const RAZORPAY_TEST_KEY_PATTERN = /^rzp_test_[A-Za-z0-9]+$/;
+
 const Reader = z.object({
   key: z.string().min(16),
   tenantSlug: z.string().trim().min(1).refine((value) => value !== '*', 'must identify one tenant'),
@@ -184,6 +201,11 @@ const RuntimeEnvironmentShape = z.object({
     SHARK_ERROR_REPORTER: providerName('SHARK_ERROR_REPORTER', ERROR_REPORTERS),
     SHARK_ERROR_DSN: Dsn.optional(),
     SHARK_METRICS_TOKEN: z.string().min(1).optional(),
+    SHARK_PAYMENT_PROVIDER: providerName('SHARK_PAYMENT_PROVIDER', ['none', 'razorpay'] as const),
+    SHARK_RAZORPAY_KEY_ID: OptionalText,
+    SHARK_RAZORPAY_KEY_SECRET: OptionalText,
+    SHARK_RAZORPAY_WEBHOOK_SECRET: OptionalText,
+    SHARK_RAZORPAY_API_BASE: z.preprocess(blankAsUnset, RazorpayApiBase.optional()),
     SHARK_OTP_SMS_PROVIDER: providerName('SHARK_OTP_SMS_PROVIDER', ['log', 'msg91', 'twilio'] as const),
     SHARK_OTP_EMAIL_PROVIDER: providerName('SHARK_OTP_EMAIL_PROVIDER', ['log', 'resend'] as const),
     SHARK_OTP_DEFAULT_COUNTRY_CODE: z.preprocess(
@@ -250,6 +272,27 @@ const RuntimeEnvironment = RuntimeEnvironmentShape.superRefine((environment, ctx
             code: z.ZodIssueCode.custom,
             path: [key],
             message: `${key} is required when ${variable}=${provider}.`,
+          });
+        }
+      }
+    }
+    if (environment.SHARK_RAZORPAY_KEY_ID && !RAZORPAY_TEST_KEY_PATTERN.test(environment.SHARK_RAZORPAY_KEY_ID)) {
+      // Refused in every environment, whatever SHARK_PAYMENT_PROVIDER says:
+      // a live key sitting in an env file is one edit away from charging people.
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['SHARK_RAZORPAY_KEY_ID'],
+        message:
+          'SHARK_RAZORPAY_KEY_ID must be a Razorpay test key (rzp_test_…). Live mode is out of scope for this release; see "Going live" in docs/PAYMENTS-RAZORPAY.md.',
+      });
+    }
+    if (environment.SHARK_PAYMENT_PROVIDER === 'razorpay') {
+      for (const key of ['SHARK_RAZORPAY_KEY_ID', 'SHARK_RAZORPAY_KEY_SECRET', 'SHARK_RAZORPAY_WEBHOOK_SECRET'] as const) {
+        if (!environment[key]) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [key],
+            message: `${key} is required when SHARK_PAYMENT_PROVIDER=razorpay.`,
           });
         }
       }
@@ -349,6 +392,13 @@ const RuntimeEnvironment = RuntimeEnvironmentShape.superRefine((environment, ctx
         message: 'SHARK_ERROR_DSN must use HTTPS in production.',
       });
     }
+    if (environment.SHARK_PAYMENT_PROVIDER === 'razorpay' && (environment.SHARK_RAZORPAY_WEBHOOK_SECRET?.length ?? 0) < 16) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['SHARK_RAZORPAY_WEBHOOK_SECRET'],
+        message: 'SHARK_RAZORPAY_WEBHOOK_SECRET must be at least 16 characters in production.',
+      });
+    }
     if (environment.SHARK_METRICS_TOKEN !== undefined && environment.SHARK_METRICS_TOKEN.length < 32) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -388,6 +438,8 @@ export interface RuntimeConfig {
   /** Bearer token for GET /metrics. Null disables the endpoint (404). */
   metricsToken: string | null;
   otp: OtpConfig;
+  /** Null unless SHARK_PAYMENT_PROVIDER=razorpay with every credential set. */
+  payments: { provider: 'razorpay'; razorpay: RazorpayConfig } | null;
   release: string;
   retention: {
     idempotencyKeysMs: number;
@@ -399,6 +451,13 @@ export interface RuntimeConfig {
     jobRunsMs: number;
   };
   pruning: { batchSize: number; maxBatches: number };
+}
+
+export interface RazorpayConfig {
+  keyId: string;
+  keySecret: string;
+  webhookSecret: string;
+  apiBase: string;
 }
 
 export interface OtpConfig {
@@ -473,6 +532,21 @@ export function parseRuntimeConfig(environment: Record<string, string | undefine
         perIpPerHour: parsed.SHARK_OTP_MAX_PER_IP_PER_HOUR ?? 30,
       },
     },
+    payments:
+      parsed.SHARK_PAYMENT_PROVIDER === 'razorpay' &&
+      parsed.SHARK_RAZORPAY_KEY_ID &&
+      parsed.SHARK_RAZORPAY_KEY_SECRET &&
+      parsed.SHARK_RAZORPAY_WEBHOOK_SECRET
+        ? {
+            provider: 'razorpay',
+            razorpay: {
+              keyId: parsed.SHARK_RAZORPAY_KEY_ID,
+              keySecret: parsed.SHARK_RAZORPAY_KEY_SECRET,
+              webhookSecret: parsed.SHARK_RAZORPAY_WEBHOOK_SECRET,
+              apiBase: parsed.SHARK_RAZORPAY_API_BASE ?? RAZORPAY_API_BASE,
+            },
+          }
+        : null,
     release: parsed.SHARK_RELEASE || parsed.RENDER_GIT_COMMIT || parsed.GITHUB_SHA || 'local',
     retention: {
       idempotencyKeysMs: (parsed.SHARK_IDEMPOTENCY_RETENTION_DAYS ?? 30) * DAY_MS,
