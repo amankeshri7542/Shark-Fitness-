@@ -19,6 +19,7 @@ export const SEED_WIPE_TABLES = [
   'stock_ledger', 'retail_products', 'retail_product_groups', 'suppliers',
   'appointments', 'waitlist_entries', 'bookings', 'class_sessions', 'class_series', 'rooms', 'class_types',
   'used_access_windows', 'check_ins', 'access_tokens',
+  'payment_reconciliation_exceptions', 'payment_intents',
   'dunning_attempts', 'provider_events', 'refunds', 'payments', 'invoice_lines', 'invoices',
   'commission_lines', 'commission_rates', 'staff_unavailability', 'shifts', 'staff', 'lead_activities', 'leads',
   'credits', 'membership_events', 'memberships', 'products',

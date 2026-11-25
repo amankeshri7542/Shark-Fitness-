@@ -36,3 +36,18 @@ export { schema };
 export function transact<T>(fn: () => T): T {
   return sqlite.transaction(fn)();
 }
+
+/**
+ * Refuses to continue while a write transaction is open on this connection.
+ *
+ * Called before every outbound provider request. SQLite has one writer, and a
+ * transaction that waits on a payment provider holds that lock for as long as
+ * the provider takes — every booking, check-in and payment in the gym waits
+ * behind it. The pattern instead is: commit an intent, call out, record the
+ * outcome in a second transaction.
+ */
+export function assertNoOpenTransaction(what: string): void {
+  if (sqlite.inTransaction) {
+    throw new Error(`${what} was attempted inside a database transaction. Commit first, then call the provider.`);
+  }
+}

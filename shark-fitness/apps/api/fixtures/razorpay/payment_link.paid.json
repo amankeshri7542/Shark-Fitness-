@@ -1,0 +1,107 @@
+{
+  "entity": "event",
+  "account_id": "acc_FixtureAccount",
+  "event": "payment_link.paid",
+  "contains": [
+    "payment_link",
+    "order",
+    "payment"
+  ],
+  "payload": {
+    "payment_link": {
+      "entity": {
+        "id": "plink_FixtureLnk001",
+        "entity": "payment_link",
+        "amount": 29500,
+        "amount_paid": 29500,
+        "currency": "INR",
+        "accept_partial": false,
+        "first_min_partial_amount": 0,
+        "description": "Shark Fitness invoice SF-2026-00001",
+        "reference_id": "pi_fixture.0",
+        "short_url": "https://rzp.io/i/fixture",
+        "status": "paid",
+        "expire_by": 1795600000,
+        "expired_at": 0,
+        "cancelled_at": 0,
+        "created_at": 1794999000,
+        "updated_at": 1795000000,
+        "customer": {},
+        "notify": {
+          "email": false,
+          "sms": false
+        },
+        "reminder_enable": false,
+        "notes": {
+          "tenant_id": "ten_fixture",
+          "intent_id": "pi_fixture",
+          "invoice_id": "inv_fixture"
+        },
+        "order_id": "order_FixtureOrd001",
+        "user_id": "",
+        "upi_link": false
+      }
+    },
+    "order": {
+      "entity": {
+        "id": "order_FixtureOrd001",
+        "entity": "order",
+        "amount": 29500,
+        "amount_paid": 29500,
+        "amount_due": 0,
+        "currency": "INR",
+        "receipt": "pi_fixture.0",
+        "offer_id": null,
+        "status": "paid",
+        "attempts": 1,
+        "notes": {
+          "tenant_id": "ten_fixture",
+          "intent_id": "pi_fixture",
+          "invoice_id": "inv_fixture"
+        },
+        "created_at": 1794999900
+      }
+    },
+    "payment": {
+      "entity": {
+        "id": "pay_FixturePay0001",
+        "entity": "payment",
+        "amount": 29500,
+        "currency": "INR",
+        "status": "captured",
+        "order_id": "order_FixtureOrd001",
+        "invoice_id": null,
+        "international": false,
+        "method": "upi",
+        "amount_refunded": 0,
+        "refund_status": null,
+        "captured": true,
+        "description": "Invoice SF-2026-00001",
+        "card_id": null,
+        "bank": null,
+        "wallet": null,
+        "vpa": "success@razorpay",
+        "email": "member@example.com",
+        "contact": "+919000090000",
+        "notes": {
+          "tenant_id": "ten_fixture",
+          "intent_id": "pi_fixture",
+          "invoice_id": "inv_fixture"
+        },
+        "fee": 708,
+        "tax": 108,
+        "error_code": null,
+        "error_description": null,
+        "error_source": null,
+        "error_step": null,
+        "error_reason": null,
+        "acquirer_data": {
+          "rrn": "000000000001",
+          "upi_transaction_id": "FIXTURE0001"
+        },
+        "created_at": 1795000000
+      }
+    }
+  },
+  "created_at": 1795000001
+}

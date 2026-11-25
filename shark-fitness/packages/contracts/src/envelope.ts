@@ -23,6 +23,8 @@ export const ERROR_CODES = [
   'LEGAL_HOLD',
   'STALE_VERSION',
   'PAYLOAD_TOO_LARGE',
+  /** A provider signature (payment confirmation, webhook) did not verify. */
+  'SIGNATURE_INVALID',
   'INTERNAL',
 ] as const;
 
@@ -70,6 +72,7 @@ export const HTTP_STATUS_FOR: Record<ErrorCode, number> = {
   LEGAL_HOLD: 423,
   STALE_VERSION: 409,
   PAYLOAD_TOO_LARGE: 413,
+  SIGNATURE_INVALID: 400,
   INTERNAL: 500,
 };
 

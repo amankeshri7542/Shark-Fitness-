@@ -8,6 +8,7 @@ import { allowedOrigins, csrfProtection, securityHeaders } from './lib/security.
 import { accountRecoveryRoutes } from './routes/account-recovery.js';
 import { clientErrorRoutes } from './routes/client-errors.js';
 import { metricsRoutes } from './routes/metrics.js';
+import { webhookRoutes } from './routes/webhooks.js';
 import { authRoutes } from './routes/auth.js';
 import { authStabilizationRoutes } from './routes/auth-stabilization.js';
 import { meRoutes } from './routes/me.js';
@@ -32,6 +33,7 @@ import { memberOperationsRoutes } from './routes/admin/member-operations.js';
 import { membersRoutes } from './routes/admin/members.js';
 import { leadsRoutes } from './routes/admin/leads.js';
 import { billingStabilizationRoutes } from './routes/admin/billing-stabilization.js';
+import { paymentAdminRoutes } from './routes/admin/payments.js';
 import { billingRoutes as adminBillingRoutes } from './routes/admin/billing.js';
 import { attendanceRoutes } from './routes/admin/attendance.js';
 import { scheduleRoutes as adminScheduleRoutes } from './routes/admin/schedule.js';
@@ -55,6 +57,8 @@ const authenticatedTenantLimit = rateLimit(5_000, 60_000, {
   identity: 'tenant',
   bucket: 'authenticated-tenant-api',
 });
+/** Razorpay retries with backoff; a burst far above that is not Razorpay. */
+const webhookIpLimit = rateLimit(300, 60_000, { identity: 'ip', bucket: 'provider-webhooks' });
 const authenticatedApiLimit = rateLimit(600, 60_000, {
   identity: 'actor',
   bucket: 'authenticated-api',
@@ -107,6 +111,8 @@ app.get('/ready', (c) => {
 
 app.route('/metrics', metricsRoutes);
 app.route('/v1/client-errors', clientErrorRoutes);
+app.use('/v1/webhooks/*', webhookIpLimit);
+app.route('/v1/webhooks', webhookRoutes);
 
 app.route('/v1/auth', authStabilizationRoutes);
 app.route('/v1/auth', accountRecoveryRoutes);
@@ -134,6 +140,7 @@ app.route('/v1/admin/members', memberOperationsRoutes);
 app.route('/v1/admin/members', membersRoutes);
 app.route('/v1/admin/leads', leadsRoutes);
 app.route('/v1/admin/billing', billingStabilizationRoutes);
+app.route('/v1/admin/billing', paymentAdminRoutes);
 app.route('/v1/admin/billing', adminBillingRoutes);
 app.route('/v1/admin/attendance', attendanceRoutes);
 app.route('/v1/admin/schedule', adminScheduleRoutes);

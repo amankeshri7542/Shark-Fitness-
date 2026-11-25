@@ -1,10 +1,16 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { CreditAccount } from '@shark/contracts';
 import { api, API_ORIGIN } from '../lib/api';
+import { useCheckout } from '../lib/checkout';
 import { ScreenBody, Stack } from '../ui/shell';
-import { Chip, Display, EmptyState, ErrorState, Label, Metric, Panel, Seam, SeamCell, SectionRule, Skeleton, type Tone } from '../ui/primitives';
+import { Button, Chip, Display, EmptyState, ErrorState, Label, Metric, Panel, Seam, SeamCell, SectionRule, Skeleton, type Tone } from '../ui/primitives';
+import { CheckoutPanel } from './billing/CheckoutPanel';
+import { PlanSheet } from './billing/PlanSheet';
 
 interface BillingPayload {
+  /** Absent or unavailable: no payment provider, members pay at reception. */
+  onlinePayment?: { available: boolean; provider: string | null; testMode: boolean };
   credits?: CreditAccount;
   receipts?: Array<{ id: string; amountLabel: string; method: string; settledAt: string }>;
   outstandingMinor: number;
@@ -52,6 +58,8 @@ const MEMBERSHIP_TONE: Record<string, Tone> = {
 };
 
 export default function BillingScreen() {
+  const checkout = useCheckout();
+  const [choosingPlan, setChoosingPlan] = useState(false);
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['billing'],
@@ -85,16 +93,29 @@ export default function BillingScreen() {
   }
 
   const outstanding = data.outstandingMinor;
+  const online = data.onlinePayment?.available === true;
+  const membershipState = data.membership?.state ?? null;
+  const canChoosePlan = online && (membershipState === null || membershipState === 'expired' || membershipState === 'cancelled');
 
   return (
     <ScreenBody>
       <Stack>
+        {checkout.state.phase !== 'idle' ? (
+          <CheckoutPanel state={checkout.state} onRetry={(target) => void checkout.pay(target)} onClose={checkout.reset} />
+        ) : null}
+
         <Panel tone={outstanding > 0 ? 'warn' : 'plain'}>
           <div className="p-4">
             <Label>Outstanding balance</Label>
             <div className="mt-1.5">
               <Metric value={data.outstandingLabel} size="lg" tone={outstanding > 0 ? 'warn' : 'good'} />
             </div>
+            {data.onlinePayment?.testMode ? (
+              <p className="mt-2.5 flex items-center gap-2 text-[12px] text-foam-65">
+                <Chip tone="warn">Test mode</Chip>
+                Online payments use Razorpay test mode. No real money moves.
+              </p>
+            ) : null}
           </div>
         </Panel>
 
@@ -114,14 +135,33 @@ export default function BillingScreen() {
               </div>
               {data.membership.state === 'pending_payment' ? (
                 <p className="text-[12px] leading-relaxed text-flare">
-                  This plan is not active yet. Pay at reception; it activates after staff record the full payment.
+                  {online
+                    ? 'This plan is not active yet. It starts as soon as its invoice below is paid, here or at reception.'
+                    : 'This plan is not active yet. Pay at reception; it activates after staff record the full payment.'}
                 </p>
               ) : null}
-              <p className="text-[12px] text-foam-45">Renew at reception. Automatic renewal and collection are not available.</p>
+              <p className="text-[12px] text-foam-45">
+                {online
+                  ? 'Renew here once this term has ended, or at reception. Automatic renewal and collection are not available.'
+                  : 'Renew at reception. Automatic renewal and collection are not available.'}
+              </p>
+              {canChoosePlan ? (
+                <Button variant="cta" size="md" className="mt-1 self-start" disabled={checkout.busy} onClick={() => setChoosingPlan(true)}>
+                  Renew
+                </Button>
+              ) : null}
             </div>
           </Panel>
         ) : (
-          <EmptyState title="No plan yet" body="Speak with the front desk to get started with a membership." />
+          <EmptyState
+            title="No plan yet"
+            body={online ? 'Choose a plan and pay for it here, or speak with the front desk.' : 'Speak with the front desk to get started with a membership.'}
+            action={canChoosePlan ? (
+              <Button variant="cta" size="md" disabled={checkout.busy} onClick={() => setChoosingPlan(true)}>
+                Choose a plan
+              </Button>
+            ) : undefined}
+          />
         )}
 
         <SectionRule>Invoices</SectionRule>
@@ -143,7 +183,20 @@ export default function BillingScreen() {
                     <span className="font-display text-[14px]">{inv.totalLabel}</span>
                   </div>
                 </div>
-                {inv.payable ? (
+                {inv.payable && online ? (
+                  <div className="mt-2.5 flex flex-wrap items-center gap-3">
+                    <Button
+                      variant="cta"
+                      size="md"
+                      disabled={checkout.busy}
+                      aria-label={`Pay ${inv.dueLabel} now for invoice ${inv.number}`}
+                      onClick={() => void checkout.pay({ kind: 'invoice', invoiceId: inv.id, label: `invoice ${inv.number}` })}
+                    >
+                      Pay {inv.dueLabel} now
+                    </Button>
+                    <span className="text-[12px] text-foam-65">or at reception</span>
+                  </div>
+                ) : inv.payable ? (
                   <p className="mt-2.5 text-[13px] text-foam-65">
                     Pay {inv.dueLabel} at reception. Online payment is unavailable.
                   </p>
@@ -183,6 +236,15 @@ export default function BillingScreen() {
           </div>)}</div></Panel>
         </> : null}
       </Stack>
+      {choosingPlan ? (
+        <PlanSheet
+          onClose={() => setChoosingPlan(false)}
+          onConfirm={(plan) => {
+            setChoosingPlan(false);
+            void checkout.pay({ kind: 'plan', productId: plan.productId, label: plan.name });
+          }}
+        />
+      ) : null}
     </ScreenBody>
   );
 }

@@ -14,6 +14,7 @@ export default {
     './src/db/schema/account-recovery.ts',
     './src/db/schema/payment-receipts.ts',
     './src/db/schema/invoice-tax-documents.ts',
+    './src/db/schema/payments.ts',
   ],
   out: '../../infrastructure/migrations',
   dialect: 'sqlite',
