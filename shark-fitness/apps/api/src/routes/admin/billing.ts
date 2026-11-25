@@ -3,18 +3,17 @@ import { taxDocumentKind } from '../../services/tax-invoice.js';
 import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { validate } from '../../middleware/validate.js';
-import { BillingCadence, ProductKind, RecordPaymentInput, type Product } from '@shark/contracts';
+import { BillingCadence, ProductKind } from '@shark/contracts';
 import { can, formatMoney, planSoldAt } from '@shark/domain';
-import { db, schema, transact } from '../../db/client.js';
+import { db, schema } from '../../db/client.js';
 import { ctxOf } from '../../middleware/index.js';
 import type { RequestContext } from '../../lib/context.js';
-import { branchScope, requireBranch, requirePermission } from '../../lib/context.js';
+import { branchScope, requirePermission } from '../../lib/context.js';
 import { audit } from '../../lib/audit.js';
-import { conflict, invalid, notFound, precondition } from '../../lib/errors.js';
+import { invalid, notFound, precondition } from '../../lib/errors.js';
 import { id } from '../../lib/ids.js';
-import { DAY, addDays, isoDate, now } from '../../lib/time.js';
-import { branchTimeZone } from '../../lib/branch-time.js';
-import { applyPaymentToInvoice, applyRefund, createInvoiceForProduct, loadInvoiceInScope } from '../../services/billing.js';
+import { DAY, now } from '../../lib/time.js';
+import { loadInvoiceInScope } from '../../services/billing.js';
 import { dunningForInvoice } from '../../services/dunning.js';
 
 export const billingRoutes = new Hono();
@@ -449,62 +448,6 @@ billingRoutes.get('/invoices/:invoiceId', (c) => {
   });
 });
 
-billingRoutes.post('/invoices/:invoiceId/payments', validate('json', RecordPaymentInput.omit({ invoiceId: true })), (c) => {
-  const ctx = ctxOf(c);
-  requirePermission(ctx, 'billing.record_payment');
-  const invoiceId = c.req.param('invoiceId');
-  const body = c.req.valid('json');
-  if (body.method === 'upi' && !body.reference?.trim()) throw invalid('A verified UPI transaction reference is required.');
-
-  loadInvoiceInScope(ctx, invoiceId);
-
-  const result = transact(() =>
-    applyPaymentToInvoice({
-      ctx,
-      invoiceId,
-      amountMinor: body.amountMinor,
-      method: body.method,
-      provider: null,
-      providerRef: body.reference ?? null,
-      idempotencyKey: body.idempotencyKey,
-      recordedByName: ctx.name,
-      note: body.note,
-    }),
-  );
-
-  return c.json(result);
-});
-
-const VoidBody = z.object({ reason: z.string().min(4) });
-
-billingRoutes.post('/invoices/:invoiceId/void', validate('json', VoidBody), (c) => {
-  const ctx = ctxOf(c);
-  requirePermission(ctx, 'billing.write_off');
-  const invoiceId = c.req.param('invoiceId');
-  const { reason } = c.req.valid('json');
-
-  const invoice = loadInvoiceInScope(ctx, invoiceId);
-  if (invoice.paidMinor > 0) throw precondition('This invoice already has payments recorded — refund them before voiding.');
-  if (invoice.voided) throw conflict('This invoice is already void.');
-
-  db.update(schema.invoices).set({ voided: true, voidReason: reason, state: 'void', updatedAt: now() }).where(eq(schema.invoices.id, invoiceId)).run();
-  audit(ctx, { action: 'invoice.voided', entityType: 'invoice', entityId: invoiceId, entityLabel: invoice.number, reason });
-
-  return c.json({ ok: true });
-});
-
-const RefundBody = z.object({ amountMinor: z.number().int().positive(), reason: z.string().min(4), entitlementReversed: z.boolean().default(false) });
-
-billingRoutes.post('/payments/:paymentId/refund', validate('json', RefundBody), (c) => {
-  const ctx = ctxOf(c);
-  requirePermission(ctx, 'billing.refund');
-  const paymentId = c.req.param('paymentId');
-  const body = c.req.valid('json');
-
-  const result = transact(() => applyRefund({ ctx, paymentId, amountMinor: body.amountMinor, reason: body.reason, entitlementReversed: body.entitlementReversed, actorName: ctx.name }));
-  return c.json(result);
-});
-
 // Historical provider/payment rows remain readable; simulation cannot mutate them.
 billingRoutes.post('/webhooks/demo', () => {
   throw precondition('Payment simulation is unavailable. Record only independently received funds at reception.');
@@ -553,81 +496,4 @@ billingRoutes.get('/dunning', (c) => {
         attempts: attempts.filter((a) => a.invoiceId === r.invoiceId).map((a) => ({ attempt: a.attempt, channel: a.channel, state: a.state })),
       })),
   });
-});
-
-/* — Plan assignment ————————————————————————————————————————————— */
-
-const AssignPlanBody = z.object({ productId: z.string() });
-
-billingRoutes.post('/members/:memberId/assign-plan', validate('json', AssignPlanBody), (c) => {
-  const ctx = ctxOf(c);
-  requirePermission(ctx, 'membership.manage');
-  const memberId = c.req.param('memberId');
-  const { productId } = c.req.valid('json');
-
-  const member = db.select().from(schema.members).where(and(eq(schema.members.id, memberId), eq(schema.members.tenantId, ctx.tenantId))).get();
-  if (!member) throw notFound('That member');
-  requireBranch(ctx, member.homeBranchId);
-
-  const product = db.select().from(schema.products).where(and(eq(schema.products.id, productId), eq(schema.products.tenantId, ctx.tenantId))).get();
-  if (!product) throw notFound('That product');
-  if (product.status !== 'active') throw invalid('That product is not published.');
-  if (!planSoldAt(product.access, member.homeBranchId)) {
-    throw invalid("That product is not available at this member's branch.");
-  }
-
-  const currentMembership = db
-    .select()
-    .from(schema.memberships)
-    .where(and(eq(schema.memberships.memberId, memberId), sql`${schema.memberships.state} not in ('cancelled','expired')`))
-    .get();
-  if (currentMembership) throw conflict('This member already has a plan. Cancel or let it expire before assigning a new one.');
-
-  const membershipId = id('msh');
-  let activated = false;
-
-  const result = transact(() => {
-    const startedOn = isoDate(now(), branchTimeZone(ctx.tenantId, member.homeBranchId));
-    db.insert(schema.memberships)
-      .values({
-        id: membershipId,
-        tenantId: ctx.tenantId,
-        memberId,
-        productId: product.id,
-        productName: product.name,
-        productSnapshot: product as unknown as Product,
-        state: 'pending_payment',
-        startedOn,
-        endsOn: product.durationDays ? addDays(startedOn, product.durationDays) : null,
-        autoRenew: false,
-        priceMinor: product.priceMinor,
-        currency: product.currency,
-        freezeDaysUsed: 0,
-        freezeStartedOn: null,
-        graceEndsOn: null,
-        cancelEffectiveOn: null,
-        previousMembershipId: null,
-        version: 1,
-        createdAt: now(),
-        updatedAt: now(),
-      })
-      .run();
-
-    const invoice = createInvoiceForProduct({ ctx, memberId, branchId: member.homeBranchId, product: product as unknown as Product, refType: 'membership', refId: membershipId });
-
-    if (invoice.state === 'paid') {
-      db.update(schema.memberships).set({ state: 'active', updatedAt: now() }).where(eq(schema.memberships.id, membershipId)).run();
-      db.insert(schema.membershipEvents)
-        .values({ id: id('mev'), tenantId: ctx.tenantId, membershipId, fromState: 'pending_payment', toState: 'active', reason: 'Zero-price product, activated immediately', actorId: ctx.userId, actorName: ctx.name, source: 'staff', effectiveAt: now() })
-        .run();
-      db.update(schema.members).set({ lifecycle: 'active', updatedAt: now() }).where(eq(schema.members.id, memberId)).run();
-      activated = true;
-    }
-
-    audit(ctx, { action: 'membership.assigned', entityType: 'member', entityId: memberId, entityLabel: member.memberNo, after: { productId: product.id, invoiceId: invoice.invoiceId } });
-
-    return invoice;
-  });
-
-  return c.json({ ok: true, membershipId, invoiceId: result.invoiceId, activated, totalMinor: result.totalMinor }, 201);
 });
