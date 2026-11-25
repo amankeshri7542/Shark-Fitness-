@@ -145,8 +145,8 @@ export default function TrainScreen() {
                     Ask for a plan
                   </Button>
                 </Link>
-                <Button variant="outline" size="sm" onClick={() => void navigate({ to: '/workout' })}>
-                  Log a session
+                <Button variant="outline" size="sm" onClick={() => void navigate({ to: '/workout', search: { mode: 'freestyle' } })}>
+                  Log a workout
                 </Button>
               </div>
             }
@@ -398,6 +398,9 @@ export default function TrainScreen() {
 
                 <Button variant="cta" size="lg" full className="mt-1.5" onClick={() => void navigate({ to: '/workout' })}>
                   {today.done ? 'Log another session' : copy('startSession')}
+                </Button>
+                <Button variant="ghost" size="md" full onClick={() => void navigate({ to: '/workout', search: { mode: 'freestyle' } })}>
+                  Log a workout of your own
                 </Button>
               </div>
             )}

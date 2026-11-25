@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from '@tanstack/react-router';
+import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import type { MuscleGroup } from '@shark/contracts';
 import { MUSCLE_LABEL, muscleShare, platesPerSide, sessionVolumeKg } from '@shark/domain';
@@ -8,6 +8,7 @@ import { enqueue, useOutboxCount } from '../lib/outbox';
 import { useOnline } from '../lib/realtime';
 import { type ActiveSet, useCopy, useWorkout } from '../lib/store';
 import { ScreenBody } from '../ui/shell';
+import { FreestylePicker, type LibraryExercise } from './workout/FreestylePicker';
 import {
   Bar,
   Button,
@@ -321,6 +322,8 @@ export default function WorkoutScreen() {
   const [lastLogged, setLastLogged] = useState<string | null>(null);
 
   const resuming = active.clientId !== null;
+  const search = useSearch({ strict: false }) as { mode?: string };
+  const freestyle = search.mode === 'freestyle';
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['training', 'plan'],
@@ -341,7 +344,7 @@ export default function WorkoutScreen() {
   /* Seed a new session from today's plan. Never touches a session already in
      progress — that is what makes the resume path safe. */
   useEffect(() => {
-    if (active.clientId || !data) return;
+    if (active.clientId || !data || freestyle) return;
     const day = todayOf(data);
     if (!day || day.isRest) return;
     const exercises = normaliseExercises(day);
@@ -386,7 +389,55 @@ export default function WorkoutScreen() {
       title: plan.title,
       sets: seedSets(exercises),
     });
-  }, [data, active.clientId]);
+  }, [data, active.clientId, freestyle]);
+
+  /* A session the member builds from the library (PF-WORK-004). It is an
+     ordinary session from here on: same logger, outbox, PRs, XP and summary;
+     it simply has no assignment or programme day behind it. */
+  const startFreestyle = useCallback((picked: LibraryExercise[]) => {
+    const exercises: SessionExercise[] = picked.map((exercise, index) => ({
+      orderIndex: index,
+      exerciseId: exercise.id,
+      exerciseName: exercise.name,
+      equipment: exercise.equipment,
+      usesBarbell: exercise.usesBarbell,
+      primaryMuscles: exercise.primaryMuscles,
+      secondaryMuscles: exercise.secondaryMuscles,
+      targetLabel: 'Your call · 3 sets to start',
+      tempo: null,
+      notes: null,
+      trainerLocked: false,
+      sets: [0, 1, 2].map((setIndex) => ({
+        setIndex,
+        targetWeightKg: exercise.lastPerformance?.weightKg ?? null,
+        repLow: exercise.lastPerformance?.reps ?? 10,
+        repHigh: exercise.lastPerformance?.reps ?? 10,
+        targetRpe: null,
+        restSec: exercise.defaultRestSec,
+        isWarmup: false,
+      })),
+      lastPerformance: exercise.lastPerformance,
+      allowedSubstitutions: [],
+    }));
+    const clientId = crypto.randomUUID();
+    const plan: SessionPlan = {
+      clientId,
+      title: 'Freestyle workout',
+      assignmentId: null,
+      programDayId: null,
+      branchId: null,
+      startedAt: Date.now(),
+      pausedMs: 0,
+      pausedAt: null,
+      exercises,
+      substitutions: [],
+      adaptive: null,
+      adaptiveDecision: 'pending',
+    };
+    writeJson(PLAN_KEY, plan);
+    setSession(plan);
+    useWorkout.getState().start({ clientId, assignmentId: null, programDayId: null, title: plan.title, sets: seedSets(exercises) });
+  }, []);
 
   /* The coach republished mid-session. Say so; change nothing (PF-WORK-003). */
   useEffect(() => {
@@ -668,6 +719,17 @@ export default function WorkoutScreen() {
 
   /* — States ————————————————————————————————————————————— */
 
+  // Building a session needs no plan, and must not wait for one.
+  if (!resuming && !session && freestyle) {
+    return (
+      <Shell>
+        <ScreenBody>
+          <FreestylePicker onStart={startFreestyle} onCancel={() => void navigate({ to: '/train' })} />
+        </ScreenBody>
+      </Shell>
+    );
+  }
+
   if (!resuming && isLoading) return <WorkoutSkeleton />;
 
   if (!resuming && (error || !data)) {
@@ -708,8 +770,8 @@ export default function WorkoutScreen() {
                   : 'No coach has written today. You can still build a session from the exercise library and log it here.'
               }
               action={
-                <Button variant="cta" onClick={() => void navigate({ to: '/train' })}>
-                  Open the plan
+                <Button variant="cta" onClick={() => void navigate({ to: '/workout', search: { mode: 'freestyle' } })}>
+                  Log a workout
                 </Button>
               }
             />

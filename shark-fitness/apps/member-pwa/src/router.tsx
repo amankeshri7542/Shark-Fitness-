@@ -132,7 +132,13 @@ const notificationsRoute = createRoute({
 });
 
 const passRoute = createRoute({ getParentRoute: () => bareRoute, path: '/pass', component: PassScreen });
-const workoutRoute = createRoute({ getParentRoute: () => bareRoute, path: '/workout', component: WorkoutScreen });
+const workoutRoute = createRoute({
+  getParentRoute: () => bareRoute,
+  path: '/workout',
+  component: WorkoutScreen,
+  // `mode=freestyle`: build a session from the library instead of today's plan (P05).
+  validateSearch: (search: Record<string, unknown>): { mode?: 'freestyle' } => (search.mode === 'freestyle' ? { mode: 'freestyle' } : {}),
+});
 const summaryRoute = createRoute({
   getParentRoute: () => bareRoute,
   path: '/workout/summary/$workoutId',
