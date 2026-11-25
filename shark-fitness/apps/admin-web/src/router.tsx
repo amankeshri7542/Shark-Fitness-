@@ -42,6 +42,7 @@ const InboxScreen = lazyRouteComponent(() => import('./screens/Inbox'));
 const CommunityScreen = lazyRouteComponent(() => import('./screens/Community'));
 const TasksScreen = lazyRouteComponent(() => import('./screens/Tasks'));
 const CoachingScreen = lazyRouteComponent(() => import('./screens/Coaching'));
+const MarketingScreen = lazyRouteComponent(() => import('./screens/Marketing'));
 
 /** Shown while a screen chunk is in flight, inside the console shell so the
  *  rail and status strip stay put instead of the pane going blank. */
@@ -345,6 +346,7 @@ const coachingRoute = createRoute({
   validateSearch: (search: Record<string, unknown>): { member?: string } =>
     typeof search.member === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(search.member) ? { member: search.member } : {},
 });
+const marketingRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/marketing', component: MarketingScreen });
 const communityRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/community', component: CommunityScreen });
 
 /** Your own sign-in: two-step and devices. Every role can open it. */
@@ -378,6 +380,7 @@ const routeTree = rootRoute.addChildren([
     communityRoute,
     tasksRoute,
     coachingRoute,
+    marketingRoute,
   ]),
 ]);
 
