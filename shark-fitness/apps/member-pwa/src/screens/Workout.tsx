@@ -307,7 +307,7 @@ function clock(totalSec: number): string {
 /* — Screen ————————————————————————————————————————————————— */
 
 export default function WorkoutScreen() {
-  const copy = useCopy();
+  const copy = useCopy('workout');
   const navigate = useNavigate();
   const online = useOnline();
   const queued = useOutboxCount();

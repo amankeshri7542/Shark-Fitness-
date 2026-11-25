@@ -109,6 +109,8 @@ export const DENIAL_COPY: Record<Exclude<AccessDecision, 'granted'>, string> = {
   denied_anti_passback: 'You checked in moments ago. Ask reception if this looks wrong.',
   denied_token_invalid: 'This code has expired. Open the app to show a fresh one.',
   denied_token_replayed: 'This code has already been used. Open the app for a new one.',
+  denied_token_expired: 'This code has expired. Open the app to show a fresh one.',
+  denied_wrong_tenant: 'This pass belongs to a different gym.',
 };
 
 export function occupancyLabel(inside: number, capacity: number): 'quiet' | 'steady' | 'busy' | 'peak' {

@@ -67,7 +67,7 @@ interface Records {
 }
 
 export default function ProgressScreen() {
-  const copy = useCopy();
+  const copy = useCopy('progress');
   const [region, setRegion] = useState<string>('chest');
 
   const progress = useQuery({

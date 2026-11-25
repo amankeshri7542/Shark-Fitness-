@@ -174,6 +174,8 @@ export const AccessDecision = z.enum([
   'denied_anti_passback',
   'denied_token_invalid',
   'denied_token_replayed',
+  'denied_token_expired',
+  'denied_wrong_tenant',
 ]);
 export type AccessDecision = z.infer<typeof AccessDecision>;
 

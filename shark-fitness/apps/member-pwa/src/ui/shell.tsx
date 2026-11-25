@@ -22,7 +22,7 @@ const NAV = [
 ] as const;
 
 export function BottomNav() {
-  const copy = useCopy();
+  const copy = useCopy('shell');
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
   return (

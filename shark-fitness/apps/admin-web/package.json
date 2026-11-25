@@ -16,6 +16,7 @@
     "@shark/domain": "workspace:*",
     "@tanstack/react-query": "5.64.2",
     "@tanstack/react-router": "1.97.3",
+    "jsqr": "1.4.0",
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "zod": "3.24.1",

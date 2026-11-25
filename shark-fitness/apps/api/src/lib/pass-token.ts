@@ -58,7 +58,12 @@ export function issuePassBatch(
 export function verifyPassToken(
   raw: string,
   epochSeconds = Math.floor(Date.now() / 1000),
-): { valid: true; payload: PassTokenPayload } | { valid: false; reason: 'malformed' | 'signature' | 'expired' } {
+):
+  | { valid: true; payload: PassTokenPayload }
+  | { valid: false; reason: 'malformed' | 'signature' }
+  // The signature held, so the payload is genuine: the caller may say whose
+  // stale code it was, which is what lets the desk tell "expired" from "forged".
+  | { valid: false; reason: 'expired'; payload: PassTokenPayload } {
   const [encoded, suppliedSignature, extra] = raw.split('.');
   if (!encoded || !suppliedSignature || extra || raw.length > 4096) {
     return { valid: false, reason: 'malformed' };
@@ -90,7 +95,7 @@ export function verifyPassToken(
 
   const currentWindow = Math.floor(epochSeconds / PASS_WINDOW_SECONDS);
   if (payload.window < currentWindow - MAX_CLOCK_SKEW_WINDOWS || payload.window > currentWindow + MAX_CLOCK_SKEW_WINDOWS) {
-    return { valid: false, reason: 'expired' };
+    return { valid: false, reason: 'expired', payload };
   }
 
   return { valid: true, payload };

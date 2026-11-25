@@ -93,7 +93,7 @@ interface PlanPayload {
 }
 
 export default function TrainScreen() {
-  const copy = useCopy();
+  const copy = useCopy('train');
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 

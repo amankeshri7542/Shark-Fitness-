@@ -85,7 +85,7 @@ interface HomePayload {
 const rupees = (minor: number): string => `₹${(minor / 100).toLocaleString('en-IN')}`;
 
 export default function HomeScreen() {
-  const copy = useCopy();
+  const copy = useCopy('home');
   const navigate = useNavigate();
 
   const { data, isLoading, error, refetch } = useQuery({

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { Branch, Viewer } from '@shark/contracts';
-import { PREDATOR_COPY, type CopyKey, type Register, registerFor } from '@shark/design-tokens';
+import { forgetPassCards } from './pass';
+import { PREDATOR_COPY, type CopyKey, type CopySurface, type Register, registerFor } from '@shark/design-tokens';
 import { api, auth } from './api';
 
 interface SessionState {
@@ -65,6 +66,7 @@ export const useSession = create<SessionState>((set, get) => ({
       /* signing out locally matters more than the round trip succeeding */
     }
     auth.clear();
+    forgetPassCards();
     set({ viewer: null, branches: [], activeBranchId: null, status: 'signed-out' });
     void get;
   },
@@ -83,8 +85,13 @@ export function useActiveBranch(): Branch | null {
  * the plain register is forced regardless of preference. See the note in
  * packages/design-tokens/src/tone.ts.
  */
-export function useCopy(surface?: string): (key: CopyKey) => string {
+export function useCopy(surface: CopySurface): (key: CopyKey) => string {
   const preference = (useSession((s) => s.viewer?.preferences.register) ?? 'predator') as Register;
+  return copyFor(preference, surface);
+}
+
+/** The pure half of `useCopy`, so the plain-only rule is testable without React. */
+export function copyFor(preference: Register, surface: CopySurface): (key: CopyKey) => string {
   const register = registerFor(preference, surface);
   return (key: CopyKey) => PREDATOR_COPY[key][register];
 }
