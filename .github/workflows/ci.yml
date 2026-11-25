@@ -140,15 +140,15 @@ jobs:
           admin_js="$(find apps/admin-web/dist/assets -maxdepth 1 -type f -name '*.js' | head -n 1)"
           test -n "$member_css" && test -n "$member_js" && test -n "$admin_css" && test -n "$admin_js"
 
-          assert_asset "/assets/$(basename "$member_css")" 'text/css'
-          assert_asset "/assets/$(basename "$member_js")" 'javascript'
+          assert_asset "/app/assets/$(basename "$member_css")" 'text/css'
+          assert_asset "/app/assets/$(basename "$member_js")" 'javascript'
           assert_asset "/admin/assets/$(basename "$admin_css")" 'text/css'
           assert_asset "/admin/assets/$(basename "$admin_js")" 'javascript'
-          assert_asset '/registerSW.js' 'javascript'
+          assert_asset '/app/sw.js' 'javascript'
 
-          curl -fsS http://127.0.0.1:8787/manifest.webmanifest \
+          curl -fsS http://127.0.0.1:8787/app/manifest.webmanifest \
             | node -e "let s='';process.stdin.on('data',c=>s+=c);process.stdin.on('end',()=>JSON.parse(s))"
-          curl -fsS http://127.0.0.1:8787/ | grep -q '/assets/'
+          curl -fsS http://127.0.0.1:8787/app/ | grep -q '/app/assets/'
           curl -fsS http://127.0.0.1:8787/admin/ | grep -q '/admin/assets/'
 
           admin_headers="$(mktemp)"
@@ -158,7 +158,7 @@ jobs:
           grep -qi '^cache-control: .*no-store' "$admin_headers"
           grep -qi '^cache-control: .*immutable' "$asset_headers"
           test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8787/admin/assets/definitely-missing.js)" = '404'
-          test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8787/assets/definitely-missing.js)" = '404'
+          test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8787/app/assets/definitely-missing.js)" = '404'
 
           chrome_bin="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser || true)"
           if [ -z "$chrome_bin" ]; then
@@ -349,18 +349,18 @@ jobs:
           grep -q '"release":"ci-image-smoke"' /tmp/ready.json
 
           # Both single-origin apps must be served by the one container.
-          curl -fsS http://127.0.0.1:8787/ | grep -q '/assets/'
+          curl -fsS http://127.0.0.1:8787/app/ | grep -q '/app/assets/'
           curl -fsS http://127.0.0.1:8787/admin/ | grep -q '/admin/assets/'
 
           # A hashed asset must never come back as the SPA HTML fallback.
-          asset="$(curl -fsS http://127.0.0.1:8787/ | grep -o '/assets/[^"]*\.js' | head -n 1)"
+          asset="$(curl -fsS http://127.0.0.1:8787/app/ | grep -o '/app/assets/[^"]*\.js' | head -n 1)"
           test -n "$asset"
           headers="$(mktemp)"
           curl -fsS -D "$headers" -o /tmp/asset.js "http://127.0.0.1:8787${asset}"
           grep -qi '^content-type: .*javascript' "$headers"
           ! head -c 256 /tmp/asset.js | grep -Eqi '<!doctype html|<html'
 
-          test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8787/assets/missing.js)" = '404'
+          test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8787/app/assets/missing.js)" = '404'
 
           # The seeded demo has to be usable, not just reachable.
           code="$(curl -sS -o /tmp/signin.json -w '%{http_code}' \

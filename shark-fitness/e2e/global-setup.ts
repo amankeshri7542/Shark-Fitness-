@@ -23,7 +23,9 @@ export default async function globalSetup(): Promise<void> {
   const tempDir = mkdtempSync(join(tmpdir(), 'shark-e2e-'));
   try {
     const database = join(tempDir, 'shark.db');
-    const port = await freePort();
+    // A fixed port when the caller needs one (shared machines, firewalls);
+    // otherwise any free port.
+    const port = process.env.SHARK_E2E_PORT ? Number(process.env.SHARK_E2E_PORT) : await freePort();
     const baseURL = `http://127.0.0.1:${port}`;
     const serverLog = join(tempDir, 'server.log');
     // Only what the server needs: nothing inherited from the developer's shell

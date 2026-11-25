@@ -8,6 +8,7 @@ import { flushErrorReports, initializeErrorReporting } from './lib/error-reporti
 import { log } from './lib/observability.js';
 import { installProcessHandlers } from './lib/process-handlers.js';
 import { otpSenders } from './services/otp-delivery.js';
+import { mountRootPlaceholder } from './lib/root-placeholder.js';
 
 // Configuration must fail before importing the application graph: those
 // modules open the database and register static/runtime integrations.
@@ -51,16 +52,17 @@ if (runtimeConfig.serveStatic) {
     else noStore(c);
     await next();
   });
-  app.use('/assets/*', async (c, next) => {
-    immutable(c);
+  // The member app lives under /app/ (PHASE-PLAN decision 4). Its worker is
+  // scoped to /app/, so it never sees the console or the API.
+  app.use('/app/*', async (c, next) => {
+    if (c.req.path.startsWith('/app/assets/')) immutable(c);
+    else noStore(c);
     await next();
   });
-  for (const path of ['/', '/sw.js', '/registerSW.js', '/manifest.webmanifest'] as const) {
-    app.use(path, async (c, next) => {
-      noStore(c);
-      await next();
-    });
-  }
+  app.get('/app', (c) => {
+    noStore(c);
+    return c.redirect('/app/');
+  });
 
   app.get('/admin', (c) => {
     noStore(c);
@@ -81,13 +83,20 @@ if (runtimeConfig.serveStatic) {
     return c.html(await readFile(resolve(adminDist, 'index.html'), 'utf8'));
   });
 
-  app.use('/*', serveStatic({ root: memberRoot }));
-  app.get('/assets/*', (c) => c.notFound());
-  app.get('*', async (c) => {
-    if (c.req.path.startsWith('/v1/')) return c.notFound();
+  app.use(
+    '/app/*',
+    serveStatic({
+      root: memberRoot,
+      rewriteRequestPath: (path) => path.replace(/^\/app/, '') || '/',
+    }),
+  );
+  app.get('/app/assets/*', (c) => c.notFound());
+  app.get('/app/*', async (c) => {
     noStore(c);
     return c.html(await readFile(resolve(memberDist, 'index.html'), 'utf8'));
   });
+
+  mountRootPlaceholder(app, noStore);
 }
 
 // Fail at boot, not on the first member sign-in, if OTP delivery is misconfigured.

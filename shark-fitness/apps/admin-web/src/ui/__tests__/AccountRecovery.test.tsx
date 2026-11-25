@@ -27,7 +27,7 @@ it('requires explicit identity verification, reason and owner password, then cle
   fireEvent.click(issue);
   const link = await screen.findByLabelText('Private recovery link');
   expect(apiMock).toHaveBeenCalledWith('/auth/recovery/issue', { method: 'POST', body: { memberId: 'member', staffId: undefined, currentPassword: 'synthetic-owner-password', identityVerified: true, reason: 'Verified against gym records.' } });
-  expect((link as HTMLInputElement).value).toContain('/sign-in#recoveryId=synthetic&recoveryToken=synthetic-private-token&gym=gym');
+  expect((link as HTMLInputElement).value).toContain('/app/sign-in#recoveryId=synthetic&recoveryToken=synthetic-private-token&gym=gym');
   expect(screen.getByLabelText('Your current owner password')).toHaveValue('');
   expect(screen.getByRole('checkbox')).not.toBeChecked();
   fireEvent.click(screen.getByRole('button', { name: 'Hide recovery link' }));

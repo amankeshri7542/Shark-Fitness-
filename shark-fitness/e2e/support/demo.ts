@@ -17,7 +17,7 @@ export async function signInToConsole(page: Page): Promise<void> {
 }
 
 export async function signInToMemberApp(page: Page): Promise<void> {
-  await page.goto('/');
+  await page.goto('/app/');
   await page.getByLabel('Gym code').fill(DEMO.gym);
   await page.getByLabel('Email').fill(DEMO.member.email);
   await page.getByLabel('Password').fill(DEMO.member.password);

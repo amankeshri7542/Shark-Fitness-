@@ -4,6 +4,7 @@ import { LiveDot, Scanlines, cx } from './primitives';
 import { useCopy, useViewer } from '../lib/store';
 import { useConnection } from '../lib/realtime';
 import { useOutboxCount } from '../lib/outbox';
+import { appPath } from '../lib/paths';
 
 /* The five nav marks from the prototype, kept as clip-paths so they stay
    crisp at any density and tint with a single colour. */
@@ -23,7 +24,7 @@ const NAV = [
 
 export function BottomNav() {
   const copy = useCopy();
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const pathname = appPath(useRouterState({ select: (s) => s.location.pathname }));
 
   return (
     <nav

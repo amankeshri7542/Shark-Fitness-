@@ -5,6 +5,9 @@ import { VitePWA } from 'vite-plugin-pwa';
 import { fileURLToPath } from 'node:url';
 
 export default defineConfig({
+  // The member app lives under /app/ (PHASE-PLAN decision 4): the public
+  // website owns /, the console owns /admin/.
+  base: '/app/',
   plugins: [
     react(),
     tailwind(),
@@ -19,7 +22,9 @@ export default defineConfig({
         background_color: '#04080b',
         display: 'standalone',
         orientation: 'portrait',
-        start_url: '/',
+        id: '/app/',
+        scope: '/app/',
+        start_url: '/app/?source=pwa',
         icons: [
           { src: 'favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' },
         ],
@@ -29,7 +34,7 @@ export default defineConfig({
         // The app shell is cached so a workout screen opens with no network.
         // API responses are never cached here — the outbox owns offline writes
         // and stale reads during a workout would be worse than none.
-        navigateFallback: '/index.html',
+        navigateFallback: '/app/index.html',
         // Member and admin are two separate SPAs on the same origin. The member
         // worker is rooted at `/`, so without an explicit deny-list Workbox can
         // answer `/admin/*` with the member app shell (or a stale cached shell).

@@ -17,6 +17,7 @@ import { useActiveBranch, useSession } from './lib/store';
 // or touched, so navigation still feels immediate.
 import SignInScreen from './screens/SignIn';
 import { RecoveryScreen } from './ui/ErrorBoundary';
+import { APP_BASE } from './lib/paths';
 
 const HomeScreen = lazyRouteComponent(() => import('./screens/Home'));
 const PassScreen = lazyRouteComponent(() => import('./screens/Pass'));
@@ -162,6 +163,7 @@ const routeTree = rootRoute.addChildren([
 
 export const router = createRouter({
   routeTree,
+  basepath: APP_BASE,
   defaultPreload: 'intent',
   defaultPendingComponent: RoutePending,
   // A screen that throws while rendering or loading shows the recovery panel
