@@ -1,3 +1,4 @@
+import { api } from './api';
 import { describeUnsynced, discardAllFor, pendingFor, stopOutbox } from './outbox';
 import { deleteSnapshot, ownerOf, rememberLastOwner } from './persisted-cache';
 import { forgetPushOnSignOut } from './push';
@@ -36,6 +37,28 @@ export async function signOutAndWipe(options: { notice?: string } = {}): Promise
   } finally {
     useSession.setState({ leaving: false, notice: options.notice ?? null });
   }
+}
+
+/**
+ * "Request deletion": the server locks the account and revokes every session,
+ * and the copy says this phone is signed out, so it is, with the same wipe.
+ * Push goes first, while the session can still remove it. From the request on
+ * the session counts as leaving: a 401 from any other request racing the
+ * wipe must not turn this into "Your session ended" and skip the wipe.
+ */
+export async function requestDeletionAndSignOut(): Promise<void> {
+  const viewer = useSession.getState().viewer;
+  if (!viewer) return;
+  await forgetPushOnSignOut(ownerOf(viewer));
+  useSession.setState({ leaving: true });
+  let message: string;
+  try {
+    ({ message } = await api<{ message: string }>('/me/deletion-request', { method: 'POST', body: {} }));
+  } catch (error) {
+    useSession.setState({ leaving: false });
+    throw error;
+  }
+  await signOutAndWipe({ notice: message });
 }
 
 /** What signing out now would throw away, in words, or null. */

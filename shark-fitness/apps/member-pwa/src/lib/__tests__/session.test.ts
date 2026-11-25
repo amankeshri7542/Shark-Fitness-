@@ -8,7 +8,7 @@ vi.mock('../api', async (original) => ({ ...(await original<typeof import('../ap
 import { describeUnsynced, enqueue, pendingFor, startOutbox, stopOutbox } from '../outbox';
 import { lastOwner, ownerOf, rememberLastOwner, saveSnapshot, snapshotOwners } from '../persisted-cache';
 import { queryClient } from '../query-client';
-import { signOutAndWipe, unsyncedWarning } from '../session';
+import { requestDeletionAndSignOut, signOutAndWipe, unsyncedWarning } from '../session';
 import { takeReturnRoute, useSession, useWorkout } from '../store';
 import { ApiError } from '../api';
 
@@ -99,6 +99,42 @@ describe('sign-out', () => {
     expect(useWorkout.getState().clientId).toBeNull();
     // A device preference, not personal data: the next sign-in screen keeps it.
     expect(localStorage.getItem('shark.member.theme')).toBe('light');
+  });
+});
+
+describe('deletion request', () => {
+  it('signs out with the full wipe even when another request hits the revoked session first', async () => {
+    startOutbox(OWNER);
+    await enqueue({ clientId: 'set-1', kind: 'workout-set', method: 'POST', path: '/member/training/workouts', body: {} });
+    localStorage.setItem('shark.workout', '{"clientId":"w1"}');
+    rememberLastOwner(OWNER);
+    send.mockImplementation((path: string) => {
+      if (path === '/me/deletion-request') {
+        // The server has revoked every session; a background refetch gets
+        // its 401 before the wipe starts.
+        useSession.getState().expire();
+        return Promise.resolve({ message: 'Your request is recorded. You are signed out.' });
+      }
+      return Promise.resolve(undefined);
+    });
+
+    await requestDeletionAndSignOut();
+
+    expect(useSession.getState()).toMatchObject({
+      status: 'signed-out',
+      sessionEnded: false,
+      leaving: false,
+      notice: 'Your request is recorded. You are signed out.',
+    });
+    expect(await pendingFor(OWNER)).toEqual([]);
+    expect(lastOwner()).toBeNull();
+    expect(Object.keys(localStorage).filter((k) => k.startsWith('shark.workout'))).toEqual([]);
+  });
+
+  it('stays signed in, and not stuck leaving, when the request fails', async () => {
+    send.mockRejectedValue(new ApiError(500, { error: { code: 'INTERNAL', message: 'x', requestId: 'r' } }));
+    await expect(requestDeletionAndSignOut()).rejects.toBeInstanceOf(ApiError);
+    expect(useSession.getState()).toMatchObject({ status: 'signed-in', leaving: false });
   });
 });
 

@@ -7,9 +7,7 @@ import { ScreenBody, Stack } from '../ui/shell';
 import { MoreMenu } from '../ui/MoreMenu';
 import { PushSettings } from '../ui/PushSettings';
 import { SignOutPanel } from '../ui/SignOut';
-import { forgetPushOnSignOut } from '../lib/push';
-import { ownerOf } from '../lib/persisted-cache';
-import { signOutAndWipe } from '../lib/session';
+import { requestDeletionAndSignOut } from '../lib/session';
 import { useNavigate } from '@tanstack/react-router';
 import {
   Button,
@@ -122,18 +120,14 @@ export default function ProfileScreen() {
   });
 
   // The server locks the account and revokes every session, and the copy
-  // says this phone is signed out: so it is, with the same wipe as Sign out.
-  // Push goes first, while the session can still remove it.
+  // says this phone is signed out: so it is, with the same wipe as Sign out
+  // (lib/session.ts requestDeletionAndSignOut).
   const navigate = useNavigate();
   const requestDeletion = useMutation({
-    mutationFn: async () => {
-      if (viewer) await forgetPushOnSignOut(ownerOf(viewer));
-      return api<{ message: string }>('/me/deletion-request', { method: 'POST', body: {} });
-    },
-    onSuccess: async (r) => {
+    mutationFn: requestDeletionAndSignOut,
+    onSuccess: async () => {
       setError(null);
       setConfirmDelete(false);
-      await signOutAndWipe({ notice: r.message });
       await navigate({ to: '/sign-in' });
     },
     onError: fail,
