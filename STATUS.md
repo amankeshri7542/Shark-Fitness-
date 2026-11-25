@@ -5,7 +5,7 @@ Concurrency cap: 4 Shark sessions (and at most 6 `claude -p` processes on the bo
 
 Runner: `/workspace/shark-fitness-orchestration/runner.py`, log `/workspace/shark-fitness-orchestration/logs/runner.log`, per-session logs `/workspace/shark-fitness-orchestration/logs/<tag>-<n>.json`. Worktrees: `/workspace/sf-wt/<ID>` (P01: `/workspace/shark-fitness-repo`).
 Backups on origin: `phase/*` and `integration/*` branches (pushed after every commit), orchestration state on `orchestration/state`.
-Last pushes: {"phase/P01-prod-readiness": "128aec1 at 2026-11-25 09:37 IST", "phase/P02-payments-razorpay": "7309e70 at 2026-11-25 09:48 IST", "phase/P06-staff-security": "128aec1 at 2026-11-25 09:42 IST", "phase/P04-member-mobile-app": "84b7e26 at 2026-11-25 09:48 IST"}
+Last pushes: {"phase/P01-prod-readiness": "dccb696 at 2026-11-25 09:48 IST", "phase/P02-payments-razorpay": "7309e70 at 2026-11-25 09:48 IST", "phase/P06-staff-security": "128aec1 at 2026-11-25 09:42 IST", "phase/P04-member-mobile-app": "84b7e26 at 2026-11-25 09:48 IST"}
 
 ## Nodes
 | Node | Title | State | Branch | Base | PR | Checks (runner-verified) | Notes |
@@ -31,7 +31,7 @@ Last pushes: {"phase/P01-prod-readiness": "128aec1 at 2026-11-25 09:37 IST", "ph
 | P01 | P01-review | 81529 | 2026-11-25 09:47 IST | 2026-11-25 09:43 IST |
 | P02 | P02-impl | 72130 | 2026-11-25 09:47 IST | 2026-11-25 09:40 IST |
 | P06 | P06-impl | 73460 | 2026-11-25 09:47 IST | 2026-11-25 09:41 IST |
-| P04 | P04-impl | 73650 | 2026-11-25 09:46 IST | 2026-11-25 09:41 IST |
+| P04 | P04-impl | 73650 | 2026-11-25 09:48 IST | 2026-11-25 09:41 IST |
 
 ## Blockers / waiting
 - none
