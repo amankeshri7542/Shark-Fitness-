@@ -815,6 +815,11 @@ export function applyErasure(ctx: RequestContext, requestId: string): ErasureRes
       .where(and(eq(schema.sessions.userId, request.subjectUserId), isNull(schema.sessions.revokedAt)))
       .run();
 
+    // Nor keep a phone that receives their notifications, or pushes waiting
+    // to be sent with their name in them.
+    db.delete(schema.pushSubscriptions).where(eq(schema.pushSubscriptions.userId, request.subjectUserId)).run();
+    db.delete(schema.pushDeliveries).where(eq(schema.pushDeliveries.userId, request.subjectUserId)).run();
+
     db.update(schema.privacyRequests)
       .set({
         state: 'completed',

@@ -10,6 +10,8 @@ import { pruneOperationalData } from '../services/maintenance.js';
 import { expireChallengeInvitations } from '../services/engagement-admin.js';
 import { extendActiveSeries } from '../services/schedule-series.js';
 import { runDueDunning } from '../services/dunning.js';
+import { deliverDuePushes } from '../services/notifications.js';
+import { pushConfigured } from '../services/push.js';
 import { rollUpCompletedDays } from '../services/reports.js';
 import { DAY, HOUR, MINUTE, addDays, isoDate, localClockOnDay, localDayIndex, now, startOfLocalDay } from '../lib/time.js';
 import { id } from '../lib/ids.js';
@@ -195,6 +197,16 @@ function deliverQueuedAutomations(): JobSummary {
   return safeSummary(result);
 }
 
+/** Sends due push notifications (quiet-hours deferrals, retries, anything a
+ *  restart interrupted). New pushes are also sent the moment they are queued.
+ *  Sending is network I/O, so it runs after this tick returns; a failure is
+ *  reported under this job's name. */
+function sweepPushQueue(): { configured: boolean } {
+  if (!pushConfigured()) return { configured: false };
+  void deliverDuePushes().catch((err: unknown) => reportException(err, { job: 'deliver-push-queue', source: 'scheduler' }));
+  return { configured: true };
+}
+
 /** Advance every dunning step that is due.
  *
  *  Re-entrant: each step is claimed by a conditional update before any work
@@ -237,6 +249,7 @@ function pruneOperationalRows(): JobSummary {
 
 const JOBS: Job[] = [
   { name: 'deliver-automation-queue', everyMs: MINUTE, run: deliverQueuedAutomations },
+  { name: 'deliver-push-queue', everyMs: MINUTE, run: sweepPushQueue },
   { name: 'run-automations', everyMs: HOUR, run: runAutomations },
   { name: 'expire-memberships', everyMs: 6 * HOUR, run: expireMemberships },
   { name: 'roll-up-metrics', everyMs: 6 * HOUR, run: rollUpMetrics },

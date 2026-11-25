@@ -90,6 +90,7 @@ const CONSENT_CATALOGUE = [
   { purpose: 'progress_photos', required: false, description: 'Store progress photos for you' },
   { purpose: 'health_data', required: false, description: 'Import steps and sleep from your phone' },
   { purpose: 'community_visibility', required: false, description: 'Show your name on gym leaderboards' },
+  { purpose: 'push_notifications', required: false, description: 'Notifications on your phone about classes, bookings, messages and payments' },
 ] as const;
 
 meRoutes.get('/consents', (c) => {

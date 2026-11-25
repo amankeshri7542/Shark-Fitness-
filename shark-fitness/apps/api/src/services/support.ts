@@ -41,6 +41,7 @@ import { branchScope, requireBranch, requirePermission } from '../lib/context.js
 import { conflict, invalid, notFound, precondition } from '../lib/errors.js';
 import { emit } from '../lib/events.js';
 import { id } from '../lib/ids.js';
+import { notifyNewMessage } from './notifications.js';
 import { isoDate, localMinutes, now } from '../lib/time.js';
 import { loadMemberInScope, memberBranchIds } from './members.js';
 
@@ -922,6 +923,17 @@ export function replyToTicket(ctx: RequestContext, ticketId: string, input: Tick
         topic: 'message.created',
         payload: { conversationId: conversation!.id, messageId, ticketId: ticket.id, reference: ticket.reference },
       });
+      notifyNewMessage(
+        {
+          tenantId: ctx.tenantId,
+          memberId: ticket.memberId!,
+          branchId: ticket.branchId,
+          conversationId: conversation!.id,
+          messageId,
+          senderName: ctx.name,
+        },
+        at,
+      );
       emitTicketUpdated(
         ctx,
         {

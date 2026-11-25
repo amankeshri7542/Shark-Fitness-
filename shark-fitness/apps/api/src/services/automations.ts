@@ -22,6 +22,7 @@ import { db, schema, transact } from '../db/client.js';
 import { audit } from '../lib/audit.js';
 import { conflict, invalid, notFound, precondition } from '../lib/errors.js';
 import { id } from '../lib/ids.js';
+import { notifyUser } from './notifications.js';
 import { branchPolicy } from '../lib/policy.js';
 import {
   DAY,
@@ -961,27 +962,29 @@ function processDelivery(deliveryId: string, atMs: number): { outcome: Execution
       return { outcome: 'suppressed', reason: disposition.reason };
     }
 
-    const notificationId = id('ntf');
     const current = delivery;
+    // The class reminder (trigger class.tomorrow) is also pushed to the
+    // member's phone when they have push on; it opens Book.
+    const reminder = db
+      .select({ trigger: schema.automations.trigger })
+      .from(schema.automations)
+      .where(eq(schema.automations.id, current.automationId))
+      .get()?.trigger === 'class.tomorrow';
     transact(() => {
-      db.insert(schema.notifications)
-        .values({
-          id: notificationId,
+      const notificationId = notifyUser(
+        {
           tenantId: current.tenantId,
           userId: current.userId,
-          channel: 'in_app',
+          branchId: current.branchId,
           kind: 'automation',
           title: current.title,
           body: current.body,
-          link: null,
+          link: reminder ? '/book' : null,
           templateCode: current.templateCode,
-          state: 'sent',
-          attempts: current.attempts,
-          lastError: null,
-          createdAt: atMs,
-          readAt: null,
-        })
-        .run();
+          ...(reminder ? { push: { category: 'class_reminder' as const, dedupeKey: `automation:${current.id}` } } : {}),
+        },
+        atMs,
+      );
       finishDelivery(deliveryId, 'sent', '', atMs, notificationId);
     });
     return { outcome: 'sent', reason: '' };

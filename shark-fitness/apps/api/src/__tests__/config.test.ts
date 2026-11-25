@@ -366,3 +366,64 @@ describe('environment variable inventory', () => {
     expect(RUNTIME_ENV_KEYS.filter((key) => !documented.has(key))).toEqual([]);
   });
 });
+
+describe('web push and Android app links configuration', () => {
+  const PUBLIC = 'BAQenkvqVtXvVxiX9KyqR5kCY5ie5dDK54FMIXJIdEvAqV4yF6-A3kJAKZA8_6UXuJCXWFhl3KznxMYlzPOUybg';
+  // Test-only pair generated for this file; it signs nothing anywhere.
+  const PRIVATE = '3pYXG6vs8wLR-StqkQcEHbUC5HnLnBKQjZd82XhC8lU';
+  const FINGERPRINT = '14:6D:E9:83:C5:73:06:50:D8:EE:B9:95:2F:34:FC:64:16:A0:83:42:E6:1D:BE:A8:8A:04:96:B2:3F:CF:44:E5';
+
+  it('leaves push off when no VAPID variable is set', () => {
+    expect(parseRuntimeConfig({}).push).toEqual({ vapid: null, extraEndpointOrigins: [] });
+    expect(parseRuntimeConfig({ SHARK_VAPID_PUBLIC_KEY: '', SHARK_VAPID_PRIVATE_KEY: '', SHARK_VAPID_SUBJECT: '' }).push.vapid).toBeNull();
+  });
+
+  it('accepts a complete VAPID configuration', () => {
+    const config = parseRuntimeConfig(
+      productionEnv({ SHARK_VAPID_PUBLIC_KEY: PUBLIC, SHARK_VAPID_PRIVATE_KEY: PRIVATE, SHARK_VAPID_SUBJECT: 'mailto:ops@fitness.example' }),
+    );
+    expect(config.push.vapid).toEqual({ publicKey: PUBLIC, privateKey: PRIVATE, subject: 'mailto:ops@fitness.example' });
+  });
+
+  it('refuses a partial VAPID configuration, naming what is missing', () => {
+    expect(() => parseRuntimeConfig({ SHARK_VAPID_PUBLIC_KEY: PUBLIC, SHARK_VAPID_SUBJECT: 'mailto:ops@fitness.example' })).toThrow(
+      /SHARK_VAPID_PRIVATE_KEY is missing/,
+    );
+  });
+
+  it('refuses keys that are not P-256 VAPID keys and a subject push services cannot use', () => {
+    const base = { SHARK_VAPID_PUBLIC_KEY: PUBLIC, SHARK_VAPID_PRIVATE_KEY: PRIVATE, SHARK_VAPID_SUBJECT: 'mailto:ops@fitness.example' };
+    expect(() => parseRuntimeConfig({ ...base, SHARK_VAPID_PUBLIC_KEY: PUBLIC.slice(0, 40) })).toThrow(/SHARK_VAPID_PUBLIC_KEY/);
+    expect(() => parseRuntimeConfig({ ...base, SHARK_VAPID_PRIVATE_KEY: 'short' })).toThrow(/SHARK_VAPID_PRIVATE_KEY/);
+    expect(() => parseRuntimeConfig({ ...base, SHARK_VAPID_SUBJECT: 'ops@fitness.example' })).toThrow(/SHARK_VAPID_SUBJECT/);
+    expect(() => parseRuntimeConfig({ ...base, SHARK_VAPID_SUBJECT: 'http://fitness.example' })).toThrow(/SHARK_VAPID_SUBJECT/);
+  });
+
+  it('reads Android app links, normalising fingerprints to upper case', () => {
+    const config = parseRuntimeConfig({
+      SHARK_ANDROID_PACKAGE: 'in.sharkfitness.member',
+      SHARK_ANDROID_CERT_SHA256: `${FINGERPRINT.toLowerCase()}, ${FINGERPRINT.replace(/^14/, 'AB')}`,
+    });
+    expect(config.androidAppLinks).toEqual({
+      packageName: 'in.sharkfitness.member',
+      sha256CertFingerprints: [FINGERPRINT, FINGERPRINT.replace(/^14/, 'AB')],
+    });
+    expect(parseRuntimeConfig({}).androidAppLinks).toBeNull();
+  });
+
+  it('refuses a malformed signing-certificate fingerprint at boot', () => {
+    for (const bad of ['14:6D:E9', FINGERPRINT.replaceAll(':', ''), `${FINGERPRINT}:00`, 'ZZ' + FINGERPRINT.slice(2)]) {
+      expect(() => parseRuntimeConfig({ SHARK_ANDROID_PACKAGE: 'in.sharkfitness.member', SHARK_ANDROID_CERT_SHA256: bad })).toThrow(
+        /SHARK_ANDROID_CERT_SHA256/,
+      );
+    }
+  });
+
+  it('refuses half an app-links configuration and a package id that is not one', () => {
+    expect(() => parseRuntimeConfig({ SHARK_ANDROID_PACKAGE: 'in.sharkfitness.member' })).toThrow(/SHARK_ANDROID_CERT_SHA256/);
+    expect(() => parseRuntimeConfig({ SHARK_ANDROID_CERT_SHA256: FINGERPRINT })).toThrow(/SHARK_ANDROID_PACKAGE/);
+    expect(() => parseRuntimeConfig({ SHARK_ANDROID_PACKAGE: 'sharkfitness', SHARK_ANDROID_CERT_SHA256: FINGERPRINT })).toThrow(
+      /SHARK_ANDROID_PACKAGE/,
+    );
+  });
+});
