@@ -29,6 +29,7 @@ export default function SignInScreen() {
 
   const bootstrap = useSession((state) => state.bootstrap);
   const sessionEnded = useSession((state) => state.sessionEnded);
+  const notice = useSession((state) => state.notice);
 
   const [mode, setMode] = useState<'otp' | 'password'>(choosingPassword || !import.meta.env.DEV ? 'password' : 'otp');
   const [step, setStep] = useState<'identify' | 'verify'>('identify');
@@ -161,6 +162,11 @@ export default function SignInScreen() {
       </div>
 
       <div className="flex flex-1 flex-col gap-4 p-5">
+        {notice ? (
+          <Panel tone="good" className="p-3.5" role="status">
+            <p className="text-[13px] leading-relaxed text-foam-80">{notice}</p>
+          </Panel>
+        ) : null}
         {sessionEnded && !choosingPassword ? (
           <Panel tone="warn" className="p-3.5" role="status">
             <p className="font-utility text-[11px] font-semibold uppercase tracking-[0.14em] text-flare">Your session ended</p>

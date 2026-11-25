@@ -13,6 +13,7 @@ import { installGlobalErrorListeners } from './lib/error-reporting';
 import { AppErrorBoundary } from './ui/ErrorBoundary';
 import { registerServiceWorker } from './lib/sw-update';
 import { useAppearance } from './lib/preferences';
+import { captureInstallPrompt, countVisit } from './lib/install';
 import './styles.css';
 
 const SESSION_RESTORE_TIMEOUT_MS = 12_000;
@@ -113,6 +114,8 @@ function Boot() {
 }
 
 installGlobalErrorListeners();
+captureInstallPrompt();
+countVisit();
 registerServiceWorker();
 void purgeExpiredSnapshots();
 

@@ -59,6 +59,12 @@ if (runtimeConfig.serveStatic) {
     else noStore(c);
     await next();
   });
+  // Hono's static MIME table has no entry for web app manifests; browsers
+  // accept octet-stream, but install audits and some crawlers do not.
+  app.use('*', async (c, next) => {
+    await next();
+    if (c.req.path.endsWith('.webmanifest') && c.res.ok) c.res.headers.set('Content-Type', 'application/manifest+json');
+  });
   app.get('/app', (c) => {
     noStore(c);
     return c.redirect('/app/');

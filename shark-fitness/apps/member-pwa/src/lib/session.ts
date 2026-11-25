@@ -11,24 +11,28 @@ import { takeReturnRoute, useSession, useWorkout } from './store';
  * not the query cache, not the persisted snapshot, not their queued writes,
  * not an unfinished workout, and the phone no longer receives their pushes.
  */
-export async function signOutAndWipe(): Promise<void> {
+export async function signOutAndWipe(options: { notice?: string } = {}): Promise<void> {
   const viewer = useSession.getState().viewer;
   if (!viewer) return;
   const owner = ownerOf(viewer);
+  useSession.setState({ leaving: true });
+  try {
+    // Needs the session, so it goes first.
+    await forgetPushOnSignOut(owner);
+    stopOutbox();
+    await useSession.getState().signOut();
 
-  // Needs the session, so it goes first.
-  await forgetPushOnSignOut(owner);
-  stopOutbox();
-  await useSession.getState().signOut();
-
-  queryClient.clear();
-  await deleteSnapshot(owner);
-  rememberLastOwner(null);
-  await discardAllFor(owner).catch(() => undefined);
-  useWorkout.getState().reset();
-  clearWorkoutStorage();
-  takeReturnRoute(owner);
-  setMemberSessionHint(false);
+    queryClient.clear();
+    await deleteSnapshot(owner);
+    rememberLastOwner(null);
+    await discardAllFor(owner).catch(() => undefined);
+    useWorkout.getState().reset();
+    clearWorkoutStorage();
+    takeReturnRoute(owner);
+    setMemberSessionHint(false);
+  } finally {
+    useSession.setState({ leaving: false, notice: options.notice ?? null });
+  }
 }
 
 /** Every `shark.workout*` key: the active session, its plan copy and the

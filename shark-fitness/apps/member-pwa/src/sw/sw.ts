@@ -29,6 +29,24 @@ precacheAndRoute(self.__WB_MANIFEST);
 
 registerRoute(new NavigationRoute(createHandlerBoundToURL(SHELL)));
 
+/* Screens left out of the precache (vite.config.ts ONLINE_ONLY_SCREENS) are
+   kept once they have been opened, so a screen visited online still opens
+   offline. Names are content-hashed, so a cached file is never stale; the
+   cache is emptied whenever a new build takes over. */
+const SCREENS_CACHE = 'shark-member-screens';
+registerRoute(
+  ({ url, request }) =>
+    url.origin === self.location.origin && url.pathname.startsWith('/app/assets/') && request.destination === 'script',
+  async ({ request }) => {
+    const cache = await caches.open(SCREENS_CACHE);
+    const hit = await cache.match(request);
+    if (hit) return hit;
+    const response = await fetch(request);
+    if (response.ok) await cache.put(request, response.clone());
+    return response;
+  },
+);
+
 setCatchHandler(async ({ request }) => {
   if (request.destination === 'document') {
     return (await matchPrecache(OFFLINE)) ?? Response.error();
@@ -44,7 +62,7 @@ self.addEventListener('activate', (event) => {
   // First install: control the page that registered us without a reload, so
   // the very first visit already works offline afterwards. On an update the
   // page asked for this (SKIP_WAITING) and reloads on controllerchange.
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(Promise.all([self.clients.claim(), caches.delete(SCREENS_CACHE)]));
 });
 
 self.addEventListener('push', (event: PushEvent) => {

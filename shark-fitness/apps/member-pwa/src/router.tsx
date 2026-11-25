@@ -38,6 +38,7 @@ const BillingScreen = lazyRouteComponent(() => import('./screens/Billing'));
 const LibraryScreen = lazyRouteComponent(() => import('./screens/Library'));
 const ProfileScreen = lazyRouteComponent(() => import('./screens/Profile'));
 const NotificationsScreen = lazyRouteComponent(() => import('./screens/Notifications'));
+const HelpScreen = lazyRouteComponent(() => import('./screens/Help'));
 
 /** Shown while a route chunk is in flight. Mirrors the boot splash so a slow
  *  network looks like the app loading, not the app breaking. */
@@ -136,6 +137,8 @@ const notificationsRoute = createRoute({
   component: NotificationsScreen,
 });
 
+const helpRoute = createRoute({ getParentRoute: () => tabsRoute, path: '/help', component: HelpScreen });
+
 const passRoute = createRoute({ getParentRoute: () => bareRoute, path: '/pass', component: PassScreen });
 const workoutRoute = createRoute({ getParentRoute: () => bareRoute, path: '/workout', component: WorkoutScreen });
 const summaryRoute = createRoute({
@@ -161,6 +164,7 @@ const routeTree = rootRoute.addChildren([
     libraryRoute,
     profileRoute,
     notificationsRoute,
+    helpRoute,
   ]),
   bareRoute.addChildren([passRoute, workoutRoute, summaryRoute]),
 ]);

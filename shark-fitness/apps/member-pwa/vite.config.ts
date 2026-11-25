@@ -5,6 +5,11 @@ import { VitePWA } from 'vite-plugin-pwa';
 import { fileURLToPath } from 'node:url';
 import { MEMBER_MANIFEST } from './manifest.config';
 
+/** Route chunks left out of the precache. Home, Train, Workout, Summary,
+ *  Exercise, Book, Profile, Pass, Help and Sign-in stay in: they work offline
+ *  from the saved snapshot or local state. */
+const ONLINE_ONLY_SCREENS = ['Pack', 'Challenge', 'Library', 'Billing', 'Progress', 'Notifications', 'Messages', 'Conversation', 'Habits'];
+
 /** Ports stay overridable for machines that run several copies at once. */
 const DEV_PORT = Number(process.env.SHARK_MEMBER_DEV_PORT ?? 5173);
 const API_DEV_ORIGIN = process.env.SHARK_API_DEV_ORIGIN ?? 'http://localhost:8787';
@@ -53,6 +58,9 @@ export default defineConfig({
       scope: '/app/',
       manifestFilename: 'manifest.webmanifest',
       includeAssets: [],
+      // Manifest and shortcut icons are fetched by the OS when it installs
+      // the app; precaching them would only spend the offline budget.
+      includeManifestIcons: false,
       manifest: MEMBER_MANIFEST,
       injectManifest: {
         // The shell, fonts and the icons a notification or offline page
@@ -63,7 +71,11 @@ export default defineConfig({
           'icons/icon-192.png',
           'icons/monochrome-96.png',
         ],
-        globIgnores: ['**/screenshots/**'],
+        // Screens whose data is never saved for offline use (it would only
+        // show "could not load" without a connection) are cached the first
+        // time they are opened instead (see src/sw/sw.ts), which keeps the
+        // install-time download inside budget.
+        globIgnores: ['**/screenshots/**', ...ONLINE_ONLY_SCREENS.map((name) => `assets/${name}-*.js`)],
         // Budget guard (PHASE-PLAN P04 criterion 11): the precache must stay
         // under 700 KiB. A single file above this would be a mistake anyway.
         maximumFileSizeToCacheInBytes: 250 * 1024,

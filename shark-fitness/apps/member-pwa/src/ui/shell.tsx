@@ -1,5 +1,8 @@
 import { Link, useRouterState } from '@tanstack/react-router';
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '../lib/api';
+import { QK } from '../lib/query-keys';
 import { LiveDot, Scanlines, cx } from './primitives';
 import { useCopy, useViewer } from '../lib/store';
 import { useConnection } from '../lib/realtime';
@@ -107,14 +110,62 @@ export function AppHeader({ branchName }: { branchName: string }) {
         <LiveDot tone={status.tone} />
         {status.label}
       </span>
+      <NotificationBell />
       <Link
         to="/profile"
         aria-label="Your profile and settings"
-        className="grid h-8 w-8 place-items-center border border-line-strong font-utility text-[12px] font-semibold tracking-[0.04em] hover:border-sonar hover:text-sonar"
+        className="grid h-11 w-11 flex-none place-items-center border border-line-strong font-utility text-[12px] font-semibold tracking-[0.04em] hover:border-sonar hover:text-sonar"
       >
         {viewer?.initials ?? '··'}
       </Link>
     </header>
+  );
+}
+
+/**
+ * The bell: one tap to Notifications from every tabbed screen, with the
+ * unread count. The same count goes on the installed app's icon where the
+ * platform supports badges (Android, desktop, iOS 16.4+ home-screen apps).
+ */
+function NotificationBell() {
+  const { data } = useQuery({
+    queryKey: QK.notifications,
+    queryFn: () => api<{ unread: number }>('/me/notifications'),
+    staleTime: 60_000,
+  });
+  const unread = data?.unread ?? 0;
+
+  useEffect(() => {
+    const nav = navigator as Navigator & { setAppBadge?: (n?: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
+    if (unread > 0) void nav.setAppBadge?.(unread).catch(() => undefined);
+    else void nav.clearAppBadge?.().catch(() => undefined);
+  }, [unread]);
+
+  const label = unread > 0 ? `Notifications, ${unread} unread` : 'Notifications';
+  return (
+    <Link
+      to="/notifications"
+      aria-label={label}
+      className="relative grid h-11 w-11 flex-none place-items-center border border-line-strong text-foam hover:border-sonar hover:text-sonar"
+    >
+      <span
+        aria-hidden="true"
+        className="h-[15px] w-[14px] bg-current"
+        style={{
+          // A bell in the nav marks' clip-path idiom: dome, rim, clapper.
+          clipPath:
+            'polygon(50% 0, 62% 8%, 80% 22%, 86% 70%, 100% 82%, 100% 88%, 0 88%, 0 82%, 14% 70%, 20% 22%, 38% 8%, 50% 0, 50% 0, 40% 92%, 60% 92%, 56% 100%, 44% 100%, 40% 92%)',
+        }}
+      />
+      {unread > 0 ? (
+        <span
+          data-testid="unread-badge"
+          className="absolute -right-px -top-px min-w-[18px] bg-sonar px-1 text-center font-utility text-[10px] font-semibold leading-[18px] text-on-accent"
+        >
+          {unread > 99 ? '99+' : unread}
+        </span>
+      ) : null}
+    </Link>
   );
 }
 

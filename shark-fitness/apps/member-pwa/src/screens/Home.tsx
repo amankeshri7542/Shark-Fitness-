@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useCopy } from '../lib/store';
 import { useUnits } from '../lib/preferences';
+import { InstallBanner } from '../ui/Install';
 import { Hero, ScreenBody, Stack, Surface } from '../ui/shell';
 import {
   Bar,
@@ -380,6 +381,7 @@ export default function HomeScreen() {
         </Hero>
 
         <Stack>
+          <InstallBanner />
           {data.order.map((key) => cards[key]).filter(Boolean)}
 
           <SectionRule>Quick actions</SectionRule>

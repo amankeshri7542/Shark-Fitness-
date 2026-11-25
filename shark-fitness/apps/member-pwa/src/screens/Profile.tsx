@@ -4,6 +4,13 @@ import type { Viewer } from '@shark/contracts';
 import { ApiError, api } from '../lib/api';
 import { useSession, useViewer } from '../lib/store';
 import { ScreenBody, Stack } from '../ui/shell';
+import { MoreMenu } from '../ui/MoreMenu';
+import { PushSettings } from '../ui/PushSettings';
+import { SignOutPanel } from '../ui/SignOut';
+import { forgetPushOnSignOut } from '../lib/push';
+import { ownerOf } from '../lib/persisted-cache';
+import { signOutAndWipe } from '../lib/session';
+import { useNavigate } from '@tanstack/react-router';
 import {
   Button,
   Chip,
@@ -114,12 +121,20 @@ export default function ProfileScreen() {
     onError: fail,
   });
 
+  // The server locks the account and revokes every session, and the copy
+  // says this phone is signed out: so it is, with the same wipe as Sign out.
+  // Push goes first, while the session can still remove it.
+  const navigate = useNavigate();
   const requestDeletion = useMutation({
-    mutationFn: () => api<{ message: string }>('/me/deletion-request', { method: 'POST', body: {} }),
-    onSuccess: (r) => {
+    mutationFn: async () => {
+      if (viewer) await forgetPushOnSignOut(ownerOf(viewer));
+      return api<{ message: string }>('/me/deletion-request', { method: 'POST', body: {} });
+    },
+    onSuccess: async (r) => {
       setError(null);
       setConfirmDelete(false);
-      setMessage(r.message);
+      await signOutAndWipe({ notice: r.message });
+      await navigate({ to: '/sign-in' });
     },
     onError: fail,
   });
@@ -172,6 +187,8 @@ export default function ProfileScreen() {
           </div>
           <Chip tone={viewer.accountState === 'active' ? 'good' : 'warn'}>{viewer.accountState.replace(/_/g, ' ')}</Chip>
         </Panel>
+
+        <MoreMenu />
 
         {/* — Preferences ——————————————————————————————————————— */}
 
@@ -242,6 +259,8 @@ export default function ProfileScreen() {
           </Panel>
         </div>
 
+        <PushSettings />
+
         {/* — Consent ——————————————————————————————————————————— */}
 
         <div>
@@ -302,6 +321,8 @@ export default function ProfileScreen() {
             </Panel>
           )}
         </div>
+
+        <SignOutPanel />
 
         {/* — Rights ————————————————————————————————————————————— */}
 

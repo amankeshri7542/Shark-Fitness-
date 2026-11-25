@@ -22,6 +22,10 @@ interface SessionState {
   offlineStart: boolean;
   /** The server ended the session (401): sign-in says so and offers the way back. */
   sessionEnded: boolean;
+  /** A deliberate sign-out is in progress; a 401 on the way out is expected. */
+  leaving: boolean;
+  /** One message for the sign-in screen after leaving (e.g. a deletion request). */
+  notice: string | null;
   setViewer: (viewer: Viewer | null) => void;
   setBranches: (branches: Branch[], activeBranchId: string | null) => void;
   setActiveBranch: (branchId: string) => void;
@@ -66,6 +70,8 @@ export const useSession = create<SessionState>((set, get) => ({
   status: 'loading',
   offlineStart: false,
   sessionEnded: false,
+  leaving: false,
+  notice: null,
 
   setViewer: (viewer) => set({ viewer, status: viewer ? 'signed-in' : 'signed-out' }),
 
@@ -141,8 +147,8 @@ export const useSession = create<SessionState>((set, get) => ({
   },
 
   expire: () => {
-    const { viewer, status } = get();
-    if (status !== 'signed-in' || !viewer) return;
+    const { viewer, status, leaving } = get();
+    if (status !== 'signed-in' || !viewer || leaving) return;
     const owner = ownerOf(viewer);
     rememberReturnRoute(owner, currentAppRoute());
     // The outbox (IndexedDB) and an active workout (localStorage) stay: they
@@ -154,7 +160,7 @@ export const useSession = create<SessionState>((set, get) => ({
     set({ viewer: null, branches: [], activeBranchId: null, status: 'signed-out', offlineStart: false, sessionEnded: true });
   },
 
-  acknowledgeSessionEnded: () => set({ sessionEnded: false }),
+  acknowledgeSessionEnded: () => set({ sessionEnded: false, notice: null }),
 }));
 
 /** The in-app route (without the /app prefix), with its query string. */
