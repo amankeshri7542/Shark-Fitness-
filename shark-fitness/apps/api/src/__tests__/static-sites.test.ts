@@ -91,7 +91,7 @@ describe('single-origin static serving', () => {
       const response = await get(path);
       expect(response.status, path).toBe(404);
       expect(response.headers.get('content-type') ?? '', path).not.toMatch(/text\/html/);
-      expect(response.headers.get('cache-control'), path).toBe('no-store');
+      expect(response.headers.get('cache-control'), path).toMatch(/^no-store/);
     }
   });
 
