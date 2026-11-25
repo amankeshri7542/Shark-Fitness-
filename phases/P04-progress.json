@@ -1,96 +1,96 @@
 {
  "phase": "P04",
- "status": "in_progress",
+ "status": "done",
  "items": [
   {
    "id": 1,
    "text": "ADR-002 member mobile app decision",
    "status": "done",
-   "evidence": "docs/ADR-002-member-mobile-app.md committed 4358d96"
+   "evidence": "docs/ADR-002-member-mobile-app.md (4358d96): decision, PRD 02 baseline stack/\u00a77.3, PRD 04 trade-off register, ADR-001, reasons, revisit triggers, Capacitor/Expo migration path"
   },
   {
    "id": 2,
    "text": "Manifest under /app/ with icons, shortcuts, screenshots; manifest test",
-   "status": "todo",
-   "evidence": ""
+   "status": "done",
+   "evidence": "apps/member-pwa/src/__tests__/app-manifests.test.ts (vitest, 8 tests incl. PNG/JPEG sizes) + e2e pwa/apps-and-scopes 'built member manifest\u2026' (fetches /app/manifest.webmanifest, icons, screenshots, apple-touch-icon): pass"
   },
   {
    "id": 3,
    "text": "Service worker controls /app/, offline Home from persisted cache with banner, update never applied during workout",
-   "status": "todo",
-   "evidence": ""
+   "status": "done",
+   "evidence": "e2e mobile/offline-and-updates on member-pixel7 and member-iphone13: SW controls /app/, offline reload renders Home + banner, update withheld during workout then applied: pass (2 full runs 46/46)"
   },
   {
    "id": 4,
    "text": "Sign-out wipe (IDB, workout keys, push) and 401 session-ended flow returning to route with outbox intact",
-   "status": "in_progress",
-   "evidence": "a9e8654 + 4b22854: wipe, 401 flow, session tests 8/8; E2E pending"
+   "status": "done",
+   "evidence": "e2e mobile/session (both phone projects): warning '3 workout sets haven't synced yet', Stay, wipe (IDB snapshot/outbox, shark.workout*), server push device gone; 401 \u2192 'Your session ended' \u2192 back to /app/progress with outbox intact. Unit: session.test.ts 8 tests"
   },
   {
    "id": 5,
    "text": "Preferences applied: theme without flash, reduce motion, units kg/lb, haptics",
-   "status": "in_progress",
-   "evidence": "a2c6e58: theme/motion/haptics/units + domain units tests 5/5; E2E pending"
+   "status": "done",
+   "evidence": "e2e mobile/preferences (both projects): theme painted before app start, reduce motion animationDuration<0.01s, 402.3 lb, haptics on desk check-in only when enabled; domain units.test.ts 5 tests; preferences.test.ts"
   },
   {
    "id": 6,
    "text": "Reachability: Notifications, Library, Billing, Messages within 2 taps; Summary Done/Share; badge",
-   "status": "in_progress",
-   "evidence": "4b22854: bell, More, Summary Done/Share, badging; E2E pending"
+   "status": "done",
+   "evidence": "e2e mobile/reachability: Notifications 1 tap, Billing/Library/Messages/Help 2 taps, Summary Done \u2192 Home; badging via setAppBadge"
   },
   {
    "id": 7,
    "text": "Responsive: no horizontal scroll at 360x800, 390x844, 768x1024, 1024x768; screenshots",
-   "status": "in_progress",
-   "evidence": "7af9b73: responsive; manual check 360/768/1024 scrollWidth==clientWidth; E2E pending"
+   "status": "done",
+   "evidence": "e2e responsive at 360x800, 390x844, 768x1024, 1024x768 over 15 routes: no sideways scroll/clipping; 60 screenshots in phases/P04-screens/ (reviewed). Found and fixed Book overflow at 360"
   },
   {
    "id": 8,
    "text": "Web Push: config, table, routes, push channel, consent/quiet hours/dedupe/410, fake push service tests, E2E subscription round-trip",
-   "status": "in_progress",
-   "evidence": "cb4163f: API push channel; pnpm -F @shark/api test 913/913 (push.integration 14 tests); E2E pending"
+   "status": "done",
+   "evidence": "pnpm -F @shark/api test: 913/913 incl. push.integration (14: subscribe/unsubscribe, fake push service decrypt+VAPID, 410, retries, quiet hours, consent, dedupe, revoked session, network guard, staff message); e2e mobile/push: UI subscribe \u2192 server \u2192 fake push service \u2192 decrypt \u2192 CDP deliverPushMessage \u2192 notification shown"
   },
   {
    "id": 9,
    "text": "Android TWA: twa-manifest + schema test, assetlinks route, android-twa.yml (actionlint), MOBILE-APP.md",
-   "status": "todo",
-   "evidence": ""
+   "status": "done",
+   "evidence": "assetlinks.integration (404 unset, JSON set, no auth), config tests (malformed fingerprint refused), app-manifests TWA schema test, /tmp/actionlint 1.7.7 + shellcheck 0.10.0 on android-twa.yml: clean. APK build not run locally"
   },
   {
    "id": 10,
    "text": "Admin console PWA: manifest, shell-only SW, offline page, scope separation E2E",
-   "status": "todo",
-   "evidence": ""
+   "status": "done",
+   "evidence": "e2e pwa/apps-and-scopes: console manifest, offline page text, member/console workers never control each other, root worker retires: pass"
   },
   {
    "id": 11,
    "text": "Budgets: precache <= 700 KiB, initial member JS <= 145 KB gzip",
-   "status": "in_progress",
-   "evidence": "precache 23 entries 656 KiB (budget 700); initial JS 46.9+33.9+58.4=139.2 KB gzip (budget 145.2)"
+   "status": "done",
+   "evidence": "member precache 23 entries 657.28 KiB (\u2264700); member initial JS gzip 47.80+33.90+58.39 = 140.09 KB (\u2264145.2 = 132+10%)"
   },
   {
    "id": 12,
    "text": "Standard gates and pnpm e2e pass",
-   "status": "todo",
-   "evidence": ""
+   "status": "done",
+   "evidence": "pnpm install --frozen-lockfile, typecheck, lint, test (contracts 6, domain 276, member 75, admin 295, api 913), build: all exit 0; pnpm e2e 46 passed twice"
   },
   {
    "id": 13,
    "text": "Base path /app/ with placeholder / and legacy root worker retirement",
    "status": "done",
-   "evidence": "84b7e26: vite base /app/, router basepath, server /app/*, / placeholder redirect + retiring /sw.js; e2e 3/3 green"
+   "evidence": "84b7e26 + e2e '/ forwards \u2026 keeping fragment', 'old root worker retires itself': pass"
   },
   {
    "id": 14,
    "text": "Install UX: beforeinstallprompt, 2nd-session banner, iOS sheet",
    "status": "done",
-   "evidence": "4b22854: lib/install + unit tests 4/4"
+   "evidence": "lib/install.ts + Install UI; install.test.ts 4 tests (never on first visit, once per session count, iOS detection)"
   },
   {
    "id": 15,
    "text": "Docs (.env.example, README, PRODUCTION-READINESS) and pr/P04.md",
-   "status": "todo",
-   "evidence": ""
+   "status": "done",
+   "evidence": "README, e2e/README, PRODUCTION-READINESS, MOBILE-APP.md, .env.example (placeholders); pr/P04.md written"
   }
  ]
 }

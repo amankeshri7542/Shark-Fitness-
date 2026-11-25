@@ -26,7 +26,7 @@
         "tag": "P06-impl",
         "pid": 252755,
         "started": "2026-11-25 14:21 IST",
-        "activity": "2026-11-25 20:32 IST"
+        "activity": "2026-11-25 20:34 IST"
       }
     },
     "P04": {
@@ -37,7 +37,7 @@
         "tag": "P04-impl",
         "pid": 252400,
         "started": "2026-11-25 14:20 IST",
-        "activity": "2026-11-25 20:32 IST"
+        "activity": "2026-11-25 20:33 IST"
       }
     },
     "P03": {
@@ -48,13 +48,19 @@
         "tag": "P03-impl",
         "pid": 259584,
         "started": "2026-11-25 15:23 IST",
-        "activity": "2026-11-25 20:32 IST"
+        "activity": "2026-11-25 20:34 IST"
       }
     },
     "P05": {
       "state": "implementing",
       "base": "phase/P02-payments-razorpay",
-      "base_sha": "2ffa5700a"
+      "base_sha": "2ffa5700a",
+      "running": {
+        "tag": "P05-impl",
+        "pid": 440425,
+        "started": "2026-11-25 20:33 IST",
+        "activity": "2026-11-25 20:33 IST"
+      }
     },
     "P07": {
       "state": "pending"
@@ -85,8 +91,9 @@
     "phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST",
     "phase/P02-payments-razorpay": "2ffa570 at 2026-11-25 20:21 IST",
     "phase/P06-staff-security": "b189005 at 2026-11-25 20:28 IST",
-    "phase/P04-member-mobile-app": "0d45e3b at 2026-11-25 20:25 IST",
-    "phase/P03-public-website": "f7fa4ed at 2026-11-25 20:30 IST"
+    "phase/P04-member-mobile-app": "9daf34f at 2026-11-25 20:34 IST",
+    "phase/P03-public-website": "f7fa4ed at 2026-11-25 20:30 IST",
+    "phase/P05-member-core-gaps": "2ffa570 at 2026-11-25 20:34 IST"
   },
   "blockers": []
 }
