@@ -103,6 +103,8 @@ describe('single-origin static serving', () => {
     const worker = await get('/app/sw.js');
     expect(worker.headers.get('content-type')).toMatch(/javascript/);
     expect(worker.headers.get('cache-control')).toMatch(/no-store/);
+    const manifest = await get('/app/manifest.webmanifest');
+    expect(manifest.headers.get('content-type')).toBe('application/manifest+json');
     const bare = await get('/app?source=pwa');
     expect(bare.status).toBe(302);
     expect(bare.headers.get('location')).toBe('/app/?source=pwa');

@@ -90,6 +90,9 @@ export function mountStaticSites(app: Hono, roots: StaticSiteRoots): void {
     // Only a file that exists is immutable. A cached 404 for a hashed name
     // would outlive the deploy that ships it.
     if (hashed && c.res.status !== 200) c.header('Cache-Control', 'no-store');
+    // The static middleware has no type for web app manifests and would send
+    // application/octet-stream.
+    if (c.res.status === 200 && path.endsWith('.webmanifest')) c.header('Content-Type', 'application/manifest+json');
   });
 
   /* — Staff console ———————————————————————————————————————————— */
