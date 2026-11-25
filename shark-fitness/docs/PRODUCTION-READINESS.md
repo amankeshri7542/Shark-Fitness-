@@ -19,7 +19,9 @@ Nothing here recommends architecture for a scale this product does not have.
 | Area | State | Blocking? |
 |---|---|---|
 | Business logic and authorisation | Strong. More than 1,200 automated tests, including tenant and branch isolation from the outside | No |
-| Persistence | SQLite on one disk. Nightly backups, optional age-encrypted off-site copies and restore drills are scripted (`deploy/pilot/`); no server, bucket or key exists yet | **Yes** until off-site copies are configured and drilled |
+| Persistence | SQLite on one disk, private uploads in `SHARK_MEDIA_DIR` beside it. Nightly backups (database plus a checksummed media archive), optional age-encrypted off-site copies and restore drills are scripted (`deploy/pilot/`); no server, bucket or key exists yet | **Yes** until off-site copies are configured and drilled |
+| Entry and classes | Rotating single-use QR pass on the member's phone, scanned at reception (camera, USB scanner or typed code) through the same decision as the door; waitlists whose offers hold the seat; sellable credit packs with a refund policy | No |
+| Private media | Progress photos on the API host's disk behind a storage port; five-minute signed links re-checked per request; metadata stripped; no object storage adapter yet | No, at one server |
 | Payments | Razorpay in **test mode** (checkout, plan purchase, payment links, provider refunds, signed webhooks, reconciliation); live keys refused by config. Desk payments are still recorded, not taken | **Yes** until Razorpay KYC and a reviewed live-mode change |
 | Scaling | Single instance only, by design and by constraint | No, at this size |
 | Realtime | In-process WebSocket fan-out, lost on restart | No |
@@ -60,6 +62,17 @@ rewrite. The deviation is noted in `db/client.ts`.
   audit/ledger writes → backup → restore → migrate, checks immutable rows and
   counts, boots the restored API, signs in, and completes an authenticated
   read.
+- **Private media is part of every backup (P05).** `pnpm db:backup` archives
+  `SHARK_MEDIA_DIR` (else `media/` beside the database) as
+  `<copy>.media.tar` and lists every file's SHA-256 in the manifest (version
+  2). `pnpm db:restore` checks the archive and each file before anything
+  moves, restores media beside the restored database (or into
+  `SHARK_MEDIA_DIR`), and refuses to overwrite a non-empty media directory
+  without both destructive flags. `pnpm db:backup:verify` restores media too,
+  compares it with the snapshot and with the `media_objects` checksums, and
+  proves a tampered archive is refused. A photo uploaded between the database
+  snapshot and the archive restores as an orphan file, which is harmless; the
+  reverse (a row without its file) cannot happen.
 - **No point-in-time recovery.** WAL gives crash consistency, not history. A
   bad migration or a wrong `DELETE` is permanent.
 - **The file must be on a real disk.** On a platform with an ephemeral
@@ -89,8 +102,9 @@ Run `pnpm db:backup:verify` after dependency or SQLite upgrades. To restore a
 real backup, first use a separate target and validate it; replacing an existing
 file requires both `--replace` and `--yes-replace`.
 
-Both the `.db` artifact and its `.manifest.json` sidecar go off-site, each
-encrypted to the owner's age public key, so the storage provider holds only
+The `.db` artifact, its `.manifest.json` sidecar and (when the gym has
+uploads) its `.media.tar` archive go off-site, each encrypted to the owner's
+age public key, so the storage provider holds only
 ciphertext and a stolen server credential cannot read old copies. A checksum
 detects corruption or accidental replacement; it is not an authenticity
 signature and does not replace storage access controls, object lock or
@@ -163,7 +177,7 @@ sequence high-water row, so a restart cannot reuse a cursor.
 
 ## 6. Scheduler behaviour
 
-Ten jobs on `setInterval`, unref'd, started in `server.ts`:
+Twelve jobs on `setInterval`, unref'd, started in `server.ts`:
 
 | Job | Every |
 |---|---|
@@ -172,11 +186,13 @@ Ten jobs on `setInterval`, unref'd, started in `server.ts`:
 | `expire-memberships` | 6 hours |
 | `roll-up-metrics` | 6 hours |
 | `close-stale-check-ins` | 30 min |
-| `expire-waitlist-offers` | 1 min |
+| `expire-waitlist-offers` | 1 min (a lapsed offer releases its held seat and offers it to the next eligible member) |
 | `release-expired-holds` | 1 min |
 | `run-dunning` | 15 min |
 | `extend-class-series` | 6 hours |
 | `prune-operational-data` | 24 hours |
+| `reconcile-payments` | 6 hours |
+| `purge-withdrawn-photos` | 1 hour (destroys progress photos whose consent was withdrawn longer ago than the retention setting) |
 
 **Every job runs on every instance.** There is no lock and no leader election.
 With one instance that is correct and simple. `SHARK_DISABLE_JOBS=true` turns
@@ -252,6 +268,28 @@ list and a reconciliation queue, which does not exist.
 Pass tokens are HMAC-signed with `SHARK_PASS_SECRET`, single-use
 (`used_access_windows` with a unique constraint), and rotate on a window. That
 part is sound.
+
+**Reception scanning (P05).** The member app shows the token as a real QR code
+(ECC M, quiet zone, dark on light in both themes) that rotates every 30
+seconds, a little before each window ends, read through the server's clock.
+`POST /v1/admin/attendance/scan` runs the door's own decision for a member of
+staff: signature, single-use window, tenant (`denied_wrong_tenant`), expiry
+(`denied_token_expired`), branch entitlement, hours, capacity,
+anti-passback and outstanding balance; a member already inside reads
+"Already checked in" with no second visit. Every scan is audited, idempotent
+and updates occupancy. The console uses the camera (BarcodeDetector, else
+`jsqr` loaded on demand), a USB keyboard-wedge scanner or a typed code;
+`Permissions-Policy: camera=(self)` is sent only for `/admin/` documents.
+Offline, the member's pass shows their member number for reception to type.
+The same online-only caveat as the door applies: with the API unreachable,
+nobody is admitted by scan.
+
+**Waitlists (P05, decision 12).** An offer holds the seat: it counts in
+`class_sessions.booked` and in the database triggers that refuse more live
+bookings plus live offers than capacity. The offer lasts until the earlier of
+`waitlistOfferMinutes` (30) and `waitlistOfferCutoffMinutes` (60) before class,
+both branch-overridable. A capacity cut below the people booked cancels nobody
+and raises an `overbooked_class` dashboard alert until someone moves people.
 
 ---
 
@@ -441,7 +479,8 @@ Worth saying plainly, because the list above is all caveats:
   their lists.
 - **Impersonation containment**: borrowed authority that cannot re-enter
   platform tooling, cannot chain, and expires on a clock it cannot extend.
-- **Append-only ledgers** enforced by triggers that do not check who is asking.
+- **Append-only ledgers** enforced by triggers that do not check who is asking
+  (audit, XP, stock, ticket events and, since P05, class credits).
 - **Money**: integer minor units, per-line tax, currency stored per invoice,
   refunds as compensating entries, never summed across currencies.
 - **The audit trail**: every write, with actor, role, branch, request id and a
