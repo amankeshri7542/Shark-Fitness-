@@ -192,10 +192,20 @@ export interface PublicSite {
 
 export const PUBLIC_CLASSES_MAX_DAYS = 14;
 
+/** A real calendar day (`2026-02-30` is not), in a range date arithmetic can handle. */
+const CalendarDay = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use a YYYY-MM-DD date.')
+  .refine((value) => {
+    const year = Number(value.slice(0, 4));
+    const parsed = new Date(`${value}T00:00:00Z`);
+    return year >= 2000 && year <= 2999 && !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+  }, 'Use a real date, YYYY-MM-DD.');
+
 export const PublicClassesQuery = z.object({
   branchId: z.string().min(1).max(64),
-  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use a YYYY-MM-DD date.').optional(),
-  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use a YYYY-MM-DD date.').optional(),
+  from: CalendarDay.optional(),
+  to: CalendarDay.optional(),
 });
 
 export type PublicSpots = 'available' | 'few_left' | 'full';

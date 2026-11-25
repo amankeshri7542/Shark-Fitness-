@@ -186,6 +186,16 @@ describe('GET /v1/public/:tenant/classes', () => {
     expect(body.items.every((item) => Date.parse(item.startsAt) < last)).toBe(true);
   });
 
+  it('refuses a date that is not on the calendar with 422, not a server error', async () => {
+    for (const bad of ['2026-13-45', '2026-02-30', '9999-12-31']) {
+      const response = await app.request(`/v1/public/shark/classes?branchId=br_kor&from=${bad}`);
+      expect(response.status, bad).toBe(422);
+      const body = (await response.json()) as { error: { fields: Array<{ path: string }> } };
+      expect(body.error.fields[0]!.path, bad).toBe('from');
+    }
+    expect((await app.request('/v1/public/shark/classes?branchId=br_kor&to=2026-00-10')).status).toBe(422);
+  });
+
   it("refuses another tenant's branch", async () => {
     const response = await app.request('/v1/public/reef/classes?branchId=br_kor');
     expect(response.status).toBe(422);
