@@ -67,12 +67,12 @@ export async function reconcilePayments(atMs = now()): Promise<ReconcileSummary>
       const chosen = captured ?? (authorized ? await captureOrRefetch(provider, authorized) : payments.find((payment) => payment.status === 'failed'));
       summary.paymentsSeen += payments.length;
       const outcome = transact(() => {
-        if (chosen) applyProviderPayment(intent.id, chosen, 'reconciliation');
+        const result = chosen ? applyProviderPayment(intent.id, chosen, 'reconciliation') : 'unchanged';
         db.update(schema.paymentIntents).set({ lastCheckedAt: atMs }).where(eq(schema.paymentIntents.id, intent.id)).run();
-        return db.select({ state: schema.paymentIntents.state }).from(schema.paymentIntents).where(eq(schema.paymentIntents.id, intent.id)).get()!.state;
+        return result;
       });
-      if (outcome === 'succeeded' && intent.state !== 'succeeded') summary.settled += 1;
-      if (outcome === 'needs_review') summary.exceptions += 1;
+      if (outcome === 'settled') summary.settled += 1;
+      if (outcome === 'exception') summary.exceptions += 1;
     } catch (error) {
       if (!(error instanceof ProviderError)) throw error;
       summary.providerErrors += 1;
@@ -103,18 +103,14 @@ export async function reconcilePayments(atMs = now()): Promise<ReconcileSummary>
         ? db.select().from(schema.paymentIntents).where(eq(schema.paymentIntents.id, payment.notes.intent_id)).get()
         : undefined;
       const match = intent ?? byNote;
-      if (match) {
-        applyProviderPayment(match.id, payment, 'reconciliation');
-        const after = db.select({ state: schema.paymentIntents.state }).from(schema.paymentIntents).where(eq(schema.paymentIntents.id, match.id)).get()!;
-        return after.state === 'succeeded' ? ('settled' as const) : ('exception' as const);
-      }
+      if (match) return applyProviderPayment(match.id, payment, 'reconciliation');
       // Captured money nobody here asked for. Only attributable when the
       // payment names one of our tenants; otherwise it is another integration
       // on the same Razorpay account and is left alone.
       const tenantId = payment.notes.tenant_id;
       const tenant = tenantId ? db.select({ id: schema.tenants.id }).from(schema.tenants).where(eq(schema.tenants.id, tenantId)).get() : undefined;
       if (!tenant) return 'foreign' as const;
-      openReconciliationException({
+      const opened = openReconciliationException({
         tenantId: tenant.id,
         branchId: null,
         invoiceId: null,
@@ -125,7 +121,7 @@ export async function reconcilePayments(atMs = now()): Promise<ReconcileSummary>
         currency: payment.currency,
         detail: 'Razorpay captured this payment, but it matches no checkout or payment link here.',
       });
-      return 'exception' as const;
+      return opened.created ? ('exception' as const) : ('unchanged' as const);
     });
     if (result === 'settled') summary.settled += 1;
     if (result === 'exception') summary.exceptions += 1;

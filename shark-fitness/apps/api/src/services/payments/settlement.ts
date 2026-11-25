@@ -112,7 +112,7 @@ export function openReconciliationException(input: {
 export type SettleOutcome =
   | { kind: 'settled'; paymentId: string; membershipActivated: boolean }
   | { kind: 'already_settled'; paymentId: string }
-  | { kind: 'exception'; exceptionId: string }
+  | { kind: 'exception'; exceptionId: string; created: boolean }
   | { kind: 'not_captured' };
 
 /** Razorpay's method names are stored as they are (`upi`, `card`,
@@ -171,7 +171,7 @@ export function settleProviderPayment(intentId: string, payment: ProviderPayment
           : null;
 
   if (mismatch) {
-    const { exceptionId } = openReconciliationException({
+    const { exceptionId, created } = openReconciliationException({
       tenantId: intent.tenantId,
       branchId: intent.branchId,
       invoiceId: intent.invoiceId,
@@ -186,7 +186,7 @@ export function settleProviderPayment(intentId: string, payment: ProviderPayment
     if (intent.state !== 'succeeded') {
       markIntent(intent, { state: 'needs_review', providerPaymentId: payment.id, failureCode: mismatch.kind, failureReason: null });
     }
-    return { kind: 'exception', exceptionId };
+    return { kind: 'exception', exceptionId, created };
   }
 
   const ctx = razorpayContext(intent.tenantId, intent.branchId);

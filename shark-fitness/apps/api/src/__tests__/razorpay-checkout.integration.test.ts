@@ -104,7 +104,6 @@ describe('member checkout', () => {
       const result = await confirm(body.intentId, {
         razorpay_order_id: body.orderId,
         razorpay_payment_id: String(payment.id),
-        razorpay_signature: '',
         ...tampered,
       });
       expect(result.response.status).toBe(400);

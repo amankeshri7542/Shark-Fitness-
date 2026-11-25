@@ -301,11 +301,20 @@ export async function captureOrRefetch(provider: PaymentProvider, payment: Provi
 }
 
 /** Route a provider payment's current status into the intent. Inside a
- *  transaction. */
-export function applyProviderPayment(intentId: string, payment: ProviderPayment, source: 'confirm' | 'webhook' | 'reconciliation'): void {
+ *  transaction. Says what this call changed: `settled` and `exception` only
+ *  when it was this call that did it. */
+export function applyProviderPayment(
+  intentId: string,
+  payment: ProviderPayment,
+  source: 'confirm' | 'webhook' | 'reconciliation',
+): 'settled' | 'exception' | 'unchanged' {
   if (payment.captured || payment.status === 'captured') {
-    settleProviderPayment(intentId, payment, source);
-  } else if (payment.status === 'failed') {
+    const outcome = settleProviderPayment(intentId, payment, source);
+    if (outcome.kind === 'settled') return 'settled';
+    if (outcome.kind === 'exception' && outcome.created) return 'exception';
+    return 'unchanged';
+  }
+  if (payment.status === 'failed') {
     recordFailedAttempt(intentId, payment);
   } else {
     const intent = db.select().from(schema.paymentIntents).where(eq(schema.paymentIntents.id, intentId)).get();
@@ -313,6 +322,7 @@ export function applyProviderPayment(intentId: string, payment: ProviderPayment,
       markIntent(intent, { state: 'processing', providerPaymentId: payment.id, failureCode: null, failureReason: null });
     }
   }
+  return 'unchanged';
 }
 
 export function memberCheckoutStatus(ctx: RequestContext, intentId: string): CheckoutStatus {
