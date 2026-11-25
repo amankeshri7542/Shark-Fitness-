@@ -1,11 +1,11 @@
 # Shark Fitness build status
 
-Updated 2026-11-25 20:52 IST by runner.py v3 (parallel). Model: `claude-opus-5-5` (Claude Code CLI, effort high).
+Updated 2026-11-25 20:55 IST by runner.py v3 (parallel). Model: `claude-opus-5-5` (Claude Code CLI, effort high).
 Concurrency cap: 4 Shark sessions (and at most 6 `claude -p` processes on the box in total); stall timeout 30 min.
 
 Runner: `/workspace/shark-fitness-orchestration/runner.py`, log `/workspace/shark-fitness-orchestration/logs/runner.log`, per-session logs `/workspace/shark-fitness-orchestration/logs/<tag>-<n>.json`. Worktrees: `/workspace/sf-wt/<ID>` (P01: `/workspace/shark-fitness-repo`).
 Backups on origin: `phase/*` and `integration/*` branches (pushed after every commit), orchestration state on `orchestration/state`.
-Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "phase/P02-payments-razorpay": "2ffa570 at 2026-11-25 20:21 IST", "phase/P06-staff-security": "360f45c at 2026-11-25 20:49 IST", "phase/P04-member-mobile-app": "421ddb5 at 2026-11-25 20:47 IST", "phase/P03-public-website": "75348e0 at 2026-11-25 20:51 IST", "phase/P05-member-core-gaps": "2ffa570 at 2026-11-25 20:34 IST"}
+Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "phase/P02-payments-razorpay": "2ffa570 at 2026-11-25 20:21 IST", "phase/P06-staff-security": "9c14c5f at 2026-11-25 20:55 IST", "phase/P04-member-mobile-app": "421ddb5 at 2026-11-25 20:47 IST", "phase/P03-public-website": "75348e0 at 2026-11-25 20:51 IST", "phase/P05-member-core-gaps": "7cfff54 at 2026-11-25 20:55 IST"}
 
 ## Nodes
 | Node | Title | State | Branch | Base | PR | Checks (runner-verified) | Notes |
@@ -28,10 +28,10 @@ Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "ph
 ## Running sessions
 | Node | Session tag | pid | Last activity | Started |
 |---|---|---|---|---|
-| P06 | P06-review | 456988 | 2026-11-25 20:51 IST | 2026-11-25 20:38 IST |
-| P04 | P04-review | 447664 | 2026-11-25 20:51 IST | 2026-11-25 20:36 IST |
-| P03 | P03-review | 458032 | 2026-11-25 20:50 IST | 2026-11-25 20:38 IST |
-| P05 | P05-impl | 440425 | 2026-11-25 20:51 IST | 2026-11-25 20:33 IST |
+| P06 | P06-review | 456988 | 2026-11-25 20:53 IST | 2026-11-25 20:38 IST |
+| P04 | P04-review | 447664 | 2026-11-25 20:54 IST | 2026-11-25 20:36 IST |
+| P03 | P03-review | 458032 | 2026-11-25 20:54 IST | 2026-11-25 20:38 IST |
+| P05 | P05-impl | 440425 | 2026-11-25 20:53 IST | 2026-11-25 20:33 IST |
 
 ## Blockers / waiting
 - none
