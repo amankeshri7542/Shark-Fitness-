@@ -4,8 +4,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, api } from '../lib/api';
 import { useAdmin, usePermission } from '../lib/store';
 import { Page } from '../ui/shell';
-import { Button, Chip, EmptyState, ErrorState, Field, Panel, PermissionState, SelectField, Skeleton } from '../ui/console';
+import { Button, Chip, EmptyState, ErrorState, Field, Panel, PermissionState, Segmented, SelectField, Skeleton } from '../ui/console';
 import { Modal } from '../ui/overlay';
+import { SOURCE_LABEL } from './lead-source';
 
 interface LeadRow {
   id: string;
@@ -21,6 +22,9 @@ interface LeadRow {
   slaBreached: boolean;
   duplicateOfId: string | null;
   convertedMemberId: string | null;
+  campaign: string | null;
+  utm: { source: string | null; medium: string | null; campaign: string | null } | null;
+  trial: { requestedAt: string | null; confirmedAt: string | null } | null;
 }
 
 interface LeadsPayload {
@@ -31,6 +35,8 @@ interface LeadsPayload {
 }
 
 const STAGES = ['new', 'contacted', 'qualified', 'trial_booked', 'trial_completed', 'nurture', 'won', 'lost', 'disqualified'] as const;
+
+type SourceFilter = 'all' | 'website';
 
 const SOURCES = [
   { value: 'walk_in', label: 'Walk-in' },
@@ -47,11 +53,15 @@ export default function LeadsScreen() {
   const canView = usePermission('lead.view');
   const canManage = usePermission('lead.manage');
   const [search, setSearch] = useState('');
+  const [source, setSource] = useState<SourceFilter>('all');
   const [showCreate, setShowCreate] = useState(false);
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['leads', search],
-    queryFn: () => api<LeadsPayload>(`/admin/leads?limit=500${search.trim() ? `&q=${encodeURIComponent(search.trim())}` : ''}`),
+    queryKey: ['leads', search, source],
+    queryFn: () =>
+      api<LeadsPayload>(
+        `/admin/leads?limit=500${search.trim() ? `&q=${encodeURIComponent(search.trim())}` : ''}${source === 'website' ? '&source=website' : ''}`,
+      ),
     enabled: canView,
   });
 
@@ -106,7 +116,7 @@ export default function LeadsScreen() {
         </div>
       }
     >
-      <div className="border-b border-line p-3.5">
+      <div className="flex flex-wrap items-end gap-3 border-b border-line p-3.5">
         <Field
           label="Search"
           placeholder="Name, phone or email"
@@ -114,6 +124,19 @@ export default function LeadsScreen() {
           onChange={(e) => setSearch(e.target.value)}
           className="max-w-[320px]"
         />
+        <div className="flex flex-col gap-1.5">
+          <span className="font-utility text-[10px] font-semibold uppercase tracking-[0.14em] text-foam-50">Source</span>
+          <Segmented<SourceFilter>
+            label="Lead source"
+            value={source}
+            onChange={setSource}
+            size="md"
+            options={[
+              { value: 'all', label: 'All sources' },
+              { value: 'website', label: 'Website' },
+            ]}
+          />
+        </div>
       </div>
 
       {data.hasMore ? (
@@ -127,12 +150,24 @@ export default function LeadsScreen() {
 
       {data.items.length === 0 ? (
         <EmptyState
-          title="No leads yet"
-          body={search ? 'Nothing matches that search.' : 'Capture your first lead to start the pipeline.'}
+          title={source === 'website' && !search ? 'No website leads yet' : 'No leads yet'}
+          body={
+            search
+              ? 'Nothing matches that search.'
+              : source === 'website'
+                ? 'Nobody has sent the website’s free-trial or contact form yet. Enquiries appear here the moment they arrive.'
+                : 'Capture your first lead to start the pipeline.'
+          }
           action={
-            search ? (
-              <Button variant="outline" onClick={() => setSearch('')}>
-                Clear search
+            search || source !== 'all' ? (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setSearch('');
+                  setSource('all');
+                }}
+              >
+                Clear filters
               </Button>
             ) : canManage ? (
               <Button variant="cta" onClick={() => setShowCreate(true)}>
@@ -160,8 +195,24 @@ export default function LeadsScreen() {
                           {lead.slaBreached ? <Chip tone="bad">overdue</Chip> : null}
                         </div>
                         <div className="mt-1 font-utility text-[10px] uppercase tracking-[0.1em] text-foam-45">
-                          {lead.branchName} · {lead.source.replace(/_/g, ' ')}
+                          {lead.branchName} · {SOURCE_LABEL[lead.source] ?? lead.source.replace(/_/g, ' ')}
                         </div>
+                        {lead.trial || lead.campaign ? (
+                          <div className="mt-1.5 flex flex-wrap gap-1">
+                            {lead.trial ? (
+                              <Chip tone={lead.trial.confirmedAt ? 'good' : 'accent'}>
+                                {lead.trial.confirmedAt ? 'trial confirmed' : 'trial requested'}
+                              </Chip>
+                            ) : null}
+                            {lead.campaign ? (
+                              <Chip tone="neutral" glyph={false} className="max-w-full truncate">
+                                <span className="sr-only">Campaign: </span>
+                                {lead.utm?.source ? `${lead.utm.source} · ` : ''}
+                                {lead.campaign}
+                              </Chip>
+                            ) : null}
+                          </div>
+                        ) : null}
                         {lead.duplicateOfId ? (
                           <Chip tone="warn" className="mt-1.5">
                             possible duplicate
