@@ -164,6 +164,7 @@ export const useSession = create<SessionState>((set, get) => ({
     // is everything the next person at this phone could read.
     queryClient.clear();
     void deleteSnapshot(owner);
+    (navigator as Navigator & { clearAppBadge?: () => Promise<void> }).clearAppBadge?.().catch(() => undefined);
     auth.clear();
     set({ viewer: null, branches: [], activeBranchId: null, status: 'signed-out', offlineStart: false, sessionEnded: true });
   },

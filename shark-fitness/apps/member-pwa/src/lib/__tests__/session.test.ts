@@ -80,8 +80,13 @@ describe('sign-out', () => {
     localStorage.setItem('shark.member.theme', 'light');
     localStorage.setItem('shark.member.push-device', JSON.stringify({ owner: OWNER, id: 'psub_1', endpoint: 'https://push.example/1' }));
 
+    const clearAppBadge = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, 'clearAppBadge', { value: clearAppBadge, configurable: true });
+
     await signOutAndWipe();
 
+    // The installed app's icon no longer shows this member's unread count.
+    expect(clearAppBadge).toHaveBeenCalled();
     expect(send).toHaveBeenCalledWith('/me/push-subscriptions/psub_1', { method: 'DELETE' });
     expect(send).toHaveBeenCalledWith('/auth/sign-out', { method: 'POST' });
     expect(useSession.getState().status).toBe('signed-out');

@@ -30,6 +30,9 @@ export async function signOutAndWipe(options: { notice?: string } = {}): Promise
     clearWorkoutStorage();
     takeReturnRoute(owner);
     setMemberSessionHint(false);
+    // The home-screen icon must not keep showing this member's unread count.
+    const nav = navigator as Navigator & { clearAppBadge?: () => Promise<void> };
+    void nav.clearAppBadge?.().catch(() => undefined);
   } finally {
     useSession.setState({ leaving: false, notice: options.notice ?? null });
   }
