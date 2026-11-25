@@ -180,6 +180,7 @@ export function listReconciliationExceptions(ctx: RequestContext, state: 'open' 
     .limit(200)
     .all();
   return {
+    onlinePayment: resolvePaymentProvider() !== null,
     items: rows.map(({ exception, invoiceNumber, memberId, firstName, lastName }) => ({
       id: exception.id,
       kind: exception.kind,
