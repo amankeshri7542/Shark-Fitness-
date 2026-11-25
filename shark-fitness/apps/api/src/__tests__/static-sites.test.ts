@@ -46,7 +46,13 @@ beforeAll(() => {
 
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-const get = (path: string, headers: Record<string, string> = {}) => app.request(path, { headers });
+/** Reads each body at once: the static server streams files lazily, and an
+ *  unread stream would still be opening its file after afterAll deletes it. */
+async function get(path: string, headers: Record<string, string> = {}): Promise<Response> {
+  const response = await app.request(path, { headers });
+  const body = await response.arrayBuffer();
+  return new Response(response.status === 204 || response.status === 302 ? null : body, response);
+}
 
 describe('single-origin static serving', () => {
   it('serves the website at /, its pages as directories, and revalidates HTML', async () => {

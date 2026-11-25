@@ -27,6 +27,8 @@ afterAll(() => rmSync(root, { recursive: true, force: true }));
 it('serves a precompressed page as HTML with Vary: Accept-Encoding through the full app', async () => {
   const response = await app.request('/', { headers: { 'accept-encoding': 'br', origin: 'http://localhost:5173' } });
   expect(response.status).toBe(200);
+  // Read it: the file is streamed lazily and the directory goes in afterAll.
+  expect((await response.arrayBuffer()).byteLength).toBeGreaterThan(0);
   expect(response.headers.get('content-encoding')).toBe('br');
   expect(response.headers.get('content-type')).toMatch(/^text\/html/);
   expect(response.headers.get('vary')).toMatch(/Accept-Encoding/);
