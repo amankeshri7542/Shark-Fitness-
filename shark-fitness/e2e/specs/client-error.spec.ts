@@ -25,7 +25,7 @@ test('a crashed screen shows the recovery screen and reports to /v1/client-error
   await cdp.send('Network.setBlockedURLs', { urls: ['*/assets/Train-*.js'] });
 
   // By destination: the label follows the member's copy tone (Strike / Train).
-  await page.getByRole('navigation', { name: 'Main' }).locator('a[href="/train"]').click();
+  await page.getByRole('navigation', { name: 'Main' }).locator('a[href="/app/train"]').click();
 
   const alert = page.getByRole('alert');
   await expect(alert).toContainText('Something went wrong.');

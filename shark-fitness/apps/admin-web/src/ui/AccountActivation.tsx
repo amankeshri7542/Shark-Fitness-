@@ -11,7 +11,7 @@ export function AccountActivation({ memberId, staffId }: { memberId?: string; st
   const result = issue.data;
   const appOrigin = new URL(window.location.origin);
   if (import.meta.env.DEV && !staffId && appOrigin.port === '5174') appOrigin.port = '5173';
-  const link = result ? `${appOrigin.origin}${staffId ? '/admin' : ''}/sign-in#${new URLSearchParams({
+  const link = result ? `${appOrigin.origin}${staffId ? '/admin' : '/app'}/sign-in#${new URLSearchParams({
     activationId: result.activationId, activationToken: result.token, gym: result.tenantSlug,
   })}` : '';
   return <Panel title="Account activation" className="border-b border-line">
