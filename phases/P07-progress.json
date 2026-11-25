@@ -24,7 +24,7 @@
    "id": 4,
    "text": "AC4 Tasks: idempotent generation across runs; branch scope 404; outcome on complete; status-strip count; Create task from alerts/member/lead",
    "status": "todo",
-   "evidence": ""
+   "evidence": "API tasks.integration.test.ts 6/6 (generateTasks twice + scheduler job: exactly one task per failed payment / safety work order / lead SLA; 404 outside branch for GET/PATCH/complete; assign only to branch staff 422; trainer cannot assign others 403; complete requires outcome 422 then stores it + audit; summary.mine == list mine; toActOn == non-manual open). Admin Tasks.test.tsx 8/8 incl. status strip. E2E pending."
   },
   {
    "id": 5,
@@ -59,8 +59,8 @@
   {
    "id": 10,
    "text": "navFor permission-aware for new modules; reception <= 7 (test)",
-   "status": "todo",
-   "evidence": ""
+   "status": "done",
+   "evidence": "packages/domain permissions.test.ts: reception rail <= 7 (home, inbox, members, attendance, billing, schedule, leads), modulesFor keeps store/support/tasks reachable, new modules permission-aware per role; domain 282/282."
   },
   {
    "id": 11,
