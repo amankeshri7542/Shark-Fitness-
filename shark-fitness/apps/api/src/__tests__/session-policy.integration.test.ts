@@ -3,7 +3,9 @@ import { eq } from 'drizzle-orm';
 import { db, schema } from '../db/client.js';
 import { resetRateLimitsForTest } from '../middleware/index.js';
 import { DAY, HOUR, MINUTE } from '../lib/time.js';
-import { Browser, auditActions, newGym } from './helpers/browser.js';
+import { Browser, addStaff, auditActions, newGym } from './helpers/browser.js';
+import { hashToken } from '../lib/crypto.js';
+import { id, token } from '../lib/ids.js';
 import { totpCodeFor } from '../services/mfa.js';
 import { testTotp } from './helpers/mfa.js';
 
@@ -94,6 +96,44 @@ describe('staff absolute lifetime', () => {
     }
     expect(await endedReason(browser)).toBeNull();
     travel(30 * MINUTE);
+    expect(await endedReason(browser)).toBe('expired');
+  });
+
+  it('applies the 12-hour limit to staff sessions created before it existed', async () => {
+    // Sessions written before P06 carry a 30-day expiry and no activity time.
+    const ownerRow = db.select().from(schema.users).where(eq(schema.users.email, 'owner@sharkfitness.in')).get()!;
+    const legacy = (ageMs: number): Browser => {
+      const browser = new Browser();
+      browser.session = token();
+      const at = Date.now();
+      db.insert(schema.sessions)
+        .values({
+          id: id('ses'), userId: ownerRow.id, tenantId: ownerRow.tenantId, tokenHash: hashToken(browser.session), ip: '127.0.0.1',
+          userAgent: browser.userAgent, createdAt: at - ageMs, lastSeenAt: at, lastActiveAt: null, expiresAt: at - ageMs + 30 * DAY,
+          revokedAt: null, impersonatorId: null, impersonationExpiresAt: null, mfaState: 'none', reauthenticatedAt: null,
+        })
+        .run();
+      return browser;
+    };
+    expect(await endedReason(legacy(11 * HOUR))).toBeNull();
+    expect(await endedReason(legacy(13 * HOUR))).toBe('expired');
+  });
+
+  it('does not extend the 12 hours when two-step sign-in is set up later from Your account', async () => {
+    const desk = addStaff(db.select().from(schema.tenants).where(eq(schema.tenants.slug, 'shark')).get()!.id, ['br_kor'], 'branch_manager');
+    const browser = new Browser();
+    expect((await browser.signIn('shark', desk.email, desk.password)).body.mfa.state).toBe('none');
+    travel(11 * HOUR);
+    // Kept busy, so only the absolute limit can end it.
+    db.update(schema.sessions).set({ lastActiveAt: Date.now() }).where(eq(schema.sessions.userId, desk.userId)).run();
+    const started = await browser.json<{ secret: string }>('/auth/mfa/enrol/start', { method: 'POST' });
+    expect(started.status).toBe(200);
+    expect((await browser.request('/auth/mfa/enrol/confirm', { body: { code: totpCodeFor(started.body.secret) } })).status).toBe(200);
+    travel(25 * MINUTE);
+    expect((await browser.request('/auth/session/activity', { method: 'POST' })).status).toBe(200);
+    travel(25 * MINUTE);
+    expect((await browser.request('/auth/session/activity', { method: 'POST' })).status).toBe(200);
+    travel(11 * MINUTE);
     expect(await endedReason(browser)).toBe('expired');
   });
 

@@ -409,7 +409,9 @@ export function completeMfa(sessionId: string): string {
       reauthenticatedAt: at,
       lastActiveAt: at,
       lastSeenAt: at,
-      expiresAt: at + STAFF_SESSION_TTL,
+      // Twelve hours from the password sign-in, not from this step: setting
+      // up two-step sign-in later from Your account must not extend a session.
+      expiresAt: session.createdAt + STAFF_SESSION_TTL,
     })
     .where(eq(schema.sessions.id, sessionId))
     .run();
@@ -432,6 +434,15 @@ export function staffIdleTimeoutMs(tenantId: string): number {
 
 type SessionRow = typeof schema.sessions.$inferSelect;
 
+/**
+ * When a staff session ends at the latest. Checked against `createdAt` as
+ * well as `expiresAt`, so staff sessions created before the 12-hour limit
+ * existed (they carry the old 30-day `expiresAt`) end on it too.
+ */
+function staffSessionEnd(session: SessionRow): number {
+  return Math.min(session.expiresAt, session.createdAt + STAFF_SESSION_TTL);
+}
+
 /** Why this session no longer works, or null while it does. */
 function endedReason(session: SessionRow, role: string | undefined, at: number): SessionEndReason | null {
   if (session.revokedAt) return 'revoked';
@@ -439,6 +450,7 @@ function endedReason(session: SessionRow, role: string | undefined, at: number):
   if (session.impersonationExpiresAt && session.impersonationExpiresAt < at) return 'expired';
   const partial = session.mfaState === 'challenge' || session.mfaState === 'enrol';
   if (role && role !== 'member' && !partial) {
+    if (staffSessionEnd(session) < at) return 'expired';
     const lastActive = session.lastActiveAt ?? session.lastSeenAt;
     if (lastActive + staffIdleTimeoutMs(session.tenantId) < at) return 'idle';
   }
@@ -452,7 +464,7 @@ export function sessionTiming(sessionId: string): SessionTiming | null {
   const staff = user?.role !== 'member';
   const lastActive = session.lastActiveAt ?? session.lastSeenAt;
   const idleMs = staff ? staffIdleTimeoutMs(session.tenantId) : null;
-  const ends = Math.min(session.expiresAt, session.impersonationExpiresAt ?? Number.POSITIVE_INFINITY);
+  const ends = Math.min(staff ? staffSessionEnd(session) : session.expiresAt, session.impersonationExpiresAt ?? Number.POSITIVE_INFINITY);
   return {
     kind: staff ? 'staff' : 'member',
     idleTimeoutSec: idleMs === null ? null : Math.round(idleMs / 1000),
