@@ -12,13 +12,13 @@
    "id": 2,
    "text": "AC2 Member messaging: coach + front-desk threads; minor rule; internal notes never member-facing; attachments signed URLs + authz; admin Inbox",
    "status": "todo",
-   "evidence": ""
+   "evidence": "API: member-messaging.integration.test.ts 12/12 (coach+desk threads, role/branch visibility 404s, minor refusal 403 + tenant toggle, notes absent from 6 member endpoints, signed URL + GPS strip, 404 for others, 403 expired/tampered, 422 spoofed, 413 oversize). Member Messaging.test.tsx 9/9, admin Inbox.test.tsx 6/6. E2E pending."
   },
   {
    "id": 3,
    "text": "AC3 Community: report->queue->remove hidden + author notified; block both ways incl. groups; rate limit 429; approval mode; admin Community module",
    "status": "todo",
-   "evidence": ""
+   "evidence": "API: community-moderation.integration.test.ts 10/10 (report->queue->remove tombstone for all + author notified + audit; hide/restore; reason required; scope 404; block both ways incl. shared challenge board; mute one-way; 429 comments and posts; approval mode; bans 403; minors anonymous). Member FeedPostCard.test.tsx 6/6, admin Community.test.tsx 6/6. E2E pending."
   },
   {
    "id": 4,
