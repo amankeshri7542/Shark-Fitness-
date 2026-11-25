@@ -10,3 +10,4 @@
 
 ## Still to review
 - mfa.ts, step-up.ts, safe-http.ts, webhooks.ts, csp.ts, csp-reports.ts, admin UI, e2e, docs
+- 7d1c0de fix(api): cap CSP report bodies while reading, not after — major (unauthenticated memory DoS)
