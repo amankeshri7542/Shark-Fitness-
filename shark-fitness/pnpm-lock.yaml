@@ -260,6 +260,9 @@ importers:
       jsdom:
         specifier: 30.0.1
         version: 30.0.1
+      playwright-core:
+        specifier: 1.65.1
+        version: 1.65.1
       typescript:
         specifier: 5.7.3
         version: 5.7.3

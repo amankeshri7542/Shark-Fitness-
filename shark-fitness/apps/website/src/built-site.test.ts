@@ -138,6 +138,12 @@ describe.skipIf(!built)('built website', () => {
     }
   });
 
+  it('ships the 1200×630 Open Graph image every page points at', () => {
+    const png = readFileSync(join(dist, 'og.png'));
+    expect(png.subarray(1, 4).toString()).toBe('PNG');
+    expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([1200, 630]);
+  });
+
   it('loads nothing from another origin', () => {
     for (const { route, doc } of pages) {
       for (const el of doc.querySelectorAll('script[src], link[href][rel~="stylesheet"], link[rel="preload"], img[src]')) {
