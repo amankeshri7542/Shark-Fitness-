@@ -14,7 +14,13 @@
     "P02": {
       "state": "implementing",
       "base": "phase/P01-prod-readiness",
-      "base_sha": "128aec1e5"
+      "base_sha": "128aec1e5",
+      "running": {
+        "tag": "P02-impl",
+        "pid": 72130,
+        "started": "2026-11-25 09:40 IST",
+        "activity": "2026-11-25 09:40 IST"
+      }
     },
     "P06": {
       "state": "pending",
