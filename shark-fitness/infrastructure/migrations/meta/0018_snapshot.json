@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "3601491b-0bba-4a04-bbb2-46f144eb472c",
+  "id": "1d52d80e-eacd-4162-af50-7210d77e2ae8",
   "prevId": "4fa86183-15d6-4509-8c1f-06a5bc8f5f0c",
   "tables": {
     "audit_log": {
@@ -6389,6 +6389,13 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "intent_id": {
+          "name": "intent_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -6399,6 +6406,13 @@
             "provider_event_id"
           ],
           "isUnique": true
+        },
+        "provider_events_intent_idx": {
+          "name": "provider_events_intent_idx",
+          "columns": [
+            "intent_id"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {},

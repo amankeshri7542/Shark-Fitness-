@@ -52,7 +52,7 @@ export function applyPaymentSafely(input: ApplyPaymentInput) {
   return applyPaymentToInvoice(input);
 }
 
-function reverseMembership(
+export function reverseMembership(
   ctx: RequestContext,
   invoice: InvoiceRow,
   reason: string,

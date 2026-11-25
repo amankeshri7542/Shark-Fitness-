@@ -111,6 +111,8 @@ export interface PaymentProvider {
   capturePayment(paymentId: string, amountMinor: number, currency: string): Promise<ProviderPayment>;
   refundPayment(request: RefundRequest): Promise<ProviderRefund>;
   createPaymentLink(request: CreatePaymentLinkRequest): Promise<ProviderPaymentLink>;
+  /** The link and the ids of payments made through it. */
+  fetchPaymentLink(linkId: string): Promise<ProviderPaymentLink & { paymentIds: string[] }>;
   fetchPaymentsForReconciliation(window: { fromMs: number; toMs: number }): Promise<ProviderPayment[]>;
 }
 

@@ -158,6 +158,12 @@ export function createRazorpayProvider(credentials: RazorpayCredentials): Paymen
       return toPaymentLink(entity);
     },
 
+    async fetchPaymentLink(linkId: string) {
+      const entity = await call('GET', `/payment_links/${encodeURIComponent(linkId)}`);
+      const payments = Array.isArray(entity.payments) ? (entity.payments as Json[]) : [];
+      return { ...toPaymentLink(entity), paymentIds: payments.map((row) => str(row.payment_id)).filter((value): value is string => value !== null) };
+    },
+
     async fetchPaymentsForReconciliation({ fromMs, toMs }): Promise<ProviderPayment[]> {
       const from = Math.floor(fromMs / 1000);
       const to = Math.floor(toMs / 1000);

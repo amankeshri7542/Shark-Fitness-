@@ -135,8 +135,14 @@ export const providerEvents = sqliteTable(
     receivedAt: integer('received_at').notNull(),
     processedAt: integer('processed_at'),
     processingError: text('processing_error'),
+    /** The payment intent the event was routed to (P02), for the invoice
+     *  timeline. Null for events that match nothing here. */
+    intentId: text('intent_id'),
   },
-  (t) => ({ eventUq: uniqueIndex('provider_events_uq').on(t.provider, t.providerEventId) }),
+  (t) => ({
+    eventUq: uniqueIndex('provider_events_uq').on(t.provider, t.providerEventId),
+    byIntent: index('provider_events_intent_idx').on(t.intentId),
+  }),
 );
 
 /**

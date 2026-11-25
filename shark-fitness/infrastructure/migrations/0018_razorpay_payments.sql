@@ -59,6 +59,8 @@ CREATE TABLE `payment_reconciliation_exceptions` (
 --> statement-breakpoint
 CREATE UNIQUE INDEX `payment_recon_dedupe_uq` ON `payment_reconciliation_exceptions` (`tenant_id`,`dedupe_key`);--> statement-breakpoint
 CREATE INDEX `payment_recon_state_idx` ON `payment_reconciliation_exceptions` (`tenant_id`,`state`,`created_at`);--> statement-breakpoint
+ALTER TABLE `provider_events` ADD `intent_id` text;--> statement-breakpoint
+CREATE INDEX `provider_events_intent_idx` ON `provider_events` (`intent_id`);--> statement-breakpoint
 ALTER TABLE `refunds` ADD `provider` text;--> statement-breakpoint
 ALTER TABLE `refunds` ADD `provider_refund_id` text;--> statement-breakpoint
 ALTER TABLE `refunds` ADD `idempotency_key` text;--> statement-breakpoint
