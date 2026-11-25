@@ -10,8 +10,8 @@ data/*.db
 data/*.db-shm
 data/*.db-wal
 # Private uploads written beside a database (dev, tests, backups' scratch).
-data/media/
-data/test/
+**/data/media/
+**/data/test/
 coverage/
 playwright-report/
 test-results/
