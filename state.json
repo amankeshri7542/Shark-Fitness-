@@ -23,7 +23,7 @@
       }
     },
     "P06": {
-      "state": "pending",
+      "state": "implementing",
       "base": "phase/P01-prod-readiness",
       "base_sha": "128aec1e5"
     },
