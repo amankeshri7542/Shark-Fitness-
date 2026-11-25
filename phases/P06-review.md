@@ -33,8 +33,21 @@ Reviewer: independent senior review (did not write the code). Branch `phase/P06-
 
 ## Verification (final HEAD)
 
-RESULTS_PLACEHOLDER
+Run on HEAD `d9e656c`, Node 22.23.5, from `shark-fitness/`:
+
+| Command | Result |
+| --- | --- |
+| `pnpm install --frozen-lockfile` | pass |
+| `pnpm typecheck` | pass |
+| `pnpm lint` | pass |
+| `pnpm test` | pass — **1,627 tests**: API 982 / 70 files, admin 328 / 43, member 40 / 11, domain 271 / 12, contracts 6 / 1 |
+| `pnpm -F @shark/api test -- mfa step-up session csp webhook` | pass — the script runs the whole API suite (982 / 70); phase files: mfa 13, step-up 25, session-policy 12, csp 10, webhook 29 |
+| `pnpm build` | pass |
+| `pnpm e2e` (`SHARK_E2E_PORT=18231`) | **8 / 8 passed**, zero CSP violations reported by the listener |
+
+A first full `pnpm test` in this pass showed 1 failure (981 / 982). The cause was the reviewer, not the code: while that run was in progress I briefly reverted `routes/me.ts` to prove the new support-session test fails without the fix. Re-run on the final tree with nothing else changing: 982 / 982.
 
 ## Housekeeping
 
-- An empty 4 KB `apps/api/data/shark.db` (no tables, untracked, created by a run without `SHARK_DB`) in this worktree was removed. No other scratch files remain.
+- Reviewer scratch files (temp DBs, gate script) removed. `apps/api/data/shark.db` in this worktree is an empty, git-ignored file (no tables) that the API test run itself opens; it was left alone, as instructed never to reset that path.
+- Not run here: Docker image build/smoke and the restore drill on a real host (no Docker), `db:backup:verify` and `perf:baseline` (the implementer reports them passing; unchanged by the review fixes).
