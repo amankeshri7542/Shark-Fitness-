@@ -36,7 +36,13 @@
     "P04": {
       "state": "implementing",
       "base": "phase/P01-prod-readiness",
-      "base_sha": "128aec1e5"
+      "base_sha": "128aec1e5",
+      "running": {
+        "tag": "P04-impl",
+        "pid": 73650,
+        "started": "2026-11-25 09:41 IST",
+        "activity": "2026-11-25 09:41 IST"
+      }
     },
     "P03": {
       "state": "pending"
@@ -70,6 +76,7 @@
     }
   },
   "pushes": {
-    "phase/P01-prod-readiness": "128aec1 at 2026-11-25 09:37 IST"
+    "phase/P01-prod-readiness": "128aec1 at 2026-11-25 09:37 IST",
+    "phase/P02-payments-razorpay": "128aec1 at 2026-11-25 09:41 IST"
   }
 }
