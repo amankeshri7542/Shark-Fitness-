@@ -65,6 +65,8 @@ export interface RequestOptions {
   branchId?: string;
   idempotencyKey?: string;
   signal?: AbortSignal;
+  /** Multipart upload (P05 photos). Sent as-is; the browser sets the boundary. */
+  form?: FormData;
 }
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -98,7 +100,7 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
 
 async function send<T>(path: string, options: RequestOptions, method: string): Promise<T> {
   const headers: Record<string, string> = { accept: 'application/json' };
-  if (options.body !== undefined) headers['content-type'] = 'application/json';
+  if (options.body !== undefined && !options.form) headers['content-type'] = 'application/json';
   if (options.branchId) headers['x-branch-id'] = options.branchId;
   if (options.idempotencyKey) headers['idempotency-key'] = options.idempotencyKey;
   const csrfToken = csrf.get();
@@ -110,7 +112,7 @@ async function send<T>(path: string, options: RequestOptions, method: string): P
       method,
       headers,
       credentials: 'include',
-      ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
+      ...(options.form ? { body: options.form } : options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
       ...(options.signal ? { signal: options.signal } : {}),
     });
   } catch {
