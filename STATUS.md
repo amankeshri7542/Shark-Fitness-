@@ -1,6 +1,6 @@
 # Shark Fitness build status
 
-Updated 2026-11-25 10:00 IST by runner.py v3 (parallel). Model: `claude-opus-5-5` (Claude Code CLI, effort high).
+Updated 2026-11-25 10:02 IST by runner.py v3 (parallel). Model: `claude-opus-5-5` (Claude Code CLI, effort high).
 Concurrency cap: 4 Shark sessions (and at most 6 `claude -p` processes on the box in total); stall timeout 30 min.
 
 Runner: `/workspace/shark-fitness-orchestration/runner.py`, log `/workspace/shark-fitness-orchestration/logs/runner.log`, per-session logs `/workspace/shark-fitness-orchestration/logs/<tag>-<n>.json`. Worktrees: `/workspace/sf-wt/<ID>` (P01: `/workspace/shark-fitness-repo`).
@@ -10,7 +10,7 @@ Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "ph
 ## Nodes
 | Node | Title | State | Branch | Base | PR | Checks (runner-verified) | Notes |
 |---|---|---|---|---|---|---|---|
-| P01 | Finish pilot hosting (PR #27) and production readiness | verifying | `phase/P01-prod-readiness` | `claude/musing-wilbur-d67503` |  |  |  |
+| P01 | Finish pilot hosting (PR #27) and production readiness | pr | `phase/P01-prod-readiness` | `claude/musing-wilbur-d67503` |  | typecheck:pass lint:pass test:pass build:pass e2e:pass |  |
 | P02 | Razorpay payments in test mode | implementing | `phase/P02-payments-razorpay` | `phase/P01-prod-readiness` |  |  |  |
 | P06 | Staff security: MFA, step-up auth, sessions, CSP, outbound webhooks | implementing | `phase/P06-staff-security` | `phase/P01-prod-readiness` |  |  |  |
 | P04 | Installable member app (PWA + Android TWA) and staff console PWA | implementing | `phase/P04-member-mobile-app` | `phase/P01-prod-readiness` |  |  |  |
@@ -28,9 +28,9 @@ Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "ph
 ## Running sessions
 | Node | Session tag | pid | Last activity | Started |
 |---|---|---|---|---|
-| P02 | P02-impl | 72130 | 2026-11-25 09:58 IST | 2026-11-25 09:40 IST |
-| P06 | P06-impl | 73460 | 2026-11-25 09:58 IST | 2026-11-25 09:41 IST |
-| P04 | P04-impl | 73650 | 2026-11-25 09:59 IST | 2026-11-25 09:41 IST |
+| P02 | P02-impl | 72130 | 2026-11-25 10:02 IST | 2026-11-25 09:40 IST |
+| P06 | P06-impl | 73460 | 2026-11-25 10:00 IST | 2026-11-25 09:41 IST |
+| P04 | P04-impl | 73650 | 2026-11-25 10:01 IST | 2026-11-25 09:41 IST |
 
 ## Blockers / waiting
 - none
