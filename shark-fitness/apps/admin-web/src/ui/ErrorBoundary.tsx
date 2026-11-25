@@ -40,7 +40,7 @@ export function RecoveryScreen({
         <Button variant="cta" size="md" onClick={() => window.location.reload()}>
           Reload
         </Button>
-        <div className="flex flex-col gap-1 border-t border-line pt-3">
+        <div className="flex w-full flex-col gap-1 border-t border-line pt-3">
           <Label>Reference</Label>
           <p className="font-utility text-[13px] tracking-[0.08em] text-foam" data-testid="error-reference">
             {reference}

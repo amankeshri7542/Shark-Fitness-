@@ -16,10 +16,13 @@ packages/
   design-tokens/  The Sonar design system + the copy register.
 infrastructure/
   migrations/     Generated SQL, checked in.
+e2e/              Playwright against the production build (e2e/README.md).
 docs/
   DESIGN.md       The visual direction and why each decision was made.
   BUILD-PLAN.md   Conventions every contributor builds against.
   ADR-001-runtime.md  Why this deviates from the PRD's Cloudflare/Expo stack.
+  PILOT-HOSTING.md    One-server pilot: deploy, backups (encrypted off-site), drills.
+  OPERATIONS-ALERTS.md  Error reporting, /metrics and the alert rules.
 ```
 
 ## Running it
@@ -62,7 +65,12 @@ pnpm lint                   # ESLint across the workspace, --max-warnings=0
 pnpm typecheck              # all six packages, zero errors
 pnpm test                   # 1,215 tests: 252 domain, 681 API, 26 member, 256 console
 pnpm build                  # both apps
+pnpm e2e                    # Playwright, after a build: owner, member, crash recovery
+pnpm -F @shark/api db:check-drift  # drizzle-kit generate must find no schema changes
 ```
+
+`pnpm e2e` needs Chromium once: `pnpm -F @shark/e2e exec playwright install chromium`.
+It starts its own production server on a temporary database and removes both afterwards.
 
 Do not pipe `pnpm test` through `tail`. The four packages interleave and the
 tail shows one of them; a package can fail while the visible summary is green.
@@ -95,10 +103,21 @@ branch-scoped query checks `ctx.branchIds`. There is no code path that reads a b
 table without a tenant.
 
 **This is beta software.** The business logic and the authorisation model are
-production-grade and tested from the outside. The infrastructure around them is
-a demo — one SQLite file with no backup, one instance, `console.log`, and no way
-to take money. `docs/PRODUCTION-READINESS.md` says exactly what is missing and
-what each gap costs to close; read it before deploying this anywhere real.
+production-grade and tested from the outside. The infrastructure is one instance
+on one SQLite file, with scripted nightly backups, optional age-encrypted
+off-site copies and restore drills (`docs/PILOT-HOSTING.md`), every setting
+validated at boot, error reporting from the server and both apps, and a
+Prometheus `/metrics` endpoint (`docs/OPERATIONS-ALERTS.md`). It still cannot
+take money, and no hosted server, bucket or alert account has been set up.
+`docs/PRODUCTION-READINESS.md` says exactly what is missing and what each gap
+costs to close; read it before deploying this anywhere real.
+
+**Configuration fails at boot, not at the first request.** Every variable the
+API reads is declared and validated in `apps/api/src/lib/config.ts`; a test
+refuses `process.env` anywhere else and any variable missing from
+`.env.example`. A sign-in-code provider chosen without its credentials, a
+malformed error DSN or a short metrics token stops the process before it opens
+the database.
 
 **Branch scope has one answer, and it lives in `branchScope(ctx, branchId?)`.**
 No branch named and none selected means *every branch the caller may see* —
