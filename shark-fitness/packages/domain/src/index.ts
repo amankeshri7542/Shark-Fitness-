@@ -13,3 +13,4 @@ export * from './settings.js';
 export * from './platform.js';
 export * from './automation.js';
 export * from './gst.js';
+export * from './notifications.js';
