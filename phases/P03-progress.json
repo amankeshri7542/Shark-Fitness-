@@ -17,32 +17,32 @@
   {
    "id": 3,
    "text": "AC3 Lighthouse mobile Home/Plans/Free trial: Perf>=95, A11y>=95, BP>=95, SEO=100 (median of 3), reports saved",
-   "status": "todo",
-   "evidence": ""
+   "status": "done",
+   "evidence": "pnpm dlx lighthouse 13.6.0 mobile/simulated, 3 runs each vs production server :18404 (SITE_INDEXABLE=true build); medians Home 99/100/100/100, Plans 100/100/100/100, Free trial 100/100/100/100; reports + SUMMARY.md in phases/P03-lighthouse/"
   },
   {
    "id": 4,
    "text": "AC4 JS <=20KB gzip content pages, <=35KB Free trial/Contact; CLS<0.05",
-   "status": "todo",
-   "evidence": ""
+   "status": "done",
+   "evidence": "built-site.test.ts JS budget test passes (content pages ~1-2 KB gzip incl. inline boot script, LeadForm script 3.1 KB gzip + api 0.5 KB on /free-trial and /contact); Lighthouse CLS max 0.0009 across 9 runs"
   },
   {
    "id": 5,
    "text": "AC5 unique title/description, canonical, OG, valid JSON-LD (test); sitemap lists indexable pages; robots honours SITE_INDEXABLE",
-   "status": "todo",
-   "evidence": ""
+   "status": "done",
+   "evidence": "apps/website src/built-site.test.ts (vitest, 8 tests): unique title+description, canonical, OG/Twitter tags, JSON-LD parses (Organization, ExerciseGym w/ address+geo+openingHoursSpecification, OfferCatalog/Offer, FAQPage, BreadcrumbList), sitemap lists all 15 indexable paths, 404 noindex, robots honours SITE_INDEXABLE, og.png 1200x630"
   },
   {
    "id": 6,
    "text": "AC6 Playwright desktop+mobile keyboard-only trial form, aria-live + focus; lead in admin Leads with Website + trial chip; legacy activation hash -> /app/; SW at / removed; console at /admin/",
-   "status": "todo",
-   "evidence": ""
+   "status": "done",
+   "evidence": "CI= SHARK_E2E_PORT=18403 pnpm e2e: 15 passed (chromium + website-mobile Pixel 7): website-trial keyboard-only spec (aria-live + focus first invalid, lead on Leads board with Website + trial chip + QR campaign), website-routing (legacy /#activationId -> /app/ same hash, /sign-in#recoveryId -> /app/sign-in, SW at scope / gone after visiting /, /, /app/, /admin/ load)"
   },
   {
    "id": 7,
    "text": "AC7 member app tests and e2e pass with /app/ base; activation/recovery link tests assert /app/",
-   "status": "todo",
-   "evidence": ""
+   "status": "done",
+   "evidence": "member-pwa: 11 files/40 tests pass with base /app/; e2e member-sign-in + client-error specs updated to /app/ and green; admin AccountActivation.test.tsx + AccountRecovery.test.tsx assert /app/sign-in#\u2026 (staff /admin/sign-in#\u2026)"
   },
   {
    "id": 8,
@@ -59,14 +59,14 @@
   {
    "id": 10,
    "text": "Admin: Plans 'Show on website' toggle; Leads source/UTM/trial chip + Website filter; Lead detail Confirm trial",
-   "status": "todo",
-   "evidence": ""
+   "status": "done",
+   "evidence": "admin-web WebsiteLeads.test.tsx (5 tests) + api website-leads-admin.integration.test.ts (7 tests): Show on website toggle, Website filter, campaign + trial chips, Confirm trial -> trial_booked with session recorded"
   },
   {
    "id": 11,
    "text": "sync-content script; pnpm dev includes website dev server (5175, /v1 proxy)",
-   "status": "todo",
-   "evidence": ""
+   "status": "done",
+   "evidence": "scripts/sync-content.mjs run against a seeded API on :18401 wrote snapshot.json (3 branches, 7 plans, 175 weekly slots); root pnpm dev runs @shark/website dev on 5175 with /v1 proxy"
   },
   {
    "id": 12,
