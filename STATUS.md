@@ -29,7 +29,7 @@ Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "ph
 | Node | Session tag | pid | Last activity | Started |
 |---|---|---|---|---|
 | P06 | P06-impl | 250344 | 2026-11-25 13:19 IST | 2026-11-25 13:19 IST |
-| P04 | P04-impl | 250181 | 2026-11-25 13:18 IST | 2026-11-25 13:18 IST |
 
 ## Blockers / waiting
 - Claude usage limit hit (latest during P03-impl); new sessions paused, retrying every 30 min
+- Claude usage limit hit (latest during P02-impl); new sessions paused, retrying every 30 min
