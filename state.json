@@ -17,7 +17,7 @@
         "tag": "P02-impl",
         "pid": 72130,
         "started": "2026-11-25 09:40 IST",
-        "activity": "2026-11-25 10:03 IST"
+        "activity": "2026-11-25 10:04 IST"
       }
     },
     "P06": {
@@ -85,6 +85,7 @@
     "phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST",
     "phase/P02-payments-razorpay": "2a95ee3 at 2026-11-25 10:04 IST",
     "phase/P06-staff-security": "128aec1 at 2026-11-25 09:42 IST",
-    "phase/P04-member-mobile-app": "a9e8654 at 2026-11-25 10:03 IST"
+    "phase/P04-member-mobile-app": "a9e8654 at 2026-11-25 10:03 IST",
+    "phase/P03-public-website": "2c15353 at 2026-11-25 10:04 IST"
   }
 }
