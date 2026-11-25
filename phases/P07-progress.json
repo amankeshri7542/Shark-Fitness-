@@ -36,7 +36,7 @@
    "id": 6,
    "text": "AC6 Broadcasts: preview = actual recipients; threshold approval; dry run no deliveries; cost = recipients x rate",
    "status": "todo",
-   "evidence": ""
+   "evidence": "API broadcasts.integration.test.ts 5/5 (preview recipients == sent recipients, excluded == suppressed rows, report totals; cost == recipients x rate for each channel with overridden rates, push all channel_unavailable; dry run creates 0 deliveries/notifications; threshold -> 412 awaiting_approval, manager approve 403, owner stale session 401 STEP_UP_REQUIRED then step-up -> approve -> send; double send 409; reception 403; unknown variable 422). Admin Marketing.test.tsx 6/6. E2E pending."
   },
   {
    "id": 7,
