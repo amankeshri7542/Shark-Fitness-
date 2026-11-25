@@ -317,9 +317,12 @@ jobs:
         run: |
           set -euo pipefail
 
+          # One key for both starts: the restarted container must read what the first wrote.
+          mfa_key="$(openssl rand -base64 32)"
           start_container() {
           docker run -d --name shark-ci -p 8787:8787 -v shark-ci-data:/var/lib/shark-fitness \
             -e SHARK_PASS_SECRET=ci-image-smoke-secret-with-at-least-48-random-bytes \
+            -e SHARK_MFA_ENCRYPTION_KEY="$mfa_key" \
             -e SHARK_ALLOWED_ORIGINS=http://localhost:8787,http://127.0.0.1:8787 \
             -e SHARK_RELEASE=ci-image-smoke \
             -e SHARK_SEED_DEMO=true \
@@ -371,6 +374,8 @@ jobs:
           echo "sign-in status: $code"
           test "$code" = '200'
           grep -q '"csrfToken"' /tmp/signin.json
+          # Owners must use two-step sign-in: the seeded demo owner meets the enrolment gate.
+          grep -q '"mfa":{"state":"enrol"}' /tmp/signin.json
 
           echo 'container smoke passed'
 

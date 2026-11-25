@@ -75,15 +75,22 @@ pilot=$SHARK_HOME/src/deploy/pilot
 env_file=$SHARK_HOME/shark.env
 if [ ! -f "$env_file" ]; then
   secret=$(openssl rand -base64 48 | tr -d '\n')
+  mfa_key=$(openssl rand -base64 32 | tr -d '\n')
   (
     umask 077
     sed -e "s|^SHARK_DOMAIN=.*|SHARK_DOMAIN=$domain|" \
         -e "s|^SHARK_PASS_SECRET=.*|SHARK_PASS_SECRET=$secret|" \
+        -e "s|^SHARK_MFA_ENCRYPTION_KEY=.*|SHARK_MFA_ENCRYPTION_KEY=$mfa_key|" \
         "$pilot/shark.env.example" > "$env_file"
   )
-  echo "Wrote $env_file with a new SHARK_PASS_SECRET."
+  echo "Wrote $env_file with a new SHARK_PASS_SECRET and SHARK_MFA_ENCRYPTION_KEY."
 else
   echo "Kept the existing $env_file."
+  # Servers provisioned before two-step sign-in existed get the new key once.
+  if ! grep -Eq '^SHARK_MFA_ENCRYPTION_KEY=.+' "$env_file"; then
+    printf '\n# Added by provision.sh: encrypts two-step sign-in and webhook secrets.\nSHARK_MFA_ENCRYPTION_KEY=%s\n' "$(openssl rand -base64 32 | tr -d '\n')" >> "$env_file"
+    echo "Added SHARK_MFA_ENCRYPTION_KEY to $env_file."
+  fi
 fi
 ln -sfn "$env_file" "$pilot/.env"
 

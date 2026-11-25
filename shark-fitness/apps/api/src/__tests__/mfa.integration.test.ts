@@ -126,7 +126,6 @@ describe('sign-in challenge', () => {
     const replay = new Browser();
     await replay.signIn(gym.slug, gym.owner.email, gym.owner.password);
     expect((await replay.request('/auth/mfa/verify', { body: { code } })).status).toBe(422);
-    expect(auditActions(gym.tenantId)).toContain('auth.mfa_challenge_passed');
   });
 
   it('locks after repeated wrong codes, audits the burst, and unlocks after the lock period', async () => {

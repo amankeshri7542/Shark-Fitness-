@@ -3,6 +3,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { mkdtempSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { staffSession } from './lib/console-session.mjs';
 import { join, resolve } from 'node:path';
 
 const TARGET_MEMBERS = 5_000;
@@ -16,6 +17,7 @@ const Database = requireFromApi('better-sqlite3');
 const baseEnvironment = {
   ...process.env,
   SHARK_PASS_SECRET: 'performance-baseline-pass-secret-with-at-least-48-bytes',
+  SHARK_MFA_ENCRYPTION_KEY: Buffer.alloc(32, 9).toString('base64'),
   SHARK_DEMO_READER_KEY: 'performance-baseline-reader-secret',
   SHARK_RELEASE: 'performance-baseline',
 };
@@ -316,7 +318,8 @@ async function percentileBenchmark(origin, cookie, name, path) {
 }
 
 async function measure(dataset) {
-  const port = 8799;
+  // SHARK_PERF_PORT overrides the default when 8799 is taken (parallel worktrees).
+  const port = Number(process.env.SHARK_PERF_PORT ?? 8799);
   const origin = `http://127.0.0.1:${port}`;
   const invocation = pnpmInvocation(['-F', '@shark/api', 'start']);
   const child = spawn(invocation.command, invocation.args, {
@@ -345,13 +348,8 @@ async function measure(dataset) {
       if (attempt === 59) throw new Error('Benchmark API did not become ready.');
       await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
     }
-    const signIn = await fetch(`${origin}/v1/auth/password`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', origin },
-      body: JSON.stringify({ tenantSlug: 'shark', email: 'owner@sharkfitness.in', password: 'shark1234' }),
-    });
-    const session = signIn.headers.get('set-cookie')?.match(/shark_session=([^;,]+)/)?.[1];
-    if (!signIn.ok || !session) throw new Error(`Benchmark sign-in failed with ${signIn.status}.`);
+    // The owner meets the two-step enrolment gate on a fresh demo database.
+    const { session } = await staffSession(origin, { tenantSlug: 'shark', email: 'owner@sharkfitness.in', password: 'shark1234' }, requireFromApi);
     const cookie = `shark_session=${session}`;
     const range = 'from=2026-05-01&to=2026-08-27';
     const routes = {

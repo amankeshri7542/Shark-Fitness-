@@ -6,6 +6,7 @@ import { appendFileSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSyn
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { staffSession } from './lib/console-session.mjs';
 import { createBackup, restoreBackup } from './sqlite-backup.mjs';
 
 const repository = process.cwd();
@@ -27,6 +28,8 @@ let accountRecoveryProof;
 const baseEnvironment = {
   ...process.env,
   SHARK_PASS_SECRET: 'recovery-proof-pass-secret-with-at-least-48-bytes-long',
+  // Test-only, fixed for the run so the restored copy can read the source's MFA secrets.
+  SHARK_MFA_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'),
   SHARK_DEMO_READER_KEY: 'recovery-proof-reader-secret',
   SHARK_RELEASE: `recovery-proof-${proofSuffix}`,
   SHARK_ECHO_OTP: 'false',
@@ -176,15 +179,10 @@ async function proveBootAndRead(databasePath, label, apiDirectory = resolve(repo
     if (child.exitCode !== null || !ready.ok || ready.schema !== 'ready' || ready.release !== release) {
       throw new Error(`Restored API was not ready or belonged to another process: ${JSON.stringify(ready)}`);
     }
-    const signIn = await fetch(`${origin}/v1/auth/password`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', origin },
-      body: JSON.stringify({ tenantSlug: 'shark', email: 'owner@sharkfitness.in', password: 'shark1234' }),
-    });
-    if (!signIn.ok) throw new Error(`Restored API sign-in failed with ${signIn.status}.`);
-    const session = signIn.headers.get('set-cookie')?.match(/shark_session=([^;,]+)/)?.[1];
-    if (!session) throw new Error('Restored API sign-in did not issue a session.');
-    const { csrfToken } = await signIn.json();
+    // Owners use two-step sign-in: enrolled on the source, answered from the
+    // same secret on the restored copy — which also proves the encrypted
+    // factor survives a backup and restore under the same key.
+    const { session, csrfToken } = await staffSession(origin, { tenantSlug: 'shark', email: 'owner@sharkfitness.in', password: 'shark1234' }, requireFromApi);
     const headers = { cookie: `shark_session=${session}; shark_csrf=${csrfToken}`, origin, 'x-csrf-token': csrfToken, 'content-type': 'application/json' };
     const request = async (path, body, idempotencyKey) => {
       const response = await fetch(`${origin}${path}`, {

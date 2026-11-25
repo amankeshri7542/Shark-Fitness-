@@ -5,7 +5,7 @@ import { MfaVerifyInput, TotpCode } from '@shark/contracts';
 import { db, schema } from '../db/client.js';
 import { authenticate, authenticatePartial, ctxOf, rateLimit } from '../middleware/index.js';
 import { validate } from '../middleware/validate.js';
-import { audit } from '../lib/audit.js';
+import { log } from '../lib/observability.js';
 import { forbidden, precondition, unauthenticated } from '../lib/errors.js';
 import { freshAuth } from '../lib/step-up.js';
 import { completeMfa, viewerFor } from '../services/auth.js';
@@ -54,13 +54,10 @@ mfaRoutes.post('/verify', authenticatePartial, rateLimit(10, 60_000, { bucket: '
   if ('code' in body) verifyTotp(ctx, user, body.code);
   else recoveryCodesRemaining = useRecoveryCode(ctx, user, body.recoveryCode);
   const token = completeMfa(ctx.sessionId);
-  audit(ctx, {
-    action: 'auth.mfa_challenge_passed',
-    entityType: 'session',
-    entityId: ctx.sessionId,
-    entityLabel: user.name,
-    reason: 'code' in body ? 'Authenticator code' : 'Recovery code',
-  });
+  // An ordinary sign-in is recorded by its session row, as password sign-ins
+  // always were; the audit log keeps the exceptional MFA events (enrolment,
+  // removal, lockouts, recovery-code use, resets).
+  log('info', 'mfa_challenge_passed', { tenantId: ctx.tenantId, actorId: user.id, method: 'code' in body ? 'totp' : 'recovery_code' });
   c.header('Cache-Control', 'no-store');
   return c.json({
     ...signedIn(c, { token, viewer: viewerFor(user.id), mfaState: 'verified' }),
