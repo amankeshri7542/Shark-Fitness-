@@ -80,6 +80,7 @@
   },
   "blockers": [
     "Claude usage limit hit (latest during P03-review); new sessions paused, retrying every 30 min",
-    "Claude usage limit hit (latest during P05-impl); new sessions paused, retrying every 30 min"
+    "Claude usage limit hit (latest during P05-impl); new sessions paused, retrying every 30 min",
+    "Claude usage limit hit (latest during P04-review); new sessions paused, retrying every 30 min"
   ]
 }
