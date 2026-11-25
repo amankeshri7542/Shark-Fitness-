@@ -1,6 +1,6 @@
 {
  "phase": "P05",
- "status": "in_progress",
+ "status": "done",
  "items": [
   {
    "id": 1,
@@ -53,14 +53,14 @@
   {
    "id": 9,
    "text": "Member and admin component tests for new UI states (loading/empty/error/permission/offline); plain register on Pass, Billing, refund surfaces",
-   "status": "todo",
-   "evidence": ""
+   "status": "done",
+   "evidence": "Component tests for loading/empty/error/permission/offline: member Book 7, CreditsPanel 7, PhotosSection 13, FreestylePicker 6, Pass (all states incl. predator-register test), Billing; admin ScanPass 11, MemberCredits 7 (incl. coach no-money), MemberPhotos 3. Plain-only surfaces enforced by useCopy(surface) + copy.test.ts (pass, access, access-denied, billing, payment, refund). pnpm test: member 126/126, admin 326/326."
   },
   {
    "id": 10,
    "text": "Docs: PRODUCTION-READINESS (waitlist, QR, media, backups), README offering, .env.example; standard gates + pnpm e2e green; PR description",
-   "status": "todo",
-   "evidence": ""
+   "status": "done",
+   "evidence": "Docs: PRODUCTION-READINESS, README offering, PAYMENTS-RAZORPAY, PILOT-TEST-AND-DEMO, e2e/README, .env.example (commit 440f432 etc). Gates (final run): install --frozen-lockfile 0, typecheck 0, lint 0, pnpm test 1784 tests/151 files pass (contracts 6, domain 284, member 126, admin 326, api 1042), build 0, pnpm e2e 8/8 (twice), db:backup:verify passed with media, db:check-drift none. PR text at pr/P05.md."
   }
  ]
 }
