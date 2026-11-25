@@ -13,7 +13,7 @@ Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "ph
 | P01 | Finish pilot hosting (PR #27) and production readiness | done | `phase/P01-prod-readiness` | `claude/musing-wilbur-d67503` | https://github.com/amankeshri7542/Shark-Fitness-/pull/28 | typecheck:pass lint:pass test:pass build:pass e2e:pass |  |
 | P02 | Razorpay payments in test mode | done | `phase/P02-payments-razorpay` | `phase/P01-prod-readiness` | https://github.com/amankeshri7542/Shark-Fitness-/pull/29 | typecheck:pass lint:pass test:pass build:pass e2e:pass |  |
 | P06 | Staff security: MFA, step-up auth, sessions, CSP, outbound webhooks | implementing | `phase/P06-staff-security` | `phase/P01-prod-readiness` |  |  |  |
-| P04 | Installable member app (PWA + Android TWA) and staff console PWA | implementing | `phase/P04-member-mobile-app` | `phase/P01-prod-readiness` |  |  |  |
+| P04 | Installable member app (PWA + Android TWA) and staff console PWA | reviewing | `phase/P04-member-mobile-app` | `phase/P01-prod-readiness` |  |  |  |
 | P03 | Public website, public API and lead capture | implementing | `phase/P03-public-website` | `phase/P01-prod-readiness` |  |  |  |
 | P05 | QR check-in, safe waitlist, credit packs, private media and progress photos | implementing | `phase/P05-member-core-gaps` | `phase/P02-payments-razorpay` |  |  |  |
 | P07 | Messaging channels, member messaging, community moderation, tasks, coaching, broadcasts | pending | `phase/P07-engagement-ops-modules` | `` |  |  |  |
@@ -29,7 +29,7 @@ Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "ph
 | Node | Session tag | pid | Last activity | Started |
 |---|---|---|---|---|
 | P06 | P06-impl | 252755 | 2026-11-25 20:34 IST | 2026-11-25 14:21 IST |
-| P03 | P03-impl | 259584 | 2026-11-25 20:35 IST | 2026-11-25 15:23 IST |
+| P03 | P03-impl | 259584 | 2026-11-25 20:36 IST | 2026-11-25 15:23 IST |
 | P05 | P05-impl | 440425 | 2026-11-25 20:35 IST | 2026-11-25 20:33 IST |
 
 ## Blockers / waiting
