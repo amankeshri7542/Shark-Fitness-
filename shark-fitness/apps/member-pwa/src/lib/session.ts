@@ -3,7 +3,7 @@ import { deleteSnapshot, ownerOf, rememberLastOwner } from './persisted-cache';
 import { forgetPushOnSignOut } from './push';
 import { queryClient } from './query-client';
 import { setMemberSessionHint } from './session-hint';
-import { takeReturnRoute, useSession, useWorkout } from './store';
+import { clearWorkoutStorage, takeReturnRoute, useSession, useWorkout } from './store';
 
 /**
  * Signing out on a phone someone else may pick up next (PRD 04 shared-device
@@ -32,23 +32,6 @@ export async function signOutAndWipe(options: { notice?: string } = {}): Promise
     setMemberSessionHint(false);
   } finally {
     useSession.setState({ leaving: false, notice: options.notice ?? null });
-  }
-}
-
-/** Every `shark.workout*` key: the active session, its plan copy and the
- *  finished-session snapshots Summary reads. */
-export function clearWorkoutStorage(): void {
-  for (const storage of [localStorage, sessionStorage]) {
-    try {
-      const keys: string[] = [];
-      for (let i = 0; i < storage.length; i += 1) {
-        const key = storage.key(i);
-        if (key?.startsWith('shark.workout')) keys.push(key);
-      }
-      keys.forEach((key) => storage.removeItem(key));
-    } catch {
-      /* storage unavailable */
-    }
   }
 }
 

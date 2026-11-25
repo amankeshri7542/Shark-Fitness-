@@ -96,6 +96,14 @@ export const useSession = create<SessionState>((set, get) => ({
         return;
       }
       const owner = ownerOf(viewer);
+      // A session that ended (401) leaves its owner's unfinished workout on
+      // the phone so they can carry on after signing back in. Anyone else
+      // signing in must neither see it nor finish it under their own name.
+      const previous = lastOwner();
+      if (previous && previous !== owner) {
+        useWorkout.getState().reset();
+        clearWorkoutStorage();
+      }
       rememberLastOwner(owner);
       // Show the last-seen screens at once while fresh data loads.
       const snapshot = await loadSnapshot(owner);
@@ -238,6 +246,23 @@ interface WorkoutState {
 }
 
 const STORAGE_KEY = 'shark.workout';
+
+/** Every `shark.workout*` key: the active session, its plan copy and the
+ *  finished-session snapshots Summary reads. */
+export function clearWorkoutStorage(): void {
+  for (const storage of [localStorage, sessionStorage]) {
+    try {
+      const keys: string[] = [];
+      for (let i = 0; i < storage.length; i += 1) {
+        const key = storage.key(i);
+        if (key?.startsWith('shark.workout')) keys.push(key);
+      }
+      keys.forEach((key) => storage.removeItem(key));
+    } catch {
+      /* storage unavailable */
+    }
+  }
+}
 
 function persist(state: Partial<WorkoutState>): void {
   try {

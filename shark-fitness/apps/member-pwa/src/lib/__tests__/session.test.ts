@@ -117,6 +117,33 @@ describe('session ended (401)', () => {
     expect(takeReturnRoute(OWNER)).toBeNull();
   });
 
+  it('keeps an unfinished workout for the same person, never for the next person at the phone', async () => {
+    const workout = { clientId: 'w-aman', title: 'Push day', startedAt: Date.now(), exerciseIndex: 0, sets: [], restEndsAt: null };
+    const signInAs = async (viewer: Viewer): Promise<void> => {
+      send.mockImplementation((path: string) =>
+        Promise.resolve(path === '/me' ? { viewer } : { items: [], activeBranchId: null }),
+      );
+      await useSession.getState().bootstrap();
+    };
+
+    // Aman's session ends mid-workout; Aman signs back in: the workout is still there.
+    rememberLastOwner(OWNER);
+    useWorkout.getState().start({ clientId: workout.clientId, assignmentId: null, programDayId: null, title: workout.title, sets: [] });
+    localStorage.setItem('shark.workout.done.w0', '{}');
+    useSession.getState().expire();
+    await signInAs(aman);
+    expect(useWorkout.getState().clientId).toBe('w-aman');
+    expect(localStorage.getItem('shark.workout')).not.toBeNull();
+
+    // It ends again, and somebody else signs in on this phone.
+    useSession.getState().expire();
+    await signInAs({ ...aman, userId: 'usr_priya', memberId: 'mem_priya', name: 'Priya' });
+    expect(useWorkout.getState().clientId).toBeNull();
+    expect(Object.keys(localStorage).filter((k) => k.startsWith('shark.workout'))).toEqual([]);
+    // Aman's queued writes stay, under Aman, for when Aman is back.
+    expect(lastOwner()).toBe('ten_shark:usr_priya');
+  });
+
   it('a 401 while flushing leaves the write queued, not marked as a conflict', async () => {
     Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
     send.mockRejectedValue(new ApiError(401, { error: { code: 'UNAUTHENTICATED', message: 'Sign in again', requestId: 'r' } }));
