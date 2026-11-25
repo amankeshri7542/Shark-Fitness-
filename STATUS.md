@@ -15,7 +15,7 @@ Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "ph
 | P06 | Staff security: MFA, step-up auth, sessions, CSP, outbound webhooks | implementing | `phase/P06-staff-security` | `phase/P01-prod-readiness` |  |  |  |
 | P04 | Installable member app (PWA + Android TWA) and staff console PWA | implementing | `phase/P04-member-mobile-app` | `phase/P01-prod-readiness` |  |  |  |
 | P03 | Public website, public API and lead capture | implementing | `phase/P03-public-website` | `phase/P01-prod-readiness` |  |  |  |
-| P05 | QR check-in, safe waitlist, credit packs, private media and progress photos | pending | `phase/P05-member-core-gaps` | `phase/P02-payments-razorpay` |  |  |  |
+| P05 | QR check-in, safe waitlist, credit packs, private media and progress photos | implementing | `phase/P05-member-core-gaps` | `phase/P02-payments-razorpay` |  |  |  |
 | P07 | Messaging channels, member messaging, community moderation, tasks, coaching, broadcasts | pending | `phase/P07-engagement-ops-modules` | `` |  |  |  |
 | INT1 | Integrate feature phases P01-P07 | pending | `integration/features` | `` |  |  |  |
 | P08 | Full test pass: route coverage, critical scenarios, Playwright E2E for every app | pending | `phase/P08-test-suite` | `` |  |  |  |
