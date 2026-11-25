@@ -65,8 +65,11 @@ const authenticatedApiLimit = rateLimit(600, 60_000, {
 app.use('*', requestId);
 app.use('*', logger);
 app.use('*', securityHeaders);
+// CORS is an API concern. Applied to static files it replaced their
+// `Vary: Accept-Encoding` with `Vary: Origin` and, on precompressed responses,
+// dropped the Content-Type, so a browser showed the website's HTML as text.
 app.use(
-  '*',
+  '/v1/*',
   cors({
     origin: (origin) => (allowedOrigins().has(origin.replace(/\/$/, '')) ? origin : undefined),
     credentials: true,

@@ -62,6 +62,7 @@ describe('single-origin static serving', () => {
   it('serves a precompressed copy when the browser accepts it', async () => {
     const home = await get('/', { 'accept-encoding': 'gzip, deflate, br' });
     expect(home.headers.get('content-encoding')).toBe('gzip');
+    expect(home.headers.get('content-type')).toMatch(/text\/html/);
     expect(home.headers.get('vary')).toMatch(/Accept-Encoding/);
   });
 

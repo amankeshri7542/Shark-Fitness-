@@ -274,6 +274,7 @@ p {
 }
 .wordmark {
   display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 10px;
   font-family: var(--sf-font-display);
@@ -322,14 +323,20 @@ p {
 }
 .header-actions .btn {
   min-height: 44px;
-  padding: 10px 16px;
+  padding: 10px 14px;
   font-size: 13px;
+  white-space: nowrap;
 }
 .header-actions .btn--primary {
   padding-right: 26px;
 }
 .member-link {
   display: none;
+}
+@media (max-width: 380px) {
+  .wordmark {
+    font-size: 19px;
+  }
 }
 @media (min-width: 1080px) {
   .nav-links {
@@ -698,6 +705,9 @@ fieldset {
   border: 1px solid var(--sf-line);
   max-height: 360px;
   overflow-y: auto;
+}
+.choices:empty {
+  display: none;
 }
 .choice {
   border-left: 3px solid transparent;
