@@ -183,6 +183,11 @@ const RuntimeEnvironmentShape = z.object({
     SHARK_READER_KEYS_JSON: ReaderKeys,
     SHARK_DEMO_READER_KEY: z.string().min(1).optional(),
     SHARK_MEDIA_BUCKET: z.string().transform((value) => value.trim()).optional(),
+    /** Private media on local disk (message attachments; P05 adds progress
+     *  photos to the same port). Must sit outside every static root. Optional
+     *  outside production (defaults to a `media` folder beside SHARK_DB);
+     *  in production, uploads stay off until it is set. */
+    SHARK_MEDIA_DIR: OptionalText,
     SHARK_ERROR_REPORTING_ENDPOINT: HttpEndpoint.optional(),
     SHARK_ERROR_REPORTER: providerName('SHARK_ERROR_REPORTER', ERROR_REPORTERS),
     SHARK_ERROR_DSN: Dsn.optional(),
@@ -451,6 +456,8 @@ export interface RuntimeConfig {
   readerKeys: Record<string, ReaderConfig>;
   demoReaderKey: string;
   mediaBucket: string | null;
+  /** Absolute or DB-relative folder for private media; null = uploads off. */
+  mediaDir: string | null;
   errorReportingEndpoint: string | null;
   errorDsn: ErrorDsn | null;
   /** The reporter `auto` resolved to: DSN, then endpoint, then console in
@@ -523,6 +530,9 @@ export function parseRuntimeConfig(environment: Record<string, string | undefine
     readerKeys: parsed.SHARK_READER_KEYS_JSON,
     demoReaderKey: parsed.SHARK_DEMO_READER_KEY ?? 'demo-reader-secret-change-me',
     mediaBucket: parsed.SHARK_MEDIA_BUCKET || null,
+    mediaDir:
+      parsed.SHARK_MEDIA_DIR ??
+      (nodeEnv === 'production' ? null : `${(parsed.SHARK_DB ?? 'data/shark.db').replace(/[^/\\]+$/, '')}media`),
     errorReportingEndpoint: parsed.SHARK_ERROR_REPORTING_ENDPOINT ?? null,
     errorDsn: parsed.SHARK_ERROR_DSN ?? null,
     errorReporter: resolveErrorReporter(parsed.SHARK_ERROR_REPORTER ?? 'auto', {

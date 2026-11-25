@@ -10,6 +10,8 @@ import {
 import { ctxOf } from '../../middleware/index.js';
 import { validate } from '../../middleware/validate.js';
 import { runIdempotently } from '../../lib/idempotency.js';
+import { requirePermission } from '../../lib/context.js';
+import { engagementSettings, updateEngagementSettings } from '../../services/engagement-settings.js';
 import {
   branchDetail,
   businessProfile,
@@ -140,3 +142,31 @@ settingsRoutes.get('/timezones', validate('query', z.object({ q: z.string().opti
 
   return c.json({ items: all.filter(matches).slice(0, 400) });
 });
+
+/* — Engagement (P07): community approval, minors, broadcast approval and
+   message rates. Read by anyone who manages settings; written by them too,
+   audited. ————————————————————————————————————————————————— */
+
+const Paise = z.number().int().min(0).max(100_000);
+const EngagementPatch = z
+  .object({
+    communityApprovalMode: z.boolean().optional(),
+    allowStaffMinorMessaging: z.boolean().optional(),
+    broadcastApprovalThreshold: z.number().int().min(0).max(1_000_000).optional(),
+    messageRates: z
+      .object({ in_app: Paise, push: Paise, email: Paise, sms: Paise, whatsapp: Paise })
+      .partial()
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+settingsRoutes.get('/engagement', (c) => {
+  const ctx = ctxOf(c);
+  requirePermission(ctx, 'settings.manage');
+  return c.json({ settings: engagementSettings(ctx.tenantId) });
+});
+
+settingsRoutes.patch('/engagement', validate('json', EngagementPatch), (c) =>
+  c.json({ settings: updateEngagementSettings(ctxOf(c), c.req.valid('json')) }),
+);
