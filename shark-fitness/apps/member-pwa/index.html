@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en-IN">
   <head>
     <meta charset="utf-8" />
     <meta
@@ -7,18 +7,42 @@
       content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=5"
     />
     <meta name="theme-color" content="#04080b" />
-    <meta name="description" content="Your membership, your training, your gym." />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="description" content="Your membership, training plan, classes and gym pass in one app." />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Shark" />
+    <meta name="application-name" content="Shark Fitness" />
+    <meta name="format-detection" content="telephone=no" />
     <title>Shark Fitness</title>
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@400;500;600;700&family=Archivo+Narrow:wght@500;600;700&display=swap"
-      rel="stylesheet"
-    />
+    <link rel="icon" href="/app/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/app/icons/icon-96.png" type="image/png" sizes="96x96" />
+    <link rel="apple-touch-icon" href="/app/icons/apple-touch-icon-180.png" sizes="180x180" />
+    <script>
+      // Paint the member's theme and motion choice before anything renders.
+      // The values are a device-local copy of the saved preferences
+      // (lib/preferences.ts writes them); the server copy wins once loaded.
+      // Kept inline and tiny on purpose: an external file would be a second
+      // request in the critical path and the first paint would flash.
+      (function () {
+        var root = document.documentElement;
+        var theme = 'dark';
+        var motion = '';
+        try {
+          theme = localStorage.getItem('shark.member.theme') || 'dark';
+          motion = localStorage.getItem('shark.member.motion') || '';
+        } catch (e) {}
+        if (theme === 'system') {
+          theme = window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        }
+        if (theme !== 'light') theme = 'dark';
+        root.setAttribute('data-theme', theme);
+        if (motion === 'reduce') root.setAttribute('data-motion', 'reduce');
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute('content', theme === 'light' ? '#eef2f4' : '#04080b');
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

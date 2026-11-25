@@ -9,6 +9,7 @@ import { API_ORIGIN, ApiError } from './lib/api';
 import { hasMemberSessionHint, setMemberSessionHint } from './lib/session-hint';
 import { installGlobalErrorListeners } from './lib/error-reporting';
 import { AppErrorBoundary } from './ui/ErrorBoundary';
+import { registerServiceWorker } from './lib/sw-update';
 import './styles.css';
 
 const queryClient = new QueryClient({
@@ -97,6 +98,7 @@ function Boot() {
 }
 
 installGlobalErrorListeners();
+registerServiceWorker();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
