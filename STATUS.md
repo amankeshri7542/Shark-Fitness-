@@ -10,7 +10,7 @@ Last pushes: {"phase/P01-prod-readiness": "128aec1 at 2026-11-25 09:37 IST"}
 ## Nodes
 | Node | Title | State | Branch | Base | PR | Checks (runner-verified) | Notes |
 |---|---|---|---|---|---|---|---|
-| P01 | Finish pilot hosting (PR #27) and production readiness | implementing | `phase/P01-prod-readiness` | `` |  |  |  |
+| P01 | Finish pilot hosting (PR #27) and production readiness | implementing | `phase/P01-prod-readiness` | `claude/musing-wilbur-d67503` |  |  |  |
 | P02 | Razorpay payments in test mode | pending | `phase/P02-payments-razorpay` | `` |  |  |  |
 | P06 | Staff security: MFA, step-up auth, sessions, CSP, outbound webhooks | pending | `phase/P06-staff-security` | `` |  |  |  |
 | P04 | Installable member app (PWA + Android TWA) and staff console PWA | pending | `phase/P04-member-mobile-app` | `` |  |  |  |
