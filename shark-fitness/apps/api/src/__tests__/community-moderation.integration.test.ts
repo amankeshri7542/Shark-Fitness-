@@ -51,7 +51,7 @@ async function feed(session: TestSession): Promise<FeedPost[]> {
 function ageMyPosts(): void {
   for (const memberId of [amanId, rohitId]) {
     for (const row of db.select().from(schema.posts).where(eq(schema.posts.memberId, memberId)).all()) {
-      if (row.createdAt > Date.now() - 60 * 60_000) {
+      if (row.createdAt > Date.now() - 60 * 60_000 && !seededPostIds.includes(row.id)) {
         db.update(schema.posts).set({ createdAt: row.createdAt - 2 * 60 * 60_000 }).where(eq(schema.posts.id, row.id)).run();
       }
     }
@@ -97,7 +97,8 @@ afterAll(() => {
     .where(and(inArray(schema.posts.memberId, [amanId, rohitId])))
     .all()
     .map((p) => p.id);
-  const fresh = db.select({ id: schema.posts.id, createdAt: schema.posts.createdAt }).from(schema.posts).all().filter((p) => mine.includes(p.id) && p.createdAt >= startedAt - 60_000).map((p) => p.id);
+  const seeded = new Set(seededPostIds);
+  const fresh = mine.filter((postId) => !seeded.has(postId));
   if (fresh.length) {
     db.delete(schema.comments).where(inArray(schema.comments.postId, fresh)).run();
     db.delete(schema.contentReports).where(inArray(schema.contentReports.targetId, fresh)).run();
