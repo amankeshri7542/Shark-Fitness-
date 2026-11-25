@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
+import { api } from '../lib/api';
 import { navFor } from '@shark/domain';
 import { Button, Chip, LiveDot, cx } from './console';
 import { useFocusTrap } from './overlay';
-import { useAdmin, useViewer } from '../lib/store';
+import { useAdmin, usePermission, useViewer } from '../lib/store';
 import { useConnection, useOnline } from '../lib/realtime';
 
 /* Each module gets a mark rather than an icon font — a clip-path shape in the
@@ -100,7 +102,24 @@ export function Rail() {
  * visible on every screen, because the PRD requires branch scope to be
  * permanently visible wherever it affects the data.
  */
-export function StatusStrip({ alertCount = 0 }: { alertCount?: number }) {
+/** My open tasks and the alert-born work in scope, for the strip (P07). */
+export function useTaskSummary(): { mine: number; mineOverdue: number; toActOn: number } | null {
+  const canView = usePermission('task.view');
+  const branchId = useAdmin((s) => s.activeBranchId);
+  const summary = useQuery({
+    queryKey: ['tasks', 'summary', branchId],
+    queryFn: () => api<{ mine: number; mineOverdue: number; toActOn: number }>('/admin/tasks/summary'),
+    enabled: canView,
+    refetchInterval: 60_000,
+  });
+  return summary.data ?? null;
+}
+
+export function StatusStrip({ alertCount = 0, myTasks = null }: {
+  alertCount?: number;
+  /** Null hides the chip (no task permission, or not loaded yet). */
+  myTasks?: { open: number; overdue: number } | null;
+}) {
   const viewer = useViewer();
   const branches = useAdmin((s) => s.branches);
   const activeBranchId = useAdmin((s) => s.activeBranchId);
@@ -156,13 +175,21 @@ export function StatusStrip({ alertCount = 0 }: { alertCount?: number }) {
         Search <span className="ml-1 text-foam-35">⌘K</span>
       </Button>
 
+      {myTasks ? (
+        <Link to="/tasks" search={{ view: 'mine' }} aria-label={`My tasks: ${myTasks.open} open${myTasks.overdue ? `, ${myTasks.overdue} overdue` : ''}`}>
+          <Chip tone={myTasks.overdue > 0 ? 'bad' : myTasks.open > 0 ? 'accent' : 'neutral'}>
+            My tasks {myTasks.open}
+            {myTasks.overdue > 0 ? ` · ${myTasks.overdue} late` : ''}
+          </Chip>
+        </Link>
+      ) : null}
+
       {alertCount > 0 ? (
-        <Link to="/">
+        <Link to="/tasks" search={{ view: 'open' }}>
           <Chip tone="warn">{alertCount} to act on</Chip>
         </Link>
-      ) : (
-        <ConnectionBadge />
-      )}
+      ) : null}
+      <ConnectionBadge />
 
       <button
         type="button"

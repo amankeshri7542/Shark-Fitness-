@@ -6,7 +6,7 @@ import {
   lazyRouteComponent,
   redirect,
 } from '@tanstack/react-router';
-import { CommandPalette, Rail, StatusStrip } from './ui/shell';
+import { CommandPalette, Rail, StatusStrip, useTaskSummary } from './ui/shell';
 import { SupportBanner } from './ui/SupportBanner';
 import { useAdmin } from './lib/store';
 
@@ -40,6 +40,7 @@ const PlatformScreen = lazyRouteComponent(() => import('./screens/Platform'));
 const AccountScreen = lazyRouteComponent(() => import('./screens/Account'));
 const InboxScreen = lazyRouteComponent(() => import('./screens/Inbox'));
 const CommunityScreen = lazyRouteComponent(() => import('./screens/Community'));
+const TasksScreen = lazyRouteComponent(() => import('./screens/Tasks'));
 
 /** Shown while a screen chunk is in flight, inside the console shell so the
  *  rail and status strip stay put instead of the pane going blank. */
@@ -57,6 +58,7 @@ function RoutePending() {
 }
 
 function ConsoleLayout() {
+  const tasks = useTaskSummary();
   return (
     // The support banner sits above the console grid rather than inside it, so
     // it cannot be scrolled away and does not compete with the rail for space.
@@ -64,7 +66,7 @@ function ConsoleLayout() {
       <SupportBanner />
       <div className="bridge min-h-0 flex-1">
         <Rail />
-        <StatusStrip />
+        <StatusStrip alertCount={tasks?.toActOn ?? 0} myTasks={tasks ? { open: tasks.mine, overdue: tasks.mineOverdue } : null} />
         <div className="bridge-main col-start-2 min-h-0 overflow-hidden">
           <Outlet />
         </div>
@@ -321,6 +323,20 @@ const inboxRoute = createRoute({
       : {},
 });
 
+const TASK_VIEWS = ['mine', 'open', 'done'] as const;
+export interface TasksSearch {
+  view: (typeof TASK_VIEWS)[number];
+  task?: string;
+}
+const tasksRoute = createRoute({
+  getParentRoute: () => consoleRoute,
+  path: '/tasks',
+  component: TasksScreen,
+  validateSearch: (search: Record<string, unknown>): TasksSearch => ({
+    view: TASK_VIEWS.includes(search.view as never) ? (search.view as TasksSearch['view']) : 'mine',
+    ...(typeof search.task === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(search.task) ? { task: search.task } : {}),
+  }),
+});
 const communityRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/community', component: CommunityScreen });
 
 /** Your own sign-in: two-step and devices. Every role can open it. */
@@ -352,6 +368,7 @@ const routeTree = rootRoute.addChildren([
     accountRoute,
     inboxRoute,
     communityRoute,
+    tasksRoute,
   ]),
 ]);
 
