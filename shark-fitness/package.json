@@ -9,7 +9,7 @@
     "pnpm": "10.28.0"
   },
   "scripts": {
-    "dev": "concurrently -n api,member,admin -c cyan,magenta,yellow \"pnpm -F @shark/api dev\" \"pnpm -F @shark/member-pwa dev\" \"pnpm -F @shark/admin-web dev\"",
+    "dev": "concurrently -n api,member,admin,website -c cyan,magenta,yellow,green \"pnpm -F @shark/api dev\" \"pnpm -F @shark/member-pwa dev\" \"pnpm -F @shark/admin-web dev\" \"pnpm -F @shark/website dev\"",
     "db:migrate": "pnpm -F @shark/api migrate",
     "db:seed": "pnpm -F @shark/api seed",
     "db:reset": "pnpm -F @shark/api reset",

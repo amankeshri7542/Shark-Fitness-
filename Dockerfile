@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ---------------------------------------------------------------------------
-# Stage 1 — build the two front ends.
+# Stage 1 — build the three front ends (website, member app, console).
 # This stage needs the full dependency tree (vite, tailwind, typescript) and
 # is discarded afterwards; none of it reaches the published image.
 # ---------------------------------------------------------------------------
@@ -17,6 +17,10 @@ COPY shark-fitness/packages ./packages
 COPY shark-fitness/infrastructure ./infrastructure
 
 RUN pnpm install --frozen-lockfile
+# The public website bakes its canonical URLs and indexing switch in at build.
+ARG SITE_URL=https://www.sharkfitness.example
+ARG SITE_INDEXABLE=false
+ENV SITE_URL=$SITE_URL SITE_INDEXABLE=$SITE_INDEXABLE
 RUN pnpm build
 
 # ---------------------------------------------------------------------------
@@ -36,6 +40,7 @@ COPY shark-fitness/package.json shark-fitness/pnpm-lock.yaml shark-fitness/pnpm-
 COPY shark-fitness/apps/api/package.json ./apps/api/
 COPY shark-fitness/apps/member-pwa/package.json ./apps/member-pwa/
 COPY shark-fitness/apps/admin-web/package.json ./apps/admin-web/
+COPY shark-fitness/apps/website/package.json ./apps/website/
 COPY shark-fitness/packages/contracts/package.json ./packages/contracts/
 COPY shark-fitness/packages/domain/package.json ./packages/domain/
 COPY shark-fitness/packages/design-tokens/package.json ./packages/design-tokens/
@@ -46,7 +51,8 @@ RUN pnpm install --frozen-lockfile --prod
 # Stage 3 — runtime.
 # Carries production dependencies, the API's TypeScript sources (tsx runs them
 # directly), the two built front ends and the migration SQL. No compilers, no
-# test runners, no front-end toolchain.
+# test runners, no front-end toolchain. The website build reads SITE_URL and
+# SITE_INDEXABLE at build time (docs/WEBSITE.md); pass them as build args.
 # ---------------------------------------------------------------------------
 FROM node:22-bookworm-slim AS runtime
 
@@ -89,6 +95,7 @@ COPY shark-fitness/scripts ./scripts
 # apps/api/src, so the paths below are load-bearing.
 COPY --from=build /app/shark-fitness/apps/member-pwa/dist ./apps/member-pwa/dist
 COPY --from=build /app/shark-fitness/apps/admin-web/dist ./apps/admin-web/dist
+COPY --from=build /app/shark-fitness/apps/website/dist ./apps/website/dist
 
 COPY docker-entrypoint.sh /usr/local/bin/shark-entrypoint
 RUN chmod +x /usr/local/bin/shark-entrypoint

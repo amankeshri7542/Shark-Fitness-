@@ -13,9 +13,6 @@
     "og-image": "node scripts/og-image.mjs",
     "budgets": "node scripts/check-budgets.mjs"
   },
-  "dependencies": {
-    "astro": "7.4.13"
-  },
   "devDependencies": {
     "@astrojs/check": "0.9.12",
     "@fontsource/anton": "5.3.0",
@@ -24,6 +21,7 @@
     "@shark/contracts": "workspace:*",
     "@shark/design-tokens": "workspace:*",
     "@types/node": "22.10.7",
+    "astro": "7.4.13",
     "jsdom": "30.0.1",
     "typescript": "5.7.3",
     "vitest": "3.0.5"
