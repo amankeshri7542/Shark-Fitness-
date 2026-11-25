@@ -464,6 +464,19 @@ export function manualCheckIn(
         method: input.method ?? 'staff',
       },
     });
+
+    // The member's own phone hears that they are in: it refreshes Home and
+    // the pass, and buzzes when they have haptics on. Their own channel only;
+    // the branch event above is for staff and never reaches members.
+    if (verdict.granted) {
+      emit({
+        tenantId: ctx.tenantId,
+        branchId: branch.id,
+        channel: channels.member(member.id),
+        topic: 'attendance.checked_in',
+        payload: { memberId: member.id, checkInId },
+      });
+    }
   });
 
   const occupancy = verdict.granted ? announceOccupancy(ctx.tenantId, branch.id, atMs) : null;

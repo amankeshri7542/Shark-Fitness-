@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { test } from '@playwright/test';
+import { clientAddress, test } from '../support/fixtures';
 import { signInToMemberApp } from '../support/demo';
 import { WORKSPACE_ROOT } from '../support/paths';
 
@@ -14,7 +14,7 @@ async function settle(page: import('@playwright/test').Page): Promise<void> {
 
 test.describe('store screenshots', () => {
   test('narrow: Home, Train and Book on a phone', async ({ browser }) => {
-    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, extraHTTPHeaders: { 'x-forwarded-for': clientAddress('capture:narrow') } });
     const page = await context.newPage();
     await signInToMemberApp(page);
     for (const [route, name] of [['/app/', 'home'], ['/app/train', 'train'], ['/app/book', 'book']] as const) {
@@ -26,7 +26,7 @@ test.describe('store screenshots', () => {
   });
 
   test('wide: Book on a tablet in landscape', async ({ browser }) => {
-    const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1, hasTouch: true });
+    const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1, hasTouch: true, extraHTTPHeaders: { 'x-forwarded-for': clientAddress('capture:wide') } });
     const page = await context.newPage();
     await signInToMemberApp(page);
     await page.goto('/app/book');

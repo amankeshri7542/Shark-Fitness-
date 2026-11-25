@@ -94,6 +94,9 @@ async function open(): Promise<void> {
       nextSocket.send(JSON.stringify({ type: 'subscribe', channels: subscribedChannels, since: lastSeq }));
     });
 
+    // The server replays missed events first and then confirms the
+    // subscription; anything before that confirmation is catch-up, not news.
+    let caughtUp = false;
     nextSocket.addEventListener('message', (message) => {
       let data: RealtimeEvent | { type: string };
       try {
@@ -101,15 +104,19 @@ async function open(): Promise<void> {
       } catch {
         return;
       }
+      if (data.type === 'subscribed') caughtUp = true;
       if (data.type !== 'event') return;
 
       const event = data as RealtimeEvent;
       lastSeq = Math.max(lastSeq, event.seq);
       if (
         event.topic === 'attendance.checked_in' &&
-        (event.payload as { memberId?: string } | null)?.memberId === useSession.getState().viewer?.memberId
+        (event.payload as { memberId?: string } | null)?.memberId === useSession.getState().viewer?.memberId &&
+        caughtUp
       ) {
-        // The reception desk let this member in: the phone in their pocket says so.
+        // The reception desk let this member in: the phone in their pocket
+        // says so. Only for a check-in happening now, never for one replayed
+        // when the connection catches up on missed events.
         haptic('check-in');
       }
       if (event.topic === 'member.profile_updated') {

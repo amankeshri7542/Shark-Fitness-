@@ -29,7 +29,7 @@ export function SignOutPanel() {
   };
 
   return (
-    <div>
+    <div data-testid="sign-out">
       <SectionRule>This phone</SectionRule>
       {warning ? (
         <Panel tone="warn" className="flex flex-col gap-3 p-4" role="alertdialog" aria-labelledby="signout-warning">

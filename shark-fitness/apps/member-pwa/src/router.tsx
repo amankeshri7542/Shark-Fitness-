@@ -82,7 +82,10 @@ const rootRoute = createRootRoute({
 /** Everything below this gate needs a session. */
 function requireSession(): void {
   if (useSession.getState().status === 'signed-out') {
-    throw redirect({ to: '/sign-in' });
+    // Keep the fragment: activation and recovery links carry their one-time
+    // token there, and a link to /app/ must still open the right form.
+    const hash = window.location.hash.replace(/^#/, '');
+    throw redirect({ to: '/sign-in', ...(hash ? { hash } : {}) });
   }
 }
 

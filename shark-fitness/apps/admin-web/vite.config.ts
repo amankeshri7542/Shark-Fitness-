@@ -48,7 +48,7 @@ export default defineConfig({
         // The shell only: entry, vendors, styles, fonts, the offline page.
         // Screens load from the network like the data they show.
         globPatterns: [
-          'index.html',
+          // Not index.html: pages always come from the network (src/sw/sw.ts).
           'offline.html',
           'assets/index-*.{js,css}',
           'assets/*-vendor-*.js',

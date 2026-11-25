@@ -19,7 +19,9 @@ declare const self: ServiceWorkerGlobalScope & { __WB_MANIFEST: Array<{ url: str
 const OFFLINE = '/admin/offline.html';
 
 cleanupOutdatedCaches();
-precacheAndRoute(self.__WB_MANIFEST);
+// No directory index (an empty name): a request for /admin/ is never answered from the
+// precache, it goes to the network (or the offline page) like every page.
+precacheAndRoute(self.__WB_MANIFEST, { directoryIndex: '' });
 
 registerRoute(
   new NavigationRoute(async ({ request }) => {
@@ -31,6 +33,6 @@ registerRoute(
   }),
 );
 
-// Shell only, nothing a desk is in the middle of: take over at once.
+// Shell only: a new build installs straight away. It does not claim open
+// pages; the next navigation picks it up, so nobody's screen reloads under them.
 self.addEventListener('install', () => void self.skipWaiting());
-self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));

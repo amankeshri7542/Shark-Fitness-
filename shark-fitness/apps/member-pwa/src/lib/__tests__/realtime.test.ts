@@ -71,3 +71,4 @@ it('refreshes the current profile but never restores a viewer after sign-out, ac
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(useSession.getState().viewer?.name).toBe('Original');
 });
+

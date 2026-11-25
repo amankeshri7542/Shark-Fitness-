@@ -7,6 +7,12 @@ export const DEMO = {
   member: { email: 'aman@sharkfitness.in', password: 'shark1234' },
 } as const;
 
+/** Test-only Android app link the E2E server is configured with. */
+export const E2E_ANDROID = {
+  packageName: 'in.sharkfitness.member',
+  fingerprint: '14:6D:E9:83:C5:73:06:50:D8:EE:B9:95:2F:34:FC:64:16:A0:83:42:E6:1D:BE:A8:8A:04:96:B2:3F:CF:44:E5',
+} as const;
+
 export async function signInToConsole(page: Page): Promise<void> {
   await page.goto('/admin/');
   await page.getByLabel('Gym code').fill(DEMO.gym);
