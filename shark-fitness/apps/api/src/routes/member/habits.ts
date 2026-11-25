@@ -12,6 +12,7 @@ import {
   type SafetySignal,
 } from '@shark/domain';
 import { db, schema, transact } from '../../db/client.js';
+import { queueNotification } from '../../services/notifications/service.js';
 import { ctxOf } from '../../middleware/index.js';
 import { audit } from '../../lib/audit.js';
 import { emit } from '../../lib/events.js';
@@ -869,24 +870,21 @@ habitsRoutes.post('/check-in', validate('json', CheckInBody), (c) => {
         .get()?.userId;
 
       if (coachUserId) {
-        db.insert(schema.notifications)
-          .values({
-            id: id('ntf'),
-            tenantId: ctx.tenantId,
-            userId: coachUserId,
-            channel: 'in_app',
-            kind: 'safety',
-            title: 'A check-in needs you to read it',
-            body: 'A weekly check-in was flagged for a person. It has not been answered automatically.',
-            link: `/members/${scope.memberId}`,
-            templateCode: null,
-            state: 'sent',
-            attempts: 1,
-            lastError: null,
-            createdAt: now(),
-            readAt: null,
-          })
-          .run();
+        // A safety alert for staff: always delivered, never a coaching nudge.
+        queueNotification({
+          tenantId: ctx.tenantId,
+          userId: coachUserId,
+          branchId: scope.branchId,
+          channel: 'in_app',
+          purpose: 'transactional',
+          source: 'coaching',
+          sourceId: checkInId,
+          dedupeKey: `checkin-safety:${checkInId}:${weekStart}`,
+          kind: 'safety',
+          title: 'A check-in needs you to read it',
+          body: 'A weekly check-in was flagged for a person. It has not been answered automatically.',
+          link: `/coaching?member=${scope.memberId}`,
+        });
       }
     }
 
