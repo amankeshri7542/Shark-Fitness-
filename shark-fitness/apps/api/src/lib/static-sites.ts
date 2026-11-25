@@ -82,10 +82,14 @@ export function mountStaticSites(app: Hono, roots: StaticSiteRoots): void {
       await next();
       return;
     }
-    if (isHashedAsset(path)) immutable(c);
+    const hashed = isHashedAsset(path);
+    if (hashed) immutable(c);
     else if (path.startsWith('/app/') || path.startsWith('/admin/')) noStore(c);
     else revalidate(c);
     await next();
+    // Only a file that exists is immutable. A cached 404 for a hashed name
+    // would outlive the deploy that ships it.
+    if (hashed && c.res.status !== 200) c.header('Cache-Control', 'no-store');
   });
 
   /* — Staff console ———————————————————————————————————————————— */
