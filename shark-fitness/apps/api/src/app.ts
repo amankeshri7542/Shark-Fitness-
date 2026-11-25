@@ -50,6 +50,7 @@ import { securityRoutes } from './routes/admin/security.js';
 import { integrationRoutes } from './routes/admin/integrations.js';
 import { attachmentRoutes } from './routes/attachments.js';
 import { inboxRoutes } from './routes/admin/inbox.js';
+import { communityRoutes } from './routes/admin/community.js';
 
 export const app = new Hono();
 export const PROTECTED_API_IP_MAX = 2_000;
@@ -166,6 +167,7 @@ app.route('/v1/admin/privacy', privacyRoutes);
 app.route('/v1/admin/security', securityRoutes);
 app.route('/v1/admin/integrations', integrationRoutes);
 app.route('/v1/admin/inbox', inboxRoutes);
+app.route('/v1/admin/community', communityRoutes);
 
 /* Platform administration (PF-PLAT). `staffOnly` is not enough here and is not
    used: each route carries `platformOnly`, which refuses an impersonated
