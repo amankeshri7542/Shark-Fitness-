@@ -42,7 +42,15 @@ export function sniffImageType(bytes: Buffer): ImageType | null {
 export function cleanImage(input: Buffer): CleanImage {
   const type = sniffImageType(input);
   if (!type) throw new ImageRejected('That file is not a JPEG, PNG or WebP image.');
-  const result = type === 'image/jpeg' ? cleanJpeg(input) : type === 'image/png' ? cleanPng(input) : cleanWebp(input);
+  let result: Omit<CleanImage, 'type'>;
+  try {
+    result = type === 'image/jpeg' ? cleanJpeg(input) : type === 'image/png' ? cleanPng(input) : cleanWebp(input);
+  } catch (err) {
+    // A header too short for the field being read is a damaged file (422),
+    // not a server fault (500).
+    if (err instanceof ImageRejected) throw err;
+    throw new ImageRejected('That image is damaged.');
+  }
   if (result.width < 1 || result.height < 1) throw new ImageRejected('That image has no size.');
   if (result.width > MAX_IMAGE_SIDE || result.height > MAX_IMAGE_SIDE) {
     throw new ImageRejected(`That image is ${result.width}×${result.height}. The largest side can be ${MAX_IMAGE_SIDE} pixels.`);
@@ -83,12 +91,18 @@ function cleanJpeg(input: Buffer): Omit<CleanImage, 'type'> {
     if (length < 2 || end > input.length) throw new ImageRejected('That JPEG is damaged.');
 
     if (SOF_MARKERS.has(marker)) {
-      height = input.readUInt16BE(offset + 5);
-      width = input.readUInt16BE(offset + 7);
+      if (length < 7) throw new ImageRejected('That JPEG is damaged.');
+      // The first frame header is the image; ignore any later one.
+      if (width === 0 && height === 0) {
+        height = input.readUInt16BE(offset + 5);
+        width = input.readUInt16BE(offset + 7);
+      }
     }
 
     const isApp = marker >= 0xe0 && marker <= 0xef;
-    const keepApp = marker === 0xe0 /* JFIF */ || marker === 0xee; /* Adobe colour transform */
+    // APP0 only when it is the JFIF header itself (a JFXX extension carries a
+    // thumbnail of the original); APP14 is Adobe's colour transform.
+    const keepApp = (marker === 0xe0 && input.toString('latin1', offset + 4, offset + 9) === 'JFIF\0') || marker === 0xee;
     if ((isApp && !keepApp) || marker === 0xfe /* comment */) {
       removed.push(marker === 0xfe ? 'COM' : `APP${marker - 0xe0}${marker === 0xe1 ? ' (EXIF/XMP)' : ''}`);
       offset = end;
@@ -96,10 +110,35 @@ function cleanJpeg(input: Buffer): Omit<CleanImage, 'type'> {
     }
 
     if (marker === 0xda) {
-      // Start of scan: copy the header and the entropy-coded data through to
-      // the end of the image.
-      out.push(input.subarray(offset));
-      break;
+      // Start of scan: copy the header and the entropy-coded data up to the
+      // next real marker, then carry on parsing segments. A progressive JPEG
+      // has several scans with tables (and possibly APPn/COM) between them,
+      // and anything after the end-of-image marker (a second picture with its
+      // own EXIF, a motion-photo video) is dropped, never stored.
+      out.push(input.subarray(offset, end));
+      let scanEnd = end;
+      while (scanEnd < input.length) {
+        if (input[scanEnd] !== 0xff) {
+          scanEnd += 1;
+          continue;
+        }
+        const next = input[scanEnd + 1];
+        if (next === undefined) break;
+        // Stuffed zero and restart markers belong to the scan; a run of 0xff
+        // is fill before a marker.
+        if (next === 0x00 || (next >= 0xd0 && next <= 0xd7)) {
+          scanEnd += 2;
+          continue;
+        }
+        if (next === 0xff) {
+          scanEnd += 1;
+          continue;
+        }
+        break;
+      }
+      out.push(input.subarray(end, scanEnd));
+      offset = scanEnd;
+      continue;
     }
     out.push(input.subarray(offset, end));
     offset = end;
@@ -128,6 +167,7 @@ function cleanPng(input: Buffer): Omit<CleanImage, 'type'> {
     const end = offset + 12 + length;
     if (end > input.length) throw new ImageRejected('That PNG is damaged.');
     if (kind === 'IHDR') {
+      if (offset !== 8 || length < 13) throw new ImageRejected('That PNG is damaged.');
       width = input.readUInt32BE(offset + 8);
       height = input.readUInt32BE(offset + 12);
     }
@@ -144,6 +184,8 @@ function cleanPng(input: Buffer): Omit<CleanImage, 'type'> {
 }
 
 /* ——— WebP ——————————————————————————————————————————————————— */
+
+const WEBP_KEEP = new Set(['VP8X', 'VP8 ', 'VP8L', 'ALPH', 'ANIM', 'ANMF', 'ICCP']);
 
 function cleanWebp(input: Buffer): Omit<CleanImage, 'type'> {
   const declared = input.readUInt32LE(4) + 8;
@@ -176,8 +218,9 @@ function cleanWebp(input: Buffer): Omit<CleanImage, 'type'> {
       height = ((bits >> 14) & 0x3fff) + 1;
     }
 
-    if (kind === 'EXIF' || kind === 'XMP ') removed.push(kind.trim());
-    else chunks.push(chunk);
+    // Allowlist, like PNG: only what draws the image is kept.
+    if (!WEBP_KEEP.has(kind)) removed.push(kind.trim());
+    else chunks.push(chunk.length % 2 === 1 ? Buffer.concat([chunk, Buffer.alloc(1)]) : chunk);
     offset = end;
   }
 

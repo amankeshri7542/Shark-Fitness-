@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
 import { validate } from '../../middleware/validate.js';
 import { ctxOf } from '../../middleware/index.js';
@@ -19,13 +20,31 @@ export const uploadRoutes = new Hono();
 /** Room for the multipart envelope around a 10 MB file. */
 const ENVELOPE_BYTES = 64 * 1024;
 
+// Counted as the body streams in, so a request without a Content-Length
+// (chunked) cannot make the server buffer more than this before it refuses.
+uploadRoutes.use(
+  '*',
+  bodyLimit({
+    maxSize: MAX_UPLOAD_BYTES + ENVELOPE_BYTES,
+    onError: () => {
+      throw new AppError('PAYLOAD_TOO_LARGE', 'That file is over 10 MB. Choose a smaller photo.');
+    },
+  }),
+);
+
 uploadRoutes.post('/', async (c) => {
   const ctx = ctxOf(c);
   const declared = Number(c.req.header('content-length') ?? '0');
   if (declared > MAX_UPLOAD_BYTES + ENVELOPE_BYTES) {
     throw new AppError('PAYLOAD_TOO_LARGE', 'That file is over 10 MB. Choose a smaller photo.');
   }
-  const form = await c.req.parseBody();
+  const form = await c.req.parseBody().catch((err: unknown) => {
+    // The body limit above aborts the stream mid-parse; that is a 413 and is
+    // answered by its handler. Anything else is a malformed form, not a 500.
+    const overLimit = (e: unknown) => e instanceof Error && e.name === 'BodyLimitError';
+    if (err instanceof AppError || overLimit(err) || (err instanceof Error && overLimit(err.cause))) throw err;
+    throw invalid('Send the photo as multipart form data.');
+  });
   const file = form.file;
   if (!(file instanceof File)) throw invalid('Attach the photo as "file".');
   if (file.size > MAX_UPLOAD_BYTES) throw new AppError('PAYLOAD_TOO_LARGE', 'That file is over 10 MB. Choose a smaller photo.');

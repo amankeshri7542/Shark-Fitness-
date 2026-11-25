@@ -119,6 +119,36 @@ describe('uploads', () => {
     expect(response.status).toBe(413);
   });
 
+  it('refuses an oversize body sent without a Content-Length (chunked) with 413', async () => {
+    const member = await memberWithConsent('Chunked');
+    const chunk = new Uint8Array(1024 * 1024);
+    let sent = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent >= 12) return controller.close();
+        sent += 1;
+        controller.enqueue(chunk);
+      },
+    });
+    const response = await app.request('/v1/member/media/uploads', {
+      method: 'POST',
+      headers: { ...headers(member.session), 'content-type': 'multipart/form-data; boundary=x' },
+      body,
+      duplex: 'half',
+    } as RequestInit);
+    expect(response.status).toBe(413);
+  });
+
+  it('refuses a malformed multipart body with 422, not a server error', async () => {
+    const member = await memberWithConsent('Garbled');
+    const response = await app.request('/v1/member/media/uploads', {
+      method: 'POST',
+      headers: { ...headers(member.session), 'content-type': 'multipart/form-data; boundary=x' },
+      body: 'not a form at all',
+    });
+    expect(response.status).toBe(422);
+  });
+
   it('refuses a script dressed as a JPEG with 422', async () => {
     const member = await memberWithConsent('Spoof');
     const response = await upload(member.session, new Blob(['<script>alert(1)</script>'], { type: 'image/jpeg' }), {}, 'holiday.jpg');

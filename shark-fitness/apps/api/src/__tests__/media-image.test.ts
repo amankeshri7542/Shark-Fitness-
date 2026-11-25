@@ -28,6 +28,29 @@ describe('media image checks', () => {
     expect(clean.bytes.includes(JPEG_WITH_GPS.subarray(scan))).toBe(true);
   });
 
+  it('drops anything after the end of the image, such as a second picture with its own EXIF', () => {
+    // A multi-picture or motion-photo JPEG: more data, with location, after EOI.
+    const trailer = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe1, 0x00, 0x10]), Buffer.from('Exif\0\0GPS-HIDDEN')]);
+    const clean = cleanImage(Buffer.concat([JPEG_WITH_GPS, trailer]));
+    expect(clean.bytes.includes(Buffer.from('GPS-HIDDEN'))).toBe(false);
+    expect([...clean.bytes.subarray(-2)]).toEqual([0xff, 0xd9]);
+  });
+
+  it('strips a comment or APPn segment that sits between scans', () => {
+    const eoi = JPEG_WITH_GPS.length - 2;
+    const comment = Buffer.concat([Buffer.from([0xff, 0xfe, 0x00, 0x0e]), Buffer.from('BETWEEN-SCAN')]);
+    const tampered = Buffer.concat([JPEG_WITH_GPS.subarray(0, eoi), comment, JPEG_WITH_GPS.subarray(eoi)]);
+    const clean = cleanImage(tampered);
+    expect(clean.bytes.includes(Buffer.from('BETWEEN-SCAN'))).toBe(false);
+    expect(clean.removed).toContain('COM');
+  });
+
+  it('refuses a damaged header as a bad image, not a server error', () => {
+    // A frame header too short to hold the dimensions.
+    const broken = Buffer.from([0xff, 0xd8, 0xff, 0xc0, 0x00, 0x04, 0x08, 0x00]);
+    expect(() => cleanImage(broken)).toThrow(ImageRejected);
+  });
+
   it('strips text chunks from a PNG', () => {
     expect(PNG_WITH_TEXT.includes(Buffer.from('Someone Private'))).toBe(true);
     const clean = cleanImage(PNG_WITH_TEXT);
