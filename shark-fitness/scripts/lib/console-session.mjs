@@ -38,7 +38,9 @@ export async function staffSession(origin, credentials, requireFromApi) {
   });
   if (!signIn.ok) throw new Error(`Sign-in failed with ${signIn.status}.`);
   let session = sessionFrom(signIn);
-  let { csrfToken, mfa } = await signIn.json();
+  const signedIn = await signIn.json();
+  let csrfToken = signedIn.csrfToken;
+  const mfa = signedIn.mfa;
   if (!session) throw new Error('Sign-in did not issue a session.');
   const state = mfa?.state ?? 'none';
   if (state !== 'challenge' && state !== 'enrol') return { session, csrfToken };
