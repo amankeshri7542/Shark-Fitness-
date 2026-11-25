@@ -1,0 +1,96 @@
+{
+  "phase": "P02",
+  "status": "in_progress",
+  "items": [
+    {
+      "id": 1,
+      "text": "AC1 no provider env: existing billing/provider-truthfulness tests unchanged and green; member checkout 412",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 2,
+      "text": "AC2 config refuses rzp_live_ in dev/test/prod and razorpay with a missing secret",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 3,
+      "text": "AC3 checkout integration tests (a-f) against a fake Razorpay server; unexpected outbound requests fail",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 4,
+      "text": "AC4 webhook tests: each event, duplicate, tampered, missing signature, out-of-order, captured-before-confirm, amount mismatch, unknown",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 5,
+      "text": "AC5 refund tests: full/partial provider refund pending->refunded, over-refund refused, refund.failed, manual path unchanged",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 6,
+      "text": "AC6 payment link test: notify flags false, payment_link.paid settles",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 7,
+      "text": "AC7 reconciliation job: concurrent double run settles once; mismatch listed; resolve requires reason and audits",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 8,
+      "text": "AC8 no provider call inside transact() (runtime guard + test)",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 9,
+      "text": "AC9 member PWA checkout state component tests + Playwright mobile @payments spec",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 10,
+      "text": "AC10 admin component tests: payment link action, reconciliation panel states",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 11,
+      "text": "AC11 shadowed billing handlers and duplicate services removed; one createMembershipPurchase",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 12,
+      "text": "AC12 docs, ADR-003, .env.example, PRODUCTION-READINESS s7; standard gates and pnpm e2e green",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 13,
+      "text": "Member plan purchase/renewal via checkout (eligibility, expired/cancelled-only renewal)",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 14,
+      "text": "Dev tool pnpm -F @shark/api razorpay:webhook",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 15,
+      "text": "Screenshots in phases/P02-screens and pr/P02.md",
+      "status": "todo",
+      "evidence": ""
+    }
+  ]
+}

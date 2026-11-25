@@ -1,0 +1,17 @@
+{"phase":"P04","status":"in_progress","items":[
+{"id":1,"text":"ADR-002 member mobile app decision","status":"todo","evidence":""},
+{"id":2,"text":"Manifest under /app/ with icons, shortcuts, screenshots; manifest test","status":"todo","evidence":""},
+{"id":3,"text":"Service worker controls /app/, offline Home from persisted cache with banner, update never applied during workout","status":"todo","evidence":""},
+{"id":4,"text":"Sign-out wipe (IDB, workout keys, push) and 401 session-ended flow returning to route with outbox intact","status":"todo","evidence":""},
+{"id":5,"text":"Preferences applied: theme without flash, reduce motion, units kg/lb, haptics","status":"todo","evidence":""},
+{"id":6,"text":"Reachability: Notifications, Library, Billing, Messages within 2 taps; Summary Done/Share; badge","status":"todo","evidence":""},
+{"id":7,"text":"Responsive: no horizontal scroll at 360x800, 390x844, 768x1024, 1024x768; screenshots","status":"todo","evidence":""},
+{"id":8,"text":"Web Push: config, table, routes, push channel, consent/quiet hours/dedupe/410, fake push service tests, E2E subscription round-trip","status":"todo","evidence":""},
+{"id":9,"text":"Android TWA: twa-manifest + schema test, assetlinks route, android-twa.yml (actionlint), MOBILE-APP.md","status":"todo","evidence":""},
+{"id":10,"text":"Admin console PWA: manifest, shell-only SW, offline page, scope separation E2E","status":"todo","evidence":""},
+{"id":11,"text":"Budgets: precache <= 700 KiB, initial member JS <= 145 KB gzip","status":"todo","evidence":""},
+{"id":12,"text":"Standard gates and pnpm e2e pass","status":"todo","evidence":""},
+{"id":13,"text":"Base path /app/ with placeholder / and legacy root worker retirement","status":"todo","evidence":""},
+{"id":14,"text":"Install UX: beforeinstallprompt, 2nd-session banner, iOS sheet","status":"todo","evidence":""},
+{"id":15,"text":"Docs (.env.example, README, PRODUCTION-READINESS) and pr/P04.md","status":"todo","evidence":""}
+]}
