@@ -26,7 +26,7 @@
       "note": ""
     },
     "P04": {
-      "state": "reviewing",
+      "state": "verifying",
       "base": "phase/P01-prod-readiness",
       "base_sha": "128aec1e5",
       "running": null,
