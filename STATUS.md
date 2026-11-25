@@ -1,6 +1,6 @@
 # Shark Fitness build status
 
-Updated 2026-11-25 12:05 IST by runner.py v3 (parallel). Model: `claude-opus-5-5` (Claude Code CLI, effort high).
+Updated 2026-11-25 12:06 IST by runner.py v3 (parallel). Model: `claude-opus-5-5` (Claude Code CLI, effort high).
 Concurrency cap: 4 Shark sessions (and at most 6 `claude -p` processes on the box in total); stall timeout 30 min.
 
 Runner: `/workspace/shark-fitness-orchestration/runner.py`, log `/workspace/shark-fitness-orchestration/logs/runner.log`, per-session logs `/workspace/shark-fitness-orchestration/logs/<tag>-<n>.json`. Worktrees: `/workspace/sf-wt/<ID>` (P01: `/workspace/shark-fitness-repo`).
@@ -28,9 +28,8 @@ Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "ph
 ## Running sessions
 | Node | Session tag | pid | Last activity | Started |
 |---|---|---|---|---|
-| P02 | P02-impl | 242835 | 2026-11-25 12:05 IST | 2026-11-25 12:05 IST |
 | P06 | P06-impl | 243133 | 2026-11-25 12:05 IST | 2026-11-25 12:05 IST |
 | P04 | P04-impl | 242960 | 2026-11-25 12:05 IST | 2026-11-25 12:05 IST |
 
 ## Blockers / waiting
-- none
+- Claude usage limit hit (latest during P03-impl); new sessions paused, retrying every 30 min
