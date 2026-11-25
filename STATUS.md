@@ -1,6 +1,6 @@
 # Shark Fitness build status
 
-Updated 2026-11-26 01:02 IST by runner.py v3 (parallel). Model: `claude-opus-5-5` (Claude Code CLI, effort high).
+Updated 2026-11-26 01:03 IST by runner.py v3 (parallel). Model: `claude-opus-5-5` (Claude Code CLI, effort high).
 Concurrency cap: 4 Shark sessions (and at most 6 `claude -p` processes on the box in total); stall timeout 30 min.
 
 Runner: `/workspace/shark-fitness-orchestration/runner.py`, log `/workspace/shark-fitness-orchestration/logs/runner.log`, per-session logs `/workspace/shark-fitness-orchestration/logs/<tag>-<n>.json`. Worktrees: `/workspace/sf-wt/<ID>` (P01: `/workspace/shark-fitness-repo`).
@@ -12,7 +12,7 @@ Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "ph
 |---|---|---|---|---|---|---|---|
 | P01 | Finish pilot hosting (PR #27) and production readiness | done | `phase/P01-prod-readiness` | `claude/musing-wilbur-d67503` | https://github.com/amankeshri7542/Shark-Fitness-/pull/28 | typecheck:pass lint:pass test:pass build:pass e2e:pass |  |
 | P02 | Razorpay payments in test mode | done | `phase/P02-payments-razorpay` | `phase/P01-prod-readiness` | https://github.com/amankeshri7542/Shark-Fitness-/pull/29 | typecheck:pass lint:pass test:pass build:pass e2e:pass |  |
-| P06 | Staff security: MFA, step-up auth, sessions, CSP, outbound webhooks | verifying | `phase/P06-staff-security` | `phase/P01-prod-readiness` |  |  |  |
+| P06 | Staff security: MFA, step-up auth, sessions, CSP, outbound webhooks | pr | `phase/P06-staff-security` | `phase/P01-prod-readiness` |  | typecheck:pass lint:pass test:pass build:pass e2e:pass |  |
 | P04 | Installable member app (PWA + Android TWA) and staff console PWA | verifying | `phase/P04-member-mobile-app` | `phase/P01-prod-readiness` |  |  |  |
 | P03 | Public website, public API and lead capture | done | `phase/P03-public-website` | `phase/P01-prod-readiness` | https://github.com/amankeshri7542/Shark-Fitness-/pull/30 | typecheck:pass lint:pass test:pass build:pass e2e:pass |  |
 | P05 | QR check-in, safe waitlist, credit packs, private media and progress photos | implementing | `phase/P05-member-core-gaps` | `phase/P02-payments-razorpay` |  |  |  |
