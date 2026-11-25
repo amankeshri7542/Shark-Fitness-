@@ -1,6 +1,6 @@
 # Shark Fitness build status
 
-Updated 2026-11-26 00:56 IST by runner.py v3 (parallel). Model: `claude-opus-5-5` (Claude Code CLI, effort high).
+Updated 2026-11-26 00:57 IST by runner.py v3 (parallel). Model: `claude-opus-5-5` (Claude Code CLI, effort high).
 Concurrency cap: 4 Shark sessions (and at most 6 `claude -p` processes on the box in total); stall timeout 30 min.
 
 Runner: `/workspace/shark-fitness-orchestration/runner.py`, log `/workspace/shark-fitness-orchestration/logs/runner.log`, per-session logs `/workspace/shark-fitness-orchestration/logs/<tag>-<n>.json`. Worktrees: `/workspace/sf-wt/<ID>` (P01: `/workspace/shark-fitness-repo`).
@@ -14,7 +14,7 @@ Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "ph
 | P02 | Razorpay payments in test mode | done | `phase/P02-payments-razorpay` | `phase/P01-prod-readiness` | https://github.com/amankeshri7542/Shark-Fitness-/pull/29 | typecheck:pass lint:pass test:pass build:pass e2e:pass |  |
 | P06 | Staff security: MFA, step-up auth, sessions, CSP, outbound webhooks | reviewing | `phase/P06-staff-security` | `phase/P01-prod-readiness` |  |  |  |
 | P04 | Installable member app (PWA + Android TWA) and staff console PWA | reviewing | `phase/P04-member-mobile-app` | `phase/P01-prod-readiness` |  |  |  |
-| P03 | Public website, public API and lead capture | verifying | `phase/P03-public-website` | `phase/P01-prod-readiness` |  |  |  |
+| P03 | Public website, public API and lead capture | pr | `phase/P03-public-website` | `phase/P01-prod-readiness` |  | typecheck:pass lint:pass test:pass build:pass e2e:pass |  |
 | P05 | QR check-in, safe waitlist, credit packs, private media and progress photos | implementing | `phase/P05-member-core-gaps` | `phase/P02-payments-razorpay` |  |  |  |
 | P07 | Messaging channels, member messaging, community moderation, tasks, coaching, broadcasts | pending | `phase/P07-engagement-ops-modules` | `` |  |  |  |
 | INT1 | Integrate feature phases P01-P07 | pending | `integration/features` | `` |  |  |  |
@@ -28,9 +28,9 @@ Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "ph
 ## Running sessions
 | Node | Session tag | pid | Last activity | Started |
 |---|---|---|---|---|
-| P06 | P06-review | 64515 | 2026-11-26 00:55 IST | 2026-11-26 00:43 IST |
-| P04 | P04-review | 64517 | 2026-11-26 00:54 IST | 2026-11-26 00:43 IST |
-| P05 | P05-impl | 64516 | 2026-11-26 00:55 IST | 2026-11-26 00:43 IST |
+| P06 | P06-review | 64515 | 2026-11-26 00:57 IST | 2026-11-26 00:43 IST |
+| P04 | P04-review | 64517 | 2026-11-26 00:57 IST | 2026-11-26 00:43 IST |
+| P05 | P05-impl | 64516 | 2026-11-26 00:56 IST | 2026-11-26 00:43 IST |
 
 ## Blockers / waiting
 - none
