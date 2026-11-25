@@ -61,6 +61,13 @@ function pageJsGzip(doc: Document): number {
   return total;
 }
 
+/** Set by CI's post-build step and `pnpm -F @shark/website budgets`: a missing build is a failure, not a skip. */
+const buildRequired = process.env.WEBSITE_BUILD_REQUIRED === 'true';
+
+it.runIf(buildRequired)('has a build to check', () => {
+  expect(built, `no website build at ${dist}; run pnpm -F @shark/website build first`).toBe(true);
+});
+
 describe.skipIf(!built)('built website', () => {
   it('builds every page', () => {
     expect(pages.map((p) => p.route).sort()).toEqual([...INDEXABLE_PATHS, '/404'].sort());

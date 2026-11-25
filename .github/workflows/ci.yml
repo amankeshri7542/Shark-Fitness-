@@ -83,6 +83,11 @@ jobs:
       - name: Build applications
         run: pnpm build
 
+      # `pnpm test` ran before the build, so the built-site checks (titles,
+      # canonical, JSON-LD, sitemap, robots, JavaScript budgets) skipped there.
+      - name: Check the built website (SEO, structured data, JavaScript budgets)
+        run: pnpm -F @shark/website budgets
+
       - name: Smoke-test production serving and authenticated browser runtime
         env:
           NODE_ENV: production

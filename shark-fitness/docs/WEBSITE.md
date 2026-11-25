@@ -72,7 +72,7 @@ Every page has a unique title and description, a canonical URL, Open Graph and T
 
 The site ships no framework runtime. Each page's CSS is inlined; fonts are self-hosted Latin subsets (Anton, Archivo 400/600, Archivo Narrow 600) with the two used above the fold preloaded and `font-display: swap`; a Latin-extended subset carries ₹ and loads only where a rupee sign is printed. The build writes Brotli and gzip copies that the API serves directly. Hashed assets under `/_astro/` are cached for a year; HTML, `robots.txt`, the sitemap and `/sw.js` are revalidated on every request.
 
-Budgets (checked by `src/built-site.test.ts` on every `pnpm test` after a build):
+Budgets (checked by `src/built-site.test.ts`: on `pnpm test` when a build exists, and by `pnpm -F @shark/website budgets`, which CI runs after `pnpm build` and which fails if there is no build):
 
 | Budget | Limit | Current |
 |---|---|---|
