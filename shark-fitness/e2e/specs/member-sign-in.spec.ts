@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../support/fixtures';
 import { signInToMemberApp } from '../support/demo';
 
 test('a member signs in to the app and lands on Home', async ({ page }) => {

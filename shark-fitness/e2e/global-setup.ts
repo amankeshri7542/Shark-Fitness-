@@ -23,7 +23,9 @@ export default async function globalSetup(): Promise<void> {
   const tempDir = mkdtempSync(join(tmpdir(), 'shark-e2e-'));
   try {
     const database = join(tempDir, 'shark.db');
-    const port = await freePort();
+    // SHARK_E2E_PORT pins the port (parallel worktrees on one machine each
+    // use their own range); otherwise any free port.
+    const port = process.env.SHARK_E2E_PORT ? Number(process.env.SHARK_E2E_PORT) : await freePort();
     const baseURL = `http://127.0.0.1:${port}`;
     const serverLog = join(tempDir, 'server.log');
     // Only what the server needs: nothing inherited from the developer's shell
@@ -39,14 +41,25 @@ export default async function globalSetup(): Promise<void> {
       SHARK_ALLOWED_ORIGINS: baseURL,
       // Test-only secret, new every run.
       SHARK_PASS_SECRET: randomBytes(48).toString('base64'),
+      SHARK_MFA_ENCRYPTION_KEY: randomBytes(32).toString('base64'),
       SHARK_DISABLE_JOBS: 'true',
       SHARK_RELEASE: 'e2e',
       // Error reports go to the server log, where the client-error spec reads them.
       SHARK_ERROR_REPORTER: 'console',
     };
 
-    for (const script of ['src/db/migrate.ts', 'src/db/seed.ts']) {
-      const result = spawnSync(process.execPath, ['--import', 'tsx', script], { cwd: API_ROOT, env, encoding: 'utf8' });
+    // The demo owner must use two-step sign-in. Enrol it with a secret made
+    // for this run, so specs can generate its codes (support/totp.ts). Other
+    // owners stay unenrolled, which is how the enrolment-gate spec meets the
+    // gate. The secret never leaves this machine's temp state.
+    const ownerTotpSecret = base32(randomBytes(20));
+    const scripts: string[][] = [
+      ['src/db/migrate.ts'],
+      ['src/db/seed.ts'],
+      ['src/db/mfa-fixture.ts', '--secret', ownerTotpSecret, '--email', 'owner@sharkfitness.in'],
+    ];
+    for (const [script, ...args] of scripts) {
+      const result = spawnSync(process.execPath, ['--import', 'tsx', script!, ...args], { cwd: API_ROOT, env, encoding: 'utf8' });
       if (result.status !== 0) throw new Error(`${script} failed:\n${result.stdout}\n${result.stderr}`);
     }
 
@@ -59,7 +72,7 @@ export default async function globalSetup(): Promise<void> {
     });
     closeSync(logFd);
     server.unref();
-    const state: RunState = { pid: server.pid!, tempDir, baseURL, serverLog };
+    const state: RunState = { pid: server.pid!, tempDir, baseURL, serverLog, database, ownerTotpSecret };
     mkdirSync(dirname(STATE_FILE), { recursive: true });
     writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
 
@@ -69,11 +82,30 @@ export default async function globalSetup(): Promise<void> {
 
     process.env.SHARK_E2E_BASE_URL = baseURL;
     process.env.SHARK_E2E_SERVER_LOG = serverLog;
+    process.env.SHARK_E2E_DATABASE = database;
+    process.env.SHARK_E2E_OWNER_TOTP_SECRET = ownerTotpSecret;
   } catch (error) {
     stopRecordedServer();
     rmSync(tempDir, { recursive: true, force: true });
     throw error;
   }
+}
+
+function base32(bytes: Buffer): string {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = 0;
+  let value = 0;
+  let out = '';
+  for (const byte of bytes) {
+    value = (value << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      out += alphabet[(value >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+  }
+  if (bits > 0) out += alphabet[(value << (5 - bits)) & 31];
+  return out;
 }
 
 function freePort(): Promise<number> {
