@@ -29,12 +29,7 @@
       "state": "reviewing",
       "base": "phase/P01-prod-readiness",
       "base_sha": "128aec1e5",
-      "running": {
-        "tag": "P04-review",
-        "pid": 64517,
-        "started": "2026-11-26 00:43 IST",
-        "activity": "2026-11-26 01:01 IST"
-      },
+      "running": null,
       "note": ""
     },
     "P03": {
@@ -54,7 +49,7 @@
         "tag": "P05-impl",
         "pid": 64516,
         "started": "2026-11-26 00:43 IST",
-        "activity": "2026-11-26 01:01 IST"
+        "activity": "2026-11-26 01:02 IST"
       }
     },
     "P07": {
