@@ -2,6 +2,45 @@
   "phases": {
     "P01": {
       "state": "implementing"
+    },
+    "P02": {
+      "state": "pending"
+    },
+    "P06": {
+      "state": "pending"
+    },
+    "P04": {
+      "state": "pending"
+    },
+    "P03": {
+      "state": "pending"
+    },
+    "P05": {
+      "state": "pending"
+    },
+    "P07": {
+      "state": "pending"
+    },
+    "INT1": {
+      "state": "pending"
+    },
+    "P08": {
+      "state": "pending"
+    },
+    "P09": {
+      "state": "pending"
+    },
+    "P10": {
+      "state": "pending"
+    },
+    "INT2": {
+      "state": "pending"
+    },
+    "P11": {
+      "state": "pending"
+    },
+    "P12": {
+      "state": "pending"
     }
   },
   "pushes": {

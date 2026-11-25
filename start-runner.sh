@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# Idempotent launcher for the Shark Fitness phase runner (orchestration only; Claude Code writes all product code).
+# Idempotent launcher for the Shark Fitness parallel phase runner v3 (orchestration only; Claude Code writes all product code).
+# runner.py runs the DAG in schedule.json: up to `cap` Claude Code sessions at once, each in its own git worktree
+# under /workspace/sf-wt/<ID> (P01 in the main checkout). Live sessions recorded in logs/<ID>.run.json are adopted,
+# never duplicated. Safe to call every hour from a routine.
 #   start-runner.sh               restore anything missing, check logins, start runner.py in the background
 #   start-runner.sh --foreground  same, but run in the foreground
 #   start-runner.sh --check       restore + check only, do not start
@@ -54,9 +57,11 @@ fi
 git -C "$REPO" config user.name >/dev/null || git -C "$REPO" config user.name sauravkeshri333
 git -C "$REPO" config user.email >/dev/null || git -C "$REPO" config user.email sauravkeshri333@gmail.com
 git -C "$REPO" fetch -q origin || say "warning: git fetch failed"
+git -C "$REPO" config gc.auto 0          # parallel worktrees: no auto-gc races
+git -C "$REPO" worktree prune 2>/dev/null
 
 # 4. Orchestration folder: restore missing files from origin/orchestration/state (existing local files win)
-if [ ! -f "$ORCH/runner.py" ] || [ ! -f "$ORCH/state.json" ] || [ ! -f "$ORCH/phases.json" ] || [ ! -f "$ORCH/PHASE-PLAN.md" ]; then
+if [ ! -f "$ORCH/runner.py" ] || [ ! -f "$ORCH/state.json" ] || [ ! -f "$ORCH/phases.json" ] || [ ! -f "$ORCH/schedule.json" ] || [ ! -f "$ORCH/PHASE-PLAN.md" ]; then
   if git -C "$REPO" rev-parse --verify -q "refs/remotes/origin/$STATE_BRANCH" >/dev/null; then
     mkdir -p "$ORCH" && git -C "$REPO" archive "origin/$STATE_BRANCH" | tar -x -C "$ORCH" --skip-old-files
     say "restored orchestration files from origin/$STATE_BRANCH ($(git -C "$REPO" rev-parse --short origin/$STATE_BRANCH))"
@@ -65,7 +70,9 @@ if [ ! -f "$ORCH/runner.py" ] || [ ! -f "$ORCH/state.json" ] || [ ! -f "$ORCH/ph
   fi
 fi
 [ -f "$ORCH/runner.py" ] || { say "runner.py missing and could not be restored"; exit 1; }
-[ -f "$ORCH/prompts/impl-template.md" ] || { say "prompts missing"; exit 1; }
+[ -f "$ORCH/prompts/impl-template.md" ] && [ -f "$ORCH/prompts/integrate-template.md" ] || { say "prompts missing"; exit 1; }
+[ -f "$ORCH/schedule.json" ] || { say "schedule.json missing"; exit 1; }
+mkdir -p /workspace/sf-wt
 mkdir -p "$ORCH/logs" "$ORCH/phases" "$ORCH/pr"
 [ -f "$ORCH/PHASE-PLAN.md" ] || say "PHASE-PLAN.md missing: runner will run the discovery session first"
 
@@ -74,7 +81,7 @@ ok=1
 if ! /home/box/.local/bin/claude auth status 2>/dev/null | grep -q '"loggedIn": true'; then say "Claude Code is NOT logged in: run 'claude auth login' (account sauravkeshri333@gmail.com)"; ok=0; fi
 if ! gh auth status >/dev/null 2>&1; then say "gh is NOT logged in: run 'gh auth login -h github.com -p https -w' (account amankeshri7542)"; ok=0; fi
 [ $ok = 1 ] || exit 2
-say "logins OK; state: $(python3 -c "import json;print({k:v.get('state') for k,v in json.load(open('$ORCH/state.json'))['phases'].items()})" 2>/dev/null)"
+say "claude -p sessions on box: $(pgrep -fc "claude -p" || true); logins OK; state: $(python3 -c "import json;print({k:v.get('state') for k,v in json.load(open('$ORCH/state.json'))['phases'].items()})" 2>/dev/null)"
 
 [ "$MODE" = check ] && { say "check only; not starting"; exit 0; }
 rm -f "$ORCH/STOP"
