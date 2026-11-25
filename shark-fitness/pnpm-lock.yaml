@@ -250,7 +250,17 @@ importers:
         specifier: 22.10.7
         version: 22.10.7
 
-  packages/design-tokens: {}
+  packages/design-tokens:
+    dependencies:
+      '@fontsource/anton':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource/archivo':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource/archivo-narrow':
+        specifier: 5.3.0
+        version: 5.3.0
 
   packages/domain:
     dependencies:
@@ -1459,6 +1469,15 @@ packages:
     peerDependenciesMeta:
       '@noble/hashes':
         optional: true
+
+  '@fontsource/anton@5.3.0':
+    resolution: {integrity: sha512-OR1D5n124n2XRs66SbX7IjcOSptljEJE8FcDNnlni2y1/M6KpTx7cU2PIWzTSsBj4WFkHPw24On8qw3qkQZuTw==}
+
+  '@fontsource/archivo-narrow@5.3.0':
+    resolution: {integrity: sha512-fK2Y7PdIP23+t5Dp7gh9n94zxTCdHD6M955aJ8QzR6RvW+5WgmryKySEvaCUAeSLXzA113hyW0BwEHHxHADX7Q==}
+
+  '@fontsource/archivo@5.3.0':
+    resolution: {integrity: sha512-5DIMgPVJRi62OqdOVoogCFxP73EkNM/E0YVTSDIQlDEJfDbxqZduwM/YoNZwC9Sx1CDgpKinqf8ckRY1QNIecw==}
 
   '@hono/node-server@1.13.8':
     resolution: {integrity: sha512-fsn8ucecsAXUoVxrUil0m13kOEq4mkX4/4QozCqmY+HpGfKl74OYSn8JcMA8GnG0ClfdRI4/ZSeG7zhFaVg+wg==}
@@ -5019,6 +5038,12 @@ snapshots:
   '@exodus/bytes@1.15.1(@noble/hashes@2.4.0)':
     optionalDependencies:
       '@noble/hashes': 2.4.0
+
+  '@fontsource/anton@5.3.0': {}
+
+  '@fontsource/archivo-narrow@5.3.0': {}
+
+  '@fontsource/archivo@5.3.0': {}
 
   '@hono/node-server@1.13.8(hono@4.6.20)':
     dependencies:

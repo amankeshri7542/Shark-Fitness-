@@ -7,6 +7,7 @@ import { allowedOrigins, csrfProtection, securityHeaders } from './lib/security.
 
 import { accountRecoveryRoutes } from './routes/account-recovery.js';
 import { clientErrorRoutes } from './routes/client-errors.js';
+import { cspReportRoutes } from './routes/csp-reports.js';
 import { metricsRoutes } from './routes/metrics.js';
 import { authRoutes } from './routes/auth.js';
 import { authStabilizationRoutes } from './routes/auth-stabilization.js';
@@ -109,6 +110,7 @@ app.get('/ready', (c) => {
 
 app.route('/metrics', metricsRoutes);
 app.route('/v1/client-errors', clientErrorRoutes);
+app.route('/v1/csp-reports', cspReportRoutes);
 
 app.route('/v1/auth/mfa', mfaRoutes);
 app.route('/v1/auth', authStabilizationRoutes);

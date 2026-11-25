@@ -9,6 +9,7 @@ import { API_ORIGIN, ApiError } from './lib/api';
 import { hasMemberSessionHint, setMemberSessionHint } from './lib/session-hint';
 import { installGlobalErrorListeners } from './lib/error-reporting';
 import { AppErrorBoundary } from './ui/ErrorBoundary';
+import '@shark/design-tokens/fonts.css';
 import './styles.css';
 
 const queryClient = new QueryClient({

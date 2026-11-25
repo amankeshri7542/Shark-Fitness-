@@ -8,7 +8,9 @@ import { useAdmin } from './lib/store';
 import { ApiError } from './lib/api';
 import { connectRealtime, disconnectRealtime } from './lib/realtime';
 import { installGlobalErrorListeners } from './lib/error-reporting';
+import { recoverFromRootServiceWorker } from './lib/sw-recovery';
 import { AppErrorBoundary } from './ui/ErrorBoundary';
+import '@shark/design-tokens/fonts.css';
 import './styles.css';
 
 const queryClient = new QueryClient({
@@ -66,6 +68,7 @@ function Boot() {
   return <RouterProvider router={router} />;
 }
 
+recoverFromRootServiceWorker();
 installGlobalErrorListeners();
 
 createRoot(document.getElementById('root')!).render(
