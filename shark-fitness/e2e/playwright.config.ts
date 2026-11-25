@@ -26,5 +26,9 @@ export default defineConfig({
     // sees them, and a cached shell would hide the build under test.
     serviceWorkers: 'block',
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    // The public website's flows again on a phone (P03): same server, mobile viewport and touch.
+    { name: 'website-mobile', use: { ...devices['Pixel 7'] }, testMatch: /website-.*\.spec\.ts$/ },
+  ],
 });

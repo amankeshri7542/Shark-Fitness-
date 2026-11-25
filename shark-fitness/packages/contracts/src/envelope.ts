@@ -125,6 +125,8 @@ export const EVENT_TOPICS = [
   'post.created',
   'challenge.score_changed',
   'lead.stage_changed',
+  /** A website enquiry or trial request reached the pipeline (new or existing lead). */
+  'lead.captured',
   'alert.raised',
   /* Store — PF-POS. Branch-channel topics: a till, a stockroom and a manager's
      console are all looking at the same shelf.

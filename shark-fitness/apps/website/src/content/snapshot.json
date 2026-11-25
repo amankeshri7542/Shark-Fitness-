@@ -1,0 +1,2108 @@
+{
+  "tenantSlug": "shark",
+  "syncedAt": "2026-11-25T09:56:28.284Z",
+  "site": {
+    "tenant": {
+      "slug": "shark",
+      "displayName": "Shark Fitness",
+      "currency": "INR",
+      "timezone": "Asia/Kolkata",
+      "privacyContact": "privacy@sharkfitness.in"
+    },
+    "branches": [
+      {
+        "id": "br_hsr",
+        "slug": "hsr",
+        "name": "HSR Trench",
+        "state": "active",
+        "addressLine": "27th Main, Sector 2",
+        "city": "Bengaluru",
+        "timezone": "Asia/Kolkata",
+        "phone": "+91 80 4000 1000",
+        "email": "hsr@sharkfitness.in",
+        "amenities": [
+          "Showers",
+          "Lockers",
+          "Parking",
+          "Cafe",
+          "Sauna"
+        ],
+        "holidays": [],
+        "hours": {
+          "mon": {
+            "closed": false,
+            "opens": "05:00",
+            "closes": "23:00"
+          },
+          "tue": {
+            "closed": false,
+            "opens": "05:00",
+            "closes": "23:00"
+          },
+          "wed": {
+            "closed": false,
+            "opens": "05:00",
+            "closes": "23:00"
+          },
+          "thu": {
+            "closed": false,
+            "opens": "05:00",
+            "closes": "23:00"
+          },
+          "fri": {
+            "closed": false,
+            "opens": "05:00",
+            "closes": "23:00"
+          },
+          "sat": {
+            "closed": false,
+            "opens": "06:00",
+            "closes": "22:00"
+          },
+          "sun": {
+            "closed": false,
+            "opens": "06:00",
+            "closes": "22:00"
+          }
+        }
+      },
+      {
+        "id": "br_ind",
+        "slug": "indiranagar",
+        "name": "Indiranagar Reef",
+        "state": "active",
+        "addressLine": "12th Main, HAL 2nd Stage",
+        "city": "Bengaluru",
+        "timezone": "Asia/Kolkata",
+        "phone": "+91 80 4000 1000",
+        "email": "indiranagar@sharkfitness.in",
+        "amenities": [
+          "Showers",
+          "Lockers",
+          "Parking",
+          "Cafe",
+          "Pool"
+        ],
+        "holidays": [],
+        "hours": {
+          "mon": {
+            "closed": false,
+            "opens": "05:00",
+            "closes": "23:00"
+          },
+          "tue": {
+            "closed": false,
+            "opens": "05:00",
+            "closes": "23:00"
+          },
+          "wed": {
+            "closed": false,
+            "opens": "05:00",
+            "closes": "23:00"
+          },
+          "thu": {
+            "closed": false,
+            "opens": "05:00",
+            "closes": "23:00"
+          },
+          "fri": {
+            "closed": false,
+            "opens": "05:00",
+            "closes": "23:00"
+          },
+          "sat": {
+            "closed": false,
+            "opens": "06:00",
+            "closes": "22:00"
+          },
+          "sun": {
+            "closed": false,
+            "opens": "06:00",
+            "closes": "22:00"
+          }
+        }
+      },
+      {
+        "id": "br_kor",
+        "slug": "koramangala",
+        "name": "Koramangala Depot",
+        "state": "active",
+        "addressLine": "80 Feet Road, 5th Block",
+        "city": "Bengaluru",
+        "timezone": "Asia/Kolkata",
+        "phone": "+91 80 4000 1000",
+        "email": "koramangala@sharkfitness.in",
+        "amenities": [
+          "Showers",
+          "Lockers",
+          "Parking",
+          "Cafe",
+          "Sauna"
+        ],
+        "holidays": [],
+        "hours": {
+          "mon": {
+            "closed": false,
+            "opens": "05:00",
+            "closes": "23:00"
+          },
+          "tue": {
+            "closed": false,
+            "opens": "05:00",
+            "closes": "23:00"
+          },
+          "wed": {
+            "closed": false,
+            "opens": "05:00",
+            "closes": "23:00"
+          },
+          "thu": {
+            "closed": false,
+            "opens": "05:00",
+            "closes": "23:00"
+          },
+          "fri": {
+            "closed": false,
+            "opens": "05:00",
+            "closes": "23:00"
+          },
+          "sat": {
+            "closed": false,
+            "opens": "06:00",
+            "closes": "22:00"
+          },
+          "sun": {
+            "closed": false,
+            "opens": "06:00",
+            "closes": "22:00"
+          }
+        }
+      }
+    ],
+    "plans": [
+      {
+        "id": "prd_daypass",
+        "name": "Day Pass",
+        "description": "One visit, any branch.",
+        "kind": "day_pass",
+        "cadence": "one_time",
+        "durationDays": 1,
+        "credits": null,
+        "currency": "INR",
+        "priceMinor": 79900,
+        "taxMinor": 14382,
+        "totalMinor": 94282,
+        "taxRatePercent": "18%",
+        "taxLabel": "GST",
+        "priceLabel": "₹942.82",
+        "taxNote": "incl. 18% GST",
+        "cadenceLabel": "one day",
+        "allBranches": true,
+        "branchIds": [
+          "br_hsr",
+          "br_ind",
+          "br_kor"
+        ]
+      },
+      {
+        "id": "prd_digital",
+        "name": "Digital Only",
+        "description": "Programming, tracking and the on-demand library. No floor access.",
+        "kind": "digital",
+        "cadence": "monthly",
+        "durationDays": 30,
+        "credits": null,
+        "currency": "INR",
+        "priceMinor": 99900,
+        "taxMinor": 17982,
+        "totalMinor": 117882,
+        "taxRatePercent": "18%",
+        "taxLabel": "GST",
+        "priceLabel": "₹1,178.82",
+        "taxNote": "incl. 18% GST",
+        "cadenceLabel": "/ month",
+        "allBranches": true,
+        "branchIds": [
+          "br_hsr",
+          "br_ind",
+          "br_kor"
+        ]
+      },
+      {
+        "id": "prd_offpeak",
+        "name": "Off-Peak Monthly",
+        "description": "Weekdays between 10am and 4pm. The quiet floor, at a quiet price.",
+        "kind": "membership",
+        "cadence": "monthly",
+        "durationDays": 30,
+        "credits": null,
+        "currency": "INR",
+        "priceMinor": 199900,
+        "taxMinor": 35982,
+        "totalMinor": 235882,
+        "taxRatePercent": "18%",
+        "taxLabel": "GST",
+        "priceLabel": "₹2,358.82",
+        "taxNote": "incl. 18% GST",
+        "cadenceLabel": "/ month",
+        "allBranches": false,
+        "branchIds": [
+          "br_hsr",
+          "br_kor"
+        ]
+      },
+      {
+        "id": "prd_monthly",
+        "name": "Depot Monthly",
+        "description": "Your home branch, gym floor access, classes charged separately.",
+        "kind": "membership",
+        "cadence": "monthly",
+        "durationDays": 30,
+        "credits": null,
+        "currency": "INR",
+        "priceMinor": 299900,
+        "taxMinor": 53982,
+        "totalMinor": 353882,
+        "taxRatePercent": "18%",
+        "taxLabel": "GST",
+        "priceLabel": "₹3,538.82",
+        "taxNote": "incl. 18% GST",
+        "cadenceLabel": "/ month",
+        "allBranches": false,
+        "branchIds": [
+          "br_kor"
+        ]
+      },
+      {
+        "id": "prd_class_10",
+        "name": "Class Pack — 10",
+        "description": "Ten class credits, good for six months across any branch.",
+        "kind": "class_pack",
+        "cadence": "one_time",
+        "durationDays": 180,
+        "credits": 10,
+        "currency": "INR",
+        "priceMinor": 599900,
+        "taxMinor": 107982,
+        "totalMinor": 707882,
+        "taxRatePercent": "18%",
+        "taxLabel": "GST",
+        "priceLabel": "₹7,078.82",
+        "taxNote": "incl. 18% GST",
+        "cadenceLabel": "one-time",
+        "allBranches": true,
+        "branchIds": [
+          "br_hsr",
+          "br_ind",
+          "br_kor"
+        ]
+      },
+      {
+        "id": "prd_pt_10",
+        "name": "Personal Training — 10 sessions",
+        "description": "Ten one-to-one sessions with your assigned coach.",
+        "kind": "pt_credits",
+        "cadence": "one_time",
+        "durationDays": 120,
+        "credits": 10,
+        "currency": "INR",
+        "priceMinor": 1200000,
+        "taxMinor": 216000,
+        "totalMinor": 1416000,
+        "taxRatePercent": "18%",
+        "taxLabel": "GST",
+        "priceLabel": "₹14,160",
+        "taxNote": "incl. 18% GST",
+        "cadenceLabel": "one-time",
+        "allBranches": true,
+        "branchIds": [
+          "br_hsr",
+          "br_ind",
+          "br_kor"
+        ]
+      },
+      {
+        "id": "prd_elite_annual",
+        "name": "Elite Annual",
+        "description": "Every branch, every class included, priority booking, two guest passes a month.",
+        "kind": "membership",
+        "cadence": "annual",
+        "durationDays": 365,
+        "credits": null,
+        "currency": "INR",
+        "priceMinor": 2499900,
+        "taxMinor": 449982,
+        "totalMinor": 2949882,
+        "taxRatePercent": "18%",
+        "taxLabel": "GST",
+        "priceLabel": "₹29,498.82",
+        "taxNote": "incl. 18% GST",
+        "cadenceLabel": "/ year",
+        "allBranches": true,
+        "branchIds": [
+          "br_hsr",
+          "br_ind",
+          "br_kor"
+        ]
+      }
+    ]
+  },
+  "timetable": {
+    "br_hsr": [
+      {
+        "day": "mon",
+        "startTime": "06:30",
+        "endTime": "07:15",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "mon",
+        "startTime": "08:00",
+        "endTime": "08:45",
+        "name": "Foundations",
+        "category": "strength",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 45
+      },
+      {
+        "day": "mon",
+        "startTime": "12:00",
+        "endTime": "12:30",
+        "name": "Deep Mobility",
+        "category": "mobility",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 30
+      },
+      {
+        "day": "mon",
+        "startTime": "18:15",
+        "endTime": "19:15",
+        "name": "Strength Clinic",
+        "category": "strength",
+        "level": "moderate",
+        "coach": "Rehan",
+        "durationMin": 60
+      },
+      {
+        "day": "mon",
+        "startTime": "19:00",
+        "endTime": "19:45",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "mon",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Cage Boxing",
+        "category": "combat",
+        "level": "high",
+        "coach": "Rehan",
+        "durationMin": 45
+      },
+      {
+        "day": "mon",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Spin Sprint",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "mon",
+        "startTime": "21:00",
+        "endTime": "22:00",
+        "name": "Reef Yoga",
+        "category": "mind_body",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 60
+      },
+      {
+        "day": "tue",
+        "startTime": "06:30",
+        "endTime": "07:15",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "tue",
+        "startTime": "08:00",
+        "endTime": "08:45",
+        "name": "Foundations",
+        "category": "strength",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 45
+      },
+      {
+        "day": "tue",
+        "startTime": "12:00",
+        "endTime": "12:30",
+        "name": "Deep Mobility",
+        "category": "mobility",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 30
+      },
+      {
+        "day": "tue",
+        "startTime": "18:15",
+        "endTime": "19:15",
+        "name": "Strength Clinic",
+        "category": "strength",
+        "level": "moderate",
+        "coach": "Rehan",
+        "durationMin": 60
+      },
+      {
+        "day": "tue",
+        "startTime": "19:00",
+        "endTime": "19:45",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "tue",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Cage Boxing",
+        "category": "combat",
+        "level": "high",
+        "coach": "Rehan",
+        "durationMin": 45
+      },
+      {
+        "day": "tue",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Spin Sprint",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "tue",
+        "startTime": "21:00",
+        "endTime": "22:00",
+        "name": "Reef Yoga",
+        "category": "mind_body",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 60
+      },
+      {
+        "day": "wed",
+        "startTime": "06:30",
+        "endTime": "07:15",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "wed",
+        "startTime": "08:00",
+        "endTime": "08:45",
+        "name": "Foundations",
+        "category": "strength",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 45
+      },
+      {
+        "day": "wed",
+        "startTime": "12:00",
+        "endTime": "12:30",
+        "name": "Deep Mobility",
+        "category": "mobility",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 30
+      },
+      {
+        "day": "wed",
+        "startTime": "18:15",
+        "endTime": "19:15",
+        "name": "Strength Clinic",
+        "category": "strength",
+        "level": "moderate",
+        "coach": "Rehan",
+        "durationMin": 60
+      },
+      {
+        "day": "wed",
+        "startTime": "19:00",
+        "endTime": "19:45",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "wed",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Cage Boxing",
+        "category": "combat",
+        "level": "high",
+        "coach": "Rehan",
+        "durationMin": 45
+      },
+      {
+        "day": "wed",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Spin Sprint",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "wed",
+        "startTime": "21:00",
+        "endTime": "22:00",
+        "name": "Reef Yoga",
+        "category": "mind_body",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 60
+      },
+      {
+        "day": "thu",
+        "startTime": "06:30",
+        "endTime": "07:15",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "thu",
+        "startTime": "08:00",
+        "endTime": "08:45",
+        "name": "Foundations",
+        "category": "strength",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 45
+      },
+      {
+        "day": "thu",
+        "startTime": "12:00",
+        "endTime": "12:30",
+        "name": "Deep Mobility",
+        "category": "mobility",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 30
+      },
+      {
+        "day": "thu",
+        "startTime": "18:15",
+        "endTime": "19:15",
+        "name": "Strength Clinic",
+        "category": "strength",
+        "level": "moderate",
+        "coach": "Rehan",
+        "durationMin": 60
+      },
+      {
+        "day": "thu",
+        "startTime": "19:00",
+        "endTime": "19:45",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "thu",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Cage Boxing",
+        "category": "combat",
+        "level": "high",
+        "coach": "Rehan",
+        "durationMin": 45
+      },
+      {
+        "day": "thu",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Spin Sprint",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "thu",
+        "startTime": "21:00",
+        "endTime": "22:00",
+        "name": "Reef Yoga",
+        "category": "mind_body",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 60
+      },
+      {
+        "day": "fri",
+        "startTime": "06:30",
+        "endTime": "07:15",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "fri",
+        "startTime": "08:00",
+        "endTime": "08:45",
+        "name": "Foundations",
+        "category": "strength",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 45
+      },
+      {
+        "day": "fri",
+        "startTime": "12:00",
+        "endTime": "12:30",
+        "name": "Deep Mobility",
+        "category": "mobility",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 30
+      },
+      {
+        "day": "fri",
+        "startTime": "18:15",
+        "endTime": "19:15",
+        "name": "Strength Clinic",
+        "category": "strength",
+        "level": "moderate",
+        "coach": "Rehan",
+        "durationMin": 60
+      },
+      {
+        "day": "fri",
+        "startTime": "19:00",
+        "endTime": "19:45",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "fri",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Cage Boxing",
+        "category": "combat",
+        "level": "high",
+        "coach": "Rehan",
+        "durationMin": 45
+      },
+      {
+        "day": "fri",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Spin Sprint",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "fri",
+        "startTime": "21:00",
+        "endTime": "22:00",
+        "name": "Reef Yoga",
+        "category": "mind_body",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 60
+      },
+      {
+        "day": "sat",
+        "startTime": "06:30",
+        "endTime": "07:15",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "sat",
+        "startTime": "08:00",
+        "endTime": "08:45",
+        "name": "Foundations",
+        "category": "strength",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 45
+      },
+      {
+        "day": "sat",
+        "startTime": "12:00",
+        "endTime": "12:30",
+        "name": "Deep Mobility",
+        "category": "mobility",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 30
+      },
+      {
+        "day": "sat",
+        "startTime": "18:15",
+        "endTime": "19:15",
+        "name": "Strength Clinic",
+        "category": "strength",
+        "level": "moderate",
+        "coach": "Rehan",
+        "durationMin": 60
+      },
+      {
+        "day": "sat",
+        "startTime": "19:00",
+        "endTime": "19:45",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "sat",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Cage Boxing",
+        "category": "combat",
+        "level": "high",
+        "coach": "Rehan",
+        "durationMin": 45
+      },
+      {
+        "day": "sat",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Spin Sprint",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "sat",
+        "startTime": "21:00",
+        "endTime": "22:00",
+        "name": "Reef Yoga",
+        "category": "mind_body",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 60
+      },
+      {
+        "day": "sun",
+        "startTime": "06:30",
+        "endTime": "07:15",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "sun",
+        "startTime": "08:00",
+        "endTime": "08:45",
+        "name": "Foundations",
+        "category": "strength",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 45
+      },
+      {
+        "day": "sun",
+        "startTime": "12:00",
+        "endTime": "12:30",
+        "name": "Deep Mobility",
+        "category": "mobility",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 30
+      },
+      {
+        "day": "sun",
+        "startTime": "18:15",
+        "endTime": "19:15",
+        "name": "Strength Clinic",
+        "category": "strength",
+        "level": "moderate",
+        "coach": "Rehan",
+        "durationMin": 60
+      },
+      {
+        "day": "sun",
+        "startTime": "19:00",
+        "endTime": "19:45",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "sun",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Cage Boxing",
+        "category": "combat",
+        "level": "high",
+        "coach": "Rehan",
+        "durationMin": 45
+      },
+      {
+        "day": "sun",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Spin Sprint",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "sun",
+        "startTime": "21:00",
+        "endTime": "22:00",
+        "name": "Reef Yoga",
+        "category": "mind_body",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 60
+      }
+    ],
+    "br_ind": [
+      {
+        "day": "mon",
+        "startTime": "06:30",
+        "endTime": "07:15",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "mon",
+        "startTime": "07:45",
+        "endTime": "08:30",
+        "name": "Open Water Swim",
+        "category": "aquatic",
+        "level": "moderate",
+        "coach": "Priya",
+        "durationMin": 45
+      },
+      {
+        "day": "mon",
+        "startTime": "08:00",
+        "endTime": "08:45",
+        "name": "Foundations",
+        "category": "strength",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 45
+      },
+      {
+        "day": "mon",
+        "startTime": "12:00",
+        "endTime": "12:30",
+        "name": "Deep Mobility",
+        "category": "mobility",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 30
+      },
+      {
+        "day": "mon",
+        "startTime": "18:15",
+        "endTime": "19:15",
+        "name": "Strength Clinic",
+        "category": "strength",
+        "level": "moderate",
+        "coach": "Rehan",
+        "durationMin": 60
+      },
+      {
+        "day": "mon",
+        "startTime": "19:00",
+        "endTime": "19:45",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "mon",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Cage Boxing",
+        "category": "combat",
+        "level": "high",
+        "coach": "Rehan",
+        "durationMin": 45
+      },
+      {
+        "day": "mon",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Spin Sprint",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "mon",
+        "startTime": "21:00",
+        "endTime": "22:00",
+        "name": "Reef Yoga",
+        "category": "mind_body",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 60
+      },
+      {
+        "day": "tue",
+        "startTime": "06:30",
+        "endTime": "07:15",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "tue",
+        "startTime": "07:45",
+        "endTime": "08:30",
+        "name": "Open Water Swim",
+        "category": "aquatic",
+        "level": "moderate",
+        "coach": "Priya",
+        "durationMin": 45
+      },
+      {
+        "day": "tue",
+        "startTime": "08:00",
+        "endTime": "08:45",
+        "name": "Foundations",
+        "category": "strength",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 45
+      },
+      {
+        "day": "tue",
+        "startTime": "12:00",
+        "endTime": "12:30",
+        "name": "Deep Mobility",
+        "category": "mobility",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 30
+      },
+      {
+        "day": "tue",
+        "startTime": "18:15",
+        "endTime": "19:15",
+        "name": "Strength Clinic",
+        "category": "strength",
+        "level": "moderate",
+        "coach": "Rehan",
+        "durationMin": 60
+      },
+      {
+        "day": "tue",
+        "startTime": "19:00",
+        "endTime": "19:45",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "tue",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Cage Boxing",
+        "category": "combat",
+        "level": "high",
+        "coach": "Rehan",
+        "durationMin": 45
+      },
+      {
+        "day": "tue",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Spin Sprint",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "tue",
+        "startTime": "21:00",
+        "endTime": "22:00",
+        "name": "Reef Yoga",
+        "category": "mind_body",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 60
+      },
+      {
+        "day": "wed",
+        "startTime": "06:30",
+        "endTime": "07:15",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "wed",
+        "startTime": "07:45",
+        "endTime": "08:30",
+        "name": "Open Water Swim",
+        "category": "aquatic",
+        "level": "moderate",
+        "coach": "Priya",
+        "durationMin": 45
+      },
+      {
+        "day": "wed",
+        "startTime": "08:00",
+        "endTime": "08:45",
+        "name": "Foundations",
+        "category": "strength",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 45
+      },
+      {
+        "day": "wed",
+        "startTime": "12:00",
+        "endTime": "12:30",
+        "name": "Deep Mobility",
+        "category": "mobility",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 30
+      },
+      {
+        "day": "wed",
+        "startTime": "18:15",
+        "endTime": "19:15",
+        "name": "Strength Clinic",
+        "category": "strength",
+        "level": "moderate",
+        "coach": "Rehan",
+        "durationMin": 60
+      },
+      {
+        "day": "wed",
+        "startTime": "19:00",
+        "endTime": "19:45",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "wed",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Cage Boxing",
+        "category": "combat",
+        "level": "high",
+        "coach": "Rehan",
+        "durationMin": 45
+      },
+      {
+        "day": "wed",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Spin Sprint",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "wed",
+        "startTime": "21:00",
+        "endTime": "22:00",
+        "name": "Reef Yoga",
+        "category": "mind_body",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 60
+      },
+      {
+        "day": "thu",
+        "startTime": "06:30",
+        "endTime": "07:15",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "thu",
+        "startTime": "07:45",
+        "endTime": "08:30",
+        "name": "Open Water Swim",
+        "category": "aquatic",
+        "level": "moderate",
+        "coach": "Priya",
+        "durationMin": 45
+      },
+      {
+        "day": "thu",
+        "startTime": "08:00",
+        "endTime": "08:45",
+        "name": "Foundations",
+        "category": "strength",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 45
+      },
+      {
+        "day": "thu",
+        "startTime": "12:00",
+        "endTime": "12:30",
+        "name": "Deep Mobility",
+        "category": "mobility",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 30
+      },
+      {
+        "day": "thu",
+        "startTime": "18:15",
+        "endTime": "19:15",
+        "name": "Strength Clinic",
+        "category": "strength",
+        "level": "moderate",
+        "coach": "Rehan",
+        "durationMin": 60
+      },
+      {
+        "day": "thu",
+        "startTime": "19:00",
+        "endTime": "19:45",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "thu",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Cage Boxing",
+        "category": "combat",
+        "level": "high",
+        "coach": "Rehan",
+        "durationMin": 45
+      },
+      {
+        "day": "thu",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Spin Sprint",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "thu",
+        "startTime": "21:00",
+        "endTime": "22:00",
+        "name": "Reef Yoga",
+        "category": "mind_body",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 60
+      },
+      {
+        "day": "fri",
+        "startTime": "06:30",
+        "endTime": "07:15",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "fri",
+        "startTime": "07:45",
+        "endTime": "08:30",
+        "name": "Open Water Swim",
+        "category": "aquatic",
+        "level": "moderate",
+        "coach": "Priya",
+        "durationMin": 45
+      },
+      {
+        "day": "fri",
+        "startTime": "08:00",
+        "endTime": "08:45",
+        "name": "Foundations",
+        "category": "strength",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 45
+      },
+      {
+        "day": "fri",
+        "startTime": "12:00",
+        "endTime": "12:30",
+        "name": "Deep Mobility",
+        "category": "mobility",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 30
+      },
+      {
+        "day": "fri",
+        "startTime": "18:15",
+        "endTime": "19:15",
+        "name": "Strength Clinic",
+        "category": "strength",
+        "level": "moderate",
+        "coach": "Rehan",
+        "durationMin": 60
+      },
+      {
+        "day": "fri",
+        "startTime": "19:00",
+        "endTime": "19:45",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "fri",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Cage Boxing",
+        "category": "combat",
+        "level": "high",
+        "coach": "Rehan",
+        "durationMin": 45
+      },
+      {
+        "day": "fri",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Spin Sprint",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "fri",
+        "startTime": "21:00",
+        "endTime": "22:00",
+        "name": "Reef Yoga",
+        "category": "mind_body",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 60
+      },
+      {
+        "day": "sat",
+        "startTime": "06:30",
+        "endTime": "07:15",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "sat",
+        "startTime": "07:45",
+        "endTime": "08:30",
+        "name": "Open Water Swim",
+        "category": "aquatic",
+        "level": "moderate",
+        "coach": "Priya",
+        "durationMin": 45
+      },
+      {
+        "day": "sat",
+        "startTime": "08:00",
+        "endTime": "08:45",
+        "name": "Foundations",
+        "category": "strength",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 45
+      },
+      {
+        "day": "sat",
+        "startTime": "12:00",
+        "endTime": "12:30",
+        "name": "Deep Mobility",
+        "category": "mobility",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 30
+      },
+      {
+        "day": "sat",
+        "startTime": "18:15",
+        "endTime": "19:15",
+        "name": "Strength Clinic",
+        "category": "strength",
+        "level": "moderate",
+        "coach": "Rehan",
+        "durationMin": 60
+      },
+      {
+        "day": "sat",
+        "startTime": "19:00",
+        "endTime": "19:45",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "sat",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Cage Boxing",
+        "category": "combat",
+        "level": "high",
+        "coach": "Rehan",
+        "durationMin": 45
+      },
+      {
+        "day": "sat",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Spin Sprint",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "sat",
+        "startTime": "21:00",
+        "endTime": "22:00",
+        "name": "Reef Yoga",
+        "category": "mind_body",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 60
+      },
+      {
+        "day": "sun",
+        "startTime": "06:30",
+        "endTime": "07:15",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "sun",
+        "startTime": "07:45",
+        "endTime": "08:30",
+        "name": "Open Water Swim",
+        "category": "aquatic",
+        "level": "moderate",
+        "coach": "Priya",
+        "durationMin": 45
+      },
+      {
+        "day": "sun",
+        "startTime": "08:00",
+        "endTime": "08:45",
+        "name": "Foundations",
+        "category": "strength",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 45
+      },
+      {
+        "day": "sun",
+        "startTime": "12:00",
+        "endTime": "12:30",
+        "name": "Deep Mobility",
+        "category": "mobility",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 30
+      },
+      {
+        "day": "sun",
+        "startTime": "18:15",
+        "endTime": "19:15",
+        "name": "Strength Clinic",
+        "category": "strength",
+        "level": "moderate",
+        "coach": "Rehan",
+        "durationMin": 60
+      },
+      {
+        "day": "sun",
+        "startTime": "19:00",
+        "endTime": "19:45",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "sun",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Cage Boxing",
+        "category": "combat",
+        "level": "high",
+        "coach": "Rehan",
+        "durationMin": 45
+      },
+      {
+        "day": "sun",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Spin Sprint",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "sun",
+        "startTime": "21:00",
+        "endTime": "22:00",
+        "name": "Reef Yoga",
+        "category": "mind_body",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 60
+      }
+    ],
+    "br_kor": [
+      {
+        "day": "mon",
+        "startTime": "06:30",
+        "endTime": "07:15",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "mon",
+        "startTime": "08:00",
+        "endTime": "08:45",
+        "name": "Foundations",
+        "category": "strength",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 45
+      },
+      {
+        "day": "mon",
+        "startTime": "12:00",
+        "endTime": "12:30",
+        "name": "Deep Mobility",
+        "category": "mobility",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 30
+      },
+      {
+        "day": "mon",
+        "startTime": "18:15",
+        "endTime": "19:15",
+        "name": "Strength Clinic",
+        "category": "strength",
+        "level": "moderate",
+        "coach": "Rehan",
+        "durationMin": 60
+      },
+      {
+        "day": "mon",
+        "startTime": "19:00",
+        "endTime": "19:45",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "mon",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Cage Boxing",
+        "category": "combat",
+        "level": "high",
+        "coach": "Rehan",
+        "durationMin": 45
+      },
+      {
+        "day": "mon",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Spin Sprint",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "mon",
+        "startTime": "21:00",
+        "endTime": "22:00",
+        "name": "Reef Yoga",
+        "category": "mind_body",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 60
+      },
+      {
+        "day": "tue",
+        "startTime": "06:30",
+        "endTime": "07:15",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "tue",
+        "startTime": "08:00",
+        "endTime": "08:45",
+        "name": "Foundations",
+        "category": "strength",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 45
+      },
+      {
+        "day": "tue",
+        "startTime": "12:00",
+        "endTime": "12:30",
+        "name": "Deep Mobility",
+        "category": "mobility",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 30
+      },
+      {
+        "day": "tue",
+        "startTime": "18:15",
+        "endTime": "19:15",
+        "name": "Strength Clinic",
+        "category": "strength",
+        "level": "moderate",
+        "coach": "Rehan",
+        "durationMin": 60
+      },
+      {
+        "day": "tue",
+        "startTime": "19:00",
+        "endTime": "19:45",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "tue",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Cage Boxing",
+        "category": "combat",
+        "level": "high",
+        "coach": "Rehan",
+        "durationMin": 45
+      },
+      {
+        "day": "tue",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Spin Sprint",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "tue",
+        "startTime": "21:00",
+        "endTime": "22:00",
+        "name": "Reef Yoga",
+        "category": "mind_body",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 60
+      },
+      {
+        "day": "wed",
+        "startTime": "06:30",
+        "endTime": "07:15",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "wed",
+        "startTime": "08:00",
+        "endTime": "08:45",
+        "name": "Foundations",
+        "category": "strength",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 45
+      },
+      {
+        "day": "wed",
+        "startTime": "12:00",
+        "endTime": "12:30",
+        "name": "Deep Mobility",
+        "category": "mobility",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 30
+      },
+      {
+        "day": "wed",
+        "startTime": "18:15",
+        "endTime": "19:15",
+        "name": "Strength Clinic",
+        "category": "strength",
+        "level": "moderate",
+        "coach": "Rehan",
+        "durationMin": 60
+      },
+      {
+        "day": "wed",
+        "startTime": "19:00",
+        "endTime": "19:45",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "wed",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Cage Boxing",
+        "category": "combat",
+        "level": "high",
+        "coach": "Rehan",
+        "durationMin": 45
+      },
+      {
+        "day": "wed",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Spin Sprint",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "wed",
+        "startTime": "21:00",
+        "endTime": "22:00",
+        "name": "Reef Yoga",
+        "category": "mind_body",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 60
+      },
+      {
+        "day": "thu",
+        "startTime": "06:30",
+        "endTime": "07:15",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "thu",
+        "startTime": "08:00",
+        "endTime": "08:45",
+        "name": "Foundations",
+        "category": "strength",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 45
+      },
+      {
+        "day": "thu",
+        "startTime": "12:00",
+        "endTime": "12:30",
+        "name": "Deep Mobility",
+        "category": "mobility",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 30
+      },
+      {
+        "day": "thu",
+        "startTime": "18:15",
+        "endTime": "19:15",
+        "name": "Strength Clinic",
+        "category": "strength",
+        "level": "moderate",
+        "coach": "Rehan",
+        "durationMin": 60
+      },
+      {
+        "day": "thu",
+        "startTime": "19:00",
+        "endTime": "19:45",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "thu",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Cage Boxing",
+        "category": "combat",
+        "level": "high",
+        "coach": "Rehan",
+        "durationMin": 45
+      },
+      {
+        "day": "thu",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Spin Sprint",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "thu",
+        "startTime": "21:00",
+        "endTime": "22:00",
+        "name": "Reef Yoga",
+        "category": "mind_body",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 60
+      },
+      {
+        "day": "fri",
+        "startTime": "06:30",
+        "endTime": "07:15",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "fri",
+        "startTime": "08:00",
+        "endTime": "08:45",
+        "name": "Foundations",
+        "category": "strength",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 45
+      },
+      {
+        "day": "fri",
+        "startTime": "12:00",
+        "endTime": "12:30",
+        "name": "Deep Mobility",
+        "category": "mobility",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 30
+      },
+      {
+        "day": "fri",
+        "startTime": "18:15",
+        "endTime": "19:15",
+        "name": "Strength Clinic",
+        "category": "strength",
+        "level": "moderate",
+        "coach": "Rehan",
+        "durationMin": 60
+      },
+      {
+        "day": "fri",
+        "startTime": "19:00",
+        "endTime": "19:45",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "fri",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Cage Boxing",
+        "category": "combat",
+        "level": "high",
+        "coach": "Rehan",
+        "durationMin": 45
+      },
+      {
+        "day": "fri",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Spin Sprint",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "fri",
+        "startTime": "21:00",
+        "endTime": "22:00",
+        "name": "Reef Yoga",
+        "category": "mind_body",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 60
+      },
+      {
+        "day": "sat",
+        "startTime": "06:30",
+        "endTime": "07:15",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "sat",
+        "startTime": "08:00",
+        "endTime": "08:45",
+        "name": "Foundations",
+        "category": "strength",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 45
+      },
+      {
+        "day": "sat",
+        "startTime": "12:00",
+        "endTime": "12:30",
+        "name": "Deep Mobility",
+        "category": "mobility",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 30
+      },
+      {
+        "day": "sat",
+        "startTime": "18:15",
+        "endTime": "19:15",
+        "name": "Strength Clinic",
+        "category": "strength",
+        "level": "moderate",
+        "coach": "Rehan",
+        "durationMin": 60
+      },
+      {
+        "day": "sat",
+        "startTime": "19:00",
+        "endTime": "19:45",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "sat",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Cage Boxing",
+        "category": "combat",
+        "level": "high",
+        "coach": "Rehan",
+        "durationMin": 45
+      },
+      {
+        "day": "sat",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Spin Sprint",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "sat",
+        "startTime": "21:00",
+        "endTime": "22:00",
+        "name": "Reef Yoga",
+        "category": "mind_body",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 60
+      },
+      {
+        "day": "sun",
+        "startTime": "06:30",
+        "endTime": "07:15",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "sun",
+        "startTime": "08:00",
+        "endTime": "08:45",
+        "name": "Foundations",
+        "category": "strength",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 45
+      },
+      {
+        "day": "sun",
+        "startTime": "12:00",
+        "endTime": "12:30",
+        "name": "Deep Mobility",
+        "category": "mobility",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 30
+      },
+      {
+        "day": "sun",
+        "startTime": "18:15",
+        "endTime": "19:15",
+        "name": "Strength Clinic",
+        "category": "strength",
+        "level": "moderate",
+        "coach": "Rehan",
+        "durationMin": 60
+      },
+      {
+        "day": "sun",
+        "startTime": "19:00",
+        "endTime": "19:45",
+        "name": "Apex HIIT",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "sun",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Cage Boxing",
+        "category": "combat",
+        "level": "high",
+        "coach": "Rehan",
+        "durationMin": 45
+      },
+      {
+        "day": "sun",
+        "startTime": "20:00",
+        "endTime": "20:45",
+        "name": "Spin Sprint",
+        "category": "cardio",
+        "level": "high",
+        "coach": "Nikhil",
+        "durationMin": 45
+      },
+      {
+        "day": "sun",
+        "startTime": "21:00",
+        "endTime": "22:00",
+        "name": "Reef Yoga",
+        "category": "mind_body",
+        "level": "low",
+        "coach": "Priya",
+        "durationMin": 60
+      }
+    ]
+  }
+}

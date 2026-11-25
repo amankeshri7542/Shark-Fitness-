@@ -4,7 +4,15 @@ import tailwind from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
 import { fileURLToPath } from 'node:url';
 
+/**
+ * The member app lives at /app/ on the single origin: the public website owns
+ * / (apps/website) and the staff console /admin/. Base path, router basepath,
+ * manifest scope and service-worker scope all follow from this one value.
+ */
+export const MEMBER_BASE = '/app/';
+
 export default defineConfig({
+  base: MEMBER_BASE,
   plugins: [
     react(),
     tailwind(),
@@ -19,7 +27,11 @@ export default defineConfig({
         background_color: '#04080b',
         display: 'standalone',
         orientation: 'portrait',
-        start_url: '/',
+        // Under /app/: an install made from the website's origin must open the
+        // app, never the marketing site, and must not claim /admin/.
+        id: MEMBER_BASE,
+        scope: MEMBER_BASE,
+        start_url: MEMBER_BASE,
         icons: [
           { src: 'favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' },
         ],
@@ -29,11 +41,14 @@ export default defineConfig({
         // The app shell is cached so a workout screen opens with no network.
         // API responses are never cached here — the outbox owns offline writes
         // and stale reads during a workout would be worse than none.
-        navigateFallback: '/index.html',
-        // Member and admin are two separate SPAs on the same origin. The member
-        // worker is rooted at `/`, so without an explicit deny-list Workbox can
-        // answer `/admin/*` with the member app shell (or a stale cached shell).
-        // It must never control admin, API or health-check navigation.
+        // The worker is scoped to /app/ (it is served from there), so it can
+        // only ever see member navigations. The fallback is the precached
+        // shell at /app/index.html; the allow-list restates the scope, and the
+        // deny-list stays as a second guard should the scope ever widen: the
+        // website at /, the console at /admin/, the API and health checks must
+        // never be answered with the member shell.
+        navigateFallback: `${MEMBER_BASE}index.html`,
+        navigateFallbackAllowlist: [/^\/app(?:\/|$)/],
         navigateFallbackDenylist: [/^\/admin(?:\/|$)/, /^\/v1(?:\/|$)/, /^\/health\/?$/],
         cleanupOutdatedCaches: true,
         runtimeCaching: [

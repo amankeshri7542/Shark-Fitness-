@@ -2,6 +2,7 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import reactHooks from 'eslint-plugin-react-hooks';
 import globals from 'globals';
+import astro from 'eslint-plugin-astro';
 
 /**
  * One flat config for the whole workspace. `pnpm lint` runs it from the
@@ -21,6 +22,8 @@ export default tseslint.config(
       // Playwright output: generated HTML reports and traces.
       '**/playwright-report/**',
       '**/test-results/**',
+      // Astro's generated types.
+      '**/.astro/**',
     ],
   },
 
@@ -74,6 +77,22 @@ export default tseslint.config(
       // coverage. Tracked as follow-up; every other hook rule stays an error.
       'react-hooks/set-state-in-effect': 'off',
     },
+  },
+
+  // The public website (Astro): .astro components are linted by the Astro
+  // plugin; the browser scripts they ship run in the browser.
+  ...astro.configs.recommended,
+  {
+    files: ['apps/website/src/**/*.{ts,astro}'],
+    languageOptions: { globals: globals.browser },
+  },
+  {
+    files: ['apps/website/public/sw.js'],
+    languageOptions: { globals: globals.serviceworker },
+  },
+  {
+    files: ['apps/website/scripts/**/*.mjs', 'apps/website/astro.config.mjs', 'apps/website/src/pages/**/*.ts', 'apps/website/src/lib/**/*.ts'],
+    languageOptions: { globals: globals.node },
   },
 
   // Server, scripts and tooling run on Node.

@@ -2,14 +2,17 @@
 
 **Current acceptance scope (23 September 2026):** one staffed gym; manual verified settlement and reception attendance. Online checkout and demo provider callbacks are disabled. See [current evidence and gates](docs/STABILIZATION-2026-09-20.md), [local recovery/hosted blockers](docs/deployment-stabilization.md), and [the presentation guide](docs/PILOT-TEST-AND-DEMO.md). Historical module descriptions and test counts below do not establish complete PRD delivery or pilot readiness.
 
-A multi-tenant gym operating system: a member PWA and a staff operations console,
-built to the four PRDs in the parent directory.
+A multi-tenant gym operating system: a public website, a member PWA and a staff
+operations console, built to the four PRDs in the parent directory. One origin serves
+all three: the website at `/`, the member app at `/app/`, the console at `/admin/`,
+the API at `/v1/`.
 
 ```
 apps/
   api/            Hono + SQLite (D1-compatible) + Drizzle. 94 tables, migrations, seed.
   member-pwa/     React + Vite PWA, mobile-first, offline-capable.
   admin-web/      React + Vite operations console, desktop-first.
+  website/        Astro static public website with lead and free-trial forms (docs/WEBSITE.md).
 packages/
   contracts/      Zod schemas, enums, error + event envelopes. One source of truth.
   domain/         Pure business rules. 252 tests. No I/O, no framework.
@@ -23,6 +26,7 @@ docs/
   ADR-001-runtime.md  Why this deviates from the PRD's Cloudflare/Expo stack.
   PILOT-HOSTING.md    One-server pilot: deploy, backups (encrypted off-site), drills.
   OPERATIONS-ALERTS.md  Error reporting, /metrics and the alert rules.
+  WEBSITE.md      The public website: content, forms and leads, SEO switches, budgets.
 ```
 
 ## Running it
@@ -31,7 +35,7 @@ docs/
 pnpm install
 pnpm db:reset      # migrate + seed. Deterministic — same gym every time.
 pnpm db:backup:verify # isolated backup → mutate → restore proof
-pnpm dev           # api :8787 · member :5173 · admin :5174
+pnpm dev           # api :8787 · member :5173/app/ · admin :5174/admin/ · website :5175
 ```
 
 The seed builds one tenant (Shark Fitness, Bengaluru) with three branches, 39 members,
