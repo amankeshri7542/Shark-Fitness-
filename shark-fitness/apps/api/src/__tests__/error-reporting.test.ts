@@ -83,7 +83,8 @@ describe('sentry error reporter', () => {
 
   it('carries release, environment, request id, route, tenant/actor ids and a stack', async () => {
     const reporter = createErrorReporter('sentry', config());
-    reporter.capture(thrownFrom('boom'), leakyContext);
+    // Branch ids are not among the fields a Sentry event may carry.
+    reporter.capture(thrownFrom('boom'), { ...leakyContext, branchScope: ['br_koramangala'] });
     await reporter.flush(2_000);
 
     const [envelopeHeader, itemHeader, eventLine, ...rest] = received[0]!.body.split('\n');

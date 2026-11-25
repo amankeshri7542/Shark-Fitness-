@@ -205,7 +205,6 @@ function sentryEnvelope(
   if (safe.actorId) tags.actor_id = safe.actorId;
   if (safe.job) tags.job = safe.job;
   if (safe.source) tags.source = safe.source;
-  if (safe.branchScope?.length) tags.branch_scope = safe.branchScope.join(',').slice(0, 200);
 
   const event = JSON.stringify({
     event_id: eventId,
