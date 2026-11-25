@@ -1,6 +1,6 @@
 # Shark Fitness build status
 
-Updated 2026-11-25 10:02 IST by runner.py v3 (parallel). Model: `claude-opus-5-5` (Claude Code CLI, effort high).
+Updated 2026-11-25 10:03 IST by runner.py v3 (parallel). Model: `claude-opus-5-5` (Claude Code CLI, effort high).
 Concurrency cap: 4 Shark sessions (and at most 6 `claude -p` processes on the box in total); stall timeout 30 min.
 
 Runner: `/workspace/shark-fitness-orchestration/runner.py`, log `/workspace/shark-fitness-orchestration/logs/runner.log`, per-session logs `/workspace/shark-fitness-orchestration/logs/<tag>-<n>.json`. Worktrees: `/workspace/sf-wt/<ID>` (P01: `/workspace/shark-fitness-repo`).
@@ -14,7 +14,7 @@ Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "ph
 | P02 | Razorpay payments in test mode | implementing | `phase/P02-payments-razorpay` | `phase/P01-prod-readiness` |  |  |  |
 | P06 | Staff security: MFA, step-up auth, sessions, CSP, outbound webhooks | implementing | `phase/P06-staff-security` | `phase/P01-prod-readiness` |  |  |  |
 | P04 | Installable member app (PWA + Android TWA) and staff console PWA | implementing | `phase/P04-member-mobile-app` | `phase/P01-prod-readiness` |  |  |  |
-| P03 | Public website, public API and lead capture | pending | `phase/P03-public-website` | `` |  |  |  |
+| P03 | Public website, public API and lead capture | pending | `phase/P03-public-website` | `phase/P01-prod-readiness` |  |  |  |
 | P05 | QR check-in, safe waitlist, credit packs, private media and progress photos | pending | `phase/P05-member-core-gaps` | `` |  |  |  |
 | P07 | Messaging channels, member messaging, community moderation, tasks, coaching, broadcasts | pending | `phase/P07-engagement-ops-modules` | `` |  |  |  |
 | INT1 | Integrate feature phases P01-P07 | pending | `integration/features` | `` |  |  |  |

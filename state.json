@@ -43,7 +43,9 @@
       }
     },
     "P03": {
-      "state": "pending"
+      "state": "pending",
+      "base": "phase/P01-prod-readiness",
+      "base_sha": "2c15353fd"
     },
     "P05": {
       "state": "pending"
