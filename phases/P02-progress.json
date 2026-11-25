@@ -59,8 +59,8 @@
     {
       "id": 10,
       "text": "AC10 admin component tests: payment link action, reconciliation panel states",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "apps/admin-web/src/screens/__tests__/BillingPayments.test.tsx 10/10: payment link create (idempotency key, link+expiry+nothing-sent copy), copy, provider error + same-key retry, no permission / not payable; reconciliation loading, list, empty, hidden when offline+empty, error+retry, read-only without billing.refund, resolve needs reason then POST + refresh"
     },
     {
       "id": 11,
@@ -77,14 +77,14 @@
     {
       "id": 13,
       "text": "Member plan purchase/renewal via checkout (eligibility, expired/cancelled-only renewal)",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "razorpay-checkout.integration.test.ts 'member plan purchase and renewal': plans filtered by validateMembershipProduct without approval; purchase -> pending membership + invoice + checkout, same key does not invoice twice, refused while pending (409), renewal only from expired via renewalQuote (purpose plan_renewal, previousMembershipId set, membership.renewed audit)"
     },
     {
       "id": 14,
       "text": "Dev tool pnpm -F @shark/api razorpay:webhook",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "apps/api/scripts/razorpay-webhook.ts + fixtures/razorpay/*.json; manual run against a local API on :18110: correct secret -> 200 handled, wrong secret -> 400 SIGNATURE_INVALID + security log line; non-local URL refused"
     },
     {
       "id": 15,
