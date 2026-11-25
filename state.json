@@ -13,13 +13,23 @@
       "state": "implementing",
       "base": "phase/P01-prod-readiness",
       "base_sha": "128aec1e5",
-      "running": null
+      "running": {
+        "tag": "P02-impl",
+        "pid": 238623,
+        "started": "2026-11-25 11:17 IST",
+        "activity": "2026-11-25 11:17 IST"
+      }
     },
     "P06": {
       "state": "implementing",
       "base": "phase/P01-prod-readiness",
       "base_sha": "128aec1e5",
-      "running": null
+      "running": {
+        "tag": "P06-impl",
+        "pid": 238103,
+        "started": "2026-11-25 11:16 IST",
+        "activity": "2026-11-25 11:16 IST"
+      }
     },
     "P04": {
       "state": "implementing",
@@ -31,7 +41,12 @@
       "state": "implementing",
       "base": "phase/P01-prod-readiness",
       "base_sha": "2c15353fd",
-      "running": null
+      "running": {
+        "tag": "P03-impl",
+        "pid": 238402,
+        "started": "2026-11-25 11:17 IST",
+        "activity": "2026-11-25 11:17 IST"
+      }
     },
     "P05": {
       "state": "pending"
@@ -68,9 +83,5 @@
     "phase/P04-member-mobile-app": "7af9b73 at 2026-11-25 10:13 IST",
     "phase/P03-public-website": "ffc6df2 at 2026-11-25 10:25 IST"
   },
-  "blockers": [
-    "Claude usage limit hit (latest during P03-impl); new sessions paused, retrying every 30 min",
-    "Claude usage limit hit (latest during P02-impl); new sessions paused, retrying every 30 min",
-    "Claude usage limit hit (latest during P04-impl); new sessions paused, retrying every 30 min"
-  ]
+  "blockers": []
 }
