@@ -1,0 +1,14 @@
+{"phase":"P03","status":"in_progress","items":[
+{"id":1,"text":"AC1 website built by pnpm build; production serving / website, /app/ member, /admin/ console; immutable hashed assets with correct MIME, no-cache HTML; CI smoke checks all three","status":"todo","evidence":""},
+{"id":2,"text":"AC2 public API integration tests (dedupe phone/email, converted member, honeypot/too-fast 202, cross-tenant, suspended 404, 429, invalid phone 422 with path, consent version, classes no member ids + 14-day cap, non-public products hidden)","status":"todo","evidence":""},
+{"id":3,"text":"AC3 Lighthouse mobile Home/Plans/Free trial: Perf>=95, A11y>=95, BP>=95, SEO=100 (median of 3), reports saved","status":"todo","evidence":""},
+{"id":4,"text":"AC4 JS <=20KB gzip content pages, <=35KB Free trial/Contact; CLS<0.05","status":"todo","evidence":""},
+{"id":5,"text":"AC5 unique title/description, canonical, OG, valid JSON-LD (test); sitemap lists indexable pages; robots honours SITE_INDEXABLE","status":"todo","evidence":""},
+{"id":6,"text":"AC6 Playwright desktop+mobile keyboard-only trial form, aria-live + focus; lead in admin Leads with Website + trial chip; legacy activation hash -> /app/; SW at / removed; console at /admin/","status":"todo","evidence":""},
+{"id":7,"text":"AC7 member app tests and e2e pass with /app/ base; activation/recovery link tests assert /app/","status":"todo","evidence":""},
+{"id":8,"text":"AC8 no outbound message attempted for leads (asserted)","status":"todo","evidence":""},
+{"id":9,"text":"AC9 docs updated; standard gates and pnpm e2e pass","status":"todo","evidence":""},
+{"id":10,"text":"Admin: Plans 'Show on website' toggle; Leads source/UTM/trial chip + Website filter; Lead detail Confirm trial","status":"todo","evidence":""},
+{"id":11,"text":"sync-content script; pnpm dev includes website dev server (5175, /v1 proxy)","status":"todo","evidence":""},
+{"id":12,"text":"Screenshots in phases/P03-screens/ and PR description pr/P03.md","status":"todo","evidence":""}
+]}
