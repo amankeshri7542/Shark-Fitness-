@@ -240,6 +240,7 @@ export function Modal({
   footer,
   children,
   width = 'w-[min(560px,100%)]',
+  dismissible = true,
 }: {
   open: boolean;
   onClose: () => void;
@@ -248,6 +249,8 @@ export function Modal({
   footer?: ReactNode;
   children: ReactNode;
   width?: string;
+  /** False for a dialog that must be answered (session expired): no Close, no scrim click. */
+  dismissible?: boolean;
 }) {
   const panelRef = useFocusTrap(open, onClose);
 
@@ -256,13 +259,13 @@ export function Modal({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4"
-      onClick={onClose}
+      onClick={dismissible ? onClose : undefined}
       role="presentation"
     >
       <div
         ref={panelRef}
         tabIndex={-1}
-        role="dialog"
+        role={dismissible ? 'dialog' : 'alertdialog'}
         aria-modal="true"
         data-overlay-panel=""
         aria-label={title}
@@ -280,9 +283,11 @@ export function Modal({
             </Display>
           </div>
           <span className="flex-1" />
-          <Button variant="ghost" onClick={onClose} aria-label="Close">
-            Close
-          </Button>
+          {dismissible ? (
+            <Button variant="ghost" onClick={onClose} aria-label="Close">
+              Close
+            </Button>
+          ) : null}
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>

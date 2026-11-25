@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from '@tanstack/react-router';
-import type { Viewer } from '@shark/contracts';
+import { useNavigate, useSearch } from '@tanstack/react-router';
+import type { MfaState, Viewer } from '@shark/contracts';
 import { ApiError, OfflineError, api } from '../lib/api';
 import { useAdmin } from '../lib/store';
 import { Button, Display, Field } from '../ui/console';
+import { safeReturnPath } from '../ui/SessionGuard';
 
 
 
@@ -17,6 +18,8 @@ const DEMO_STAFF = [
 
 export default function SignInScreen() {
   const navigate = useNavigate();
+  const { redirect } = useSearch({ from: '/sign-in' });
+  const setMfaPending = useAdmin((state) => state.setMfaPending);
   const [activation, setActivation] = useState(() => new URLSearchParams(window.location.hash.slice(1)));
   const activationId = activation.get('activationId');
   const activationToken = activation.get('activationToken');
@@ -56,7 +59,7 @@ export default function SignInScreen() {
         setActivation(new URLSearchParams()); setPassword(''); setEmail(''); setRecovered(true);
         return;
       }
-      const result = await api<{ viewer: Viewer; csrfToken: string }>(activating ? '/auth/activation/redeem' : '/auth/password', {
+      const result = await api<{ viewer: Viewer; csrfToken: string; mfa?: { state: MfaState } }>(activating ? '/auth/activation/redeem' : '/auth/password', {
         method: 'POST',
         body: activating ? { activationId, token: activationToken, password } : { tenantSlug: tenantSlug.trim(), email, password },
       });
@@ -66,10 +69,16 @@ export default function SignInScreen() {
         setError('That is a member account. The dashboard is for gym staff — members use the app.');
         return;
       }
+      // Password accepted; the account still owes a code or an enrolment.
+      // The gate takes over and returns to `redirect` when it is done.
+      if (result.mfa?.state === 'challenge' || result.mfa?.state === 'enrol') {
+        setMfaPending(result.mfa.state);
+        return;
+      }
       await bootstrap();
-      await navigate({ to: '/' });
+      await navigate({ href: safeReturnPath(redirect) ?? '/' });
     } catch (err) {
-      if (err instanceof OfflineError) setError('No connection to the API. Is it running on :8787?');
+      if (err instanceof OfflineError) setError('No connection. Check your network and try again.');
       else if (err instanceof ApiError) setError(err.message);
       else setError('That did not work. Try again.');
     } finally {
@@ -118,6 +127,11 @@ export default function SignInScreen() {
           </div>
 
           <div className="flex flex-col gap-4 p-8">
+            {redirect && !choosingPassword ? (
+              <p role="status" className="border border-line bg-panel p-3 text-[13px] leading-relaxed">
+                Your session ended. Sign in again to go back to where you were.
+              </p>
+            ) : null}
             {recovered ? <p role="status">Your password has been changed and previous sessions signed out. Sign in with your new password.</p> : null}
             {recovering ? <p>Privately choose a new password (at least 12 characters). This recovery link works once and signs out all previous sessions.</p> : activating ? <p>Create your password (at least 12 characters). This activation link works once.</p> : <Field label="Gym code" value={tenantSlug} onChange={(event) => setTenantSlug(event.target.value)} />}
             {!choosingPassword ? <Field
