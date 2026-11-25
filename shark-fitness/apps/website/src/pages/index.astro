@@ -19,7 +19,7 @@ const forward = `(function(){var h=location.hash;if(/[#&](activationId|recoveryI
 
 <Layout
   title="Shark Fitness: gyms in Koramangala, Indiranagar and HSR Layout"
-  description="Three coached gyms in Bengaluru, open 5 am to 11 pm. Strength, HIIT, boxing, yoga and swim classes every day. Prices include GST. Try a free week."
+  description="Three coached gyms in Bengaluru, open 5 am to 11 pm on weekdays. Strength, HIIT, boxing, yoga and swim classes every day. Prices include GST. Try a free week."
   path="/"
   jsonLd={[organization(), ...branches.map(exerciseGym)]}
   headScript={forward}
@@ -38,7 +38,7 @@ const forward = `(function(){var h=location.hash;if(/[#&](activationId|recoveryI
       </div>
       <dl class="seam seam--4 facts">
         <div class="fact"><dt class="label">Branches</dt><dd style="margin:0"><strong>{branches.length}</strong></dd></div>
-        <div class="fact"><dt class="label">Open</dt><dd style="margin:0"><strong class="num">5 am–11 pm</strong></dd></div>
+        <div class="fact"><dt class="label">Open weekdays</dt><dd style="margin:0"><strong class="num">5 am–11 pm</strong></dd></div>
         <div class="fact"><dt class="label">Classes a week, each gym</dt><dd style="margin:0"><strong class="num">{perBranch}+</strong></dd></div>
         <div class="fact"><dt class="label">First week</dt><dd style="margin:0"><strong>Free</strong></dd></div>
       </dl>
