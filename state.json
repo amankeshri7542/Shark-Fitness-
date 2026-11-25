@@ -19,7 +19,7 @@
       "pr": "https://github.com/amankeshri7542/Shark-Fitness-/pull/29"
     },
     "P06": {
-      "state": "reviewing",
+      "state": "verifying",
       "base": "phase/P01-prod-readiness",
       "base_sha": "128aec1e5",
       "running": null,
