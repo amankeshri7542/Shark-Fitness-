@@ -25,7 +25,13 @@
     "P06": {
       "state": "implementing",
       "base": "phase/P01-prod-readiness",
-      "base_sha": "128aec1e5"
+      "base_sha": "128aec1e5",
+      "running": {
+        "tag": "P06-impl",
+        "pid": 73460,
+        "started": "2026-11-25 09:41 IST",
+        "activity": "2026-11-25 09:41 IST"
+      }
     },
     "P04": {
       "state": "implementing",

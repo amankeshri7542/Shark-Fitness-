@@ -1,6 +1,6 @@
 {
   "phase": "P01",
-  "status": "in_progress",
+  "status": "done",
   "items": [
     {
       "id": 1,
@@ -53,14 +53,14 @@
     {
       "id": 9,
       "text": "@shark/e2e Playwright package; pnpm e2e 3 specs green twice; no leftovers; CI e2e job",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "pnpm build && pnpm e2e twice: 3 passed (9.2s), 3 passed (8.9s); after both: 0 /tmp/shark-e2e-* dirs, e2e/.state empty, no tsx src/server.ts process, apps/api/data/shark.db absent. CI job e2e in ci.yml (commit 15b1aae). Screenshots in phases/P01-screens/."
     },
     {
       "id": 10,
       "text": "Docs (.env.example, PRODUCTION-READINESS, README) updated; typecheck/lint/test/build gates pass",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "pnpm install --frozen-lockfile/typecheck/lint/test/build all exit 0; pnpm test: contracts 6/1, domain 271/12, member-pwa 40/11, admin-web 295/38, api 889/65 = 1,501 tests in 127 files (baseline 1,427/119). Docs: .env.example (e25e473), PRODUCTION-READINESS \u00a71-2/\u00a79/\u00a712/\u00a714, README (128aec1), PILOT-HOSTING + OPERATIONS-ALERTS (cc6acb6), e2e/README. Manual prod single-origin smoke: /ready ready, boot log errorReporter=none metrics=enabled, /metrics 401 without/with wrong token and 16 families with it, POST /v1/client-errors 204."
     }
   ]
 }
