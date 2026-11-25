@@ -35,14 +35,14 @@
   {
    "id": 6,
    "text": "Private media: MediaStorage port + local disk, uploads (413/422/EXIF strip/4096px/quota), signed URLs (403 expired, 404 other member), tombstones, backup/restore/verify include media with checksums, pilot scripts",
-   "status": "todo",
-   "evidence": ""
+   "status": "done",
+   "evidence": "commits 2a8571d, 8d9f705. progress-photos.integration.test.ts 16/16 (413 oversize, 422 spoofed script.jpg, JPEG GPS EXIF absent on disk and in served bytes, expired URL 403, tampered 403, other member 404, quota 429, consent revoke hides immediately, purge destroys file + tombstone). media-image.test.ts 6/6 (Pillow-made JPEG/PNG/WebP stripped, re-decoded by Pillow). pnpm db:backup:verify: media restored, 2 files verified vs manifest and DB sha256, tampered archive refused. deploy/pilot scripts are P01 (not on branch) -> Integration notes."
   },
   {
    "id": 7,
    "text": "Progress photos: consent with version, private/coach visibility, trainer access matrix, compare slider, delete, revoke hides immediately + scheduled deletion, privacy export lists photos",
-   "status": "todo",
-   "evidence": ""
+   "status": "done",
+   "evidence": "consent v2.0 recorded per photo; private/coach; trainer matrix (assigned+coach visible, private 404, unassigned trainer 404, owner not_assigned); compare slider; delete; revoke hides + scheduled deletion (photoRetentionDaysAfterWithdrawal=30) + re-consent cancels; privacy export lists photos (test). Member PhotosSection.test.tsx 13/13, admin MemberPhotos 3/3."
   },
   {
    "id": 8,
