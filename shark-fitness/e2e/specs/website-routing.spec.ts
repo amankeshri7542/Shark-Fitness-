@@ -52,4 +52,35 @@ test.describe('service worker left behind by the old member app', () => {
       })
       .not.toContain('/');
   });
+
+  test('a worker that answers / with its cached shell is replaced by /sw.js and the website loads', async ({ context, page }) => {
+    // The real legacy case: the old worker controls / and serves its own cached
+    // shell, so no website script ever runs. Only the browser's update check
+    // of /sw.js (the website's self-unregistering worker) can retire it.
+    await context.route('**/sw.js', (route) =>
+      route.fulfill({
+        contentType: 'text/javascript',
+        body: [
+          "self.addEventListener('install',()=>self.skipWaiting());",
+          "self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));",
+          "self.addEventListener('fetch',e=>{if(e.request.mode==='navigate'){e.respondWith(new Response('<!doctype html><title>old</title><p id=\"old-shell\">Old member shell</p>',{headers:{'content-type':'text/html'}}))}});",
+        ].join(''),
+      }),
+    );
+    await page.goto('/about');
+    await page.evaluate(async () => {
+      await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+      await navigator.serviceWorker.ready;
+    });
+    await context.unroute('**/sw.js');
+
+    await page.goto('/');
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('#old-shell')).toHaveCount(0);
+    await expect
+      .poll(async () => page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).map((r) => new URL(r.scope).pathname)), {
+        timeout: 15_000,
+      })
+      .not.toContain('/');
+  });
 });
