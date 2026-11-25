@@ -8,6 +8,7 @@ import { useMemberConnection } from './lib/realtime';
 import { API_ORIGIN } from './lib/api';
 import { queryClient } from './lib/query-client';
 import { ownerOf, purgeExpiredSnapshots, startPersisting } from './lib/persisted-cache';
+import { refreshPushRegistration } from './lib/push';
 import { hasMemberSessionHint, setMemberSessionHint } from './lib/session-hint';
 import { installGlobalErrorListeners } from './lib/error-reporting';
 import { AppErrorBoundary } from './ui/ErrorBoundary';
@@ -75,6 +76,11 @@ function Boot() {
   useEffect(() => {
     if (!owner) return;
     return startPersisting(queryClient, () => useSession.getState());
+  }, [owner]);
+
+  // Re-attach this phone's push subscription to the current session.
+  useEffect(() => {
+    if (owner && !useSession.getState().offlineStart) void refreshPushRegistration(owner);
   }, [owner]);
 
   // The server ended the session: go to sign-in, which explains and returns

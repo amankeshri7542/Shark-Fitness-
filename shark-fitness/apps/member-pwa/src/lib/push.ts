@@ -112,12 +112,40 @@ export async function disablePush(owner: string): Promise<void> {
   await subscription?.unsubscribe();
 }
 
-/** Sign-out: best effort, never blocks leaving. The server also deletes a
- *  user's subscriptions when the session that created them signs out. */
+/** Sign-out: best effort, never blocks leaving. Even if this fails, the
+ *  server stops pushing to a device once the session that registered it has
+ *  ended (services/notifications.ts). */
 export async function forgetPushOnSignOut(owner: string): Promise<void> {
   try {
     await disablePush(owner);
   } catch {
     writeDevice(null);
+  }
+}
+
+/**
+ * After signing in again, tell the server this phone's existing subscription
+ * belongs to the new session, so notifications keep arriving. Silent: no
+ * permission prompt, nothing if push was never switched on here.
+ */
+export async function refreshPushRegistration(owner: string): Promise<void> {
+  if (!pushSupported() || Notification.permission !== 'granted') return;
+  const device = readDevice();
+  if (!device || device.owner !== owner) return;
+  try {
+    const registration = await navigator.serviceWorker.getRegistration('/app/');
+    const subscription = await registration?.pushManager.getSubscription();
+    if (!subscription) {
+      writeDevice(null);
+      return;
+    }
+    const json = subscription.toJSON();
+    const created = await api<{ id: string }>('/me/push-subscriptions', {
+      method: 'POST',
+      body: { endpoint: json.endpoint, keys: json.keys },
+    });
+    writeDevice({ owner, id: created.id, endpoint: subscription.endpoint });
+  } catch {
+    /* push may be off on the server now; Profile shows the truth */
   }
 }
