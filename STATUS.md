@@ -1,11 +1,11 @@
 # Shark Fitness build status
 
-Updated 2026-11-25 13:20 IST by runner.py v3 (parallel). Model: `claude-opus-5-5` (Claude Code CLI, effort high).
+Updated 2026-11-25 14:21 IST by runner.py v3 (parallel). Model: `claude-opus-5-5` (Claude Code CLI, effort high).
 Concurrency cap: 4 Shark sessions (and at most 6 `claude -p` processes on the box in total); stall timeout 30 min.
 
 Runner: `/workspace/shark-fitness-orchestration/runner.py`, log `/workspace/shark-fitness-orchestration/logs/runner.log`, per-session logs `/workspace/shark-fitness-orchestration/logs/<tag>-<n>.json`. Worktrees: `/workspace/sf-wt/<ID>` (P01: `/workspace/shark-fitness-repo`).
 Backups on origin: `phase/*` and `integration/*` branches (pushed after every commit), orchestration state on `orchestration/state`.
-Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "phase/P02-payments-razorpay": "d954d57 at 2026-11-25 10:20 IST", "phase/P06-staff-security": "df25704 at 2026-11-25 10:14 IST", "phase/P04-member-mobile-app": "7af9b73 at 2026-11-25 10:13 IST", "phase/P03-public-website": "ffc6df2 at 2026-11-25 10:25 IST"}
+Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "phase/P02-payments-razorpay": "4402905 at 2026-11-25 14:21 IST", "phase/P06-staff-security": "df25704 at 2026-11-25 10:14 IST", "phase/P04-member-mobile-app": "7af9b73 at 2026-11-25 10:13 IST", "phase/P03-public-website": "ffc6df2 at 2026-11-25 10:25 IST"}
 
 ## Nodes
 | Node | Title | State | Branch | Base | PR | Checks (runner-verified) | Notes |
@@ -26,9 +26,12 @@ Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "ph
 | P12 | Release candidate verification and client handover | pending | `phase/P12-release-handover` | `` |  |  |  |
 
 ## Running sessions
-- none
+| Node | Session tag | pid | Last activity | Started |
+|---|---|---|---|---|
+| P02 | P02-impl | 252395 | 2026-11-25 14:20 IST | 2026-11-25 14:20 IST |
+| P06 | P06-impl | 252755 | 2026-11-25 14:21 IST | 2026-11-25 14:21 IST |
+| P04 | P04-impl | 252400 | 2026-11-25 14:21 IST | 2026-11-25 14:20 IST |
+| P03 | P03-impl | 252178 | 2026-11-25 14:21 IST | 2026-11-25 14:20 IST |
 
 ## Blockers / waiting
-- Claude usage limit hit (latest during P03-impl); new sessions paused, retrying every 30 min
-- Claude usage limit hit (latest during P02-impl); new sessions paused, retrying every 30 min
-- Claude usage limit hit (latest during P04-impl); new sessions paused, retrying every 30 min
+- none
