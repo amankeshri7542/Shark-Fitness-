@@ -451,7 +451,7 @@ function recordEnquiry(e: EnquiryContext): { leadId: string; branchId: string; o
       leadId = id('lead');
       insertLead(e, { leadId, stage: 'won', convertedMemberId: member.id, phoneNormalized, emailNormalized, dueAt, nextActionLabel, trialFields });
     }
-    addActivity(tenant.id, leadId, `Existing member ${member.memberNo} (${member.name}) sent the website ${meta.kind === 'trial' ? 'free-trial' : 'contact'} form. Linked to the member; no new lead or member was created.\n${summary}`, atMs);
+    addActivity(tenant.id, leadId, `Existing member ${member.memberNo} (${member.name}) sent the website ${meta.kind === 'trial' ? 'free-trial' : 'contact'} form. Linked to the member; no new lead or member was created.\n${withDetails(summary, detailsGiven(input, member))}`, atMs);
   } else {
     const existing = findOpenOrClosedLead(tenant.id, phoneNormalized, emailNormalized);
     if (existing) {
@@ -492,7 +492,7 @@ function recordEnquiry(e: EnquiryContext): { leadId: string; branchId: string; o
           .run();
       }
       const otherBranch = existing.branchId !== branch.id ? ` They asked about ${branch.name}; the lead stays with its current branch.` : '';
-      addActivity(tenant.id, leadId, `Sent the website ${meta.kind === 'trial' ? 'free-trial' : 'contact'} form again.${otherBranch}\n${summary}`, atMs);
+      addActivity(tenant.id, leadId, `Sent the website ${meta.kind === 'trial' ? 'free-trial' : 'contact'} form again.${otherBranch}\n${withDetails(summary, detailsGiven(input, existing))}`, atMs);
     } else {
       outcome = 'created';
       leadId = id('lead');
@@ -618,6 +618,24 @@ function enquirySummary(e: EnquiryContext, sessionLabel: string | null): string 
   return lines.filter(Boolean).join('\n');
 }
 
+/**
+ * A repeat enquiry is filed on a lead or member matched by phone *or* email, so
+ * the name, phone or email just typed may not be the ones on record. They go on
+ * the timeline, or staff would call a number the person no longer uses.
+ */
+function detailsGiven(input: PublicLead, onRecord: { name: string; phone: string | null; email: string | null }): string | null {
+  const differs = (given: string | null | undefined, stored: string | null, normalize: (v: string) => string | null): boolean =>
+    Boolean(given) && normalize(given!) !== (stored ? normalize(stored) : null);
+  const changed =
+    input.name.trim().toLowerCase() !== onRecord.name.trim().toLowerCase() ||
+    differs(input.phone, onRecord.phone, normalizePhone) ||
+    differs(input.email, onRecord.email, normalizeEmail);
+  if (!changed) return null;
+  return `Details given on the form: ${[input.name, input.phone, input.email].filter(Boolean).join(', ')}`;
+}
+
+const withDetails = (summary: string, details: string | null): string => (details ? `${details}\n${summary}` : summary);
+
 function findMember(tenantId: string, phoneNormalized: string | null, emailNormalized: string | null) {
   const matches = [
     phoneNormalized ? eq(schema.members.phoneNormalized, phoneNormalized) : null,
@@ -625,11 +643,11 @@ function findMember(tenantId: string, phoneNormalized: string | null, emailNorma
   ].filter((x): x is NonNullable<typeof x> => x !== null);
   if (matches.length === 0) return null;
   const row = db
-    .select({ id: schema.members.id, memberNo: schema.members.memberNo, firstName: schema.members.firstName, lastName: schema.members.lastName })
+    .select({ id: schema.members.id, memberNo: schema.members.memberNo, firstName: schema.members.firstName, lastName: schema.members.lastName, phone: schema.members.phone, email: schema.members.email })
     .from(schema.members)
     .where(and(eq(schema.members.tenantId, tenantId), or(...matches), isNull(schema.members.mergedIntoId), isNull(schema.members.deletedAt)))
     .get();
-  return row ? { id: row.id, memberNo: row.memberNo, name: `${row.firstName} ${row.lastName}`.trim() } : null;
+  return row ? { id: row.id, memberNo: row.memberNo, name: `${row.firstName} ${row.lastName}`.trim(), phone: row.phone, email: row.email } : null;
 }
 
 /**

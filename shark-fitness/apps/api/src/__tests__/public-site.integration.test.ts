@@ -285,6 +285,20 @@ describe('POST /v1/public/:tenant/leads', () => {
     expect(leadsByPhone(second.phone as string)).toHaveLength(0);
   });
 
+  it('keeps the contact details a repeat enquiry gave when they differ from the matched lead', async () => {
+    const email = `new-number-${Date.now()}@example.in`;
+    const first = lead({ email });
+    expect((await post('/leads', first)).status).toBe(202);
+    const second = lead({ email, name: 'Kavya S Rao' });
+    expect((await post('/trial-requests', second)).status).toBe(202);
+    const [row] = db.select().from(schema.leads).where(eq(schema.leads.emailNormalized, email)).all();
+    const notes = db.select().from(schema.leadActivities).where(eq(schema.leadActivities.leadId, row!.id)).all();
+    const repeat = notes.find((n) => n.body.includes('again'));
+    // Staff call the lead's stored number; the new one must be on the lead's timeline.
+    expect(repeat?.body).toContain(`+91${second.phone as string}`);
+    expect(repeat?.body).toContain('Kavya S Rao');
+  });
+
   it('reopens a lost lead instead of creating another', async () => {
     const body = lead();
     await post('/leads', body);
