@@ -316,6 +316,10 @@ describe('SSRF defences', () => {
     ['loopback in production', 'https://127.0.0.1/hook'],
     ['IPv6 loopback in production', 'https://[::1]/hook'],
     ['an IPv4-mapped private address', 'https://[::ffff:10.0.0.1]/hook'],
+    ['an IPv4-compatible loopback address', 'https://[::127.0.0.1]/hook'],
+    ['an IPv4-translated private address', 'https://[::ffff:0:10.0.0.1]/hook'],
+    ['a 6to4 address embedding a private IPv4', 'https://[2002:a00:1::]/hook'],
+    ['a local-use NAT64 address', 'https://[64:ff9b:1::a00:1]/hook'],
     ['plain http in production', 'http://hooks.example.com/hook'],
     ['credentials in the URL', 'https://user:pass@hooks.example.com/hook'],
   ])('refuses %s when the endpoint is saved', async (_label, url) => {

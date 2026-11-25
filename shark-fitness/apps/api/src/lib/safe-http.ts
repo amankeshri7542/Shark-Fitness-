@@ -41,8 +41,11 @@ for (const [network, prefix] of [
   blocked.addSubnet(network, prefix, 'ipv4');
 }
 for (const [network, prefix] of [
-  ['::', 128],
+  ['::', 96], // unspecified, and deprecated IPv4-compatible (::10.0.0.1); ::1 is judged as loopback first
+  ['::ffff:0:0:0', 96], // IPv4-translated (SIIT)
+  ['64:ff9b:1::', 48], // local-use NAT64, which a private network may translate to its own IPv4
   ['100::', 64], // discard
+  ['2002::', 16], // 6to4, which embeds an IPv4 address
   ['2001:db8::', 32], // documentation
   ['fc00::', 7], // unique local, including fd00:ec2::254 metadata
   ['fe80::', 10], // link-local
