@@ -303,6 +303,26 @@ describe('refunds (decision 11)', () => {
   });
 });
 
+describe('who sees what', () => {
+  it('the assigned coach sees balances and history but no prices, packs or refund amounts', async () => {
+    const member = createMember({ firstName: 'CoachView' });
+    const rehan = db.select().from(schema.users).where(eq(schema.users.email, 'rehan@sharkfitness.in')).get()!;
+    const staffId = db.select().from(schema.staff).where(eq(schema.staff.userId, rehan.id)).get()!.id;
+    db.update(schema.members).set({ trainerId: staffId }).where(eq(schema.members.id, member.memberId)).run();
+    const sale = await sell(member.memberId, packProduct({ credits: 3, expireDays: 30, priceMinor: 900_00 }));
+    await payAtDesk(sale.body.invoiceId, sale.body.totalMinor);
+
+    const coach = await signIn('rehan@sharkfitness.in');
+    const response = await get(coach, `/v1/admin/billing/members/${member.memberId}/credits`);
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Record<string, unknown> & { balances: Array<{ kind: string; usableUnits: number }> };
+    expect(body.balances.find((b) => b.kind === 'class')?.usableUnits).toBe(3);
+    expect(body.packs).toBeUndefined();
+    expect(body.offers).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain('900');
+  });
+});
+
 describe('the ledger is append-only', () => {
   it('refuses an update or a delete of a credit row', () => {
     const member = createMember({ firstName: 'Ledger' });

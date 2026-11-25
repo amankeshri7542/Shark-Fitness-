@@ -4,6 +4,7 @@ import { taxInvoiceFilename, taxInvoiceHtml, taxInvoiceRecord, taxInvoiceText } 
 import { readCreditAccount } from '../../services/credit-account.js';
 import { runIdempotently } from '../../lib/idempotency.js';
 import { Hono } from 'hono';
+import { can } from '@shark/domain';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { RecordPaymentInput } from '@shark/contracts';
@@ -31,7 +32,11 @@ billingStabilizationRoutes.get('/members/:memberId/credits', (c) => {
   requirePermission(ctx, 'member.view');
   const member = loadMemberInScope(ctx, c.req.param('memberId'));
   requireAssignedMember(ctx, member.trainerId);
-  return c.json(readCreditAccount(member));
+  const account = readCreditAccount(member);
+  // A coach sees how many credits a member has and their history; what packs
+  // cost, their invoices and refund amounts are billing information (P05).
+  if (!can(ctx.role, 'billing.view')) return c.json({ ...account, packs: undefined, offers: undefined, saleAvailable: false });
+  return c.json(account);
 });
 
 /* ——— Credit packs (P05, decision 11) ——————————————————————————— */

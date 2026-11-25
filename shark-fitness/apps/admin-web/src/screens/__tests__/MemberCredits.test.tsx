@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { CreditAccount, CreditPackView } from '@shark/contracts';
 
-const permissions = vi.hoisted(() => ({ granted: new Set<string>(['billing.record_payment', 'billing.refund', 'member.edit']) }));
+const permissions = vi.hoisted(() => ({ granted: new Set<string>(['billing.view', 'billing.record_payment', 'billing.refund', 'member.edit']) }));
 vi.mock('../../lib/store', () => ({ usePermission: (permission: string) => permissions.granted.has(permission) }));
 vi.mock('../../lib/api', async (original) => ({ ...(await original<typeof import('../../lib/api')>()), api: vi.fn() }));
 
@@ -13,7 +13,7 @@ import { MemberCredits } from '../members/MemberCredits';
 afterEach(() => {
   cleanup();
   vi.mocked(api).mockReset();
-  permissions.granted = new Set(['billing.record_payment', 'billing.refund', 'member.edit']);
+  permissions.granted = new Set(['billing.view', 'billing.record_payment', 'billing.refund', 'member.edit']);
 });
 
 const activePack: CreditPackView = {
@@ -111,10 +111,14 @@ it('records a PT session only when a PT credit is there to use', async () => {
   expect(await screen.findByRole('button', { name: 'Record a PT session' })).toBeDisabled();
 });
 
-it('without billing permissions: no sell or refund actions, the record is still readable', async () => {
+it('a coach (no billing permissions) sees balances and history, not prices, invoices or refunds', async () => {
   permissions.granted = new Set();
   renderCredits();
-  expect(await screen.findByText('Class Pack — 10')).toBeInTheDocument();
+  expect(await screen.findByText('7 expire 2027-04-30')).toBeInTheDocument();
+  expect(screen.queryByText('Class Pack — 10')).not.toBeInTheDocument();
+  expect(screen.queryByText(/₹/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Show ledger' }));
+  expect(screen.getByText('Class · Purchased Class Pack — 10')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Sell a pack' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /^Refund/ })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Record a PT session' })).not.toBeInTheDocument();

@@ -29,6 +29,8 @@ export function MemberCredits({ memberId }: { memberId: string }) {
   const canSell = usePermission('billing.record_payment');
   const canRefund = usePermission('billing.refund');
   const canRecordPt = usePermission('member.edit');
+  // Coaches see balances and history; prices, invoices and refunds are billing's.
+  const canSeeBilling = usePermission('billing.view');
   const client = useQueryClient();
   const [selling, setSelling] = useState(false);
   const [refunding, setRefunding] = useState<CreditPackView | null>(null);
@@ -116,7 +118,7 @@ export function MemberCredits({ memberId }: { memberId: string }) {
               </p>
             ) : null}
 
-            {credits.data.packs?.length ? (
+            {!canSeeBilling ? null : credits.data.packs?.length ? (
               <ul className="flex flex-col border border-line">
                 {credits.data.packs.map((pack) => {
                   const state = PACK_STATE[pack.state] ?? { label: pack.state, tone: 'neutral' as Tone };
