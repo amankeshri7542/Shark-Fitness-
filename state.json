@@ -43,10 +43,11 @@
       "note": ""
     },
     "P03": {
-      "state": "implementing",
+      "state": "reviewing",
       "base": "phase/P01-prod-readiness",
       "base_sha": "2c15353fd",
-      "running": null
+      "running": null,
+      "note": ""
     },
     "P05": {
       "state": "implementing",
