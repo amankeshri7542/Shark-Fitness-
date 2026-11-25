@@ -8,8 +8,9 @@ built to the four PRDs in the parent directory.
 ```
 apps/
   api/            Hono + SQLite (D1-compatible) + Drizzle. 94 tables, migrations, seed.
-  member-pwa/     React + Vite PWA, mobile-first, offline-capable.
-  admin-web/      React + Vite operations console, desktop-first.
+  member-pwa/     React + Vite PWA at /app/: installable, offline-capable, Web Push,
+                  Android TWA definition (android/). See docs/MOBILE-APP.md.
+  admin-web/      React + Vite operations console at /admin/, installable on tablets.
 packages/
   contracts/      Zod schemas, enums, error + event envelopes. One source of truth.
   domain/         Pure business rules. 252 tests. No I/O, no framework.
@@ -21,6 +22,8 @@ docs/
   DESIGN.md       The visual direction and why each decision was made.
   BUILD-PLAN.md   Conventions every contributor builds against.
   ADR-001-runtime.md  Why this deviates from the PRD's Cloudflare/Expo stack.
+  ADR-002-member-mobile-app.md  The mobile app: PWA + Android TWA, Expo deferred.
+  MOBILE-APP.md   Install, push, Play Console, asset links, iOS, Data safety draft.
   PILOT-HOSTING.md    One-server pilot: deploy, backups (encrypted off-site), drills.
   OPERATIONS-ALERTS.md  Error reporting, /metrics and the alert rules.
 ```
@@ -31,8 +34,16 @@ docs/
 pnpm install
 pnpm db:reset      # migrate + seed. Deterministic — same gym every time.
 pnpm db:backup:verify # isolated backup → mutate → restore proof
-pnpm dev           # api :8787 · member :5173 · admin :5174
+pnpm dev           # api :8787 · member :5173/app/ · admin :5174/admin/
 ```
+
+In production one process serves the member app at `/app/`, the console at
+`/admin/` and the API at `/v1`. Until the public website ships, `/` forwards to
+`/app/` (keeping activation-link fragments). Dev ports can be moved with
+`SHARK_MEMBER_DEV_PORT`, `SHARK_ADMIN_DEV_PORT` and `SHARK_API_DEV_ORIGIN`.
+
+Push notifications are off until `SHARK_VAPID_*` is set
+(`pnpm -F @shark/api vapid:keys`); see `docs/MOBILE-APP.md`.
 
 The seed builds one tenant (Shark Fitness, Bengaluru) with three branches, 39 members,
 550 class sessions across 21 days, a six-week training programme, twelve weeks of
@@ -172,6 +183,7 @@ so a caller cannot reach for the aggressive voice on a failed payment.
 
 Recorded properly in `docs/ADR-001-runtime.md`. In short: this runs on Node + SQLite +
 a WebSocket hub rather than Cloudflare Workers + D1 + Durable Objects, and the member
-app is a PWA rather than Expo. The SQL dialect, migrations, query shapes and realtime
+app is a PWA (shipped to Android as a Trusted Web Activity) rather than Expo,
+recorded in `docs/ADR-002-member-mobile-app.md`. The SQL dialect, migrations, query shapes and realtime
 contract are all the ones the PRD specifies, so the port is mechanical rather than a
 rewrite.
