@@ -43,6 +43,10 @@ async function liveOrder(totalMinor = 29_500) {
   return { ...fixture, intentId: body.intentId, orderId: body.orderId };
 }
 
+/** Unique per run: the test database outlives a single vitest invocation. */
+const RUN = Date.now().toString(36);
+const evt = (name: string) => `evt_${name}_${RUN}`;
+
 const eventCount = () => (sqlite.prepare('select count(*) as n from provider_events').get() as { n: number }).n;
 const storedEvent = (eventId: string) =>
   db.select().from(schema.providerEvents).where(and(eq(schema.providerEvents.provider, 'razorpay'), eq(schema.providerEvents.providerEventId, eventId))).get();
@@ -51,15 +55,15 @@ describe('handled events', () => {
   it('payment.captured settles the invoice and stores the event against the intent', async () => {
     const order = await liveOrder();
     const payment = harness.fake.pay(order.orderId);
-    const response = await postWebhook(harness, 'payment.captured', { payment }, { eventId: 'evt_captured_1' });
+    const response = await postWebhook(harness, 'payment.captured', { payment }, { eventId: evt('captured_1') });
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ ok: true, duplicate: false, handled: true });
     expect(paymentsFor(order.invoiceId)).toHaveLength(1);
     expect(invoiceRow(order.invoiceId).state).toBe('paid');
     expect(membershipRow(order.membershipId).state).toBe('active');
     expect(intentRow(order.intentId)).toMatchObject({ state: 'succeeded', providerPaymentId: payment.id });
-    expect(storedEvent('evt_captured_1')).toMatchObject({ type: 'payment.captured', signatureOk: true, intentId: order.intentId, tenantId: member.tenantId });
-    expect(storedEvent('evt_captured_1')!.processedAt).not.toBeNull();
+    expect(storedEvent(evt('captured_1'))).toMatchObject({ type: 'payment.captured', signatureOk: true, intentId: order.intentId, tenantId: member.tenantId });
+    expect(storedEvent(evt('captured_1'))!.processedAt).not.toBeNull();
   });
 
   it('payment.authorized is captured by the server, then settles', async () => {
@@ -90,18 +94,18 @@ describe('handled events', () => {
 
   it('stores and acknowledges an event it does not act on', async () => {
     const before = eventCount();
-    const response = await postWebhook(harness, 'payment.dispute.created', {}, { eventId: 'evt_unknown_1' });
+    const response = await postWebhook(harness, 'payment.dispute.created', {}, { eventId: evt('unknown_1') });
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ handled: false, duplicate: false });
     expect(eventCount()).toBe(before + 1);
-    expect(storedEvent('evt_unknown_1')).toMatchObject({ type: 'payment.dispute.created', tenantId: '' });
-    expect(storedEvent('evt_unknown_1')!.processingError).toMatch(/not acted on/);
+    expect(storedEvent(evt('unknown_1'))).toMatchObject({ type: 'payment.dispute.created', tenantId: '' });
+    expect(storedEvent(evt('unknown_1'))!.processingError).toMatch(/not acted on/);
   });
 
   it('acknowledges a captured payment that matches nothing here, without settling anything', async () => {
-    const response = await postWebhook(harness, 'payment.captured', { payment: { id: 'pay_foreign0001', order_id: 'order_foreign0001' } }, { eventId: 'evt_foreign_1' });
+    const response = await postWebhook(harness, 'payment.captured', { payment: { id: 'pay_foreign0001', order_id: 'order_foreign0001' } }, { eventId: evt('foreign_1') });
     expect(response.status).toBe(200);
-    expect(storedEvent('evt_foreign_1')!.processingError).toBe('No matching payment intent.');
+    expect(storedEvent(evt('foreign_1'))!.processingError).toBe('No matching payment intent.');
     expect(db.select().from(schema.payments).where(eq(schema.payments.providerRef, 'pay_foreign0001')).all()).toEqual([]);
   });
 });
@@ -110,8 +114,8 @@ describe('delivery guarantees', () => {
   it('a duplicate event id settles once and answers 200', async () => {
     const order = await liveOrder();
     const payment = harness.fake.pay(order.orderId);
-    const first = await postWebhook(harness, 'payment.captured', { payment }, { eventId: 'evt_dup_1' });
-    const second = await postWebhook(harness, 'payment.captured', { payment }, { eventId: 'evt_dup_1' });
+    const first = await postWebhook(harness, 'payment.captured', { payment }, { eventId: evt('dup_1') });
+    const second = await postWebhook(harness, 'payment.captured', { payment }, { eventId: evt('dup_1') });
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
     expect(await second.json()).toMatchObject({ duplicate: true });
@@ -155,14 +159,14 @@ describe('delivery guarantees', () => {
     const order = await liveOrder();
     const payment = harness.fake.pay(order.orderId, { status: 'authorized' });
     harness.fake.fault({ method: 'POST', path: /\/capture$/ }, { hangMs: 2_000 });
-    const first = await postWebhook(harness, 'payment.authorized', { payment }, { eventId: 'evt_retry_1' });
+    const first = await postWebhook(harness, 'payment.authorized', { payment }, { eventId: evt('retry_1') });
     expect(first.status).toBe(503);
-    expect(storedEvent('evt_retry_1')).toMatchObject({ processedAt: null });
+    expect(storedEvent(evt('retry_1'))).toMatchObject({ processedAt: null });
     expect(paymentsFor(order.invoiceId)).toEqual([]);
-    const redelivered = await postWebhook(harness, 'payment.authorized', { payment }, { eventId: 'evt_retry_1' });
+    const redelivered = await postWebhook(harness, 'payment.authorized', { payment }, { eventId: evt('retry_1') });
     expect(redelivered.status).toBe(200);
     expect(paymentsFor(order.invoiceId)).toHaveLength(1);
-    expect(storedEvent('evt_retry_1')!.processedAt).not.toBeNull();
+    expect(storedEvent(evt('retry_1'))!.processedAt).not.toBeNull();
   });
 });
 
@@ -232,11 +236,11 @@ describe('signature and transport', () => {
     const body = webhookBody('payment.captured');
     const response = await app.request('/v1/webhooks/razorpay', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-razorpay-signature': webhookSignature(body, 'not-the-webhook-secret'), 'x-razorpay-event-id': 'evt_wrong_secret' },
+      headers: { 'content-type': 'application/json', 'x-razorpay-signature': webhookSignature(body, 'not-the-webhook-secret'), 'x-razorpay-event-id': evt('wrong_secret') },
       body,
     });
     expect(response.status).toBe(400);
-    expect(storedEvent('evt_wrong_secret')).toBeUndefined();
+    expect(storedEvent(evt('wrong_secret'))).toBeUndefined();
   });
 
   it('needs no browser session, Origin or CSRF token, and refuses an oversized body', async () => {
