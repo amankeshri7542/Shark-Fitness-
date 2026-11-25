@@ -6,7 +6,9 @@
       "base_sha": ""
     },
     "P02": {
-      "state": "pending"
+      "state": "pending",
+      "base": "phase/P01-prod-readiness",
+      "base_sha": "128aec1e5"
     },
     "P06": {
       "state": "pending"
