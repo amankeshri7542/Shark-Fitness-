@@ -6,31 +6,31 @@
       "id": 1,
       "text": "MFA integration tests: gate, enrol, challenge, rate-limit + lock, recovery code once, disable needs step-up, ciphertext at rest, tenant 'require MFA for all staff' gates reception, members never challenged",
       "status": "todo",
-      "evidence": ""
+      "evidence": "API part done: mfa.integration.test.ts 13/13 (gate, enrol, ciphertext, challenge+replay, lock+audit, IP limit, recovery once, disable via step-up, tenant require-all-staff, members never challenged, owner + platform resets). UI pending."
     },
     {
       "id": 2,
       "text": "Step-up: data-driven route test (STEP_UP_REQUIRED without fresh auth, success within 5 min) + admin component test (dialog retries with same idempotency key)",
       "status": "todo",
-      "evidence": ""
+      "evidence": "API part done: step-up.integration.test.ts 25/25 data-driven over every guarded route. Admin dialog component test pending."
     },
     {
       "id": 3,
       "text": "Sessions: idle + absolute expiry server-side (time mocked), member sliding; admin E2E: expired dialog returns to same URL; device list revoke -> other session 401",
       "status": "todo",
-      "evidence": ""
+      "evidence": "API part done: session-policy.integration.test.ts 8/8 (idle, tenant timeout, 12 h absolute, partial expiry, member sliding, device revoke). Admin E2E pending."
     },
     {
       "id": 4,
       "text": "CSP: per-surface header test; every E2E spec runs a securitypolicyviolation listener asserting zero violations; /v1/csp-reports",
       "status": "todo",
-      "evidence": ""
+      "evidence": "API part done: csp.integration.test.ts 10/10 (per-surface headers, report intake). E2E listener pending."
     },
     {
       "id": 5,
       "text": "Outbound webhooks: signature, retry schedule on 500s, disable after N + alert, replay, rotation dual-sign 24 h, SSRF refusals, payload exclusions",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "done: webhook.integration.test.ts 24/24 (signature, retry schedule, disable+alert, replay, rotation dual-sign, SSRF incl. DNS->private and redirect, 64 KB cap, timeout, payload exclusions). Full API suite 973/973 at d1cf135."
     },
     {
       "id": 6,
@@ -42,7 +42,7 @@
       "id": 7,
       "text": "Audit entries for MFA, step-up, webhook endpoint/secret changes; secrets never in logs (redaction test)",
       "status": "todo",
-      "evidence": ""
+      "evidence": "API part done: audit asserted in mfa/step-up/webhook suites; redaction.test.ts 4/4 (whsec_, otpauth, recovery codes, signatures)."
     },
     {
       "id": 8,
@@ -53,8 +53,8 @@
     {
       "id": 9,
       "text": "Remove shadowed POST /auth/otp/verify in auth.ts; verify /platform/impersonate/end authorization",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "done: shadowed POST /otp/verify removed from auth.ts (afabf5c); /platform/impersonate/end: 401 signed out, 412 ordinary session, 200 self-end (step-up.integration.test.ts 'support sessions')."
     },
     {
       "id": 10,
