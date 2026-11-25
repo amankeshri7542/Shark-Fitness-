@@ -103,7 +103,11 @@ every 6 h ────────► reconcile-payments job asks Razorpay about
 - **Retries are safe.** The same Idempotency-Key returns the same attempt and
   order; one live order exists per invoice and amount, so a second tap or tab
   resumes it rather than creating another. A timed-out order creation leaves the
-  attempt `failed` with no payment, and the same key tries again.
+  attempt `failed` with no payment, and the same key tries again. A retry
+  re-checks the invoice first: if it was paid at the desk or voided meanwhile
+  the answer is `409`, and if the amount owed changed the old order is retired
+  (`expired` in the app) and the next attempt opens one for the current amount.
+  Balances under ₹1 (Razorpay's minimum order) are refused up front.
 
 ### Webhooks
 
@@ -133,6 +137,10 @@ invoice's refunded total move and, if staff asked, the membership get reversed.
 refunds are bounded by captured minus refunded minus still-pending. Refunds made
 in the Razorpay Dashboard are recorded when their webhook arrives and raise a
 `refund_outside_console` exception so staff decide about the membership.
+If Razorpay does not answer a refund request (timeout) the refund stays pending
+with no Razorpay id; the console retries with the same key while the refund
+sheet is open, and after 15 minutes the `reconcile-payments` job asks Razorpay
+again with the same idempotency key, so a refund is never lost and never doubled.
 Manual (desk) payments keep the manual refund path. Credit-pack refunds stay
 refused until P05.
 
@@ -144,6 +152,12 @@ is 15 minutes; the default and maximum is six months). A second request for the
 same invoice and amount returns the same live link. `payment_link.paid` settles
 the invoice. Razorpay limits test mode to 30 payment links per business.
 
+When the invoice is paid at the desk or voided, its live links and Checkout
+orders are retired (`superseded`) and the console stops offering them. The link
+itself stays payable at Razorpay until it expires (cancelling it there is a
+follow-up); money paid through it is not settled and opens an
+`invoice_already_settled` exception for staff to refund.
+
 ### Reconciliation
 
 The `reconcile-payments` job runs every 6 hours (recorded in `job_runs`, visible
@@ -151,8 +165,9 @@ on Platform → Health). It re-fetches every attempt still `processing` 15 minut
 after its last change (up to 7 days old) and every payment Razorpay recorded in
 the last 48 hours, captures authorized ones, settles captured ones, and opens an
 exception for captured money that matches nothing here but names one of our
-tenants. Two overlapping runs settle once. Without a provider it records a
-no-op run.
+tenants. It also re-sends refunds still pending with no Razorpay id 15 minutes
+after they were asked for (same idempotency key). Two overlapping runs settle
+once. Without a provider it records a no-op run.
 
 `GET /v1/admin/billing/reconciliation?state=open|resolved|ignored|all` lists
 exceptions; `POST /v1/admin/billing/reconciliation/:id/resolve`
