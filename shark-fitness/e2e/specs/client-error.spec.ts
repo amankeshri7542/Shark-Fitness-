@@ -41,7 +41,7 @@ test('a crashed screen shows the recovery screen and reports to /v1/client-error
     .poll(() => serverLog().filter((line) => line.event === 'client_error' && line.reference === reference).length)
     .toBe(1);
   const report = serverLog().find((line) => line.event === 'client_error' && line.reference === reference)!;
-  expect(report).toMatchObject({ source: 'member', kind: 'boundary', route: '/train', errorName: 'TypeError' });
+  expect(report).toMatchObject({ source: 'member', kind: 'boundary', route: '/app/train', errorName: 'TypeError' });
   expect(report.tenantId).toBe('ten_shark');
   expect(
     serverLog().filter((line) => line.event === 'http_request' && line.route === '/v1/client-errors' && line.status === 204),
