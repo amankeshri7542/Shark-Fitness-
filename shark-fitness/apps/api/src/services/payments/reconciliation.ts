@@ -8,7 +8,8 @@ import { log } from '../../lib/observability.js';
 import { ProviderError, resolvePaymentProvider, type PaymentProvider, type ProviderPayment } from '../../lib/payment-provider.js';
 import { DAY, HOUR, MINUTE, now } from '../../lib/time.js';
 import { applyProviderPayment, captureOrRefetch } from './checkout.js';
-import { openReconciliationException, type IntentRow } from './settlement.js';
+import { submitProviderRefund } from './refunds.js';
+import { openReconciliationException, razorpayContext, type IntentRow } from './settlement.js';
 
 /**
  * `reconcile-payments` (every 6 hours; scheduler, durable `job_runs`).
@@ -19,7 +20,9 @@ import { openReconciliationException, type IntentRow } from './settlement.js';
  *
  * 1. every intent still `processing` 15 minutes after its last change (and
  *    younger than 7 days): the payments on its order or link;
- * 2. every payment Razorpay recorded in the last 48 hours.
+ * 2. every payment Razorpay recorded in the last 48 hours;
+ * 3. every refund still pending with no Razorpay id 15 minutes after it was
+ *    asked for (the request timed out and nobody retried it).
  *
  * Captured money settles through the same idempotent path as confirm and
  * webhooks, so running this twice — even at the same moment — settles once.
@@ -37,10 +40,12 @@ export interface ReconcileSummary {
   settled: number;
   exceptions: number;
   providerErrors: number;
+  /** Pending refunds Razorpay never answered, asked again with the same key. */
+  refundsResubmitted: number;
 }
 
 export async function reconcilePayments(atMs = now()): Promise<ReconcileSummary> {
-  const summary: ReconcileSummary = { provider: 'none', intentsChecked: 0, paymentsSeen: 0, settled: 0, exceptions: 0, providerErrors: 0 };
+  const summary: ReconcileSummary = { provider: 'none', intentsChecked: 0, paymentsSeen: 0, settled: 0, exceptions: 0, providerErrors: 0, refundsResubmitted: 0 };
   const provider = resolvePaymentProvider();
   if (!provider) return summary;
   summary.provider = 'razorpay';
@@ -76,6 +81,37 @@ export async function reconcilePayments(atMs = now()): Promise<ReconcileSummary>
     } catch (error) {
       if (!(error instanceof ProviderError)) throw error;
       summary.providerErrors += 1;
+    }
+  }
+
+  // Refunds staff asked for whose request to Razorpay timed out, and which
+  // nobody retried (the console's retry key goes when the sheet closes). They
+  // hold their amount out of the refundable balance, so ask again: our refund
+  // id is Razorpay's idempotency key, so this returns the first refund if
+  // Razorpay made one and makes it if not — never two.
+  const unsent = db
+    .select({ refund: schema.refunds, providerRef: schema.payments.providerRef, invoiceId: schema.payments.invoiceId, branchId: schema.payments.branchId })
+    .from(schema.refunds)
+    .innerJoin(schema.payments, eq(schema.payments.id, schema.refunds.paymentId))
+    .where(
+      and(
+        eq(schema.refunds.provider, 'razorpay'),
+        eq(schema.refunds.state, 'pending'),
+        isNull(schema.refunds.providerRefundId),
+        lte(schema.refunds.createdAt, atMs - STUCK_AFTER_MS),
+        gte(schema.refunds.createdAt, atMs - INTENT_HORIZON_MS),
+      ),
+    )
+    .all();
+  for (const row of unsent) {
+    if (!row.providerRef || !row.invoiceId) continue;
+    summary.refundsResubmitted += 1;
+    try {
+      await submitProviderRefund(provider, row.refund, { providerRef: row.providerRef, invoiceId: row.invoiceId }, razorpayContext(row.refund.tenantId, row.branchId));
+    } catch (error) {
+      if (!(error instanceof ProviderError)) throw error;
+      // A refusal is recorded on the refund (failed, refundable again).
+      if (error.kind !== 'http') summary.providerErrors += 1;
     }
   }
 

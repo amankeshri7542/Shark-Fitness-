@@ -9,7 +9,7 @@ import { AppError, conflict, invalid, notFound, precondition } from '../../lib/e
 import { emit } from '../../lib/events.js';
 import { id } from '../../lib/ids.js';
 import { log } from '../../lib/observability.js';
-import { ProviderError, resolvePaymentProvider, type ProviderPayment, type ProviderRefund } from '../../lib/payment-provider.js';
+import { ProviderError, resolvePaymentProvider, type PaymentProvider, type ProviderPayment, type ProviderRefund } from '../../lib/payment-provider.js';
 import { isoDate, now } from '../../lib/time.js';
 import { assertRefundableProduct, loadInvoiceInScope, refundableBalance } from '../billing.js';
 import { reverseMembership } from '../billing-stabilization.js';
@@ -111,14 +111,47 @@ export async function requestProviderRefund(input: {
     return view(refund, loadInvoiceInScope(ctx, payment.invoiceId!));
   }
 
+  let updated: RefundRow;
+  try {
+    updated = await submitProviderRefund(provider, refund, { providerRef: payment.providerRef!, invoiceId: payment.invoiceId! }, ctx);
+  } catch (error) {
+    if (!(error instanceof ProviderError)) throw error;
+    if (error.kind === 'http') {
+      throw conflict(`Razorpay refused the refund${error.description ? `: ${error.description}` : ''}. Nothing was refunded.`);
+    }
+    throw new AppError(
+      'PROVIDER_UNAVAILABLE',
+      'Razorpay did not confirm the refund yet. Try again with the same request; it will not refund twice.',
+      { retryAfterSec: 30 },
+    );
+  }
+  return view(updated, loadInvoiceInScope(ctx, payment.invoiceId!));
+}
+
+/**
+ * Hand a committed `pending` refund to Razorpay and record its answer.
+ * Outside any transaction. Our refund id is Razorpay's idempotency key, so
+ * asking again (staff retrying, or the reconcile-payments job after a timeout
+ * whose retry key the console has lost) can never refund twice.
+ *
+ * A refusal (`http`) marks the refund failed, which returns its amount to the
+ * refundable balance, and rethrows. A timeout or network error leaves it
+ * pending and rethrows: the outcome is unknown.
+ */
+export async function submitProviderRefund(
+  provider: PaymentProvider,
+  refund: RefundRow,
+  payment: { providerRef: string; invoiceId: string },
+  ctx: RequestContext,
+): Promise<RefundRow> {
   let providerRefund: ProviderRefund;
   try {
     providerRefund = await provider.refundPayment({
-      paymentId: payment.providerRef!,
+      paymentId: payment.providerRef,
       amountMinor: refund.amountMinor,
       idempotencyKey: refund.id,
       receipt: refund.id,
-      notes: { refund_id: refund.id, tenant_id: ctx.tenantId, invoice_id: payment.invoiceId! },
+      notes: { refund_id: refund.id, tenant_id: refund.tenantId, invoice_id: payment.invoiceId },
     });
   } catch (error) {
     if (!(error instanceof ProviderError)) throw error;
@@ -126,28 +159,23 @@ export async function requestProviderRefund(input: {
       transact(() => {
         db.update(schema.refunds)
           .set({ state: 'failed', failureReason: error.description ?? 'Razorpay refused the refund.', updatedAt: now() })
-          .where(eq(schema.refunds.id, refund.id))
+          .where(and(eq(schema.refunds.id, refund.id), eq(schema.refunds.state, 'pending')))
           .run();
         audit(ctx, { action: 'payment.refund_refused', entityType: 'refund', entityId: refund.id, reason: error.description ?? null });
       });
-      throw conflict(`Razorpay refused the refund${error.description ? `: ${error.description}` : ''}. Nothing was refunded.`);
+    } else {
+      log('warn', 'razorpay_refund_unconfirmed', { refundId: refund.id, kind: error.kind });
     }
-    log('warn', 'razorpay_refund_unconfirmed', { refundId: refund.id, kind: error.kind });
-    throw new AppError(
-      'PROVIDER_UNAVAILABLE',
-      'Razorpay did not confirm the refund yet. Try again with the same request; it will not refund twice.',
-      { retryAfterSec: 30 },
-    );
+    throw error;
   }
 
-  const updated = transact(() => {
+  return transact(() => {
     db.update(schema.refunds)
       .set({ providerRefundId: providerRefund.id, updatedAt: now(), ...(providerRefund.status === 'failed' ? { state: 'failed', failureReason: 'Razorpay could not process the refund.' } : {}) })
       .where(eq(schema.refunds.id, refund.id))
       .run();
     return db.select().from(schema.refunds).where(eq(schema.refunds.id, refund.id)).get()!;
   });
-  return view(updated, loadInvoiceInScope(ctx, payment.invoiceId!));
 }
 
 /**

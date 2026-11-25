@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { db, schema } from '../db/client.js';
+import { jobsForTest } from '../jobs/scheduler.js';
+import { now } from '../lib/time.js';
 import {
   auditFor,
   checkout,
@@ -146,6 +148,31 @@ describe('provider refunds', () => {
     expect(retried.status).toBe(200);
     expect(refundRows(paid.payment.id)).toHaveLength(1);
     expect(refundRows(paid.payment.id)[0]!.providerRefundId).toMatch(/^rfnd_/);
+  });
+
+  it('a timed-out refund nobody retried is asked again by reconcile-payments, once, with the same key', async () => {
+    const paid = await paidOnline();
+    harness.fake.fault({ method: 'POST', path: /\/refund$/ }, { hangMs: 2_000 });
+    expect((await refund(paid.payment.id, { amountMinor: 29_500 })).status).toBe(503);
+    const [stuck] = refundRows(paid.payment.id);
+    expect(stuck).toMatchObject({ state: 'pending', providerRefundId: null });
+    // The console closed; its retry key is gone. The balance is held meanwhile.
+    expect((await refund(paid.payment.id, { amountMinor: 100 })).status).toBe(422);
+
+    db.update(schema.refunds).set({ createdAt: now() - 20 * 60_000 }).where(eq(schema.refunds.id, stuck!.id)).run();
+    await jobsForTest.execute('reconcile-payments');
+    const [sent] = refundRows(paid.payment.id);
+    expect(sent).toMatchObject({ id: stuck!.id, state: 'pending' });
+    expect(sent!.providerRefundId).toMatch(/^rfnd_/);
+    const asked = harness.fake.requests.filter((entry) => entry.method === 'POST' && entry.path.endsWith('/refund'));
+    expect(asked.at(-1)!.headers['x-refund-idempotency']).toBe(stuck!.id);
+
+    // Razorpay's word then finishes it as usual, and a later run leaves it be.
+    expect((await processed(stuck!.id, paid.providerPayment.id as string)).status).toBe(200);
+    expect(refundRows(paid.payment.id)[0]!.state).toBe('succeeded');
+    const before = harness.fake.requests.length;
+    await jobsForTest.execute('reconcile-payments');
+    expect(harness.fake.requests.slice(before).some((entry) => entry.path.endsWith('/refund'))).toBe(false);
   });
 
   it('refund.failed returns the amount to the refundable balance', async () => {
