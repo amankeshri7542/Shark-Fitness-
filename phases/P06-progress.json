@@ -1,0 +1,66 @@
+{
+  "phase": "P06",
+  "status": "in_progress",
+  "items": [
+    {
+      "id": 1,
+      "text": "MFA integration tests: gate, enrol, challenge, rate-limit + lock, recovery code once, disable needs step-up, ciphertext at rest, tenant 'require MFA for all staff' gates reception, members never challenged",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 2,
+      "text": "Step-up: data-driven route test (STEP_UP_REQUIRED without fresh auth, success within 5 min) + admin component test (dialog retries with same idempotency key)",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 3,
+      "text": "Sessions: idle + absolute expiry server-side (time mocked), member sliding; admin E2E: expired dialog returns to same URL; device list revoke -> other session 401",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 4,
+      "text": "CSP: per-surface header test; every E2E spec runs a securitypolicyviolation listener asserting zero violations; /v1/csp-reports",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 5,
+      "text": "Outbound webhooks: signature, retry schedule on 500s, disable after N + alert, replay, rotation dual-sign 24 h, SSRF refusals, payload exclusions",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 6,
+      "text": "Admin UI for MFA enrolment, devices and integrations with loading/empty/error/permission states + component tests",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 7,
+      "text": "Audit entries for MFA, step-up, webhook endpoint/secret changes; secrets never in logs (redaction test)",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 8,
+      "text": "Docs (SECURITY.md, ADR-004), standard gates + pnpm e2e pass, demo owners gated on first sign-in, E2E TOTP from seeded test secret documented",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 9,
+      "text": "Remove shadowed POST /auth/otp/verify in auth.ts; verify /platform/impersonate/end authorization",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 10,
+      "text": "PR description pr/P06.md written with real numbers",
+      "status": "todo",
+      "evidence": ""
+    }
+  ]
+}
