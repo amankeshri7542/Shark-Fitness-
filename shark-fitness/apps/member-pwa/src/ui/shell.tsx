@@ -32,8 +32,9 @@ export function BottomNav() {
   return (
     <nav
       aria-label="Main"
-      className="sf-safe-bottom relative flex flex-none border-t border-line bg-hull"
+      className="sf-safe-bottom sf-inset-x relative flex-none border-t border-line bg-hull"
     >
+      <div className="sf-column flex">
       {NAV.map((item) => {
         const active = item.to === '/' ? pathname === '/' : pathname.startsWith(item.to);
         const colour = active ? 'var(--sf-sonar)' : 'var(--sf-foam-45)';
@@ -75,6 +76,7 @@ export function BottomNav() {
           </Link>
         );
       })}
+      </div>
     </nav>
   );
 }
@@ -94,7 +96,8 @@ export function AppHeader({ branchName }: { branchName: string }) {
           : { tone: 'warn' as const, label: 'Offline' };
 
   return (
-    <header className="sf-safe-top relative flex flex-none items-center gap-2.5 border-b border-line px-4 pb-2.5 pt-3">
+    <header className="sf-safe-top sf-safe-x relative flex-none border-b border-line">
+      <div className="sf-column flex items-center gap-2.5 pb-2 pt-2.5">
       <span className="font-display text-[22px] uppercase leading-none tracking-[0.06em]">Shark</span>
       <span
         aria-hidden="true"
@@ -118,6 +121,7 @@ export function AppHeader({ branchName }: { branchName: string }) {
       >
         {viewer?.initials ?? '··'}
       </Link>
+      </div>
     </header>
   );
 }
@@ -172,7 +176,7 @@ function NotificationBell() {
 /** The scrolling body of a screen, with the prototype's top vignette. */
 export function ScreenBody({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <main className={cx('relative flex-1 overflow-y-auto overflow-x-hidden', className)}>
+    <main className={cx('sf-inset-x relative flex-1 overflow-y-auto overflow-x-hidden', className)}>
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 opacity-50"
@@ -180,7 +184,7 @@ export function ScreenBody({ children, className }: { children: ReactNode; class
           background: 'radial-gradient(120% 60% at 50% -10%, var(--sf-shelf-top) 0%, transparent 62%)',
         }}
       />
-      <div className="relative">{children}</div>
+      <div className="sf-column relative">{children}</div>
     </main>
   );
 }

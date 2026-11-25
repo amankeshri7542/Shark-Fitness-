@@ -119,8 +119,8 @@ export default function ProgressScreen() {
   return (
     <ScreenBody>
       <Surface>
-        <Stack>
-          <div>
+        <Stack className="md:grid md:grid-cols-2 md:items-start md:gap-4">
+          <div className="md:col-span-2">
             <Eyebrow>Depth chart · {d.rangeWeeks} weeks</Eyebrow>
             <Display size="lg" className="mt-1.5">
               {copy('progressTitle')}
@@ -135,7 +135,7 @@ export default function ProgressScreen() {
           ) : (
             <>
               {/* Tonnage trend */}
-              <Panel className="p-3.5">
+              <Panel className="p-3.5 md:col-span-2">
                 <div className="flex h-[120px] items-end gap-1.5">
                   {d.weeklyTonnage.map((week, i) => {
                     const recent = i >= d.weeklyTonnage.length - 2;
@@ -342,7 +342,7 @@ export default function ProgressScreen() {
                 )}
               </div>
 
-              <p className="text-[11px] leading-relaxed text-foam-35">{d.estimateNote}</p>
+              <p className="text-[11px] leading-relaxed text-foam-35 md:col-span-2">{d.estimateNote}</p>
             </>
           )}
         </Stack>

@@ -3,9 +3,11 @@
 @import "../../../packages/design-tokens/src/sonar.css";
 @import "../../../packages/design-tokens/src/theme.css";
 
-/* The prototype was drawn at 428×908. On a phone the app is full-bleed; on a
-   desktop it sits in that frame so the design is judged at the size it was
-   designed for rather than stretched across a monitor. */
+/* Phones are full-bleed: the app owns the whole viewport, edge to edge,
+   with safe-area padding where hardware cuts in (notch, home indicator,
+   landscape camera housing). Tablets keep the chrome full width and centre
+   the content in a readable column (max 720px). The old fixed 428×908
+   "phone frame" on wide screens is gone: it showed tablets a phone. */
 @layer base {
   html,
   body,
@@ -15,16 +17,6 @@
 
   body {
     overscroll-behavior-y: none;
-  }
-
-  @media (min-width: 520px) {
-    body {
-      display: grid;
-      place-items: center;
-      background:
-        radial-gradient(120% 80% at 50% 0%, #0b1a24 0%, #02060a 60%);
-      padding: 24px 0;
-    }
   }
 }
 
@@ -39,13 +31,30 @@
     background: var(--sf-abyss);
   }
 
-  @media (min-width: 520px) {
-    .sf-device {
-      width: 428px;
-      height: min(908px, calc(100dvh - 48px));
-      border: 1px solid var(--sf-line);
-      box-shadow: 0 0 0 1px rgba(2, 6, 10, 0.9);
+  /* The content column. Full width on phones, centred on tablets. */
+  .sf-column {
+    width: 100%;
+    max-width: 720px;
+    margin-inline: auto;
+  }
+
+  /* Bottom sheets: full width on phones, a centred panel on tablets. */
+  .sf-sheet {
+    width: 100%;
+    margin-inline: auto;
+  }
+  @media (min-width: 768px) {
+    .sf-sheet {
+      max-width: 560px;
+      border-left: 1px solid var(--sf-line-strong);
+      border-right: 1px solid var(--sf-line-strong);
     }
+  }
+
+  /* Landscape phones: keep content clear of the camera housing. */
+  .sf-inset-x {
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
   }
 
   /* Safe-area padding for the bottom nav on notched hardware. */

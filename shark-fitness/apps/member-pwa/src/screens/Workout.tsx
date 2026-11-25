@@ -749,8 +749,8 @@ export default function WorkoutScreen() {
   return (
     <Shell>
       {/* — Sticky chrome. One step darker than the canvas, per the token rule. */}
-      <header className="sf-safe-top relative flex-none border-b border-line bg-hull">
-        <div className="px-4 pb-3 pt-3">
+      <header className="sf-safe-top sf-safe-x relative flex-none border-b border-line bg-hull">
+        <div className="sf-column pb-3 pt-3">
           <div className="flex items-center gap-2.5">
             <button
               type="button"
@@ -1297,7 +1297,7 @@ function Sheet({ title, children, onClose }: {
   return (
     <div className="absolute inset-0 z-20 flex flex-col justify-end bg-scrim" role="dialog" aria-modal="true" aria-label={title}>
       <button type="button" aria-label="Close" className="flex-1 cursor-pointer" onClick={onClose} />
-      <div className="sf-safe-bottom animate-rise border-t border-line-strong bg-overlay">
+      <div className="sf-safe-bottom sf-sheet animate-rise border-t border-line-strong bg-overlay">
         <div className="max-h-[72dvh] overflow-y-auto p-4">
           <div className="flex items-center gap-2.5">
             <Eyebrow>{title}</Eyebrow>

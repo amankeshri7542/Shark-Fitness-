@@ -132,7 +132,7 @@ export default function SignInScreen() {
     });
 
   return (
-    <div className="relative flex h-full flex-col overflow-y-auto">
+    <div className="sf-inset-x relative flex h-full flex-col overflow-y-auto">
       <div
         className="relative overflow-hidden px-5 pb-8 pt-14"
         style={{
@@ -141,7 +141,8 @@ export default function SignInScreen() {
       >
         <Scanlines />
         <SonarSweep />
-        <div className="relative">
+        {/* One narrow column on tablets too: a sign-in form 1000px wide reads as broken. */}
+        <div className="relative mx-auto w-full max-w-[480px]">
           <div className="flex items-center gap-2.5">
             <span className="font-display text-[26px] uppercase leading-none tracking-[0.06em]">Shark</span>
             <span
@@ -161,7 +162,7 @@ export default function SignInScreen() {
         </div>
       </div>
 
-      <div className="flex flex-1 flex-col gap-4 p-5">
+      <div className="mx-auto flex w-full max-w-[520px] flex-1 flex-col gap-4 p-5">
         {notice ? (
           <Panel tone="good" className="p-3.5" role="status">
             <p className="text-[13px] leading-relaxed text-foam-80">{notice}</p>

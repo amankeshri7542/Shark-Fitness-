@@ -243,7 +243,7 @@ export default function BookScreen() {
               }
             />
           ) : (
-            <div className="flex flex-col gap-2.5">
+            <div className="grid gap-2.5 md:grid-cols-2">
               {data.items.map((session) => (
                 <SessionRow
                   key={session.id}
@@ -373,12 +373,12 @@ function WaitlistSheet({ session, offerWindowMin, busy, onConfirm, onClose }: {
 }) {
   return (
     <div
-      className="absolute inset-0 z-30 flex items-end bg-scrim"
+      className="fixed inset-0 z-30 flex items-end bg-scrim"
       onClick={onClose}
       role="presentation"
     >
       <div
-        className="w-full border-t border-line-strong bg-overlay p-4 pb-6 animate-rise"
+        className="sf-sheet sf-safe-bottom w-full border-t border-line-strong bg-overlay p-4 pb-6 animate-rise"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
