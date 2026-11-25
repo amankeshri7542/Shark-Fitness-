@@ -12,6 +12,7 @@ import { addDays, isoDate, now } from '../lib/time.js';
 import { branchScope, requirePermission, type RequestContext } from '../lib/context.js';
 import { branchTimeZone } from '../lib/branch-time.js';
 import { FITNESS_SERVICE_CODE, recordTaxDocument } from './tax-invoice.js';
+import { emitIntegrationEvent } from './integration-events.js';
 
 /** Must be called inside the transaction that inserts the invoice it numbers
  *  — this process is single-connection/synchronous (db/client.ts), so nothing
@@ -263,6 +264,12 @@ export function applyPaymentToInvoice(input: ApplyPaymentInput): ApplyPaymentRes
           topic: 'membership.state_changed',
           payload: { membershipId: membership.id, from: 'pending_payment', to: 'active' },
         });
+        emitIntegrationEvent({
+          tenantId: ctx.tenantId,
+          branchId: invoice.branchId,
+          type: 'membership.activated',
+          data: { membershipId: membership.id, memberId: invoice.memberId, invoiceId },
+        });
       }
     }
   }
@@ -281,6 +288,12 @@ export function applyPaymentToInvoice(input: ApplyPaymentInput): ApplyPaymentRes
     channel: channels.member(invoice.memberId),
     topic: 'payment.succeeded',
     payload: { paymentId, invoiceId, amountMinor },
+  });
+  emitIntegrationEvent({
+    tenantId: ctx.tenantId,
+    branchId: invoice.branchId,
+    type: 'payment.succeeded',
+    data: { paymentId, invoiceId, memberId: invoice.memberId, amountMinor, currency: invoice.currency, method, invoiceState: newState },
   });
   emit({
     tenantId: ctx.tenantId,

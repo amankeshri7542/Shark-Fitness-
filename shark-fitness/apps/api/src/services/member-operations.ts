@@ -14,11 +14,13 @@ import { contactConflict } from './member-enrollment.js';
 import { requireFreshOwner } from './account-recovery.js';
 import { revokeAccountChallenges } from './auth.js';
 import { disconnectUser } from '../realtime/hub.js';
+import { emitIntegrationEvent } from './integration-events.js';
 
 export function profileChanged(ctx: RequestContext, memberId: string, branchId: string): void {
   for (const channel of [channels.member(memberId), channels.branch(branchId)]) {
     emit({ tenantId: ctx.tenantId, branchId, channel, topic: 'member.profile_updated', payload: {} });
   }
+  emitIntegrationEvent({ tenantId: ctx.tenantId, branchId, type: 'member.updated', data: { memberId, homeBranchId: branchId } });
 }
 
 function editableMember(ctx: RequestContext, memberId: string, version: number) {

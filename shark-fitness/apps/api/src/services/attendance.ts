@@ -12,6 +12,7 @@ import { conflict, invalid, notFound, precondition } from '../lib/errors.js';
 import { id } from '../lib/ids.js';
 import { DAY, HOUR, isoDate, localMinutes, now } from '../lib/time.js';
 import { loadMemberInScope, memberBranchIds } from './members.js';
+import { emitIntegrationEvent } from './integration-events.js';
 
 /**
  * Front desk attendance (PF-ATT).
@@ -464,6 +465,14 @@ export function manualCheckIn(
         method: input.method ?? 'staff',
       },
     });
+    if (verdict.granted) {
+      emitIntegrationEvent({
+        tenantId: ctx.tenantId,
+        branchId: branch.id,
+        type: 'attendance.checked_in',
+        data: { checkInId, memberId: member.id, branchId: branch.id, method: input.method ?? 'staff' },
+      });
+    }
   });
 
   const occupancy = verdict.granted ? announceOccupancy(ctx.tenantId, branch.id, atMs) : null;
@@ -587,6 +596,12 @@ export function overrideCheckIn(
         overrideReason: reason,
       },
     });
+    emitIntegrationEvent({
+      tenantId: ctx.tenantId,
+      branchId: branch.id,
+      type: 'attendance.checked_in',
+      data: { checkInId, memberId: member.id, branchId: branch.id, method: 'override' },
+    });
   });
 
   const occupancy = announceOccupancy(ctx.tenantId, branch.id, atMs);
@@ -669,6 +684,12 @@ export function manualCheckOut(ctx: RequestContext, input: { checkInId: string }
       channel: channels.branch(visit.branchId),
       topic: 'attendance.checked_out',
       payload: { memberId: visit.memberId, checkInId: visit.id },
+    });
+    emitIntegrationEvent({
+      tenantId: ctx.tenantId,
+      branchId: visit.branchId,
+      type: 'attendance.checked_out',
+      data: { checkInId: visit.id, memberId: visit.memberId, branchId: visit.branchId },
     });
   });
 

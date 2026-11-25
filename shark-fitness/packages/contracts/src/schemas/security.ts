@@ -167,12 +167,17 @@ export const WEBHOOK_EVENT_TYPES = [
 export const WebhookEventType = z.enum(WEBHOOK_EVENT_TYPES);
 export type WebhookEventType = z.infer<typeof WebhookEventType>;
 
+/** Sent by the console's "Send test event" button; never by the product. */
+export const WEBHOOK_TEST_EVENT = 'webhook.test';
+export const WebhookDeliveredType = z.union([WebhookEventType, z.literal(WEBHOOK_TEST_EVENT)]);
+export type WebhookDeliveredType = z.infer<typeof WebhookDeliveredType>;
+
 /** The envelope version consumers pin to. Bumped only for breaking changes. */
 export const WEBHOOK_ENVELOPE_VERSION = 1;
 
 export const WebhookEnvelope = z.object({
   id: z.string(),
-  type: WebhookEventType,
+  type: WebhookDeliveredType,
   version: z.literal(WEBHOOK_ENVELOPE_VERSION),
   tenant: z.object({ id: z.string(), slug: z.string() }),
   occurredAt: z.string(),
@@ -242,7 +247,7 @@ export const WebhookDelivery = z.object({
   id: z.string(),
   endpointId: z.string(),
   eventId: z.string(),
-  eventType: WebhookEventType,
+  eventType: WebhookDeliveredType,
   state: WebhookDeliveryState,
   attempts: z.number().int(),
   nextAttemptAt: z.string().nullable(),

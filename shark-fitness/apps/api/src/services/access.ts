@@ -11,6 +11,7 @@ import { notFound } from '../lib/errors.js';
 import { id } from '../lib/ids.js';
 import { verifyPassToken } from '../lib/pass-token.js';
 import { HOUR, localMinutes, now } from '../lib/time.js';
+import { emitIntegrationEvent } from './integration-events.js';
 
 export interface ScanActor {
   requestId: string;
@@ -286,6 +287,9 @@ export function scanSignedPass(input: {
     topic: outcome.granted ? 'attendance.checked_in' : 'attendance.denied',
     payload: { memberId, memberNo: member.memberNo, decision: outcome.decision, checkInId },
   });
+  if (outcome.granted) {
+    emitIntegrationEvent({ tenantId, branchId: branch.id, type: 'attendance.checked_in', data: { checkInId, memberId, branchId: branch.id, method: 'door' } });
+  }
 
   const nowInside = outcome.granted ? inside + 1 : inside;
   return {

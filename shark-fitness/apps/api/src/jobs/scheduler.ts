@@ -7,6 +7,7 @@ import { runtimeConfig } from '../lib/config.js';
 import { emit } from '../lib/events.js';
 import { processDueDeliveries, runDueAutomations } from '../services/automations.js';
 import { pruneOperationalData } from '../services/maintenance.js';
+import { runWebhookDispatch } from '../services/webhooks.js';
 import { expireChallengeInvitations } from '../services/engagement-admin.js';
 import { extendActiveSeries } from '../services/schedule-series.js';
 import { runDueDunning } from '../services/dunning.js';
@@ -246,12 +247,21 @@ const JOBS: Job[] = [
   { name: 'run-dunning', everyMs: 15 * MINUTE, run: advanceDunning },
   { name: 'extend-class-series', everyMs: 6 * HOUR, run: extendSeriesHorizon },
   { name: 'prune-operational-data', everyMs: DAY, run: pruneOperationalRows },
+  /* Outbound webhooks (PF-INT-003): fan out new integration events, then send
+     what is due. Asynchronous — it waits on receivers — and never overlaps
+     itself; a slow receiver delays the next tick rather than doubling up. */
+  { name: 'deliver-webhooks', everyMs: 30_000, run: () => runWebhookDispatch() },
 ];
 
 /** The fixed job names: the only values the `job` metric label takes. */
 export const SCHEDULED_JOB_NAMES: readonly string[] = JOBS.map((job) => job.name);
 
-export function executeJob(job: Job, clock: () => number = now): void {
+/**
+ * Runs one job and records it in `job_runs`. A job may return a promise (the
+ * webhook dispatcher waits on the network); the run is then recorded when it
+ * settles, and the returned promise rejects if the job did.
+ */
+export function executeJob(job: Job, clock: () => number = now): void | Promise<void> {
   const runId = id('jobr');
   const startedAt = clock();
   db.insert(schema.jobRuns)
@@ -268,8 +278,9 @@ export function executeJob(job: Job, clock: () => number = now): void {
       buildId: runtimeConfig.release,
     })
     .run();
-  try {
-    const summary = safeSummary(job.run());
+
+  const succeed = (value: unknown): void => {
+    const summary = safeSummary(value);
     const finishedAt = clock();
     db.update(schema.jobRuns)
       .set({
@@ -290,7 +301,9 @@ export function executeJob(job: Job, clock: () => number = now): void {
       durationMs: Math.max(0, finishedAt - startedAt),
       summary,
     });
-  } catch (error) {
+  };
+
+  const fail = (error: unknown): never => {
     const finishedAt = clock();
     const errorCategory = categoryFor(error);
     const errorMessage = safeErrorMessage(error);
@@ -315,7 +328,28 @@ export function executeJob(job: Job, clock: () => number = now): void {
       errorMessage,
     });
     throw error;
+  };
+
+  // Recording success can itself fail (a full disk, a constraint); that is a
+  // failed run too, and must land in job_runs as one.
+  const settle = (value: unknown): void => {
+    try {
+      succeed(value);
+    } catch (error) {
+      fail(error);
+    }
+  };
+
+  let result: unknown;
+  try {
+    result = job.run();
+  } catch (error) {
+    fail(error);
   }
+  if (result && typeof (result as Promise<unknown>).then === 'function') {
+    return (result as Promise<unknown>).then(settle, fail);
+  }
+  settle(result);
 }
 
 function safeSummary(value: unknown): JobSummary {
@@ -341,9 +375,19 @@ function safeErrorMessage(error: unknown): string {
 
 /** One scheduled tick: run the job, and report a failure once, tagged with
  *  the job's name. executeJob has already recorded it in job_runs. */
+const inFlight = new Set<string>();
+
 export function runScheduledJob(job: Job, clock: () => number = now): void {
+  // An asynchronous job still running from the last tick is left to finish.
+  if (inFlight.has(job.name)) return;
   try {
-    executeJob(job, clock);
+    const pending = executeJob(job, clock);
+    if (pending) {
+      inFlight.add(job.name);
+      pending
+        .catch((err: unknown) => reportException(err, { job: job.name, source: 'scheduler' }))
+        .finally(() => inFlight.delete(job.name));
+    }
   } catch (err) {
     reportException(err, { job: job.name, source: 'scheduler' });
   }
@@ -450,9 +494,9 @@ export const jobsForTest = {
   releaseExpiredHolds,
   deliverQueuedAutomations,
   pruneOperationalRows,
-  execute: (name: string, clock?: () => number): void => {
+  execute: (name: string, clock?: () => number): void | Promise<void> => {
     const job = JOBS.find((candidate) => candidate.name === name);
     if (!job) throw new Error(`Unknown scheduled job: ${name}`);
-    executeJob(job, clock);
+    return executeJob(job, clock);
   },
 };

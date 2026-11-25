@@ -25,6 +25,7 @@ import {
 import { loadMemberInScope } from '../../services/members.js';
 import { branchTimeZone } from '../../lib/branch-time.js';
 import { readCreditAccount } from '../../services/credit-account.js';
+import { emitIntegrationEvent } from '../../services/integration-events.js';
 
 export const membersRoutes = new Hono();
 
@@ -789,6 +790,11 @@ membersRoutes.post('/:memberId/cancel', validate('json', CancelBody), (c) => {
       reason,
       before: { state: membership.state, autoRenew: membership.autoRenew },
       after: { state: target, cancelEffectiveOn: effectiveOn },
+    });
+    emitIntegrationEvent({
+      tenantId: ctx.tenantId,
+      type: 'membership.cancelled',
+      data: { membershipId: membership.id, memberId, immediate, state: target, effectiveOn },
     });
   });
 

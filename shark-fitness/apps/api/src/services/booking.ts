@@ -11,6 +11,7 @@ import { emit } from '../lib/events.js';
 import { id } from '../lib/ids.js';
 import { DAY } from '../lib/time.js';
 import { AppError, capacityExhausted, conflict, entitlementMissing, forbidden, precondition } from '../lib/errors.js';
+import { emitIntegrationEvent } from './integration-events.js';
 
 /**
  * The canonical booking engine — one claim, used by the member's own booking
@@ -529,6 +530,12 @@ export function claimSeat(ctx: RequestContext, input: ClaimSeatInput): ClaimSeat
       topic: 'booking.confirmed',
       payload: { bookingId, sessionId: fresh.id, memberId, seatNo, booked: seatNo, capacity: fresh.capacity, byStaff: input.bookedByStaff },
     });
+    emitIntegrationEvent({
+      tenantId: ctx.tenantId,
+      branchId: fresh.branchId,
+      type: 'class.booked',
+      data: { bookingId, classSessionId: fresh.id, memberId, branchId: fresh.branchId, startsAt: new Date(fresh.startsAt).toISOString(), bookedByStaff: input.bookedByStaff },
+    });
 
     const booking = db.select().from(schema.bookings).where(eq(schema.bookings.id, bookingId)).get()!;
     return { booking, replayed: false, creditsUsed, chargeMinor };
@@ -634,6 +641,12 @@ export function claimSeatOverride(ctx: RequestContext, input: ClaimSeatOverrideI
       channel: channels.branch(fresh.branchId),
       topic: 'booking.confirmed',
       payload: { bookingId, sessionId: fresh.id, memberId, seatNo, booked: seatNo, capacity: fresh.capacity, byStaff: true, override: true },
+    });
+    emitIntegrationEvent({
+      tenantId: ctx.tenantId,
+      branchId: fresh.branchId,
+      type: 'class.booked',
+      data: { bookingId, classSessionId: fresh.id, memberId, branchId: fresh.branchId, startsAt: new Date(fresh.startsAt).toISOString(), bookedByStaff: true },
     });
 
     const booking = db.select().from(schema.bookings).where(eq(schema.bookings.id, bookingId)).get()!;

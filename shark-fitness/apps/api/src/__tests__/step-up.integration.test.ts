@@ -37,13 +37,18 @@ function makeStale(browser: Browser): void {
   db.update(schema.sessions).set({ reauthenticatedAt: now() - 6 * MINUTE }).where(eq(schema.sessions.id, session.id)).run();
 }
 
-function openInvoices(count: number) {
-  return db
+/** A fresh open invoice of our own, copied from a seeded one, so this suite
+ *  never changes the seeded figures other suites read. */
+function freshInvoice(): typeof schema.invoices.$inferSelect {
+  const template = db
     .select()
     .from(schema.invoices)
-    .where(and(eq(schema.invoices.tenantId, SHARK.id), inArray(schema.invoices.state, ['open', 'overdue', 'partially_paid']), gt(schema.invoices.totalMinor, 10_000)))
-    .limit(count)
-    .all();
+    .where(and(eq(schema.invoices.tenantId, SHARK.id), inArray(schema.invoices.state, ['open', 'overdue']), gt(schema.invoices.totalMinor, 10_000)))
+    .get()!;
+  const invoiceId = id('inv');
+  const row = { ...template, id: invoiceId, number: `SU-${invoiceId.slice(-8).toUpperCase()}`, state: 'open', paidMinor: 0, refundedMinor: 0, refType: null, refId: null, createdAt: now(), updatedAt: now() };
+  db.insert(schema.invoices).values(row).run();
+  return db.select().from(schema.invoices).where(eq(schema.invoices.id, invoiceId)).get()!;
 }
 
 function freshProduct(): string {
@@ -90,12 +95,14 @@ const CASES: Case[] = [
     action: 'billing.refund',
     ok: [200],
     prepare: async (owner) => {
-      const invoice = openInvoices(1)[0]!;
+      const invoice = freshInvoice();
+      // Paid and refunded in full, so the invoice ends settled rather than
+      // half-open in other suites' outstanding totals.
       const paid = await owner.json<{ paymentId: string }>(`/admin/billing/invoices/${invoice.id}/payments`, {
-        body: { method: 'cash', amountMinor: 5_000, idempotencyKey: id('idem') },
+        body: { method: 'cash', amountMinor: invoice.totalMinor, idempotencyKey: id('idem') },
       });
       expect(paid.status).toBe(200);
-      return { method: 'POST', path: `/admin/billing/payments/${paid.body.paymentId}/refund`, body: { amountMinor: 5_000, reason: 'Charged twice at the desk' } };
+      return { method: 'POST', path: `/admin/billing/payments/${paid.body.paymentId}/refund`, body: { amountMinor: invoice.totalMinor, reason: 'Charged twice at the desk' } };
     },
   },
   {
@@ -103,7 +110,7 @@ const CASES: Case[] = [
     action: 'billing.write_off',
     ok: [200],
     prepare: async () => {
-      const invoice = openInvoices(3).find((row) => row.paidMinor === 0) ?? openInvoices(3)[2]!;
+      const invoice = freshInvoice();
       return { method: 'POST', path: `/admin/billing/invoices/${invoice.id}/void`, body: { reason: 'Raised against the wrong member' } };
     },
   },
@@ -213,6 +220,39 @@ const CASES: Case[] = [
     action: 'auth.mfa_recovery_codes',
     ok: [200],
     prepare: async () => ({ method: 'POST', path: '/auth/mfa/recovery-codes' }),
+  },
+  {
+    name: 'create a webhook endpoint (a channel out of the building)',
+    action: 'webhook.create',
+    ok: [201],
+    prepare: async () => ({ method: 'POST', path: '/admin/integrations/webhooks', body: { url: 'https://hooks.example.com/shark', events: ['lead.created'] } }),
+  },
+  {
+    name: 'point a webhook at a new URL',
+    action: 'webhook.change_url',
+    ok: [200],
+    prepare: async (owner) => {
+      const created = await owner.json<{ endpoint: { id: string } }>('/admin/integrations/webhooks', { body: { url: 'https://hooks.example.com/a', events: ['lead.created'] } });
+      return { method: 'PATCH', path: `/admin/integrations/webhooks/${created.body.endpoint.id}`, body: { url: 'https://hooks.example.com/b' } };
+    },
+  },
+  {
+    name: 'rotate a webhook signing secret',
+    action: 'webhook.rotate_secret',
+    ok: [200],
+    prepare: async (owner) => {
+      const created = await owner.json<{ endpoint: { id: string } }>('/admin/integrations/webhooks', { body: { url: 'https://hooks.example.com/c', events: ['lead.created'] } });
+      return { method: 'POST', path: `/admin/integrations/webhooks/${created.body.endpoint.id}/rotate-secret` };
+    },
+  },
+  {
+    name: 'reveal a webhook signing secret',
+    action: 'webhook.reveal_secret',
+    ok: [200],
+    prepare: async (owner) => {
+      const created = await owner.json<{ endpoint: { id: string } }>('/admin/integrations/webhooks', { body: { url: 'https://hooks.example.com/d', events: ['lead.created'] } });
+      return { method: 'GET', path: `/admin/integrations/webhooks/${created.body.endpoint.id}/secret` };
+    },
   },
   {
     name: 'start a support (impersonation) session',
