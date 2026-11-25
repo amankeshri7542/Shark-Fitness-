@@ -13,12 +13,7 @@
       "state": "implementing",
       "base": "phase/P01-prod-readiness",
       "base_sha": "128aec1e5",
-      "running": {
-        "tag": "P02-impl",
-        "pid": 238623,
-        "started": "2026-11-25 11:17 IST",
-        "activity": "2026-11-25 11:17 IST"
-      }
+      "running": null
     },
     "P06": {
       "state": "implementing",
@@ -75,6 +70,7 @@
   },
   "blockers": [
     "Claude usage limit hit (latest during P04-impl); new sessions paused, retrying every 30 min",
-    "Claude usage limit hit (latest during P06-impl); new sessions paused, retrying every 30 min"
+    "Claude usage limit hit (latest during P06-impl); new sessions paused, retrying every 30 min",
+    "Claude usage limit hit (latest during P03-impl); new sessions paused, retrying every 30 min"
   ]
 }
