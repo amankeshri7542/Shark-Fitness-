@@ -89,5 +89,7 @@
     "phase/P05-member-core-gaps": "d52d428 at 2026-11-26 02:15 IST",
     "phase/P07-engagement-ops-modules": "dd41970 at 2026-11-26 02:13 IST"
   },
-  "blockers": []
+  "blockers": [
+    "Claude usage limit hit (latest during P07-impl); new sessions paused, retrying every 30 min"
+  ]
 }

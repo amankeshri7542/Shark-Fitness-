@@ -29,4 +29,4 @@ Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "ph
 - none
 
 ## Blockers / waiting
-- none
+- Claude usage limit hit (latest during P07-impl); new sessions paused, retrying every 30 min
