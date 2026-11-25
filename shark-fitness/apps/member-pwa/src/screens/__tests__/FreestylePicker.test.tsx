@@ -15,7 +15,7 @@ function exercise(id: string, name: string, overrides: Partial<LibraryExercise> 
 const library = [
   exercise('ex_squat', 'Back squat', { lastPerformance: { weightKg: 80, reps: 5, label: '80 kg × 5' } }),
   exercise('ex_row', 'Barbell row', { primaryMuscles: ['lats'], aliases: ['bent-over row'] }),
-  exercise('ex_press', 'Overhead press', { primaryMuscles: ['shoulders'] }),
+  exercise('ex_press', 'Overhead press', { primaryMuscles: ['front_delt'] }),
 ];
 
 function renderPicker() {

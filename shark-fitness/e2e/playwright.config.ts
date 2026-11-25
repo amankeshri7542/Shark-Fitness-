@@ -27,8 +27,9 @@ export default defineConfig({
     serviceWorkers: 'block',
   },
   projects: [
-    // Payment specs (tagged @payments) run on a phone, where members pay.
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] }, grepInvert: /@payments/ },
-    { name: 'mobile-chromium', use: { ...devices['Pixel 7'] }, grep: /@payments/ },
+    // Payment specs (tagged @payments) and member flows tagged @mobile (the
+    // pass at the door, logging a workout on the floor) run on a phone.
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] }, grepInvert: /@payments|@mobile/ },
+    { name: 'mobile-chromium', use: { ...devices['Pixel 7'] }, grep: /@payments|@mobile/ },
   ],
 });

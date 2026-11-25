@@ -29,7 +29,9 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   try {
     razorpay = await startFakeRazorpay({ port: Number(process.env.SHARK_E2E_RAZORPAY_PORT ?? 0) });
     const database = join(tempDir, 'shark.db');
-    const port = await freePort();
+    // Port 0 picks a free one; SHARK_E2E_PORT pins it (parallel worktrees
+    // each keep to their own range).
+    const port = process.env.SHARK_E2E_PORT ? Number(process.env.SHARK_E2E_PORT) : await freePort();
     const baseURL = `http://127.0.0.1:${port}`;
     const serverLog = join(tempDir, 'server.log');
     // Only what the server needs: nothing inherited from the developer's shell
@@ -55,6 +57,8 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       SHARK_RAZORPAY_KEY_SECRET: razorpay.keySecret,
       SHARK_RAZORPAY_WEBHOOK_SECRET: razorpay.webhookSecret,
       SHARK_RAZORPAY_API_BASE: razorpay.baseUrl,
+      // Private uploads (progress photos) live in this run's directory.
+      SHARK_MEDIA_DIR: join(tempDir, 'media'),
     };
 
     for (const script of ['src/db/migrate.ts', 'src/db/seed.ts']) {
