@@ -12,6 +12,7 @@ import { authRoutes } from './routes/auth.js';
 import { authStabilizationRoutes } from './routes/auth-stabilization.js';
 import { meRoutes } from './routes/me.js';
 import { doorRoutes } from './routes/door.js';
+import { publicRoutes } from './routes/public.js';
 
 import { homeRoutes } from './routes/member/home.js';
 import { passRoutes } from './routes/member/pass.js';
@@ -112,6 +113,8 @@ app.route('/v1/auth', authStabilizationRoutes);
 app.route('/v1/auth', accountRecoveryRoutes);
 app.route('/v1/auth', authRoutes);
 app.route('/v1/door', doorRoutes);
+// The public website (PF-CRM-001). No session; see routes/public.ts.
+app.route('/v1/public/:tenantSlug', publicRoutes);
 
 app.use('/v1/me/*', protectedApiIpLimit, authenticate, authenticatedTenantLimit, authenticatedApiLimit);
 app.route('/v1/me', meRoutes);
