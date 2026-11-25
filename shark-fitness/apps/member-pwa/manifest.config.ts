@@ -60,34 +60,12 @@ export const MEMBER_MANIFEST: Partial<ManifestOptions> = {
       icons: [{ src: 'icons/shortcut-book-96.png', sizes: '96x96', type: 'image/png' }],
     },
   ],
+  // Real screens from the seeded demo, captured from the production build by
+  // `pnpm -F @shark/e2e store-screenshots`.
   screenshots: [
-    {
-      src: 'screenshots/home-narrow.png',
-      sizes: '780x1688',
-      type: 'image/png',
-      form_factor: 'narrow',
-      label: 'Home: today at your gym',
-    },
-    {
-      src: 'screenshots/train-narrow.png',
-      sizes: '780x1688',
-      type: 'image/png',
-      form_factor: 'narrow',
-      label: "Train: today's plan",
-    },
-    {
-      src: 'screenshots/book-narrow.png',
-      sizes: '780x1688',
-      type: 'image/png',
-      form_factor: 'narrow',
-      label: 'Book: classes this week',
-    },
-    {
-      src: 'screenshots/home-wide.png',
-      sizes: '1280x800',
-      type: 'image/png',
-      form_factor: 'wide',
-      label: 'Home on a tablet',
-    },
+    { src: 'screenshots/home-narrow.jpg', sizes: '780x1688', type: 'image/jpeg', form_factor: 'narrow', label: 'Home: today at your gym' },
+    { src: 'screenshots/train-narrow.jpg', sizes: '780x1688', type: 'image/jpeg', form_factor: 'narrow', label: "Train: today's plan" },
+    { src: 'screenshots/book-narrow.jpg', sizes: '780x1688', type: 'image/jpeg', form_factor: 'narrow', label: 'Book: classes this week' },
+    { src: 'screenshots/book-wide.jpg', sizes: '1280x800', type: 'image/jpeg', form_factor: 'wide', label: 'Book on a tablet' },
   ],
 };

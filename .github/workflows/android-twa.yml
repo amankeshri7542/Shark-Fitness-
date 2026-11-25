@@ -1,0 +1,140 @@
+name: android-twa
+
+# Builds the Android Trusted Web Activity for the member app (ADR-002,
+# shark-fitness/docs/MOBILE-APP.md) with Bubblewrap. Manual only: it needs a
+# real, deployed HTTPS host, and its output is a release artifact, not a check.
+#
+# The signing keystore is generated inside this job and never leaves it except
+# as part of the signed APK/AAB. That makes the artifacts good for testing on
+# a device and for a first Play Console upload under Play App Signing; see the
+# docs before relying on one for a long-lived release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      site_host:
+        description: Production host serving /app/ over HTTPS (SITE_HOST), e.g. app.sharkfitness.in
+        required: true
+        type: string
+      package_id:
+        description: Android application id
+        required: false
+        default: in.sharkfitness.member
+        type: string
+      version_name:
+        description: User-visible version
+        required: false
+        default: 1.0.0
+        type: string
+      version_code:
+        description: Integer version code; must increase with every Play upload
+        required: false
+        default: '1'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-twa-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      BUBBLEWRAP_VERSION: 1.24.1
+      WORKDIR: ${{ github.workspace }}/twa-build
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Validate inputs
+        env:
+          SITE_HOST: ${{ inputs.site_host }}
+          PACKAGE_ID: ${{ inputs.package_id }}
+          VERSION_CODE: ${{ inputs.version_code }}
+        run: |
+          set -euo pipefail
+          [[ "$SITE_HOST" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]] || { echo "site_host must be a bare host name"; exit 1; }
+          [[ "$PACKAGE_ID" =~ ^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$ ]] || { echo "package_id is not an Android application id"; exit 1; }
+          [[ "$VERSION_CODE" =~ ^[1-9][0-9]*$ ]] || { echo "version_code must be a positive integer"; exit 1; }
+
+      - name: Install Bubblewrap
+        run: npm install --global "@bubblewrap/cli@${BUBBLEWRAP_VERSION}"
+
+      - name: Point Bubblewrap at the runner's JDK and Android SDK
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.bubblewrap"
+          jq -n --arg jdk "$JAVA_HOME" --arg sdk "$ANDROID_SDK_ROOT" '{jdkPath: $jdk, androidSdkPath: $sdk}' > "$HOME/.bubblewrap/config.json"
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+
+      - name: Prepare twa-manifest.json for this host
+        env:
+          SITE_HOST: ${{ inputs.site_host }}
+          PACKAGE_ID: ${{ inputs.package_id }}
+          VERSION_NAME: ${{ inputs.version_name }}
+          VERSION_CODE: ${{ inputs.version_code }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$WORKDIR"
+          jq --arg host "$SITE_HOST" --arg pkg "$PACKAGE_ID" --arg vname "$VERSION_NAME" --argjson vcode "$VERSION_CODE" '
+            def rehost: sub("https://app\\.sharkfitness\\.example"; "https://" + $host);
+            .host = $host
+            | .packageId = $pkg
+            | .appVersionName = $vname | .appVersion = $vname | .appVersionCode = $vcode
+            | .iconUrl |= rehost | .maskableIconUrl |= rehost | .monochromeIconUrl |= rehost
+            | .webManifestUrl |= rehost | .fullScopeUrl |= rehost
+            | .shortcuts |= map(.url |= rehost | .chosenIconUrl |= rehost)
+          ' shark-fitness/apps/member-pwa/android/twa-manifest.json > "$WORKDIR/twa-manifest.json"
+          if grep -q "sharkfitness.example" "$WORKDIR/twa-manifest.json"; then
+            echo "placeholder host left in manifest"
+            exit 1
+          fi
+          cat "$WORKDIR/twa-manifest.json"
+
+      - name: Generate a signing keystore for this run
+        run: |
+          set -euo pipefail
+          password="$(openssl rand -base64 30 | tr -d '/+=' | cut -c1-28)"
+          echo "::add-mask::$password"
+          echo "BUBBLEWRAP_KEYSTORE_PASSWORD=$password" >> "$GITHUB_ENV"
+          echo "BUBBLEWRAP_KEY_PASSWORD=$password" >> "$GITHUB_ENV"
+          keytool -genkeypair -v -noprompt \
+            -keystore "$WORKDIR/android.keystore" -alias shark-upload \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass "$password" -keypass "$password" \
+            -dname "CN=Shark Fitness, O=Shark Fitness, C=IN"
+          echo "SHA-256 fingerprint of this run's signing key (for SHARK_ANDROID_CERT_SHA256 when side-loading):"
+          keytool -list -v -keystore "$WORKDIR/android.keystore" -alias shark-upload -storepass "$password" | grep 'SHA256:'
+
+      - name: Generate the Android project
+        working-directory: ${{ env.WORKDIR }}
+        run: bubblewrap update --skipVersionUpgrade --manifest=./twa-manifest.json
+
+      - name: Build signed APK and AAB
+        working-directory: ${{ env.WORKDIR }}
+        run: bubblewrap build --skipPwaValidation --manifest=./twa-manifest.json
+
+      - name: Keep the keystore out of the artifacts
+        run: rm -f "$WORKDIR/android.keystore"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shark-member-twa-${{ inputs.version_name }}-${{ inputs.version_code }}
+          path: |
+            ${{ env.WORKDIR }}/app-release-signed.apk
+            ${{ env.WORKDIR }}/app-release-bundle.aab
+            ${{ env.WORKDIR }}/twa-manifest.json
+          if-no-files-found: error
+          retention-days: 14
