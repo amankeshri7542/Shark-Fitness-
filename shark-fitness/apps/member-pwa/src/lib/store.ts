@@ -1,18 +1,62 @@
 import { create } from 'zustand';
 import type { Branch, Viewer } from '@shark/contracts';
 import { PREDATOR_COPY, type CopyKey, type Register, registerFor } from '@shark/design-tokens';
-import { api, auth } from './api';
+import { ApiError, OfflineError, api, auth, onSessionExpired } from './api';
+import { queryClient } from './query-client';
+import {
+  deleteSnapshot,
+  lastOwner,
+  loadSnapshot,
+  ownerOf,
+  rememberLastOwner,
+  restoreSnapshot,
+} from './persisted-cache';
+import { hasMemberSessionHint } from './session-hint';
 
 interface SessionState {
   viewer: Viewer | null;
   branches: Branch[];
   activeBranchId: string | null;
   status: 'loading' | 'signed-in' | 'signed-out';
+  /** Signed in from the saved snapshot because the network was down. */
+  offlineStart: boolean;
+  /** The server ended the session (401): sign-in says so and offers the way back. */
+  sessionEnded: boolean;
   setViewer: (viewer: Viewer | null) => void;
   setBranches: (branches: Branch[], activeBranchId: string | null) => void;
   setActiveBranch: (branchId: string) => void;
   bootstrap: () => Promise<void>;
+  /** Server-side sign-out only. The full wipe lives in lib/session.ts. */
   signOut: () => Promise<void>;
+  /** The session ended under us. Keeps the outbox and any active workout. */
+  expire: () => void;
+  acknowledgeSessionEnded: () => void;
+}
+
+const RETURN_KEY = 'shark.member.return-to';
+
+/** Where the member was when the session ended, so sign-in can put them back. */
+export function rememberReturnRoute(owner: string, path: string): void {
+  try {
+    sessionStorage.setItem(RETURN_KEY, JSON.stringify({ owner, path }));
+  } catch {
+    /* they land on Home instead */
+  }
+}
+
+/** The route to return to after sign-in, only for the same person. Consumed. */
+export function takeReturnRoute(owner: string): string | null {
+  try {
+    const raw = sessionStorage.getItem(RETURN_KEY);
+    sessionStorage.removeItem(RETURN_KEY);
+    if (!raw) return null;
+    const saved = JSON.parse(raw) as { owner?: string; path?: string };
+    return saved.owner === owner && typeof saved.path === 'string' && saved.path.startsWith('/') && !saved.path.startsWith('//')
+      ? saved.path
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 export const useSession = create<SessionState>((set, get) => ({
@@ -20,6 +64,8 @@ export const useSession = create<SessionState>((set, get) => ({
   branches: [],
   activeBranchId: null,
   status: 'loading',
+  offlineStart: false,
+  sessionEnded: false,
 
   setViewer: (viewer) => set({ viewer, status: viewer ? 'signed-in' : 'signed-out' }),
 
@@ -43,7 +89,12 @@ export const useSession = create<SessionState>((set, get) => ({
         set({ viewer: null, branches: [], activeBranchId: null, status: 'signed-out' });
         return;
       }
-      set({ viewer, status: 'signed-in' });
+      const owner = ownerOf(viewer);
+      rememberLastOwner(owner);
+      // Show the last-seen screens at once while fresh data loads.
+      const snapshot = await loadSnapshot(owner);
+      if (snapshot) restoreSnapshot(queryClient, snapshot);
+      set({ viewer, status: 'signed-in', offlineStart: false, sessionEnded: false });
       const branches = await api<{ items: Branch[]; activeBranchId: string | null }>('/me/branches');
       set({
         branches: branches.items,
@@ -52,9 +103,30 @@ export const useSession = create<SessionState>((set, get) => ({
         // selected", which for a fresh session is nothing at all.
         activeBranchId: branches.activeBranchId ?? viewer.homeBranchId ?? branches.items[0]?.id ?? null,
       });
-    } catch {
+    } catch (error) {
+      // No network: open on the saved snapshot of whoever was signed in last.
+      // The cookie is untouched; the next request online proves the session.
+      if (error instanceof OfflineError) {
+        const owner = lastOwner();
+        const snapshot = owner ? await loadSnapshot(owner) : null;
+        if (snapshot) {
+          restoreSnapshot(queryClient, snapshot);
+          set({
+            viewer: snapshot.viewer,
+            branches: snapshot.branches,
+            activeBranchId: snapshot.activeBranchId,
+            status: 'signed-in',
+            offlineStart: true,
+          });
+          return;
+        }
+      }
       auth.clear();
-      set({ viewer: null, status: 'signed-out' });
+      // A browser that was signed in and is not any more: say so on sign-in.
+      const ended = error instanceof ApiError && error.status === 401 && hasMemberSessionHint();
+      const owner = lastOwner();
+      if (ended && owner) rememberReturnRoute(owner, currentAppRoute());
+      set({ viewer: null, branches: [], activeBranchId: null, status: 'signed-out', sessionEnded: ended });
     }
   },
 
@@ -65,10 +137,34 @@ export const useSession = create<SessionState>((set, get) => ({
       /* signing out locally matters more than the round trip succeeding */
     }
     auth.clear();
-    set({ viewer: null, branches: [], activeBranchId: null, status: 'signed-out' });
-    void get;
+    set({ viewer: null, branches: [], activeBranchId: null, status: 'signed-out', offlineStart: false, sessionEnded: false });
   },
+
+  expire: () => {
+    const { viewer, status } = get();
+    if (status !== 'signed-in' || !viewer) return;
+    const owner = ownerOf(viewer);
+    rememberReturnRoute(owner, currentAppRoute());
+    // The outbox (IndexedDB) and an active workout (localStorage) stay: they
+    // belong to this person and go out after they sign in again. What leaves
+    // is everything the next person at this phone could read.
+    queryClient.clear();
+    void deleteSnapshot(owner);
+    auth.clear();
+    set({ viewer: null, branches: [], activeBranchId: null, status: 'signed-out', offlineStart: false, sessionEnded: true });
+  },
+
+  acknowledgeSessionEnded: () => set({ sessionEnded: false }),
 }));
+
+/** The in-app route (without the /app prefix), with its query string. */
+function currentAppRoute(): string {
+  const { pathname, search } = window.location;
+  const path = pathname === '/app' || pathname === '/app/' ? '/' : pathname.replace(/^\/app(?=\/)/, '');
+  return `${path}${search}`;
+}
+
+onSessionExpired(() => useSession.getState().expire());
 
 export const useViewer = (): Viewer | null => useSession((s) => s.viewer);
 

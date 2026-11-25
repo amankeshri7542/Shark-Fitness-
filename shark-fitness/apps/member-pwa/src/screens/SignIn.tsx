@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import type { StartOtpResult, Viewer } from '@shark/contracts';
 import { ApiError, OfflineError, api } from '../lib/api';
-import { useSession } from '../lib/store';
+import { takeReturnRoute, useSession } from '../lib/store';
+import { ownerOf } from '../lib/persisted-cache';
 import { setMemberSessionHint } from '../lib/session-hint';
 import { Button, Display, Eyebrow, Field, Panel, Scanlines, SonarSweep } from '../ui/primitives';
 
@@ -27,6 +28,7 @@ export default function SignInScreen() {
   const [tenantSlug, setTenantSlug] = useState(activation.get('gym') ?? (import.meta.env.DEV ? 'shark' : ''));
 
   const bootstrap = useSession((state) => state.bootstrap);
+  const sessionEnded = useSession((state) => state.sessionEnded);
 
   const [mode, setMode] = useState<'otp' | 'password'>(choosingPassword || !import.meta.env.DEV ? 'password' : 'otp');
   const [step, setStep] = useState<'identify' | 'verify'>('identify');
@@ -95,7 +97,13 @@ export default function SignInScreen() {
       setMemberSessionHint(false);
       throw new Error('Session bootstrap failed after sign-in');
     }
-    await navigate({ to: '/' });
+    // Back to where the session ended, for the same person only. Their queued
+    // writes were kept and resume with the outbox.
+    const owner = ownerOf(result.viewer);
+    const returnTo = takeReturnRoute(owner);
+    useSession.getState().acknowledgeSessionEnded();
+    if (returnTo && returnTo !== '/sign-in') await navigate({ to: returnTo as '/' });
+    else await navigate({ to: '/' });
   };
 
   const verifyOtp = () =>
@@ -153,6 +161,15 @@ export default function SignInScreen() {
       </div>
 
       <div className="flex flex-1 flex-col gap-4 p-5">
+        {sessionEnded && !choosingPassword ? (
+          <Panel tone="warn" className="p-3.5" role="status">
+            <p className="font-utility text-[11px] font-semibold uppercase tracking-[0.14em] text-flare">Your session ended</p>
+            <p className="mt-1.5 text-[13px] leading-relaxed text-foam-80">
+              Sign in again to carry on where you were. Anything you logged on this phone is kept and syncs once you're
+              back in.
+            </p>
+          </Panel>
+        ) : null}
         {step === 'identify' ? (
           <>
             {recovered ? <p role="status">Your password has been changed and previous sessions signed out. Sign in with your new password.</p> : null}

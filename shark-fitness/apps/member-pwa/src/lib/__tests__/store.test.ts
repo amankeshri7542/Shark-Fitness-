@@ -7,7 +7,8 @@ const doubles = vi.hoisted(() => ({
   authGet: vi.fn(() => 'cookie-session'),
 }));
 
-vi.mock('../api', () => ({
+vi.mock('../api', async (original) => ({
+  ...(await original<typeof import('../api')>()),
   api: doubles.api,
   auth: {
     clear: doubles.authClear,

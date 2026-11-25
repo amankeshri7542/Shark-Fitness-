@@ -7,6 +7,8 @@ import {
   redirect,
 } from '@tanstack/react-router';
 import { AppHeader, BottomNav } from './ui/shell';
+import { OfflineBanner } from './ui/OfflineBanner';
+import { UpdateBar } from './ui/UpdateBar';
 import { useActiveBranch, useSession } from './lib/store';
 
 // Sign-in stays in the entry chunk. It is the first screen an unauthenticated
@@ -60,6 +62,8 @@ function TabLayout() {
   return (
     <>
       <AppHeader branchName={branch?.name ?? 'Shark Fitness'} />
+      <OfflineBanner />
+      <UpdateBar />
       <Outlet />
       <BottomNav />
     </>

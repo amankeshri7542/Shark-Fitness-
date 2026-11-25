@@ -3,8 +3,9 @@ import { QueryClient } from '@tanstack/react-query';
 import type { Viewer } from '@shark/contracts';
 import { cleanup, renderHook } from '@testing-library/react';
 
-vi.mock('../api', () => ({ api: vi.fn(), API_ORIGIN: '', auth: { get: () => 'cookie-session', clear: vi.fn() } }));
+vi.mock('../api', async (original) => ({ ...(await original<typeof import('../api')>()), api: vi.fn(), API_ORIGIN: '', auth: { get: () => 'cookie-session', clear: vi.fn() } }));
 vi.mock('../outbox', () => ({ startOutbox: vi.fn(() => vi.fn()), stopOutbox: vi.fn() }));
+vi.mock('../persisted-cache', () => ({ ownerOf: (v: { tenantId: string; userId: string }) => `${v.tenantId}:${v.userId}`, rememberLastOwner: vi.fn(), lastOwner: () => null, loadSnapshot: async () => null, restoreSnapshot: vi.fn(), deleteSnapshot: vi.fn() }));
 import { api } from '../api';
 import { useSession } from '../store';
 import { connectRealtime, disconnectRealtime, useMemberConnection } from '../realtime';

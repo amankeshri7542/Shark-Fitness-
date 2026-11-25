@@ -67,6 +67,21 @@ export interface RequestOptions {
   signal?: AbortSignal;
 }
 
+/**
+ * Called when a signed-in request comes back 401: the session ended on the
+ * server (expired, revoked from another device, account locked). Sign-in and
+ * session-probe paths are excluded; they report 401 to their own caller.
+ */
+let sessionExpiredHandler: (() => void) | null = null;
+export function onSessionExpired(handler: (() => void) | null): void {
+  sessionExpiredHandler = handler;
+}
+const SESSION_PROBES = new Set(['/me', '/auth/sign-out', '/auth/csrf']);
+function reportExpiry(path: string): void {
+  if (path.startsWith('/auth/') || SESSION_PROBES.has(path)) return;
+  sessionExpiredHandler?.();
+}
+
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const CSRF_EXEMPT = new Set(['/auth/password', '/auth/otp/start', '/auth/otp/verify', '/auth/activation/redeem', '/auth/recovery/redeem']);
 
@@ -122,7 +137,10 @@ async function send<T>(path: string, options: RequestOptions, method: string): P
   const payload = text ? (JSON.parse(text) as unknown) : null;
 
   if (!response.ok) {
-    if (response.status === 401) csrf.clear();
+    if (response.status === 401) {
+      csrf.clear();
+      reportExpiry(path);
+    }
     throw new ApiError(response.status, payload as ErrorEnvelope);
   }
 
