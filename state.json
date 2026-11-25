@@ -43,12 +43,7 @@
       "state": "implementing",
       "base": "phase/P02-payments-razorpay",
       "base_sha": "2ffa5700a",
-      "running": {
-        "tag": "P05-impl",
-        "pid": 8712,
-        "started": "2026-11-25 23:09 IST",
-        "activity": "2026-11-25 23:09 IST"
-      }
+      "running": null
     },
     "P07": {
       "state": "pending"
