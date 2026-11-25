@@ -39,6 +39,7 @@ const SettingsScreen = lazyRouteComponent(() => import('./screens/Settings'));
 const PlatformScreen = lazyRouteComponent(() => import('./screens/Platform'));
 const AccountScreen = lazyRouteComponent(() => import('./screens/Account'));
 const InboxScreen = lazyRouteComponent(() => import('./screens/Inbox'));
+const CommunityScreen = lazyRouteComponent(() => import('./screens/Community'));
 
 /** Shown while a screen chunk is in flight, inside the console shell so the
  *  rail and status strip stay put instead of the pane going blank. */
@@ -320,6 +321,8 @@ const inboxRoute = createRoute({
       : {},
 });
 
+const communityRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/community', component: CommunityScreen });
+
 /** Your own sign-in: two-step and devices. Every role can open it. */
 const accountRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/account', component: AccountScreen });
 
@@ -348,6 +351,7 @@ const routeTree = rootRoute.addChildren([
     platformRoute,
     accountRoute,
     inboxRoute,
+    communityRoute,
   ]),
 ]);
 
