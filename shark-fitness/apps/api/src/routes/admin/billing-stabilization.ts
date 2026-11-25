@@ -1,4 +1,5 @@
 import { reconcileMembershipDates } from '../../services/membership-dates.js';
+import { requireFreshAuth } from '../../lib/step-up.js';
 import { receiptHtml, receiptRecord } from '../../services/payment-receipt.js';
 import { taxInvoiceFilename, taxInvoiceHtml, taxInvoiceRecord, taxInvoiceText } from '../../services/tax-invoice.js';
 import { readCreditAccount } from '../../services/credit-account.js';
@@ -92,6 +93,7 @@ billingStabilizationRoutes.post(
   (c) => {
     const ctx = ctxOf(c);
     requirePermission(ctx, 'billing.write_off');
+    requireFreshAuth(ctx, 'billing.write_off');
     return c.json(
       transact(() => voidInvoiceSafely(ctx, c.req.param('invoiceId'), c.req.valid('json').reason)),
     );
@@ -111,6 +113,7 @@ billingStabilizationRoutes.post(
   (c) => {
     const ctx = ctxOf(c);
     requirePermission(ctx, 'billing.refund');
+    requireFreshAuth(ctx, 'billing.refund');
     const body = c.req.valid('json');
     const paymentId = c.req.param('paymentId');
     const payment = db.select().from(schema.payments).where(and(

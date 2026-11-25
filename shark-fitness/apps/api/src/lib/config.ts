@@ -10,6 +10,9 @@ const LOCAL_ORIGINS = [
 ] as const;
 
 const DEVELOPMENT_PASS_SECRET = 'development-only-pass-secret-change-before-deploying';
+/** 32 bytes, published here on purpose: it protects nothing but local and test
+ * databases. Production refuses to start without its own key. */
+const DEVELOPMENT_MFA_ENCRYPTION_KEY = Buffer.from('shark-development-only-mfa-key!!', 'utf8');
 const DAY_MS = 86_400_000;
 const HOUR_MS = 3_600_000;
 
@@ -184,6 +187,27 @@ const RuntimeEnvironmentShape = z.object({
     SHARK_ERROR_REPORTER: providerName('SHARK_ERROR_REPORTER', ERROR_REPORTERS),
     SHARK_ERROR_DSN: Dsn.optional(),
     SHARK_METRICS_TOKEN: z.string().min(1).optional(),
+    /** AES-256-GCM key for TOTP and webhook secrets at rest: 32 bytes, base64. */
+    SHARK_MFA_ENCRYPTION_KEY: z.preprocess(
+      blankAsUnset,
+      z
+        .string()
+        .trim()
+        .transform((value, ctx) => {
+          const key = /^[A-Za-z0-9+/]+={0,2}$/.test(value) ? Buffer.from(value, 'base64') : Buffer.alloc(0);
+          if (key.length !== 32) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: 'SHARK_MFA_ENCRYPTION_KEY must be 32 random bytes, base64-encoded (openssl rand -base64 32).',
+            });
+            return z.NEVER;
+          }
+          return key;
+        })
+        .optional(),
+    ),
+    /** Send the Content-Security-Policy as report-only (rollout and debugging). */
+    SHARK_CSP_REPORT_ONLY: ExactBoolean.optional(),
     SHARK_OTP_SMS_PROVIDER: providerName('SHARK_OTP_SMS_PROVIDER', ['log', 'msg91', 'twilio'] as const),
     SHARK_OTP_EMAIL_PROVIDER: providerName('SHARK_OTP_EMAIL_PROVIDER', ['log', 'resend'] as const),
     SHARK_OTP_DEFAULT_COUNTRY_CODE: z.preprocess(
@@ -308,6 +332,14 @@ const RuntimeEnvironment = RuntimeEnvironmentShape.superRefine((environment, ctx
       }
     }
 
+    if (!environment.SHARK_MFA_ENCRYPTION_KEY) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['SHARK_MFA_ENCRYPTION_KEY'],
+        message: 'SHARK_MFA_ENCRYPTION_KEY is required in production (openssl rand -base64 32).',
+      });
+    }
+
     if (environment.SHARK_ECHO_OTP === true) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -387,6 +419,9 @@ export interface RuntimeConfig {
   errorReporter: ErrorReporterName;
   /** Bearer token for GET /metrics. Null disables the endpoint (404). */
   metricsToken: string | null;
+  /** 32-byte key for field encryption (TOTP and webhook secrets). */
+  mfaEncryptionKey: Buffer;
+  cspReportOnly: boolean;
   otp: OtpConfig;
   release: string;
   retention: {
@@ -445,6 +480,8 @@ export function parseRuntimeConfig(environment: Record<string, string | undefine
       nodeEnv,
     }),
     metricsToken: parsed.SHARK_METRICS_TOKEN ?? null,
+    mfaEncryptionKey: parsed.SHARK_MFA_ENCRYPTION_KEY ?? DEVELOPMENT_MFA_ENCRYPTION_KEY,
+    cspReportOnly: parsed.SHARK_CSP_REPORT_ONLY ?? false,
     otp: {
       smsProvider: parsed.SHARK_OTP_SMS_PROVIDER ?? 'log',
       emailProvider: parsed.SHARK_OTP_EMAIL_PROVIDER ?? 'log',

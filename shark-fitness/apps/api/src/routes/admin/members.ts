@@ -8,6 +8,7 @@ import { applyFreeze, canTransition, formatMoney, levelFor } from '@shark/domain
 import { db, schema, transact } from '../../db/client.js';
 import { ctxOf, rateLimit } from '../../middleware/index.js';
 import { branchScope, requireAssignedMember, requirePermission } from '../../lib/context.js';
+import { requireFreshAuth } from '../../lib/step-up.js';
 import { audit } from '../../lib/audit.js';
 import { emit } from '../../lib/events.js';
 import { conflict, notFound, precondition } from '../../lib/errors.js';
@@ -284,6 +285,7 @@ membersRoutes.post('/bulk/export', validate('json', z.object({ memberIds: Member
   // The desk exports the people it manages (member.edit); finance exports
   // for reporting (report.export). Trainers have neither.
   if (!ctx.permissions.includes('member.edit')) requirePermission(ctx, 'report.export');
+  requireFreshAuth(ctx, 'member.export');
   const { filename, csv } = exportMembersCsv(ctx, c.req.valid('json').memberIds);
   return c.body(csv, 200, {
     'content-type': 'text/csv; charset=utf-8',

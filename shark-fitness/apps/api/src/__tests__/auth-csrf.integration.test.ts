@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { app } from '../app.js';
+import { signInRequest } from './helpers/mfa.js';
 
 const ORIGIN = 'http://localhost:5173';
 
@@ -8,7 +9,7 @@ function signInBody(email = 'aman@sharkfitness.in'): string {
 }
 
 async function signIn(): Promise<{ sessionCookie: string; csrfToken: string }> {
-  const response = await app.request('/v1/auth/password', {
+  const response = await signInRequest( {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin: ORIGIN },
     body: signInBody(),
@@ -30,7 +31,7 @@ describe('Signing in with a stale session cookie', () => {
   it('accepts a password sign-in that carries a session cookie but no CSRF token', async () => {
     const { sessionCookie } = await signIn();
 
-    const response = await app.request('/v1/auth/password', {
+    const response = await signInRequest( {
       method: 'POST',
       headers: { 'content-type': 'application/json', origin: ORIGIN, cookie: sessionCookie },
       body: signInBody(),
@@ -40,7 +41,7 @@ describe('Signing in with a stale session cookie', () => {
   });
 
   it('accepts a sign-in whose session cookie the server no longer knows', async () => {
-    const response = await app.request('/v1/auth/password', {
+    const response = await signInRequest( {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -56,7 +57,7 @@ describe('Signing in with a stale session cookie', () => {
   it('issues a fresh CSRF token on that sign-in', async () => {
     const { sessionCookie, csrfToken } = await signIn();
 
-    const response = await app.request('/v1/auth/password', {
+    const response = await signInRequest( {
       method: 'POST',
       headers: { 'content-type': 'application/json', origin: ORIGIN, cookie: sessionCookie },
       body: signInBody(),
@@ -84,7 +85,7 @@ describe('Signing in with a stale session cookie', () => {
   });
 
   it('still refuses a sign-in from an origin that is not ours', async () => {
-    const response = await app.request('/v1/auth/password', {
+    const response = await signInRequest( {
       method: 'POST',
       headers: { 'content-type': 'application/json', origin: 'https://evil.example' },
       body: signInBody(),

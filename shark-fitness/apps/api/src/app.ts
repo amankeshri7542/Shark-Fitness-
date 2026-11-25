@@ -10,6 +10,7 @@ import { clientErrorRoutes } from './routes/client-errors.js';
 import { metricsRoutes } from './routes/metrics.js';
 import { authRoutes } from './routes/auth.js';
 import { authStabilizationRoutes } from './routes/auth-stabilization.js';
+import { mfaRoutes } from './routes/mfa.js';
 import { meRoutes } from './routes/me.js';
 import { doorRoutes } from './routes/door.js';
 
@@ -44,6 +45,7 @@ import { settingsRoutes } from './routes/admin/settings.js';
 import { automationRoutes } from './routes/admin/automations.js';
 import { platformRoutes } from './routes/platform.js';
 import { supportRoutes } from './routes/admin/support.js';
+import { securityRoutes } from './routes/admin/security.js';
 
 export const app = new Hono();
 export const PROTECTED_API_IP_MAX = 2_000;
@@ -108,6 +110,7 @@ app.get('/ready', (c) => {
 app.route('/metrics', metricsRoutes);
 app.route('/v1/client-errors', clientErrorRoutes);
 
+app.route('/v1/auth/mfa', mfaRoutes);
 app.route('/v1/auth', authStabilizationRoutes);
 app.route('/v1/auth', accountRecoveryRoutes);
 app.route('/v1/auth', authRoutes);
@@ -151,6 +154,7 @@ app.route('/v1/admin/support', supportRoutes);
 app.route('/v1/admin/automations', automationRoutes);
 app.route('/v1/admin/engagement', adminEngagementRoutes);
 app.route('/v1/admin/privacy', privacyRoutes);
+app.route('/v1/admin/security', securityRoutes);
 
 /* Platform administration (PF-PLAT). `staffOnly` is not enough here and is not
    used: each route carries `platformOnly`, which refuses an impersonated

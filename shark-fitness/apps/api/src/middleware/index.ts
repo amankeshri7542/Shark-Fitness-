@@ -9,7 +9,7 @@ import { AppError } from '../lib/errors.js';
 import { runtimeConfig } from '../lib/config.js';
 import { id } from '../lib/ids.js';
 import { SESSION_COOKIE } from '../lib/security.js';
-import { resolveSession } from '../services/auth.js';
+import { markActivity, resolveSessionToken } from '../services/auth.js';
 import { log, reportException } from '../lib/observability.js';
 import { recordHttpRequest } from '../lib/metrics.js';
 import type { RequestContext } from '../lib/context.js';
@@ -137,7 +137,19 @@ export const errorHandler = (err: unknown, c: Context): Response => {
   );
 };
 
-export const authenticate: MiddlewareHandler = async (c, next) => {
+/**
+ * Writes that a person did not cause. They keep a session alive no more than a
+ * background read does, so a console left open on a desk still times out.
+ */
+const BACKGROUND_WRITES = new Set(['/v1/me/realtime-ticket', '/v1/auth/session/activity']);
+
+const SESSION_ENDED_MESSAGE: Record<string, string> = {
+  idle: 'You were signed out after a period of inactivity. Sign in again to continue.',
+  expired: 'Your session has ended. Sign in again.',
+  revoked: 'This session was signed out. Sign in again to continue.',
+};
+
+function sessionFrom(c: Context, allowPartial: boolean): RequestContext {
   const bearer = c.req.header('authorization')?.replace(/^Bearer\s+/i, '');
   if (bearer && runtimeConfig.isProduction && !runtimeConfig.allowBearerAuth) {
     throw new AppError('UNAUTHENTICATED', 'Use the secure browser session to continue.');
@@ -147,9 +159,43 @@ export const authenticate: MiddlewareHandler = async (c, next) => {
   const raw = bearer ?? cookie;
   if (!raw) throw new AppError('UNAUTHENTICATED', 'Sign in to continue.');
 
-  const ctx = resolveSession(raw);
-  if (!ctx) throw new AppError('UNAUTHENTICATED', 'Your session has ended. Sign in again.');
+  const resolution = resolveSessionToken(raw);
+  if (resolution.status === 'ended') {
+    throw new AppError('UNAUTHENTICATED', SESSION_ENDED_MESSAGE[resolution.reason] ?? 'Your session has ended. Sign in again.', {
+      details: { reason: resolution.reason },
+    });
+  }
+  if (resolution.status === 'unknown') throw new AppError('UNAUTHENTICATED', 'Your session has ended. Sign in again.');
+  if (resolution.status === 'partial' && !allowPartial) {
+    throw new AppError(
+      'MFA_REQUIRED',
+      resolution.ctx.mfaState === 'enrol'
+        ? 'Set up two-step sign-in to continue.'
+        : 'Enter the code from your authenticator app to continue.',
+      { details: { state: resolution.ctx.mfaState } },
+    );
+  }
+  const ctx = resolution.ctx;
   ctx.authMethod = bearer ? 'bearer' : 'cookie';
+  if (resolution.status === 'active' && !['GET', 'HEAD', 'OPTIONS'].includes(c.req.method) && !BACKGROUND_WRITES.has(c.req.path)) {
+    markActivity(ctx.sessionId, ctx.lastActiveAt);
+  }
+  return ctx;
+}
+
+/**
+ * Only the MFA routes and sign-out use this: it also accepts a session that
+ * has proved a password but still owes a TOTP code or an enrolment.
+ */
+export const authenticatePartial: MiddlewareHandler = async (c, next) => {
+  const ctx = sessionFrom(c, true);
+  ctx.requestId = c.get('requestId') ?? ctx.requestId;
+  c.set('ctx', ctx);
+  await next();
+};
+
+export const authenticate: MiddlewareHandler = async (c, next) => {
+  const ctx = sessionFrom(c, false);
 
   // The branch switcher, and the only thing that narrows a request.
   //

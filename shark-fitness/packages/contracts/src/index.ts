@@ -17,3 +17,4 @@ export * from './schemas/platform.js';
 export * from './schemas/member-operations.js';
 export * from './schemas/credit-account.js';
 export * from './schemas/client-errors.js';
+export * from './schemas/security.js';

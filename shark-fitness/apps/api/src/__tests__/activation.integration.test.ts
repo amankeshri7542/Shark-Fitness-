@@ -4,13 +4,15 @@ import { app } from '../app.js';
 import { db, schema } from '../db/client.js';
 import { id } from '../lib/ids.js';
 import { bootstrapGym } from '../db/bootstrap.js';
+import { signInRequest } from './helpers/mfa.js';
 
 const origin = 'http://localhost:5173';
 async function post(path: string, body: unknown, headers: Record<string, string> = {}) {
   return app.request(`/v1${path}`, { method: 'POST', headers: { origin, 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
 }
 async function login(email: string, password = 'shark1234', tenantSlug = 'shark') {
-  const response = await post('/auth/password', { tenantSlug, email, password });
+  // Owners must use MFA: the helper completes the enrolment or challenge.
+  const response = await signInRequest({ method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify({ tenantSlug, email, password }) });
   expect(response.status).toBe(200);
   const { csrfToken } = await response.json() as { csrfToken: string };
   const raw = response.headers.get('set-cookie')!.match(/shark_session=([^;,]+)/)![1];

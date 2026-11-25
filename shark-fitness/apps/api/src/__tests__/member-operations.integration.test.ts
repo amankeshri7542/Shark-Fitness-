@@ -8,12 +8,13 @@ import { resolveSession } from '../services/auth.js';
 import { enrollMember } from '../services/member-enrollment.js';
 import { parseRosterCsv } from '../services/roster-import.js';
 import { now } from '../lib/time.js';
+import { signInRequest } from './helpers/mfa.js';
 
 const origin = 'http://localhost:5173';
 type Session = { cookie: string; csrf: string };
 let owner: Session; let reception: Session; let trainer: Session;
 async function login(email: string, password = 'shark1234') {
-  const res = await app.request('/v1/auth/password', { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify({ tenantSlug: 'shark', email, password }) });
+  const res = await signInRequest( { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify({ tenantSlug: 'shark', email, password }) });
   expect(res.status).toBe(200);
   const body = await res.json() as { csrfToken: string }; const token = res.headers.get('set-cookie')!.match(/shark_session=([^;,]+)/)![1]!;
   return { cookie: `shark_session=${token}; shark_csrf=${body.csrfToken}`, csrf: body.csrfToken };

@@ -1,5 +1,11 @@
 import { Hono } from 'hono';
-import { EntitlementsInput, ImpersonateInput, TenantStatusInput } from '@shark/contracts';
+import { and, eq } from 'drizzle-orm';
+import { EntitlementsInput, ImpersonateInput, MfaResetInput, TenantStatusInput } from '@shark/contracts';
+import { IMPERSONATION_MINUTES } from '@shark/domain';
+import { db, schema } from '../db/client.js';
+import { notFound } from '../lib/errors.js';
+import { freshAuth } from '../lib/step-up.js';
+import { resetMfaFor } from '../services/mfa.js';
 import { setBrowserSession } from './auth.js';
 import { clientIp, ctxOf, platformOnly } from '../middleware/index.js';
 import { validate } from '../middleware/validate.js';
@@ -61,7 +67,7 @@ platformRoutes.get('/health', platformOnly('platform.admin'), (c) => c.json(plat
  * same way. Coming back out is a fresh sign-in, which costs the operator ten
  * seconds and removes a whole class of ambiguity.
  */
-platformRoutes.post('/impersonate', platformOnly('platform.impersonate'), validate('json', ImpersonateInput), (c) => {
+platformRoutes.post('/impersonate', platformOnly('platform.impersonate'), freshAuth('platform.impersonate'), validate('json', ImpersonateInput), (c) => {
   const ctx = ctxOf(c);
   const requestIp = clientIp(c);
   const { session, token } = startImpersonation(
@@ -73,9 +79,34 @@ platformRoutes.post('/impersonate', platformOnly('platform.impersonate'), valida
   // Same flags as an ordinary sign-in, including a fresh CSRF token: the
   // borrowed session has to be able to write, and reusing the operator's token
   // against a different cookie would fail the double-submit check.
-  const csrfToken = setBrowserSession(c, token);
+  const csrfToken = setBrowserSession(c, token, IMPERSONATION_MINUTES * 60_000);
   return c.json({ session, csrfToken });
 });
+
+/**
+ * Platform-support reset of a person's two-step sign-in (ADR-004). This is
+ * the *only* way an owner who lost their phone gets back in: an owner cannot
+ * reset their own factor, and nobody inside the gym outranks them. Support
+ * records why (the identity check they performed) and the entry lands in the
+ * gym's own audit log.
+ */
+platformRoutes.post(
+  '/tenants/:tenantId/users/:userId/mfa/reset',
+  platformOnly('platform.impersonate'),
+  freshAuth('platform.mfa_reset'),
+  validate('json', MfaResetInput),
+  (c) => {
+    const ctx = ctxOf(c);
+    const target = db
+      .select()
+      .from(schema.users)
+      .where(and(eq(schema.users.id, c.req.param('userId')), eq(schema.users.tenantId, c.req.param('tenantId'))))
+      .get();
+    if (!target || target.role === 'member') throw notFound('That staff account');
+    resetMfaFor(ctx, target, c.req.valid('json').reason, 'platform_support');
+    return c.json({ ok: true });
+  },
+);
 
 /**
  * Ends the caller's own support session.

@@ -6,6 +6,7 @@ import { id } from '../lib/ids.js';
 import { addDays, isoDate, localClockOnDay, now } from '../lib/time.js';
 import { NO_PROVIDER, resolvePaymentProvider, submitRetry } from '../lib/payment-provider.js';
 import { dunningForInvoice, openDunning, runDueDunning, stopDunning } from '../services/dunning.js';
+import { signInRequest } from './helpers/mfa.js';
 
 /* ============================================================================
    Dunning (PF-BILL-005).
@@ -29,7 +30,7 @@ const cache = new Map<string, Session>();
 async function signIn(email: string): Promise<Session> {
   const cached = cache.get(email);
   if (cached) return cached;
-  const response = await app.request('/v1/auth/password', {
+  const response = await signInRequest( {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin: 'http://localhost:5173' },
     body: JSON.stringify({ tenantSlug: 'shark', email, password: 'shark1234' }),

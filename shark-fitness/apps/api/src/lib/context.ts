@@ -1,4 +1,4 @@
-import type { Role } from '@shark/contracts';
+import type { MfaState, Role } from '@shark/contracts';
 import { can, type Permission } from '@shark/domain';
 import { forbidden } from './errors.js';
 
@@ -35,6 +35,12 @@ export interface RequestContext {
   ip: string;
   userAgent: string;
   impersonatorId: string | null;
+  /** Session MFA standing; absent on reader (door) contexts. */
+  mfaState?: MfaState;
+  /** Last password (+ TOTP) proof, for step-up (`requireFreshAuth`). */
+  reauthenticatedAt?: number | null;
+  /** Last user activity, for the staff idle timeout. */
+  lastActiveAt?: number;
 }
 
 export function requirePermission(ctx: RequestContext, permission: Permission): void {

@@ -1,19 +1,36 @@
 import { and, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
-import type { Role, Viewer } from '@shark/contracts';
+import { STAFF_IDLE_TIMEOUT_MINUTES, type MfaState, type Role, type SessionEndReason, type SessionTiming, type Viewer } from '@shark/contracts';
 import { TENANT_STATUSES, containImpersonatedPermissions, permissionsFor, type TenantStatus } from '@shark/domain';
 import { db, schema } from '../db/client.js';
 import { runtimeConfig } from '../lib/config.js';
 import { hashPassword, hashToken, verifyPassword } from '../lib/crypto.js';
 import { id, initialsOf, normalizeEmail, normalizePhone, otpCode, token } from '../lib/ids.js';
-import { DAY, MINUTE, now } from '../lib/time.js';
+import { DAY, HOUR, MINUTE, now } from '../lib/time.js';
 import { AppError, invalid, rateLimited, unauthenticated } from '../lib/errors.js';
 import type { RequestContext } from '../lib/context.js';
 import { takeDestinationSend, takeIpSend } from '../lib/otp-limits.js';
 import { deliveryFailed, otpSenders, toE164, type OtpChannel } from './otp-delivery.js';
+import { signInMfaState } from './mfa.js';
 
 const OTP_TTL = 10 * MINUTE;
 const OTP_MAX_ATTEMPTS = 5;
-const SESSION_TTL = 30 * DAY;
+
+/* — Session policy (PRD 02 "Identity rules", PRD 04 §10.1) ——————————————
+
+   Members: 30 days, sliding — every use pushes the end out again, so a phone
+   that opens the app weekly never signs its owner out.
+
+   Staff: 12 hours from sign-in, absolute, plus an idle timeout the gym sets
+   (15–240 minutes, default 30). Idle means no *person* at the keyboard: only
+   writes and the console's activity heartbeat move `lastActiveAt`, so a
+   dashboard left polling on a desk still times out.
+
+   Partial sessions (password accepted, MFA still owed) last 15 minutes. */
+export const MEMBER_SESSION_TTL = 30 * DAY;
+export const STAFF_SESSION_TTL = 12 * HOUR;
+export const PARTIAL_SESSION_TTL = 15 * MINUTE;
+/** How often activity is written back. Idle precision is this, not a minute. */
+const ACTIVITY_WRITE_INTERVAL = 15_000;
 
 function maskIdentifier(value: string): string {
   if (value.includes('@')) {
@@ -284,7 +301,7 @@ export function verifyOtp(args: { challengeId: string; code: string; ip: string;
       .run();
   }
 
-  return createSession(user.id, user.tenantId, args.ip, args.userAgent);
+  return signInSession(user, args.ip, args.userAgent);
 }
 
 export function signInWithPassword(args: {
@@ -315,7 +332,21 @@ export function signInWithPassword(args: {
     throw new AppError('UNAUTHENTICATED', 'That email and password do not match.');
   }
 
-  return createSession(user.id, user.tenantId, args.ip, args.userAgent);
+  return signInSession(user, args.ip, args.userAgent);
+}
+
+/**
+ * A session for someone who has just proved their first factor. Staff who
+ * hold an authenticator get a `challenge` session, staff who must enrol get
+ * an `enrol` session; neither reaches anything but the MFA routes until the
+ * second step is done (`completeMfa`).
+ */
+export function signInSession(
+  user: { id: string; tenantId: string; role: string },
+  ip: string,
+  userAgent: string,
+) {
+  return createSession(user.id, user.tenantId, ip, userAgent, undefined, signInMfaState(user));
 }
 
 export function createSession(
@@ -324,9 +355,10 @@ export function createSession(
   ip: string,
   userAgent: string,
   impersonatorId?: string,
+  mfaState: MfaState = impersonatorId ? 'verified' : 'none',
 ) {
   const account = db
-    .select({ accountState: schema.users.accountState, deletedAt: schema.users.deletedAt })
+    .select({ accountState: schema.users.accountState, deletedAt: schema.users.deletedAt, role: schema.users.role })
     .from(schema.users)
     .where(and(eq(schema.users.id, userId), eq(schema.users.tenantId, tenantId)))
     .get();
@@ -335,6 +367,8 @@ export function createSession(
 
   const raw = token();
   const sessionId = id('ses');
+  const at = now();
+  const partial = mfaState === 'challenge' || mfaState === 'enrol';
   db.insert(schema.sessions)
     .values({
       id: sessionId,
@@ -343,15 +377,96 @@ export function createSession(
       tokenHash: hashToken(raw),
       ip,
       userAgent,
-      createdAt: now(),
-      lastSeenAt: now(),
-      expiresAt: now() + SESSION_TTL,
+      createdAt: at,
+      lastSeenAt: at,
+      lastActiveAt: at,
+      expiresAt: at + (partial ? PARTIAL_SESSION_TTL : account!.role === 'member' ? MEMBER_SESSION_TTL : STAFF_SESSION_TTL),
       revokedAt: null,
       impersonatorId: impersonatorId ?? null,
-      impersonationExpiresAt: impersonatorId ? now() + 60 * MINUTE : null,
+      impersonationExpiresAt: impersonatorId ? at + 60 * MINUTE : null,
+      mfaState,
+      // The first factor was just proved. A partial session cannot use this
+      // until it is complete, and completing it refreshes the time anyway.
+      reauthenticatedAt: at,
     })
     .run();
-  return { sessionId, token: raw, viewer: viewerFor(userId) };
+  return { sessionId, token: raw, viewer: viewerFor(userId), mfaState };
+}
+
+/**
+ * Turns a partial session into a full one after the second step. The token
+ * is replaced, so a cookie captured before MFA was completed is worthless.
+ */
+export function completeMfa(sessionId: string): string {
+  const session = db.select().from(schema.sessions).where(eq(schema.sessions.id, sessionId)).get();
+  if (!session) throw unauthenticated();
+  const raw = token();
+  const at = now();
+  db.update(schema.sessions)
+    .set({
+      tokenHash: hashToken(raw),
+      mfaState: 'verified',
+      reauthenticatedAt: at,
+      lastActiveAt: at,
+      lastSeenAt: at,
+      expiresAt: at + STAFF_SESSION_TTL,
+    })
+    .where(eq(schema.sessions.id, sessionId))
+    .run();
+  return raw;
+}
+
+/** Records a successful password (+ TOTP) re-check for step-up. */
+export function markReauthenticated(sessionId: string): void {
+  const at = now();
+  db.update(schema.sessions).set({ reauthenticatedAt: at, lastActiveAt: at }).where(eq(schema.sessions.id, sessionId)).run();
+}
+
+/** The gym's staff idle timeout, clamped to the allowed range. */
+export function staffIdleTimeoutMs(tenantId: string): number {
+  const policy = (db.select({ policy: schema.tenants.policy }).from(schema.tenants).where(eq(schema.tenants.id, tenantId)).get()?.policy ?? {}) as Record<string, unknown>;
+  const minutes = Number(policy.staffIdleTimeoutMinutes);
+  const valid = Number.isInteger(minutes) && minutes >= STAFF_IDLE_TIMEOUT_MINUTES.min && minutes <= STAFF_IDLE_TIMEOUT_MINUTES.max;
+  return (valid ? minutes : STAFF_IDLE_TIMEOUT_MINUTES.default) * MINUTE;
+}
+
+type SessionRow = typeof schema.sessions.$inferSelect;
+
+/** Why this session no longer works, or null while it does. */
+function endedReason(session: SessionRow, role: string | undefined, at: number): SessionEndReason | null {
+  if (session.revokedAt) return 'revoked';
+  if (session.expiresAt < at) return 'expired';
+  if (session.impersonationExpiresAt && session.impersonationExpiresAt < at) return 'expired';
+  const partial = session.mfaState === 'challenge' || session.mfaState === 'enrol';
+  if (role && role !== 'member' && !partial) {
+    const lastActive = session.lastActiveAt ?? session.lastSeenAt;
+    if (lastActive + staffIdleTimeoutMs(session.tenantId) < at) return 'idle';
+  }
+  return null;
+}
+
+export function sessionTiming(sessionId: string): SessionTiming | null {
+  const session = db.select().from(schema.sessions).where(eq(schema.sessions.id, sessionId)).get();
+  if (!session) return null;
+  const user = db.select({ role: schema.users.role }).from(schema.users).where(eq(schema.users.id, session.userId)).get();
+  const staff = user?.role !== 'member';
+  const lastActive = session.lastActiveAt ?? session.lastSeenAt;
+  const idleMs = staff ? staffIdleTimeoutMs(session.tenantId) : null;
+  const ends = Math.min(session.expiresAt, session.impersonationExpiresAt ?? Number.POSITIVE_INFINITY);
+  return {
+    kind: staff ? 'staff' : 'member',
+    idleTimeoutSec: idleMs === null ? null : Math.round(idleMs / 1000),
+    idleExpiresAt: idleMs === null ? null : new Date(Math.min(lastActive + idleMs, ends)).toISOString(),
+    expiresAt: new Date(ends).toISOString(),
+    lastActiveAt: new Date(lastActive).toISOString(),
+  };
+}
+
+/** A person did something. Background reads never call this. */
+export function markActivity(sessionId: string, lastActiveAt: number | null | undefined): void {
+  const at = now();
+  if (lastActiveAt && at - lastActiveAt < ACTIVITY_WRITE_INTERVAL) return;
+  db.update(schema.sessions).set({ lastActiveAt: at }).where(eq(schema.sessions.id, sessionId)).run();
 }
 
 export function revokeSession(sessionId: string): void {
@@ -379,32 +494,53 @@ export function revokeAccountChallenges(user: { id: string; tenantId: string; em
   db.update(schema.accountRecoveries).set({ consumedAt: at }).where(and(eq(schema.accountRecoveries.tenantId, user.tenantId), eq(schema.accountRecoveries.userId, user.id), isNull(schema.accountRecoveries.consumedAt))).run();
 }
 
+export type SessionResolution =
+  | { status: 'active'; ctx: RequestContext }
+  /** Password proved, MFA still owed. Only the MFA routes accept it. */
+  | { status: 'partial'; ctx: RequestContext }
+  | { status: 'ended'; reason: SessionEndReason }
+  | { status: 'unknown' };
+
+/** A *full* session's context, or null. Partial sessions resolve to null here. */
 export function resolveSession(rawToken: string): RequestContext | null {
+  const resolution = resolveSessionToken(rawToken);
+  return resolution.status === 'active' ? resolution.ctx : null;
+}
+
+export function resolveSessionToken(rawToken: string): SessionResolution {
   const session = db
     .select()
     .from(schema.sessions)
     .where(eq(schema.sessions.tokenHash, hashToken(rawToken)))
     .get();
-
-  return session ? resolveSessionById(session.id) : null;
+  return session ? resolveSessionRow(session) : { status: 'unknown' };
 }
 
+/** A full session's context by id, or null (realtime and tickets use this). */
 export function resolveSessionById(sessionId: string): RequestContext | null {
   const session = db.select().from(schema.sessions).where(eq(schema.sessions.id, sessionId)).get();
+  if (!session) return null;
+  const resolution = resolveSessionRow(session);
+  return resolution.status === 'active' ? resolution.ctx : null;
+}
 
-  if (!session || session.revokedAt || session.expiresAt < now()) return null;
-  if (session.impersonationExpiresAt && session.impersonationExpiresAt < now()) return null;
-
+function resolveSessionRow(session: SessionRow): SessionResolution {
+  const at = now();
   const user = db
     .select()
     .from(schema.users)
     .where(and(eq(schema.users.id, session.userId), eq(schema.users.tenantId, session.tenantId)))
     .get();
-  if (!user || !isAuthenticatableAccount(user)) return null;
-  if (!isOperationalTenant(tenantAccess(session.tenantId))) return null;
+  const ended = endedReason(session, user?.role, at);
+  if (ended) return { status: 'ended', reason: ended };
+  if (!user || !isAuthenticatableAccount(user)) return { status: 'unknown' };
+  if (!isOperationalTenant(tenantAccess(session.tenantId))) return { status: 'unknown' };
 
-  if (now() - session.lastSeenAt > MINUTE) {
-    db.update(schema.sessions).set({ lastSeenAt: now() }).where(eq(schema.sessions.id, session.id)).run();
+  if (at - session.lastSeenAt > MINUTE) {
+    db.update(schema.sessions)
+      .set({ lastSeenAt: at, ...(user.role === 'member' ? { expiresAt: at + MEMBER_SESSION_TTL } : {}) })
+      .where(eq(schema.sessions.id, session.id))
+      .run();
   }
 
   const member = db
@@ -437,7 +573,7 @@ export function resolveSessionById(sessionId: string): RequestContext | null {
           .all()
           .map((r) => r.id);
 
-  return {
+  const ctx: RequestContext = {
     requestId: id('req'),
     sessionId: session.id,
     authMethod: 'cookie',
@@ -468,7 +604,12 @@ export function resolveSessionById(sessionId: string): RequestContext | null {
     ip: session.ip,
     userAgent: session.userAgent,
     impersonatorId: session.impersonatorId,
+    mfaState: session.mfaState as MfaState,
+    reauthenticatedAt: session.reauthenticatedAt,
+    lastActiveAt: session.lastActiveAt ?? session.lastSeenAt,
   };
+  const partial = session.mfaState === 'challenge' || session.mfaState === 'enrol';
+  return { status: partial ? 'partial' : 'active', ctx };
 }
 
 export function viewerFor(userId: string): Viewer {
@@ -531,18 +672,65 @@ export function viewerFor(userId: string): Viewer {
   };
 }
 
+/** "Chrome on Windows". A label for people, never an input to a decision. */
+export function deviceLabel(userAgent: string): string {
+  const ua = userAgent || '';
+  const browser = /Edg\//.test(ua)
+    ? 'Edge'
+    : /OPR\/|Opera/.test(ua)
+      ? 'Opera'
+      : /Firefox\//.test(ua)
+        ? 'Firefox'
+        : /Chrome\//.test(ua)
+          ? 'Chrome'
+          : /Safari\//.test(ua)
+            ? 'Safari'
+            : null;
+  const os = /Android/.test(ua)
+    ? 'Android'
+    : /iPhone|iPad|iPod/.test(ua)
+      ? 'iOS'
+      : /Windows/.test(ua)
+        ? 'Windows'
+        : /Mac OS X|Macintosh/.test(ua)
+          ? 'macOS'
+          : /Linux/.test(ua)
+            ? 'Linux'
+            : null;
+  if (browser && os) return `${browser} on ${os}`;
+  return browser ?? os ?? 'Unknown device';
+}
+
+/** Live, complete sessions only: an ended or half-finished sign-in is not a device. */
 export function listSessions(userId: string, currentSessionId: string) {
+  const at = now();
+  const role = db.select({ role: schema.users.role }).from(schema.users).where(eq(schema.users.id, userId)).get()?.role;
   return db
     .select()
     .from(schema.sessions)
     .where(and(eq(schema.sessions.userId, userId), isNull(schema.sessions.revokedAt)))
     .all()
+    .filter((s) => endedReason(s, role, at) === null && s.mfaState !== 'challenge' && s.mfaState !== 'enrol')
+    .sort((a, b) => (b.lastActiveAt ?? b.lastSeenAt) - (a.lastActiveAt ?? a.lastSeenAt))
     .map((s) => ({
       id: s.id,
       createdAt: new Date(s.createdAt).toISOString(),
       lastSeenAt: new Date(s.lastSeenAt).toISOString(),
+      lastActiveAt: new Date(s.lastActiveAt ?? s.lastSeenAt).toISOString(),
+      expiresAt: new Date(s.expiresAt).toISOString(),
       userAgent: s.userAgent,
+      device: deviceLabel(s.userAgent),
       ip: s.ip,
       current: s.id === currentSessionId,
     }));
+}
+
+/** "Sign out everywhere else": every other live session this person holds. */
+export function revokeOtherSessions(userId: string, tenantId: string, keepSessionId: string): number {
+  const result = db
+    .update(schema.sessions)
+    .set({ revokedAt: now() })
+    .where(and(eq(schema.sessions.userId, userId), eq(schema.sessions.tenantId, tenantId), isNull(schema.sessions.revokedAt), sql`${schema.sessions.id} <> ${keepSessionId}`))
+    .run();
+  return result.changes;
 }

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { app } from '../app.js';
+import { signInRequest } from './helpers/mfa.js';
 
 async function signInMember(): Promise<{ cookie: string; csrfToken: string }> {
-  const response = await app.request('/v1/auth/password', {
+  const response = await signInRequest( {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin: 'http://localhost:5173' },
     body: JSON.stringify({ tenantSlug: 'shark', email: 'aman@sharkfitness.in', password: 'shark1234' }),

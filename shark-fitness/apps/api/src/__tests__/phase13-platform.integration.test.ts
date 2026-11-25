@@ -4,6 +4,7 @@ import { app } from '../app.js';
 import { db, schema } from '../db/client.js';
 import { id } from '../lib/ids.js';
 import { now } from '../lib/time.js';
+import { signInRequest } from './helpers/mfa.js';
 
 /* ============================================================================
    Phase 13 — Platform administration (PF-PLAT-001…006).
@@ -25,7 +26,7 @@ interface Session {
 }
 
 async function signIn(email: string, tenantSlug = 'shark'): Promise<Session> {
-  const response = await app.request('/v1/auth/password', {
+  const response = await signInRequest( {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin: 'http://localhost:5173' },
     body: JSON.stringify({ tenantSlug, email, password: 'shark1234' }),

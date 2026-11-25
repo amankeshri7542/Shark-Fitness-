@@ -6,6 +6,7 @@ import { id } from '../lib/ids.js';
 import { DAY, now } from '../lib/time.js';
 import { createSession } from '../services/auth.js';
 import { anonymisationPlan, evaluateRetention, pseudonymFor } from '../services/privacy.js';
+import { signInRequest } from './helpers/mfa.js';
 
 /* ============================================================================
    Data-subject requests (PF-COMP).
@@ -35,7 +36,7 @@ const cache = new Map<string, Session>();
 async function signIn(email: string): Promise<Session> {
   const cached = cache.get(email);
   if (cached) return cached;
-  const response = await app.request('/v1/auth/password', {
+  const response = await signInRequest( {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin: 'http://localhost:5173' },
     body: JSON.stringify({ tenantSlug: 'shark', email, password: 'shark1234' }),

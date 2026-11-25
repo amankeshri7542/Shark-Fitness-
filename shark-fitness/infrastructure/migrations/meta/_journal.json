@@ -127,6 +127,13 @@
       "when": 1790100002000,
       "tag": "0017_invoice_tax_documents",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1795580545454,
+      "tag": "0018_staff_security",
+      "breakpoints": true
     }
   ]
 }

@@ -11,6 +11,7 @@ function productionEnv(overrides: Record<string, string | undefined> = {}): Reco
     SHARK_DB: '/var/lib/shark/shark.db',
     SHARK_PASS_SECRET: STRONG_SECRET,
     SHARK_PUBLIC_ORIGIN: 'https://fitness.example',
+    SHARK_MFA_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'),
     ...overrides,
   };
 }
@@ -176,8 +177,27 @@ describe('runtime configuration', () => {
     ['bearer authentication to stay off', { SHARK_ALLOW_BEARER_AUTH: 'true' }],
     ['HTTPS origins', { SHARK_PUBLIC_ORIGIN: 'http://fitness.example' }],
     ['an HTTPS error collector', { SHARK_ERROR_REPORTING_ENDPOINT: 'http://errors.example/v1' }],
+    ['an MFA encryption key', { SHARK_MFA_ENCRYPTION_KEY: undefined }],
   ])('requires %s in production', (_case, overrides) => {
     expect(() => parseRuntimeConfig(productionEnv(overrides))).toThrow();
+  });
+
+  it('accepts only a 32-byte base64 MFA encryption key, and never echoes it', () => {
+    const key = Buffer.alloc(32, 9).toString('base64');
+    expect(parseRuntimeConfig(productionEnv({ SHARK_MFA_ENCRYPTION_KEY: key })).mfaEncryptionKey.length).toBe(32);
+    for (const bad of [Buffer.alloc(16, 1).toString('base64'), 'not base64 at all!', Buffer.alloc(48, 2).toString('base64')]) {
+      try {
+        parseRuntimeConfig(productionEnv({ SHARK_MFA_ENCRYPTION_KEY: bad }));
+        throw new Error('expected configuration parsing to fail');
+      } catch (error) {
+        expect(String(error)).toContain('SHARK_MFA_ENCRYPTION_KEY');
+        expect(String(error)).not.toContain(bad);
+      }
+    }
+    // Development falls back to a published key that only protects local data.
+    expect(parseRuntimeConfig({}).mfaEncryptionKey.length).toBe(32);
+    expect(parseRuntimeConfig({}).cspReportOnly).toBe(false);
+    expect(parseRuntimeConfig({ SHARK_CSP_REPORT_ONLY: 'true' }).cspReportOnly).toBe(true);
   });
 
   it('does not include secret values in configuration errors', () => {

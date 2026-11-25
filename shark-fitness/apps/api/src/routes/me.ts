@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
 import { db, schema } from '../db/client.js';
 import { ctxOf } from '../middleware/index.js';
-import { listSessions, revokeSession, viewerFor } from '../services/auth.js';
+import { deviceLabel, listSessions, revokeOtherSessions, revokeSession, viewerFor } from '../services/auth.js';
 import { audit } from '../lib/audit.js';
 import { id } from '../lib/ids.js';
 import { now, relativeTime } from '../lib/time.js';
@@ -181,9 +181,24 @@ meRoutes.delete('/sessions/:id', (c) => {
     action: 'session.revoked',
     entityType: 'session',
     entityId: sessionId,
-    entityLabel: session.userAgent,
+    entityLabel: deviceLabel(session.userAgent),
   });
   return c.json({ ok: true });
+});
+
+/** "Sign out everywhere else": ends every other session, keeps this one. */
+meRoutes.post('/sessions/sign-out-others', (c) => {
+  const ctx = ctxOf(c);
+  if (ctx.impersonatorId) throw forbidden('A support session cannot sign the account holder out of their devices.');
+  const revoked = revokeOtherSessions(ctx.userId, ctx.tenantId, ctx.sessionId);
+  audit(ctx, {
+    action: 'session.revoked_all_others',
+    entityType: 'user',
+    entityId: ctx.userId,
+    entityLabel: ctx.name,
+    after: { sessionsEnded: revoked },
+  });
+  return c.json({ ok: true, revoked });
 });
 
 meRoutes.get('/notifications', (c) => {

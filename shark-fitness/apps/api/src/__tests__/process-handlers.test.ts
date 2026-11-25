@@ -55,6 +55,7 @@ const production = (overrides: Record<string, string>) => ({
   NODE_ENV: 'production',
   SHARK_DB: '/tmp/shark-process-handlers-unused.db',
   SHARK_PASS_SECRET: 'process-handler-test-secret-with-at-least-48-bytes-of-length',
+  SHARK_MFA_ENCRYPTION_KEY: Buffer.alloc(32, 5).toString('base64'),
   SHARK_PUBLIC_ORIGIN: 'http://localhost:8788',
   ...overrides,
 });
