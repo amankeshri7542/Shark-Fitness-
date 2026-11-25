@@ -9,6 +9,7 @@ import { processDueDeliveries, runDueAutomations } from '../services/automations
 import { pruneOperationalData } from '../services/maintenance.js';
 import { runWebhookDispatch } from '../services/webhooks.js';
 import { processNotificationQueue } from '../services/notifications/service.js';
+import { generateTasks } from '../services/tasks.js';
 import { expireChallengeInvitations } from '../services/engagement-admin.js';
 import { extendActiveSeries } from '../services/schedule-series.js';
 import { runDueDunning } from '../services/dunning.js';
@@ -261,6 +262,9 @@ const JOBS: Job[] = [
   /* Member notifications on push, email, SMS and WhatsApp (P07). Consent and
      quiet hours are checked again at send time inside the service. */
   { name: 'deliver-notifications', everyMs: MINUTE, run: deliverNotifications },
+  /* Turn operational alerts into named tasks (P07). Idempotent through the
+     unique generation key, so overlapping ticks cannot duplicate one. */
+  { name: 'generate-tasks', everyMs: 15 * MINUTE, run: () => safeSummary(generateTasks()) },
 ];
 
 /** The fixed job names: the only values the `job` metric label takes. */
