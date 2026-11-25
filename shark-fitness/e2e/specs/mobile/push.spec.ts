@@ -12,6 +12,26 @@ import { stubPushManager } from '../../support/push-stub';
  * comes from a stubbed PushManager and the delivery into the worker goes
  * through the DevTools protocol, carrying exactly the bytes the server sent.
  */
+/** Quiet hours (21:00–08:00 in the branch's zone by default) would hold the
+ *  push until morning, so the result would depend on the time of day. The
+ *  member's branch gets an empty quiet window for this test and its own
+ *  setting back afterwards. Quiet hours themselves are covered by the API's
+ *  push integration tests. */
+let quietHoursBranch: string | null = null;
+async function setQuietHours(branchId: string, window: { from: string; to: string } | null): Promise<void> {
+  const owner = await apiAs('owner@sharkfitness.in');
+  const response = await owner.api.patch(`/v1/admin/settings/branches/${branchId}`, {
+    headers: { 'x-csrf-token': owner.csrf },
+    data: { policy: { quietHoursFrom: window?.from ?? null, quietHoursTo: window?.to ?? null } },
+  });
+  expect(response.ok(), await response.text()).toBe(true);
+  await owner.api.dispose();
+}
+test.afterEach(async () => {
+  if (quietHoursBranch) await setQuietHours(quietHoursBranch, null);
+  quietHoursBranch = null;
+});
+
 test('switching push on, receiving a staff message, and switching it off', async ({ page, context }) => {
   await context.grantPermissions(['notifications']);
   const push = process.env.SHARK_E2E_PUSH_ORIGIN!;
@@ -32,7 +52,11 @@ test('switching push on, receiving a staff message, and switching it off', async
 
   // Staff write to the member.
   const desk = await apiAs('reception@sharkfitness.in');
-  const memberId = await page.evaluate(async () => ((await (await fetch('/v1/me')).json()) as { viewer: { memberId: string } }).viewer.memberId);
+  const { memberId, homeBranchId } = await page.evaluate(
+    async () => ((await (await fetch('/v1/me')).json()) as { viewer: { memberId: string; homeBranchId: string } }).viewer,
+  );
+  quietHoursBranch = homeBranchId;
+  await setQuietHours(homeBranchId, { from: '00:00', to: '00:00' });
   const sent = await desk.api.post('/v1/admin/members/bulk/message', {
     headers: { 'x-csrf-token': desk.csrf },
     data: { memberIds: [memberId], body: 'Your physio note about the left knee is ready.' },

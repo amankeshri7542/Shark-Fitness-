@@ -99,8 +99,19 @@ test('haptics: a desk check-in buzzes the phone only while haptics are on', asyn
     });
     expect(response.ok(), await response.text()).toBe(true);
   };
+  // The desk refuses check-ins outside the branch's opening hours, so open
+  // it around the clock for this test (restored below): the result must not
+  // depend on the time of day the suite runs.
+  const branch = ((await (await owner.api.get('/v1/admin/settings/branches/br_kor')).json()) as {
+    branch: { opensAt: string; closesAt: string; hours: unknown; holidays: string[] };
+  }).branch;
+  const patchBranch = async (data: Record<string, unknown>) => {
+    const response = await owner.api.patch('/v1/admin/settings/branches/br_kor', { headers: { 'x-csrf-token': owner.csrf }, data });
+    expect(response.ok(), await response.text()).toBe(true);
+  };
   await setAntiPassback(1);
   test.info().attach('anti-passback', { body: 'set to 1 s for this test' });
+  await patchBranch({ opensAt: '00:00', closesAt: '24:00', hours: null, holidays: [] });
   const memberId = await page.evaluate(async () => ((await (await fetch('/v1/me')).json()) as { viewer: { memberId: string } }).viewer.memberId);
   // Out of the building first, if the seeded day left the member inside.
   const current = (await (await desk.api.get('/v1/admin/attendance/current')).json()) as { items: Array<{ checkInId: string; memberId: string }> };
@@ -136,6 +147,7 @@ test('haptics: a desk check-in buzzes the phone only while haptics are on', asyn
     expect(await vibrations()).toBe(1);
   } finally {
     await setAntiPassback(null);
+    await patchBranch({ opensAt: branch.opensAt, closesAt: branch.closesAt, hours: branch.hours, holidays: branch.holidays });
     await owner.api.dispose();
     await desk.api.dispose();
   }
