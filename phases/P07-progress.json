@@ -30,7 +30,7 @@
    "id": 5,
    "text": "AC5 Coach view: trainer sees only assigned; safety check-in -> coach flag, no analytics event; opted-out excluded",
    "status": "todo",
-   "evidence": ""
+   "evidence": "API coaching.integration.test.ts 5/5 (rehan sees aman not rohit, nikhil vice versa, 404 cross; opted-out excluded + 404; safety check-in -> roster flagged, coach safety notification, no integrations-channel outbox event, note absent from outbox/audit/metric rows; reply notifies member (coaching purpose) and clears flag; template assign once 201/409/422/404). Admin Coaching.test.tsx 5/5. E2E pending."
   },
   {
    "id": 6,
