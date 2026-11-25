@@ -336,7 +336,44 @@ scheduleRoutes.get('/', validate('query', ListQuery), (c) => {
     categoryCounts.set(session.category, (categoryCounts.get(session.category) ?? 0) + 1);
   }
 
+  // Every seat being held for this member, whatever day it is on: an offer
+  // must be answerable from wherever they open Book.
+  const offers = db
+    .select({ entry: schema.waitlistEntries })
+    .from(schema.waitlistEntries)
+    .where(
+      and(
+        eq(schema.waitlistEntries.memberId, memberId),
+        eq(schema.waitlistEntries.state, 'offered'),
+        gte(schema.waitlistEntries.offerExpiresAt, atMs),
+      ),
+    )
+    .orderBy(asc(schema.waitlistEntries.offerExpiresAt))
+    .all()
+    .flatMap(({ entry }) => {
+      const session = sessionById(ctx.tenantId, entry.sessionId);
+      if (!session) return [];
+      const offerTz = session.branchId === branch.id ? tz : (db.select({ tz: schema.branches.timezone }).from(schema.branches).where(eq(schema.branches.id, session.branchId)).get()?.tz ?? tz);
+      const payingCash = session.creditsRequired > 0 && creditsHeld < session.creditsRequired && session.dropInPriceMinor !== null;
+      return [
+        {
+          waitlistId: entry.id,
+          sessionId: session.id,
+          name: session.name,
+          trainerName: session.trainerName ?? 'Coach',
+          localDate: isoDate(session.startsAt, offerTz),
+          dateLabel: new Intl.DateTimeFormat('en-GB', { timeZone: offerTz, weekday: 'long', day: 'numeric', month: 'long' }).format(session.startsAt),
+          localTime: localTime(session.startsAt, offerTz),
+          offerExpiresAt: new Date(entry.offerExpiresAt!).toISOString(),
+          creditsRequired: payingCash ? 0 : session.creditsRequired,
+          dropInPriceMinor: payingCash ? session.dropInPriceMinor : null,
+        },
+      ];
+    });
+
   return c.json({
+    serverNow: new Date(atMs).toISOString(),
+    offers,
     branch: { id: branch.id, name: branch.name, timezone: tz },
     branches: db
       .select({ id: schema.branches.id, name: schema.branches.name })
