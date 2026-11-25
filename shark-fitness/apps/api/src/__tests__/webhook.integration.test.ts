@@ -155,7 +155,8 @@ describe('delivery and signing', () => {
       { method: 'POST' },
     );
     expect(test.status).toBe(200);
-    expect(test.body.delivery).toMatchObject({ eventType: 'webhook.test', state: 'pending' });
+    // One attempt, never retried.
+    expect(test.body.delivery).toMatchObject({ eventType: 'webhook.test', state: 'failed', nextAttemptAt: null });
     expect(test.body.delivery.log[0]).toMatchObject({ statusCode: 500, responseExcerpt: 'receiver down' });
     expect(db.select().from(schema.webhookEndpoints).where(eq(schema.webhookEndpoints.id, endpointId)).get()!.consecutiveFailures).toBe(0);
   });

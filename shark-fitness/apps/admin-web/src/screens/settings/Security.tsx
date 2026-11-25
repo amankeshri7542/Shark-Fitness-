@@ -155,14 +155,12 @@ function StaffPanel() {
         <TableScroll>
           <Table label="Staff two-step sign-in status">
             <THead>
-              <TR>
-                <TH>Name</TH>
-                <TH>Role</TH>
-                <TH>Two-step sign-in</TH>
-                <TH>
-                  <span className="sr-only">Actions</span>
-                </TH>
-              </TR>
+              <TH>Name</TH>
+              <TH>Role</TH>
+              <TH>Two-step sign-in</TH>
+              <TH>
+                <span className="sr-only">Actions</span>
+              </TH>
             </THead>
             <tbody>
               {staff.data.items.map((row) => (

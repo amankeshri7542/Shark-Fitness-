@@ -205,15 +205,13 @@ function DevicesPanel() {
           <TableScroll>
             <Table label="Devices signed in as you">
               <THead>
-                <TR>
-                  <TH>Device</TH>
-                  <TH>Last active</TH>
-                  <TH>Signed in</TH>
-                  <TH>IP address</TH>
-                  <TH>
-                    <span className="sr-only">Actions</span>
-                  </TH>
-                </TR>
+                <TH>Device</TH>
+                <TH>Last active</TH>
+                <TH>Signed in</TH>
+                <TH>IP address</TH>
+                <TH>
+                  <span className="sr-only">Actions</span>
+                </TH>
               </THead>
               <tbody>
                 {sessions.data.items.map((item) => (

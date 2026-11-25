@@ -334,9 +334,20 @@ async function measure(dataset) {
       SHARK_SERVE_STATIC: 'false',
     },
     stdio: ['ignore', 'ignore', 'pipe'],
+    // Its own process group: pnpm starts tsx, which starts the server, and
+    // stopping only pnpm left the server holding stderr open, so this script
+    // printed its results and then never exited.
+    detached: true,
   });
   let logs = '';
   child.stderr.on('data', (chunk) => { logs = `${logs}${String(chunk)}`.slice(-10_000); });
+  const stop = (signal) => {
+    try {
+      process.kill(-child.pid, signal);
+    } catch {
+      // Already gone.
+    }
+  };
   try {
     for (let attempt = 0; attempt < 60; attempt += 1) {
       try {
@@ -369,12 +380,13 @@ async function measure(dataset) {
   } catch (error) {
     throw new Error(`${String(error)}\nBenchmark API logs:\n${logs}`, { cause: error });
   } finally {
-    child.kill('SIGTERM');
+    stop('SIGTERM');
     await Promise.race([
       new Promise((resolveExit) => child.once('exit', resolveExit)),
       new Promise((resolveDelay) => setTimeout(resolveDelay, 2_000)),
     ]);
-    if (child.exitCode === null) child.kill('SIGKILL');
+    stop('SIGKILL');
+    child.stderr.destroy();
   }
 }
 

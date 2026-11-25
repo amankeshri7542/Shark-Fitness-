@@ -386,7 +386,8 @@ function EndpointCard({ endpoint, onSecret }: { endpoint: WebhookEndpoint; onSec
         {testResult ? (
           <p role="status" className="text-[12px] text-foam-65">
             Test {testResult.ok ? 'delivered' : 'failed'}
-            {testResult.statusCode ? ` with ${testResult.statusCode}` : ''} in {testResult.latencyMs} ms{testResult.error ? ` — ${testResult.error}` : ''}.
+            {testResult.statusCode ? ` with ${testResult.statusCode}` : ''} in {testResult.latencyMs} ms
+            {testResult.error ? ` — ${testResult.error.replace(/\.$/, '')}` : ''}.
           </p>
         ) : null}
         {failure ? (
@@ -451,16 +452,14 @@ function DeliveryLog({ endpointId }: { endpointId: string }) {
       <TableScroll>
         <Table label="Recent deliveries">
           <THead>
-            <TR>
-              <TH>Event</TH>
-              <TH>Created</TH>
-              <TH>Status</TH>
-              <TH>Attempts</TH>
-              <TH>Last answer</TH>
-              <TH>
-                <span className="sr-only">Actions</span>
-              </TH>
-            </TR>
+            <TH>Event</TH>
+            <TH>Created</TH>
+            <TH>Status</TH>
+            <TH>Attempts</TH>
+            <TH>Last answer</TH>
+            <TH>
+              <span className="sr-only">Actions</span>
+            </TH>
           </THead>
           <tbody>
             {deliveries.data.items.map((delivery) => (
@@ -510,7 +509,9 @@ function DeliveryRow({
         </TD>
         <TD>{time(delivery.createdAt)}</TD>
         <TD>
-          <Chip tone={DELIVERY_STATE[delivery.state].tone}>{DELIVERY_STATE[delivery.state].label}</Chip>
+          <Chip tone={DELIVERY_STATE[delivery.state].tone}>
+            {delivery.test && delivery.state === 'failed' ? 'Failed' : DELIVERY_STATE[delivery.state].label}
+          </Chip>
         </TD>
         <TD>{delivery.attempts}</TD>
         <TD>{delivery.lastStatusCode ?? delivery.lastError ?? '—'}</TD>

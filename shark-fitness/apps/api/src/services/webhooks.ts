@@ -470,7 +470,8 @@ async function attempt(delivery: DeliveryRow, endpoint: EndpointRow, clock: () =
         responseExcerpt: result.responseExcerpt,
       })
       .run();
-    const nextAt = result.ok ? null : nextAttemptAfter(delivery, attemptNumber, at);
+    // A test send is one attempt, answered on the spot; it is never retried.
+    const nextAt = result.ok || delivery.test ? null : nextAttemptAfter(delivery, attemptNumber, at);
     db.update(schema.webhookDeliveries)
       .set({
         attempts: attemptNumber,
