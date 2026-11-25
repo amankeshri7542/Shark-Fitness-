@@ -30,3 +30,4 @@ Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "ph
 
 ## Blockers / waiting
 - Claude usage limit hit (latest during P03-review); new sessions paused, retrying every 30 min
+- Claude usage limit hit (latest during P06-review); new sessions paused, retrying every 30 min
