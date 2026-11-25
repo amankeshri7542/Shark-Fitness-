@@ -30,6 +30,10 @@ const received: Received[] = [];
 let answer: (req: IncomingMessage, res: ServerResponse) => void = (_req, res) => res.writeHead(200).end('ok');
 
 beforeAll(async () => {
+  // Suites share one database and run in an order vitest may change. Retire
+  // endpoints another suite left behind (step-up creates some on the demo
+  // gym), so the counts here are this suite's and nothing is sent to them.
+  db.update(schema.webhookEndpoints).set({ deletedAt: now(), state: 'paused' }).run();
   server = createServer((req, res) => {
     const chunks: Buffer[] = [];
     req.on('data', (chunk: Buffer) => chunks.push(chunk));
@@ -361,6 +365,19 @@ describe('SSRF defences', () => {
     const result = await safePost(`http://127.0.0.1:${port}/big`, '{}', {}, { production: false });
     expect(result.ok).toBe(true);
     expect(result.responseExcerpt).toHaveLength(1024);
+  });
+
+  it('stops reading once 64 KB have arrived, even if the receiver keeps sending', async () => {
+    // 80 KB now, then the body never ends: only the read cap can finish this
+    // before the 5-second timeout.
+    answer = (_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.write('y'.repeat(80 * 1024));
+    };
+    const result = await safePost(`http://127.0.0.1:${port}/endless`, '{}', {}, { production: false });
+    expect(result.ok).toBe(true);
+    expect(result.statusCode).toBe(200);
+    expect(result.latencyMs).toBeLessThan(2_000);
   });
 
   it('gives up on a receiver that does not answer within 5 seconds', async () => {

@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { and, eq, gt, inArray, sql } from 'drizzle-orm';
 import { db, schema } from '../db/client.js';
 import { resetRateLimitsForTest } from '../middleware/index.js';
@@ -17,6 +17,14 @@ import { testTotp } from './helpers/mfa.js';
 const SHARK = db.select().from(schema.tenants).where(eq(schema.tenants.slug, 'shark')).get()!;
 
 afterEach(() => vi.useRealTimers());
+// The webhook cases create endpoints on the demo gym pointing at
+// hooks.example.com. Retire them so no later suite's dispatcher tries them.
+afterAll(() => {
+  db.update(schema.webhookEndpoints)
+    .set({ deletedAt: now(), state: 'paused' })
+    .where(and(eq(schema.webhookEndpoints.tenantId, SHARK.id), sql`${schema.webhookEndpoints.url} like 'https://hooks.example.com/%'`))
+    .run();
+});
 beforeEach(() => resetRateLimitsForTest());
 
 /** A full owner session: password plus the test authenticator code. */
