@@ -5,8 +5,8 @@
   {
    "id": 1,
    "text": "Pass: real rotating QR with every state, plain-register enforcement via useCopy(surface), component tests, mobile Playwright (rotation before countdown end, offline shows member number)",
-   "status": "todo",
-   "evidence": ""
+   "status": "done",
+   "evidence": "commit 7cfff54 + e2e 6599cd4. Pass.test.tsx (every state), copy.test.ts plain-only enforcement (fails on predator), e2e member-pass @mobile: token changes before countdown ends (page clock), offline shows member number."
   },
   {
    "id": 2,
@@ -17,8 +17,8 @@
   {
    "id": 3,
    "text": "Admin Floor Scan pass (camera + keyboard-wedge/paste), override for denials, camera-denied fallback; E2E; Permissions-Policy camera=(self) only under /admin/",
-   "status": "todo",
-   "evidence": ""
+   "status": "done",
+   "evidence": "commits c931eab, 6599cd4. ScanPass.test.tsx 11/11; e2e reception-scan: typed code -> Admitted then Already checked in, camera-denied fallback focuses code box, permissions-policy camera=(self) only on /admin/ (/, /billing, /health camera=()). jsQR lazy chunk 130.68 kB / 47.46 kB gzip."
   },
   {
    "id": 4,
@@ -47,8 +47,8 @@
   {
    "id": 8,
    "text": "Freestyle workout: Log a workout from Train (also with no plan), exercise picker, same logger/outbox/PR/XP/Summary; E2E offline 2x3 sets -> exactly 6 stored once",
-   "status": "todo",
-   "evidence": ""
+   "status": "done",
+   "evidence": "commit e33c3c3 + 6599cd4. FreestylePicker.test.tsx 6/6; e2e freestyle-offline @mobile: 2x3 sets offline, reload offline (fixed offline boot), reconnect -> exactly 6 distinct sets on one workout, passes twice in a row."
   },
   {
    "id": 9,
