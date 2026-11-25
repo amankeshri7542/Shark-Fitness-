@@ -144,6 +144,20 @@ describe('sentry error reporter', () => {
     expect(error).not.toHaveBeenCalledWith(expect.stringMatching(/could not be reached/));
   });
 
+  it('keeps a separate budget for browser reports, so public /v1/client-errors traffic cannot hide server errors', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const reporter = createErrorReporter('sentry', config());
+    for (let index = 0; index < 75; index += 1) {
+      reporter.capture(new Error(`browser flood ${index}`), { source: index % 2 === 0 ? 'member' : 'admin' });
+    }
+    for (let index = 0; index < 5; index += 1) reporter.capture(new Error(`server failure ${index}`), { requestId: `req_${index}` });
+    await reporter.flush(5_000);
+
+    const events = received.map((request) => request.body.split('\n')[2]!);
+    expect(events.filter((event) => event.includes('browser flood'))).toHaveLength(60);
+    expect(events.filter((event) => event.includes('server failure'))).toHaveLength(5);
+  });
+
   it('survives an unreachable collector and a flush that times out', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const unreachable = parseRuntimeConfig({ NODE_ENV: 'test', SHARK_ERROR_DSN: 'http://key@127.0.0.1:1/1' });

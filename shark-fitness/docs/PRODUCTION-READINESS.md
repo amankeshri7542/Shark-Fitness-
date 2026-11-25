@@ -263,7 +263,9 @@ SDK, so Sentry, GlitchTip or a self-hosted collector work), `http`
 (development default) or `none` (tests, and production with nothing
 configured). Reports carry the error type, redacted message and stack frames,
 release, environment, request id, route and tenant/actor ids only, are capped
-at 60 a minute, and the boot log names the reporter. Sources:
+at 60 a minute for server errors and, separately, 60 a minute for browser
+reports (so a flood of public client-error reports cannot hide server errors),
+and the boot log names the reporter. Sources:
 
 - unexpected 5xx errors in request handlers;
 - scheduler job failures, reported once and tagged with the job;

@@ -132,27 +132,33 @@ function outboundReporter(
   build: (error: unknown, context: ErrorReportContext) => { url: string; init: RequestInit },
 ): ErrorReporter {
   const inFlight = new Set<Promise<unknown>>();
-  let windowStart = 0;
-  let sentInWindow = 0;
-  let droppedInWindow = 0;
+  // One budget per origin: browser reports arrive through the public
+  // /v1/client-errors endpoint, so a flood of them must not use up the budget
+  // that server errors, job failures and crashes need to get through.
+  const budgets = {
+    server: { windowStart: 0, sent: 0, dropped: 0 },
+    browser: { windowStart: 0, sent: 0, dropped: 0 },
+  };
 
   return {
     name,
     capture(error, context) {
+      const origin = context.source === 'admin' || context.source === 'member' ? 'browser' : 'server';
+      const budget = budgets[origin];
       const at = Date.now();
-      if (at - windowStart >= 60_000) {
-        if (droppedInWindow > 0) {
-          console.error(`[error-report] ${droppedInWindow} report(s) dropped: more than ${MAX_REPORTS_PER_MINUTE} a minute.`);
+      if (at - budget.windowStart >= 60_000) {
+        if (budget.dropped > 0) {
+          console.error(`[error-report] ${budget.dropped} ${origin} report(s) dropped: more than ${MAX_REPORTS_PER_MINUTE} a minute.`);
         }
-        windowStart = at;
-        sentInWindow = 0;
-        droppedInWindow = 0;
+        budget.windowStart = at;
+        budget.sent = 0;
+        budget.dropped = 0;
       }
-      if (sentInWindow >= MAX_REPORTS_PER_MINUTE) {
-        droppedInWindow += 1;
+      if (budget.sent >= MAX_REPORTS_PER_MINUTE) {
+        budget.dropped += 1;
         return;
       }
-      sentInWindow += 1;
+      budget.sent += 1;
 
       const { url, init } = build(error, context);
       const send = fetchFn(url, { ...init, method: 'POST', signal: AbortSignal.timeout(SEND_TIMEOUT_MS) })
