@@ -23,8 +23,8 @@
   {
    "id": 4,
    "text": "Waitlist with seat holds: 20-way last-seat race, accept-vs-expiry race, holds never exceed capacity (DB guard), capacity reduction raises alert and cancels nothing, expired-membership skip; member offer UI + admin roster",
-   "status": "in_progress",
-   "evidence": "API done (commit 96cec75): waitlist.integration.test.ts 16 tests incl. 20-way race, accept-vs-expiry x8, DB guard, capacity reduce/increase, skip. Member UI pending."
+   "status": "done",
+   "evidence": "commits 96cec75, dbe3aca. waitlist.integration.test.ts 16/16 (20-way race: 1 CONFIRMED + 19 WAITING distinct positions; accept-vs-expiry x8 one outcome; DB triggers refuse raw insert/offer; capacity 3->1 cancels nobody + overbooked_class alert; lapsed membership skipped). Book.test.tsx 7/7 (offer countdown, focus-trapped dialog, Escape, accept/decline)."
   },
   {
    "id": 5,
