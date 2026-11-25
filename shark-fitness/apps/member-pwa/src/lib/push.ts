@@ -120,6 +120,17 @@ export async function forgetPushOnSignOut(owner: string): Promise<void> {
     await disablePush(owner);
   } catch {
     writeDevice(null);
+    // Offline, or the server refused: the session may still be live on the
+    // server, so the browser subscription itself must go. The push service
+    // then answers 410 and the server deletes its copy on the next send.
+    try {
+      if (!pushSupported()) return;
+      const registration = await navigator.serviceWorker.getRegistration('/app/');
+      const subscription = await registration?.pushManager.getSubscription();
+      await subscription?.unsubscribe();
+    } catch {
+      /* nothing more this device can do */
+    }
   }
 }
 

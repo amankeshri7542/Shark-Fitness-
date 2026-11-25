@@ -102,6 +102,31 @@ describe('sign-out', () => {
   });
 });
 
+describe('sign-out without a connection', () => {
+  it('still unsubscribes this phone from push, so the next person never sees the member’s notifications', async () => {
+    const { OfflineError } = await import('../api');
+    send.mockRejectedValue(new OfflineError());
+    const unsubscribe = vi.fn(() => Promise.resolve(true));
+    const registration = { pushManager: { getSubscription: () => Promise.resolve({ unsubscribe }) } };
+    Object.defineProperty(window, 'PushManager', { value: function PushManager() {}, configurable: true });
+    Object.defineProperty(window, 'Notification', { value: { permission: 'granted' }, configurable: true });
+    Object.defineProperty(navigator, 'serviceWorker', {
+      value: { getRegistration: () => Promise.resolve(registration) },
+      configurable: true,
+    });
+    localStorage.setItem('shark.member.push-device', JSON.stringify({ owner: OWNER, id: 'psub_1', endpoint: 'https://push.example/1' }));
+    try {
+      await signOutAndWipe();
+      expect(unsubscribe).toHaveBeenCalled();
+      expect(localStorage.getItem('shark.member.push-device')).toBeNull();
+      expect(useSession.getState().status).toBe('signed-out');
+    } finally {
+      for (const key of ['PushManager', 'Notification']) delete (window as unknown as Record<string, unknown>)[key];
+      delete (navigator as unknown as Record<string, unknown>).serviceWorker;
+    }
+  });
+});
+
 describe('session ended (401)', () => {
   it('keeps the queue and returns the same person to where they were', async () => {
     window.history.replaceState(null, '', '/app/progress?range=12');
