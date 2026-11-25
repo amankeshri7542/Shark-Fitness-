@@ -11,7 +11,7 @@ Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "ph
 | Node | Title | State | Branch | Base | PR | Checks (runner-verified) | Notes |
 |---|---|---|---|---|---|---|---|
 | P01 | Finish pilot hosting (PR #27) and production readiness | done | `phase/P01-prod-readiness` | `claude/musing-wilbur-d67503` | https://github.com/amankeshri7542/Shark-Fitness-/pull/28 | typecheck:pass lint:pass test:pass build:pass e2e:pass |  |
-| P02 | Razorpay payments in test mode | reviewing | `phase/P02-payments-razorpay` | `phase/P01-prod-readiness` |  |  |  |
+| P02 | Razorpay payments in test mode | verifying | `phase/P02-payments-razorpay` | `phase/P01-prod-readiness` |  |  |  |
 | P06 | Staff security: MFA, step-up auth, sessions, CSP, outbound webhooks | implementing | `phase/P06-staff-security` | `phase/P01-prod-readiness` |  |  |  |
 | P04 | Installable member app (PWA + Android TWA) and staff console PWA | implementing | `phase/P04-member-mobile-app` | `phase/P01-prod-readiness` |  |  |  |
 | P03 | Public website, public API and lead capture | implementing | `phase/P03-public-website` | `phase/P01-prod-readiness` |  |  |  |
