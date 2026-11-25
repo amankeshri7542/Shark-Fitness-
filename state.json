@@ -33,12 +33,7 @@
       "state": "implementing",
       "base": "phase/P01-prod-readiness",
       "base_sha": "128aec1e5",
-      "running": {
-        "tag": "P04-impl",
-        "pid": 252400,
-        "started": "2026-11-25 14:20 IST",
-        "activity": "2026-11-25 20:33 IST"
-      }
+      "running": null
     },
     "P03": {
       "state": "implementing",
@@ -48,7 +43,7 @@
         "tag": "P03-impl",
         "pid": 259584,
         "started": "2026-11-25 15:23 IST",
-        "activity": "2026-11-25 20:34 IST"
+        "activity": "2026-11-25 20:35 IST"
       }
     },
     "P05": {
@@ -59,7 +54,7 @@
         "tag": "P05-impl",
         "pid": 440425,
         "started": "2026-11-25 20:33 IST",
-        "activity": "2026-11-25 20:34 IST"
+        "activity": "2026-11-25 20:35 IST"
       }
     },
     "P07": {

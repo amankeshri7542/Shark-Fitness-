@@ -1,54 +1,54 @@
 {
   "phase": "P06",
-  "status": "in_progress",
+  "status": "done",
   "items": [
     {
       "id": 1,
       "text": "MFA integration tests: gate, enrol, challenge, rate-limit + lock, recovery code once, disable needs step-up, ciphertext at rest, tenant 'require MFA for all staff' gates reception, members never challenged",
-      "status": "todo",
-      "evidence": "API part done: mfa.integration.test.ts 13/13 (gate, enrol, ciphertext, challenge+replay, lock+audit, IP limit, recovery once, disable via step-up, tenant require-all-staff, members never challenged, owner + platform resets). UI pending."
+      "status": "done",
+      "evidence": "done: mfa.integration.test.ts 13/13 (gate, enrol, ciphertext, challenge + replay refusal, lockout + audit, IP limit, recovery once, disable via step-up, tenant require-all-staff gates reception, members never challenged, owner + platform resets); admin TwoStep.test.tsx 5/5; e2e console-two-step.spec.ts green."
     },
     {
       "id": 2,
       "text": "Step-up: data-driven route test (STEP_UP_REQUIRED without fresh auth, success within 5 min) + admin component test (dialog retries with same idempotency key)",
-      "status": "todo",
-      "evidence": "API part done: step-up.integration.test.ts 25/25 data-driven over every guarded route. Admin dialog component test pending."
+      "status": "done",
+      "evidence": "done: step-up.integration.test.ts 25/25 data-driven over every guarded route (STEP_UP_REQUIRED, then 2xx within 5 min; expiry after 5 min; redacted denial audit); admin SessionGuard.test.tsx 'retries the original request with the same body and Idempotency-Key'; e2e console-step-up export."
     },
     {
       "id": 3,
       "text": "Sessions: idle + absolute expiry server-side (time mocked), member sliding; admin E2E: expired dialog returns to same URL; device list revoke -> other session 401",
-      "status": "todo",
-      "evidence": "API part done: session-policy.integration.test.ts 8/8 (idle, tenant timeout, 12 h absolute, partial expiry, member sliding, device revoke). Admin E2E pending."
+      "status": "done",
+      "evidence": "done: session-policy.integration.test.ts 8/8 (idle on user activity, tenant timeout 15-240, 12 h absolute, partial expiry, member 30-day sliding, device revoke, sign out others); e2e console-session.spec.ts: device list revokes another session -> 401 reason revoked -> 'Session expired' dialog -> returns to the same URL."
     },
     {
       "id": 4,
       "text": "CSP: per-surface header test; every E2E spec runs a securitypolicyviolation listener asserting zero violations; /v1/csp-reports",
-      "status": "todo",
-      "evidence": "API part done: csp.integration.test.ts 10/10 (per-surface headers, report intake). E2E listener pending."
+      "status": "done",
+      "evidence": "done: csp.integration.test.ts 10/10 (per-surface headers, no unsafe-*, report intake formats/limits); every e2e spec imports support/fixtures.ts (securitypolicyviolation listener, fails on any violation) \u2014 `pnpm e2e` 8/8 passed in 3 consecutive runs after the final TOTP-helper change; security-headers.spec.ts; manual screenshot pass reported violations: []."
     },
     {
       "id": 5,
       "text": "Outbound webhooks: signature, retry schedule on 500s, disable after N + alert, replay, rotation dual-sign 24 h, SSRF refusals, payload exclusions",
       "status": "done",
-      "evidence": "done: webhook.integration.test.ts 24/24 (signature, retry schedule, disable+alert, replay, rotation dual-sign, SSRF incl. DNS->private and redirect, 64 KB cap, timeout, payload exclusions). Full API suite 973/973 at d1cf135."
+      "evidence": "done: webhook.integration.test.ts 24/24 (signature with the documented recipe, retry schedule on 500s, disable after 15 + notification + audit + dashboard alert, replay same event id, rotation dual-sign 24 h, SSRF: metadata/10.x/192.168/localhost-prod/::1/IPv4-mapped/http-prod/credentials, DNS->private, redirect, 64 KB cap, 5 s timeout; payload exclusions)."
     },
     {
       "id": 6,
       "text": "Admin UI for MFA enrolment, devices and integrations with loading/empty/error/permission states + component tests",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "done: Account.test.tsx 5, Security.test.tsx 5, Integrations.test.tsx 6, TwoStep.test.tsx 5, SessionGuard.test.tsx 9 (loading, empty, error, permission/support-session states); screenshots in phases/P06-screens/ (18)."
     },
     {
       "id": 7,
       "text": "Audit entries for MFA, step-up, webhook endpoint/secret changes; secrets never in logs (redaction test)",
-      "status": "todo",
-      "evidence": "API part done: audit asserted in mfa/step-up/webhook suites; redaction.test.ts 4/4 (whsec_, otpauth, recovery codes, signatures)."
+      "status": "done",
+      "evidence": "done: audits asserted for auth.mfa_enrolled/disabled/locked/recovery_code_used/reset, auth.step_up_required/succeeded/failed, webhook.endpoint_created/secret_rotated/secret_revealed/endpoint_disabled/delivery_replayed, settings.security_updated; redaction.test.ts 4/4 (whsec_, otpauth URIs, recovery codes, signatures in logs and error reports)."
     },
     {
       "id": 8,
       "text": "Docs (SECURITY.md, ADR-004), standard gates + pnpm e2e pass, demo owners gated on first sign-in, E2E TOTP from seeded test secret documented",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "done: docs/SECURITY.md (threat model, MFA, step-up matrix, sessions, CSP, webhooks + verification snippet, key custody, tests & demo), docs/ADR-004-mfa-totp.md, README, PRODUCTION-READINESS, OPERATIONS-ALERTS, PILOT-HOSTING, .env.example. Gates: install/typecheck/lint ok; pnpm test 1618 tests (api 973/70, admin 328/43, member 40/11, domain 271/12, contracts 6/1); build ok; pnpm e2e 8/8; db:backup:verify ok; perf:baseline ok. Demo owners gated on first sign-in (CI smoke asserts mfa.state enrol); e2e TOTP from per-run seeded secret (e2e/README.md)."
     },
     {
       "id": 9,
@@ -59,8 +59,8 @@
     {
       "id": 10,
       "text": "PR description pr/P06.md written with real numbers",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "done: /workspace/shark-fitness-orchestration/pr/P06.md"
     }
   ]
 }
