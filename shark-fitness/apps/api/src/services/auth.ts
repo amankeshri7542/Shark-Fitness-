@@ -507,7 +507,8 @@ export function revokeAccountChallenges(user: { id: string; tenantId: string; em
 }
 
 export type SessionResolution =
-  | { status: 'active'; ctx: RequestContext }
+  /** `renewedUntil`: a member session just slid forward; the cookie should follow. */
+  | { status: 'active'; ctx: RequestContext; renewedUntil?: number }
   /** Password proved, MFA still owed. Only the MFA routes accept it. */
   | { status: 'partial'; ctx: RequestContext }
   | { status: 'ended'; reason: SessionEndReason }
@@ -548,9 +549,11 @@ function resolveSessionRow(session: SessionRow): SessionResolution {
   if (!user || !isAuthenticatableAccount(user)) return { status: 'unknown' };
   if (!isOperationalTenant(tenantAccess(session.tenantId))) return { status: 'unknown' };
 
+  let renewedUntil: number | undefined;
   if (at - session.lastSeenAt > MINUTE) {
+    if (user.role === 'member') renewedUntil = at + MEMBER_SESSION_TTL;
     db.update(schema.sessions)
-      .set({ lastSeenAt: at, ...(user.role === 'member' ? { expiresAt: at + MEMBER_SESSION_TTL } : {}) })
+      .set({ lastSeenAt: at, ...(renewedUntil !== undefined ? { expiresAt: renewedUntil } : {}) })
       .where(eq(schema.sessions.id, session.id))
       .run();
   }
@@ -621,7 +624,8 @@ function resolveSessionRow(session: SessionRow): SessionResolution {
     lastActiveAt: session.lastActiveAt ?? session.lastSeenAt,
   };
   const partial = session.mfaState === 'challenge' || session.mfaState === 'enrol';
-  return { status: partial ? 'partial' : 'active', ctx };
+  if (partial) return { status: 'partial', ctx };
+  return renewedUntil !== undefined ? { status: 'active', ctx, renewedUntil } : { status: 'active', ctx };
 }
 
 export function viewerFor(userId: string): Viewer {

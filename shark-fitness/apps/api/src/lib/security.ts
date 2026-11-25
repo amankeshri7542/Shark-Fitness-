@@ -7,6 +7,21 @@ import { token } from './ids.js';
 import { CSP_REPORT_PATH, cspFor, cspHeaderName, permissionsPolicyFor, surfaceForPath } from './csp.js';
 
 export const SESSION_COOKIE = 'shark_session';
+
+/**
+ * The only place the session cookie is written: sign-in (routes/auth.ts
+ * `setBrowserSession`) and a member session sliding forward (middleware).
+ * Both must carry exactly the same flags.
+ */
+export function setSessionCookie(c: Context, rawToken: string, maxAgeMs: number): void {
+  setCookie(c, SESSION_COOKIE, rawToken, {
+    httpOnly: true,
+    sameSite: 'Lax',
+    path: '/',
+    maxAge: Math.floor(maxAgeMs / 1000),
+    secure: runtimeConfig.isProduction,
+  });
+}
 export const CSRF_COOKIE = 'shark_csrf';
 
 const CONFIGURED_ORIGINS = new Set(runtimeConfig.allowedOrigins);

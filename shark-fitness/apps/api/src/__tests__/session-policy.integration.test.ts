@@ -163,6 +163,34 @@ describe('member sessions', () => {
   });
 });
 
+describe('member session cookie', () => {
+  it('moves the cookie’s own lifetime forward when the session slides, so the browser keeps it', async () => {
+    const member = new Browser();
+    const signIn = await member.request('/auth/password', { body: { tenantSlug: 'shark', email: 'aman@sharkfitness.in', password: 'shark1234' } });
+    expect(signIn.headers.get('set-cookie')).toMatch(/shark_session=[^;]+;.*Max-Age=2592000/);
+    const token = member.session;
+
+    travel(29 * DAY);
+    const renewed = await member.request('/member/home');
+    expect(renewed.status).toBe(200);
+    const cookie = renewed.headers.get('set-cookie') ?? '';
+    expect(cookie).toMatch(/Max-Age=2592000/);
+    expect(cookie).toMatch(/HttpOnly/);
+    expect(cookie).toMatch(/SameSite=Lax/);
+    // Same session, same token: only the lifetime moves.
+    expect(member.session).toBe(token);
+
+    // Within the minute nothing is rewritten.
+    expect((await member.request('/member/home')).headers.get('set-cookie')).toBeNull();
+  });
+
+  it('never extends a staff cookie', async () => {
+    const browser = await owner();
+    travel(5 * MINUTE);
+    expect((await browser.request('/auth/session/activity', { method: 'POST' })).headers.get('set-cookie')).toBeNull();
+  });
+});
+
 describe('your devices', () => {
   it('lists live sessions with a device label, and revoking one ends it with 401', async () => {
     const laptop = await owner();

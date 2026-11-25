@@ -29,7 +29,6 @@ import { loadMemberInScope } from '../services/members.js';
 import { loadStaffInScope } from '../services/staff.js';
 import { audit } from '../lib/audit.js';
 import { db, schema } from '../db/client.js';
-import { runtimeConfig } from '../lib/config.js';
 import { DAY, now } from '../lib/time.js';
 import {
   CSRF_COOKIE,
@@ -37,6 +36,7 @@ import {
   clearCsrfCookie,
   csrfTokenFrom,
   issueCsrfCookie,
+  setSessionCookie,
 } from '../lib/security.js';
 
 export const authRoutes = new Hono();
@@ -209,13 +209,7 @@ authRoutes.post(
  * `Set-Cookie` that quietly forgot `httpOnly` would be a real hole.
  */
 export function setBrowserSession(c: Parameters<typeof setCookie>[0], rawToken: string, maxAgeMs = MEMBER_SESSION_TTL): string {
-  setCookie(c, SESSION_COOKIE, rawToken, {
-    httpOnly: true,
-    sameSite: 'Lax',
-    path: '/',
-    maxAge: Math.floor(maxAgeMs / 1000),
-    secure: runtimeConfig.isProduction,
-  });
+  setSessionCookie(c, rawToken, maxAgeMs);
 
   if (getCookie(c, CSRF_COOKIE)) clearCsrfCookie(c);
   return issueCsrfCookie(c);

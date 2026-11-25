@@ -8,8 +8,8 @@ import { can } from '@shark/domain';
 import { AppError } from '../lib/errors.js';
 import { runtimeConfig } from '../lib/config.js';
 import { id } from '../lib/ids.js';
-import { SESSION_COOKIE } from '../lib/security.js';
-import { markActivity, resolveSessionToken } from '../services/auth.js';
+import { SESSION_COOKIE, setSessionCookie } from '../lib/security.js';
+import { MEMBER_SESSION_TTL, markActivity, resolveSessionToken } from '../services/auth.js';
 import { log, reportException } from '../lib/observability.js';
 import { recordHttpRequest } from '../lib/metrics.js';
 import type { RequestContext } from '../lib/context.js';
@@ -177,6 +177,12 @@ function sessionFrom(c: Context, allowPartial: boolean): RequestContext {
   }
   const ctx = resolution.ctx;
   ctx.authMethod = bearer ? 'bearer' : 'cookie';
+  // Members are on a 30-day *sliding* session: when the server extends it,
+  // the cookie's own lifetime has to move too, or the browser drops it 30
+  // days after sign-in however often the app is used.
+  if (resolution.status === 'active' && resolution.renewedUntil !== undefined && !bearer) {
+    setSessionCookie(c, raw, MEMBER_SESSION_TTL);
+  }
   if (resolution.status === 'active' && !['GET', 'HEAD', 'OPTIONS'].includes(c.req.method) && !BACKGROUND_WRITES.has(c.req.path)) {
     markActivity(ctx.sessionId, ctx.lastActiveAt);
   }
