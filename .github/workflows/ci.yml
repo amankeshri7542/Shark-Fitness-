@@ -192,6 +192,69 @@ jobs:
 
           SHARK_BASE_URL=http://localhost:8787 node scripts/admin-browser-smoke.mjs
 
+  # Playwright against the production single-origin build: a temporary,
+  # seeded SQLite database and the API serving both apps (e2e/README.md).
+  e2e:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: shark-fitness
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: shark-fitness/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Read the pinned Playwright version
+        id: playwright
+        run: echo "version=$(node -p "require('./e2e/node_modules/@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+
+      - name: Install Chromium
+        if: steps.browsers.outputs.cache-hit != 'true'
+        run: pnpm -F @shark/e2e exec playwright install --with-deps chromium
+
+      - name: Install Chromium's system libraries
+        if: steps.browsers.outputs.cache-hit == 'true'
+        run: pnpm -F @shark/e2e exec playwright install-deps chromium
+
+      - name: Build applications
+        run: pnpm build
+
+      - name: Run end-to-end tests
+        run: pnpm e2e
+
+      - name: Upload the report and traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            shark-fitness/e2e/playwright-report
+            shark-fitness/e2e/test-results
+          retention-days: 14
+
   # The Dockerfile is what Render actually deploys, and nothing used to build
   # it before it reached production. This job builds the real image and proves
   # the container serves both apps, so a broken runtime fails here instead of

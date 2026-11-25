@@ -1,4 +1,4 @@
-import { Component, useEffect, useState, type ErrorInfo, type ReactNode } from 'react';
+import { Component, useEffect, useMemo, type ErrorInfo, type ReactNode } from 'react';
 import type { ClientErrorReporter } from '@shark/contracts';
 import { clientErrors } from '../lib/error-reporting';
 import { Button, Display, Label } from './console';
@@ -17,7 +17,10 @@ export function RecoveryScreen({
   reporter?: ClientErrorReporter;
   fullPage?: boolean;
 }) {
-  const [reference] = useState(() => reporter.referenceFor(error));
+  // Keyed on the error: the router can render this screen for one error and
+  // then again for the one that finally stuck, and the reference shown must be
+  // the one that was reported.
+  const reference = useMemo(() => reporter.referenceFor(error), [error, reporter]);
   useEffect(() => {
     reporter.report(error, 'boundary');
   }, [error, reporter]);

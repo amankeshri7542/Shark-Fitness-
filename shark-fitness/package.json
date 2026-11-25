@@ -22,7 +22,9 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "lint": "eslint . --max-warnings=0",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "e2e": "pnpm -F @shark/e2e e2e",
+    "e2e:ui": "pnpm -F @shark/e2e e2e:ui"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

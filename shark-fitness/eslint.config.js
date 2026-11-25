@@ -18,6 +18,9 @@ export default tseslint.config(
       '**/coverage/**',
       '**/*.d.ts',
       'infrastructure/**',
+      // Playwright output: generated HTML reports and traces.
+      '**/playwright-report/**',
+      '**/test-results/**',
     ],
   },
 
