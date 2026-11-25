@@ -22,12 +22,7 @@
       "state": "reviewing",
       "base": "phase/P01-prod-readiness",
       "base_sha": "128aec1e5",
-      "running": {
-        "tag": "P06-review",
-        "pid": 456988,
-        "started": "2026-11-25 20:38 IST",
-        "activity": "2026-11-25 20:59 IST"
-      },
+      "running": null,
       "note": ""
     },
     "P04": {
@@ -45,7 +40,7 @@
         "tag": "P03-review",
         "pid": 458032,
         "started": "2026-11-25 20:38 IST",
-        "activity": "2026-11-25 20:58 IST"
+        "activity": "2026-11-25 21:00 IST"
       },
       "note": ""
     },
@@ -89,6 +84,7 @@
     "phase/P05-member-core-gaps": "7cfff54 at 2026-11-25 20:55 IST"
   },
   "blockers": [
-    "Claude usage limit hit (latest during P05-impl); new sessions paused, retrying every 30 min"
+    "Claude usage limit hit (latest during P05-impl); new sessions paused, retrying every 30 min",
+    "Claude usage limit hit (latest during P04-review); new sessions paused, retrying every 30 min"
   ]
 }
