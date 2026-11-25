@@ -235,6 +235,8 @@ function liveDevices(tenantId: string, userId: string, atMs: number) {
         eq(schema.sessions.userId, userId),
         isNull(schema.sessions.revokedAt),
         gt(schema.sessions.expiresAt, atMs),
+        // A support (impersonation) session is never a member's phone.
+        isNull(schema.sessions.impersonatorId),
       ),
     )
     .all();

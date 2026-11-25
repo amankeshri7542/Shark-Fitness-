@@ -7,6 +7,7 @@ import { runtimeConfig } from '../lib/config.js';
 import { addDays, isoDate, localClockOnDay, now } from '../lib/time.js';
 import { deliverDuePushes, notifyPaymentOutcome, notifyUser, quietHoursFor } from '../services/notifications.js';
 import { isAllowedPushEndpoint } from '../services/push.js';
+import { createSession } from '../services/auth.js';
 import { startFakePushService, verifyVapid, type FakePushService } from './fixtures/fake-push-service.js';
 
 /**
@@ -358,6 +359,26 @@ describe('push delivery', () => {
     } finally {
       db.update(schema.sessions).set({ revokedAt }).where(eq(schema.sessions.id, sessionId)).run();
     }
+  });
+
+  it('never lets a support (impersonation) session receive the member’s pushes', async () => {
+    const user = userByEmail('aman@sharkfitness.in');
+    const operator = userByEmail('owner@sharkfitness.in');
+    const created = createSession(user.id, user.tenantId, '127.0.0.1', 'support browser', operator.id);
+    const support = { cookie: `shark_session=${created.token}; shark_csrf=support-csrf`, csrfToken: 'support-csrf' };
+    const browser = service.browser('ok');
+    const refused = await call(support, 'POST', '/me/push-subscriptions', { endpoint: browser.endpoint, keys: browser.keys });
+    expect(refused.status).toBe(403);
+    expect(db.select().from(schema.pushSubscriptions).all()).toHaveLength(0);
+
+    // A row tied to a support session (registered before this rule) gets nothing.
+    const { id } = await subscribe(await aman());
+    db.update(schema.pushSubscriptions).set({ sessionId: created.sessionId }).where(eq(schema.pushSubscriptions.id, id)).run();
+    notifyUser(
+      { tenantId: user.tenantId, userId: user.id, kind: 'k', title: 't', body: 'b', link: '/', push: { category: 'booking', dedupeKey: 'test:support' } },
+      clockTomorrow('12:00'),
+    );
+    expect(db.select().from(schema.pushDeliveries).all()).toHaveLength(0);
   });
 
   it('pushes a staff message to the member: who wrote, never what they wrote', async () => {

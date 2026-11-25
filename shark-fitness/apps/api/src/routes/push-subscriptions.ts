@@ -6,7 +6,7 @@ import { db, schema, transact } from '../db/client.js';
 import { ctxOf } from '../middleware/index.js';
 import { audit } from '../lib/audit.js';
 import { runtimeConfig } from '../lib/config.js';
-import { invalid, notFound, precondition } from '../lib/errors.js';
+import { forbidden, invalid, notFound, precondition } from '../lib/errors.js';
 import { id } from '../lib/ids.js';
 import { now } from '../lib/time.js';
 import { endpointHash, isAllowedPushEndpoint, pushConfigured } from '../services/push.js';
@@ -73,6 +73,9 @@ pushSubscriptionRoutes.get('/', (c) => {
 pushSubscriptionRoutes.post('/', validate('json', SubscriptionInput), (c) => {
   const ctx = ctxOf(c);
   if (!pushConfigured()) throw precondition('Push notifications are not set up on this server.');
+  // Support access is for looking, not for receiving the member's private
+  // notifications on the operator's own browser.
+  if (ctx.impersonatorId) throw forbidden('Phone notifications cannot be turned on during support access.');
   const input = c.req.valid('json');
   if (!isAllowedPushEndpoint(input.endpoint)) {
     throw invalid('That push address is not from a browser push service.', [
