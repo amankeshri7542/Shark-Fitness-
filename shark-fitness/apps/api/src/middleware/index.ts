@@ -11,6 +11,7 @@ import { id } from '../lib/ids.js';
 import { SESSION_COOKIE } from '../lib/security.js';
 import { resolveSession } from '../services/auth.js';
 import { log, reportException } from '../lib/observability.js';
+import { recordHttpRequest } from '../lib/metrics.js';
 import type { RequestContext } from '../lib/context.js';
 
 declare module 'hono' {
@@ -37,9 +38,12 @@ export const logger: MiddlewareHandler = async (c, next) => {
   try {
     await next();
   } finally {
-    const durationMs = Math.round(performance.now() - started);
+    const elapsedMs = performance.now() - started;
+    const durationMs = Math.round(elapsedMs);
     const status = c.res.status;
     const requestContext = c.get('ctx') as RequestContext | undefined;
+    // The route *template*, never the path: ids must not become label values.
+    recordHttpRequest(c.req.method, c.req.routePath || 'unmatched', status, elapsedMs / 1_000);
     log(status >= 500 ? 'error' : durationMs > 400 ? 'warn' : 'info', 'http_request', {
       requestId: c.get('requestId') ?? 'unknown',
       method: c.req.method,
@@ -238,8 +242,10 @@ interface RateLimitStore {
 }
 
 export interface RateLimitOptions {
-  /** IP for public boundaries; actor/tenant require `authenticate` first. */
-  identity?: 'ip' | 'actor' | 'tenant';
+  /** IP for public boundaries; actor/tenant require `authenticate` first.
+   *  `tenant-if-signed-in` is for public routes that may carry a session: the
+   *  signed-in tenant's budget, or one shared `anonymous` budget. */
+  identity?: 'ip' | 'actor' | 'tenant' | 'tenant-if-signed-in';
   /** A stable bucket joins paths into one budget and avoids id-based bypasses. */
   bucket?: string;
   /** Override only for isolated middleware tests; runtime uses boot config. */
@@ -282,7 +288,10 @@ export function clientIp(c: Context, trustedProxyHops = runtimeConfig.trustedPro
   return clientIpFromAddresses(directAddress, c.req.header('x-forwarded-for'), trustedProxyHops);
 }
 
-function identityFor(c: Context, identity: 'ip' | 'actor' | 'tenant', trustedProxyHops: number): string {
+function identityFor(c: Context, identity: NonNullable<RateLimitOptions['identity']>, trustedProxyHops: number): string {
+  if (identity === 'tenant-if-signed-in') {
+    return (c.get('ctx') as RequestContext | undefined)?.tenantId ?? 'anonymous';
+  }
   if (identity === 'actor' || identity === 'tenant') {
     const ctx = c.get('ctx') as RequestContext | undefined;
     if (!ctx) throw new Error('Authenticated rate limiting must run after authentication.');

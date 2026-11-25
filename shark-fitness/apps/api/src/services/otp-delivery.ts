@@ -1,11 +1,14 @@
+import { parseRuntimeConfig, runtimeConfig, type OtpConfig, type RuntimeConfig } from '../lib/config.js';
 import { AppError } from '../lib/errors.js';
 
 /**
- * Delivers sign-in codes. One sender per channel, chosen from env at startup:
+ * Delivers sign-in codes. One sender per channel, chosen at startup from the
+ * validated runtime config (lib/config.ts):
  *
  *   SHARK_OTP_SMS_PROVIDER    log | msg91 | twilio   (default log)
  *   SHARK_OTP_EMAIL_PROVIDER  log | resend           (default log)
  *
+ * Config refuses to boot when a provider is chosen without its credentials.
  * The log sender prints the code only outside production, so a misconfigured
  * production deploy never leaks codes into logs.
  */
@@ -26,19 +29,12 @@ export interface OtpSender {
   send(message: OtpMessage): Promise<void>;
 }
 
-type Env = Record<string, string | undefined>;
 type FetchFn = typeof fetch;
 
 const SEND_TIMEOUT_MS = 8_000;
 
 export const otpText = (m: OtpMessage) =>
   `${m.code} is your ${m.gymName} sign-in code. It expires in ${m.expiresInMin} minutes. Never share it with anyone.`;
-
-function required(env: Env, key: string): string {
-  const value = env[key]?.trim();
-  if (!value) throw new Error(`${key} is required for the configured OTP provider.`);
-  return value;
-}
 
 async function post(fetchFn: FetchFn, provider: string, url: string, init: RequestInit): Promise<void> {
   let response: Response;
@@ -60,8 +56,8 @@ export const deliveryFailed = () =>
     retryAfterSec: 60,
   });
 
-export function logSender(env: Env = process.env): OtpSender {
-  const printCode = env.NODE_ENV !== 'production';
+export function logSender(isProduction: boolean = runtimeConfig.isProduction): OtpSender {
+  const printCode = !isProduction;
   return {
     name: 'log',
     async send(m) {
@@ -72,9 +68,8 @@ export function logSender(env: Env = process.env): OtpSender {
 }
 
 /** MSG91 OTP API (India). Needs a DLT-approved template with an ##OTP## variable. */
-export function msg91Sender(env: Env = process.env, fetchFn: FetchFn = fetch): OtpSender {
-  const authKey = required(env, 'SHARK_MSG91_AUTH_KEY');
-  const templateId = required(env, 'SHARK_MSG91_TEMPLATE_ID');
+export function msg91Sender(config: NonNullable<OtpConfig['msg91']>, fetchFn: FetchFn = fetch): OtpSender {
+  const { authKey, templateId } = config;
   return {
     name: 'msg91',
     async send(m) {
@@ -96,12 +91,9 @@ export function msg91Sender(env: Env = process.env, fetchFn: FetchFn = fetch): O
  * WhatsApp needs an approved template outside the 24h window: set
  * SHARK_TWILIO_CONTENT_SID to a template whose {{1}} is the code.
  */
-export function twilioSender(env: Env = process.env, fetchFn: FetchFn = fetch): OtpSender {
-  const sid = required(env, 'SHARK_TWILIO_ACCOUNT_SID');
-  const authToken = required(env, 'SHARK_TWILIO_AUTH_TOKEN');
-  const from = required(env, 'SHARK_TWILIO_FROM');
-  const whatsapp = env.SHARK_TWILIO_CHANNEL?.trim() === 'whatsapp';
-  const contentSid = env.SHARK_TWILIO_CONTENT_SID?.trim();
+export function twilioSender(config: NonNullable<OtpConfig['twilio']>, fetchFn: FetchFn = fetch): OtpSender {
+  const { accountSid: sid, authToken, from, contentSid } = config;
+  const whatsapp = config.channel === 'whatsapp';
   const prefix = whatsapp ? 'whatsapp:' : '';
   return {
     name: whatsapp ? 'twilio-whatsapp' : 'twilio',
@@ -125,9 +117,8 @@ export function twilioSender(env: Env = process.env, fetchFn: FetchFn = fetch): 
 }
 
 /** Resend transactional email API. */
-export function resendSender(env: Env = process.env, fetchFn: FetchFn = fetch): OtpSender {
-  const apiKey = required(env, 'SHARK_RESEND_API_KEY');
-  const from = required(env, 'SHARK_OTP_EMAIL_FROM');
+export function resendSender(config: NonNullable<OtpConfig['resend']>, fetchFn: FetchFn = fetch): OtpSender {
+  const { apiKey, from } = config;
   return {
     name: 'resend',
     async send(m) {
@@ -149,34 +140,42 @@ export interface OtpSenders {
   email: OtpSender;
 }
 
-export function sendersFromEnv(env: Env = process.env, fetchFn: FetchFn = fetch): OtpSenders {
-  const smsProvider = env.SHARK_OTP_SMS_PROVIDER?.trim() || 'log';
-  const emailProvider = env.SHARK_OTP_EMAIL_PROVIDER?.trim() || 'log';
+/** Builds the senders the validated config selects. */
+export function sendersFromConfig(
+  config: Pick<RuntimeConfig, 'otp' | 'isProduction'> = runtimeConfig,
+  fetchFn: FetchFn = fetch,
+): OtpSenders {
+  const { otp, isProduction } = config;
+  const missing = (provider: string): never => {
+    // parseRuntimeConfig refuses this combination; reaching it means a caller
+    // built an OtpConfig by hand.
+    throw new Error(`The ${provider} OTP provider is selected without its credentials.`);
+  };
 
   const sms =
-    smsProvider === 'log'
-      ? logSender(env)
-      : smsProvider === 'msg91'
-        ? msg91Sender(env, fetchFn)
-        : smsProvider === 'twilio'
-          ? twilioSender(env, fetchFn)
-          : null;
-  if (!sms) throw new Error(`Unknown SHARK_OTP_SMS_PROVIDER "${smsProvider}". Use log, msg91 or twilio.`);
-
+    otp.smsProvider === 'msg91'
+      ? msg91Sender(otp.msg91 ?? missing('msg91'), fetchFn)
+      : otp.smsProvider === 'twilio'
+        ? twilioSender(otp.twilio ?? missing('twilio'), fetchFn)
+        : logSender(isProduction);
   const email =
-    emailProvider === 'log' ? logSender(env) : emailProvider === 'resend' ? resendSender(env, fetchFn) : null;
-  if (!email) throw new Error(`Unknown SHARK_OTP_EMAIL_PROVIDER "${emailProvider}". Use log or resend.`);
+    otp.emailProvider === 'resend' ? resendSender(otp.resend ?? missing('resend'), fetchFn) : logSender(isProduction);
 
-  if (env.NODE_ENV === 'production' && (sms.name === 'log' || email.name === 'log')) {
+  if (isProduction && (sms.name === 'log' || email.name === 'log')) {
     console.warn('[otp] a log sender is active in production: members on that channel will not receive codes.');
   }
   return { sms, email };
 }
 
+/** Parses an environment record (validation included) and builds its senders. */
+export function sendersFromEnv(env: Record<string, string | undefined>, fetchFn: FetchFn = fetch): OtpSenders {
+  return sendersFromConfig(parseRuntimeConfig(env), fetchFn);
+}
+
 let active: OtpSenders | null = null;
 
 export function otpSenders(): OtpSenders {
-  active ??= sendersFromEnv();
+  active ??= sendersFromConfig();
   return active;
 }
 
@@ -186,7 +185,7 @@ export function setOtpSenders(next: OtpSenders | null): void {
 }
 
 /** Turns a stored phone ("+91 98123 45678", "9812345678") into E.164. */
-export function toE164(phone: string, defaultCountryCode = process.env.SHARK_OTP_DEFAULT_COUNTRY_CODE ?? '91'): string | null {
+export function toE164(phone: string, defaultCountryCode = runtimeConfig.otp.defaultCountryCode): string | null {
   const digits = phone.replace(/\D/g, '');
   if (phone.trim().startsWith('+')) return digits.length >= 8 ? `+${digits}` : null;
   if (digits.length === 10) return `+${defaultCountryCode}${digits}`;

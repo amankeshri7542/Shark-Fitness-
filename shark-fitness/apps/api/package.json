@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "test": "rm -rf data/test && SHARK_DB=data/test/shark.db tsx src/db/migrate.ts && SHARK_DB=data/test/shark.db tsx src/db/seed.ts && SHARK_DB=data/test/shark.db SHARK_PASS_SECRET=phase1-test-pass-secret SHARK_DEMO_READER_KEY=phase1-test-reader-secret vitest run",
     "build": "tsc --noEmit",
-    "bootstrap": "tsx src/db/bootstrap.ts"
+    "bootstrap": "tsx src/db/bootstrap.ts",
+    "db:check-drift": "node scripts/check-migration-drift.mjs"
   },
   "dependencies": {
     "@hono/node-server": "1.13.8",

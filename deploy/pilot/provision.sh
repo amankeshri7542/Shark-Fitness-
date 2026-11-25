@@ -3,7 +3,8 @@
 #
 #   Run as root:  bash provision.sh [--skip-system] <domain>
 #
-# System part: updates, Docker Engine with the Compose plugin, 2 GB of swap
+# System part: updates, Docker Engine with the Compose plugin, age and rclone
+# (encrypted off-site backups, off until configured), 2 GB of swap
 # (building the image needs more than a 1 GB server has), a firewall that lets
 # in only SSH, HTTP and HTTPS, and automatic security updates.
 # App part: the data and backup directories, the source checkout, shark.env
@@ -27,7 +28,8 @@ if [ "$skip_system" -eq 0 ]; then
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -q
   apt-get upgrade -yq
-  apt-get install -yq ca-certificates curl git openssl python3 ufw unattended-upgrades
+  # age and rclone: backup.sh's optional encrypted off-site copies.
+  apt-get install -yq age ca-certificates curl git openssl python3 rclone ufw unattended-upgrades
 
   # Docker's own apt repository, as in docs.docker.com/engine/install/ubuntu.
   if ! command -v docker >/dev/null; then

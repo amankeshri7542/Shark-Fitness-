@@ -18,6 +18,9 @@ export default tseslint.config(
       '**/coverage/**',
       '**/*.d.ts',
       'infrastructure/**',
+      // Playwright output: generated HTML reports and traces.
+      '**/playwright-report/**',
+      '**/test-results/**',
     ],
   },
 
@@ -79,6 +82,7 @@ export default tseslint.config(
       'apps/api/**/*.ts',
       'packages/**/*.ts',
       'scripts/**/*.{js,mjs}',
+      'apps/api/scripts/**/*.mjs',
       '*.config.{js,ts}',
       'apps/*/vite.config.ts',
     ],

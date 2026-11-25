@@ -7,6 +7,8 @@ import { router } from './router';
 import { useAdmin } from './lib/store';
 import { ApiError } from './lib/api';
 import { connectRealtime, disconnectRealtime } from './lib/realtime';
+import { installGlobalErrorListeners } from './lib/error-reporting';
+import { AppErrorBoundary } from './ui/ErrorBoundary';
 import './styles.css';
 
 const queryClient = new QueryClient({
@@ -64,10 +66,14 @@ function Boot() {
   return <RouterProvider router={router} />;
 }
 
+installGlobalErrorListeners();
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <Boot />
-    </QueryClientProvider>
+    <AppErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <Boot />
+      </QueryClientProvider>
+    </AppErrorBoundary>
   </StrictMode>,
 );

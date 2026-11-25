@@ -19,20 +19,21 @@ Nothing here recommends architecture for a scale this product does not have.
 | Area | State | Blocking? |
 |---|---|---|
 | Business logic and authorisation | Strong. More than 1,200 automated tests, including tenant and branch isolation from the outside | No |
-| Persistence | SQLite on one disk. Backup/restore tooling exists; external scheduling and off-host retention remain required | **Yes** |
+| Persistence | SQLite on one disk. Nightly backups, optional age-encrypted off-site copies and restore drills are scripted (`deploy/pilot/`); no server, bucket or key exists yet | **Yes** until off-site copies are configured and drilled |
 | Payments | No real provider. Cash and card are recorded, not taken | **Yes** for card |
 | Scaling | Single instance only, by design and by constraint | No, at this size |
 | Realtime | In-process WebSocket fan-out, lost on restart | No |
 | Scheduler | In-process timers, one set per instance | **Yes** if ever scaled |
-| Observability | Structured request/job logs, durable job evidence and a replaceable error-provider boundary; no metrics or alerting backend | **Yes** operationally |
-| Secrets | Canonical boot-time production validation | No |
+| Observability | Structured logs, error reporting (Sentry-protocol DSN, JSON endpoint or console) from the server, the scheduler, process crash handlers and both apps, Prometheus `/metrics`, written alert rules. No collector or alert account is configured | **Yes** until a destination is configured |
+| Secrets | Every variable the API reads is declared and validated at boot | No |
 | Rate limiting | In-memory, endpoint-sensitive IP/actor/tenant budgets | Partially |
-| Migrations | Forward-only, additive, tested | No |
+| Migrations | Forward-only, additive, tested; CI fails on schema drift | No |
 
-**Two external blockers.** A payment provider where cards are accepted, and a
-configured error-reporting/alerting destination. Backup and restore tooling is
-now in the repository and proved locally; production still needs an external
-object-storage schedule and an owner for restore drills.
+**External blockers.** A payment provider where cards are accepted; a
+configured error-reporting and alerting destination; and an off-site backup
+bucket with an age key whose private half the owner keeps. The code and scripts
+for all three are in the repository (November 2026); none has been connected to
+a real account, and no hosted restore drill has run.
 
 ---
 
@@ -65,12 +66,20 @@ rewrite. The deviation is noted in `db/client.ts`.
   filesystem the database is lost on every deploy. `render.yaml` must attach a
   persistent volume; the free tier does not.
 
-**Before production:** schedule `pnpm db:backup` on the persistent-volume host,
-copy the completed artifact to object storage, retain it independently of the
-application disk, and run a documented restore drill. The upload seam is the
-backup artifact path printed by the command; credentials are intentionally not
-part of this repository. Litestream remains a good continuous-replication
-option.
+**Scheduled and off-site (pilot host).** `deploy/pilot/backup.sh` runs nightly
+from a systemd timer and before every deploy, proves each copy restores, and,
+when `SHARK_BACKUP_OFFSITE_REMOTE` and `SHARK_BACKUP_AGE_RECIPIENT` are set,
+encrypts the copy and its manifest with `age` and uploads them with `rclone`
+to any object store. Off-site retention is pruned only after a successful
+upload; a failed upload keeps every local copy and pings healthchecks.io's
+`/fail`. `restore-drill.sh --from-offsite` downloads, decrypts, checks and
+boots a copy without touching the live app. The Pilot stack workflow runs all
+of this on a real Docker host against an rclone `local` remote.
+
+**Before production:** create the bucket and the age key, keep the private key
+off the server (PILOT-HOSTING.md "Key custody"), and run the off-site drill on
+the real host. Recovery point is one day; Litestream remains the option if
+that is too much to lose.
 
 ---
 
@@ -80,10 +89,20 @@ Run `pnpm db:backup:verify` after dependency or SQLite upgrades. To restore a
 real backup, first use a separate target and validate it; replacing an existing
 file requires both `--replace` and `--yes-replace`.
 
-Move both the `.db` artifact and its `.manifest.json` sidecar to durable
-off-host/object storage. A checksum detects corruption or accidental
-replacement; it is not an authenticity signature and does not replace storage
-access controls, versioning or retention policy.
+Both the `.db` artifact and its `.manifest.json` sidecar go off-site, each
+encrypted to the owner's age public key, so the storage provider holds only
+ciphertext and a stolen server credential cannot read old copies. A checksum
+detects corruption or accidental replacement; it is not an authenticity
+signature and does not replace storage access controls, object lock or
+versioning, which should be turned on at the bucket.
+
+**Retention.** PRD 02 requires backups to follow the same deletion and
+retention commitments as live data. An erased member stays in copies taken
+before the erasure until they age out: 14 days on the server and 30 days
+off-site by default (`SHARK_BACKUP_KEEP_DAYS`, `SHARK_BACKUP_OFFSITE_KEEP_DAYS`).
+The privacy notice must state that window, and after a full restore every
+erasure completed after the copy's timestamp is applied again before the gym
+reopens (PILOT-HOSTING.md).
 
 ---
 
@@ -230,33 +249,49 @@ part is sound.
 
 ## 9. Logging and observability
 
-**Structured request and scheduler diagnostics are present.** Every request
-emits JSON with request ID, method, normalized route, status, duration, release
-and safe tenant/branch/actor identifiers when authentication succeeded.
-Scheduler executions include the job name and durable run id. `/ready` proves
-database connectivity and the current operational schema without disclosing
-tenant data. `SHARK_ERROR_REPORTING_ENDPOINT` initializes a replaceable JSON
-collector provider at boot and remains a no-op when absent.
+**Logs.** Every request emits one JSON line with request ID, method, route
+template, status, duration, release and safe tenant/branch/actor identifiers;
+warnings over 400 ms, errors on 5xx. Scheduler runs carry the job name and a
+durable run id. Every request has an `x-request-id`, also written into
+`audit_log`. No request bodies, cookies, passwords, tokens, OTPs or contact
+fields appear in any structured record.
 
-- One line per request with method, normalized route, status and duration; warnings over
-  400ms; errors on 5xx.
-- Every request carries an `x-request-id`, and it is written into `audit_log`.
-  That is genuinely useful and is the one thread that ties a user report to a
-  server event.
-- **No metrics.** No request rate, error rate, latency percentiles, database
-  size, queue depth.
-- **No configured reporting destination in the repository.** The boundary is
-  implemented, but an operator still has to configure and monitor a real
-  collector.
-- **No alerting.** Nothing pages anybody, ever.
+**Error reporting.** `SHARK_ERROR_REPORTER` (`auto` by default) chooses
+`sentry` (`SHARK_ERROR_DSN`, the Sentry envelope protocol over `fetch` with no
+SDK, so Sentry, GlitchTip or a self-hosted collector work), `http`
+(`SHARK_ERROR_REPORTING_ENDPOINT`, e.g. a private ntfy topic), `console`
+(development default) or `none` (tests, and production with nothing
+configured). Reports carry the error type, redacted message and stack frames,
+release, environment, request id, route and tenant/actor ids only, are capped
+at 60 a minute for server errors and, separately, 60 a minute for browser
+reports (so a flood of public client-error reports cannot hide server errors),
+and the boot log names the reporter. Sources:
 
-The audit log is strong and is not a substitute: it records what people did,
-not what the system did to itself.
+- unexpected 5xx errors in request handlers;
+- scheduler job failures, reported once and tagged with the job;
+- `unhandledRejection` (logged and reported, the process keeps serving) and
+  `uncaughtException` (reported, flushed for up to 2 s, then exit 1 in
+  production so Docker restarts it; development only logs);
+- both browser apps: `error`/`unhandledrejection` listeners and a top-level
+  error boundary post to `POST /v1/client-errors` (public, known Origin only,
+  8 KB, Zod-validated, 30/min per IP and 300/min per tenant, redacted), once
+  per error fingerprint per session. The person sees a plain "Something went
+  wrong." screen with Reload and a reference that matches the report.
 
-**Before production:** ship stdout somewhere searchable, configure an error
-collector/alerting destination, and alert on 5xx rate and process/readiness
-failure. No request bodies, cookies, passwords, tokens, OTPs or contact fields
-are included in the structured records.
+**Metrics.** `GET /metrics` (Prometheus text) exists only when
+`SHARK_METRICS_TOKEN` is set, behind that bearer token: request counts by route
+template and status, a duration histogram, job runs and last success per job,
+undelivered outbox events, database size, free space on the data disk, and
+process CPU and memory. No label carries an id or personal data.
+
+**Alerting.** `docs/OPERATIONS-ALERTS.md` defines nine rules (readiness, 5xx
+rate, new errors, failing and stale jobs, missed backups, disk, memory,
+outbox) mapped to the pilot's UptimeRobot, healthchecks.io, ntfy/Sentry and
+DigitalOcean Monitoring, with Prometheus rules for when a scraper exists.
+
+**Before production:** configure an error destination and the alert accounts,
+test each channel as the alerts document describes, and ship stdout somewhere
+searchable. Nothing pages anybody until that is done.
 
 ---
 
@@ -312,8 +347,18 @@ application graph opens SQLite or registers static serving. Booleans accept
 only the exact strings `true` and `false`; ports, reader JSON and exact browser
 origins are parsed once and shared by every consumer.
 
+Every variable the API reads is declared in one Zod schema there, including
+the sign-in-code providers and their credentials, the OTP send limits, the
+error reporter, its DSN and the metrics token. A unit test fails if any file
+under `apps/api/src` reads `process.env` outside `lib/config.ts`, or if a
+declared variable is missing from `.env.example`. A provider selected without
+its credentials, an unknown provider or reporter name, a non-numeric OTP limit
+or a malformed DSN is refused in every environment.
+
 Production additionally requires an explicit database path, a pass secret of
-at least 48 bytes and at least one configured public/allowed/platform origin.
+at least 48 bytes and at least one configured public/allowed/platform origin,
+an HTTPS error DSN, and a metrics token of at least 32 characters when one is
+set.
 Origins and the optional error collector must use HTTPS except for explicit
 loopback smoke tests. OTP echo and bearer-session compatibility are refused,
 not silently enabled, in production. Operational retention/prune settings are
@@ -337,8 +382,12 @@ an error.
 
 ## 14. Migrations
 
-Fourteen migrations, forward-only, generated by drizzle-kit, checked in with
-their snapshots. Every one of them is additive, and that is enforced by reading
+Eighteen migrations (0000–0017), forward-only, generated by drizzle-kit,
+checked in with their snapshots. `drizzle.config.ts` lists all eight schema
+files, the snapshot chain reaches the latest migration, and CI runs
+`pnpm -F @shark/api db:check-drift`, which fails if `drizzle-kit generate`
+against a scratch database would write anything. A unit test keeps the config
+list equal to the schema barrel and the snapshot chain equal to the journal. Every one of them is additive, and that is enforced by reading
 the generated SQL rather than assumed: drizzle proposed a table rebuild for the
 commission change whose `INSERT…SELECT` named the new columns while reading the
 old table, which would have failed on any database with rows in it. The trigger
@@ -396,11 +445,13 @@ Worth saying plainly, because the list above is all caveats:
 
 ## Recommended order
 
-1. **Configure off-host backup transfer and alerts**, then schedule and own
-   recurring restore drills. Repository recovery mechanics are proved; local
-   artifacts alone are not backups.
-2. **Configure log shipping/error reporting and paging.** The provider boundary
-   is present; nobody is alerted until operations connects it.
+1. **Create the off-site bucket and the age key**, set the two backup
+   variables, and run `restore-drill.sh --from-offsite` on the real host; then
+   own a monthly drill. The scripts are done; local copies alone are not
+   backups.
+2. **Connect an error destination and the alert accounts**
+   (docs/OPERATIONS-ALERTS.md) and test each channel. The reporting, metrics
+   and rules exist; nobody is alerted until operations connects them.
 3. **Add a payment provider**, if the gym takes card. Recorded card payments
    are not charges.
 4. **Run the performance harness on the intended persistent disk** and retain

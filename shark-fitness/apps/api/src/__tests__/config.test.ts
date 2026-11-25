@@ -1,5 +1,7 @@
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join, relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parseRuntimeConfig } from '../lib/config.js';
+import { parseRuntimeConfig, RUNTIME_ENV_KEYS } from '../lib/config.js';
 
 const STRONG_SECRET = 'A9!production-pass-secret-with-more-than-48-bytes!';
 
@@ -203,4 +205,164 @@ describe('runtime configuration', () => {
       expect(parseRuntimeConfig(productionEnv({ SHARK_PUBLIC_ORIGIN: origin })).allowedOrigins).toContain(origin);
     },
   );
+});
+
+describe('OTP delivery configuration', () => {
+  it('defaults both channels to the log sender with the documented limits', () => {
+    const { otp } = parseRuntimeConfig({});
+    expect(otp).toMatchObject({
+      smsProvider: 'log',
+      emailProvider: 'log',
+      defaultCountryCode: '91',
+      limits: { resendCooldownMs: 30_000, perDestinationPerDay: 10, perIpPerHour: 30 },
+    });
+  });
+
+  it('treats an empty assignment as unset, as the OTP variables always have', () => {
+    expect(parseRuntimeConfig({ SHARK_OTP_SMS_PROVIDER: '', SHARK_MSG91_AUTH_KEY: '', SHARK_OTP_RESEND_COOLDOWN_SEC: '' }).otp)
+      .toMatchObject({ smsProvider: 'log', msg91: null, limits: { resendCooldownMs: 30_000 } });
+  });
+
+  it.each([
+    [{ SHARK_OTP_SMS_PROVIDER: 'msg91' }, /SHARK_MSG91_AUTH_KEY is required when SHARK_OTP_SMS_PROVIDER=msg91/],
+    [{ SHARK_OTP_SMS_PROVIDER: 'msg91', SHARK_MSG91_AUTH_KEY: 'key' }, /SHARK_MSG91_TEMPLATE_ID/],
+    [{ SHARK_OTP_SMS_PROVIDER: 'twilio', SHARK_TWILIO_ACCOUNT_SID: 'AC1' }, /SHARK_TWILIO_AUTH_TOKEN/],
+    [{ SHARK_OTP_EMAIL_PROVIDER: 'resend', SHARK_RESEND_API_KEY: 're_1' }, /SHARK_OTP_EMAIL_FROM/],
+  ])('refuses a provider selected without its credentials: %j', (environment, message) => {
+    expect(() => parseRuntimeConfig(environment)).toThrow(message);
+    expect(() => parseRuntimeConfig(productionEnv(environment))).toThrow(message);
+  });
+
+  it('refuses unknown provider and channel names', () => {
+    expect(() => parseRuntimeConfig({ SHARK_OTP_SMS_PROVIDER: 'carrier-pigeon' })).toThrow(/Unknown SHARK_OTP_SMS_PROVIDER/);
+    expect(() => parseRuntimeConfig({ SHARK_OTP_EMAIL_PROVIDER: 'msg91' })).toThrow(/Unknown SHARK_OTP_EMAIL_PROVIDER/);
+    expect(() => parseRuntimeConfig({ SHARK_TWILIO_CHANNEL: 'telegram' })).toThrow(/SHARK_TWILIO_CHANNEL/);
+    expect(() => parseRuntimeConfig({ SHARK_OTP_DEFAULT_COUNTRY_CODE: '+91' })).toThrow(/SHARK_OTP_DEFAULT_COUNTRY_CODE/);
+  });
+
+  it('builds the selected provider credentials', () => {
+    const { otp } = parseRuntimeConfig({
+      SHARK_OTP_SMS_PROVIDER: 'twilio',
+      SHARK_TWILIO_ACCOUNT_SID: 'AC1',
+      SHARK_TWILIO_AUTH_TOKEN: 'tok',
+      SHARK_TWILIO_FROM: '+15550001111',
+      SHARK_TWILIO_CHANNEL: 'whatsapp',
+      SHARK_OTP_EMAIL_PROVIDER: 'resend',
+      SHARK_RESEND_API_KEY: 're_1',
+      SHARK_OTP_EMAIL_FROM: 'Shark <no-reply@shark.in>',
+    });
+    expect(otp.twilio).toEqual({ accountSid: 'AC1', authToken: 'tok', from: '+15550001111', channel: 'whatsapp', contentSid: null });
+    expect(otp.resend).toEqual({ apiKey: 're_1', from: 'Shark <no-reply@shark.in>' });
+  });
+
+  it.each([
+    ['SHARK_OTP_RESEND_COOLDOWN_SEC', 'thirty'],
+    ['SHARK_OTP_RESEND_COOLDOWN_SEC', '0'],
+    ['SHARK_OTP_MAX_PER_DESTINATION_PER_DAY', '10.5'],
+    ['SHARK_OTP_MAX_PER_DESTINATION_PER_DAY', '-1'],
+    ['SHARK_OTP_MAX_PER_IP_PER_HOUR', 'many'],
+  ])('refuses the non-numeric or out-of-range OTP limit %s=%s', (name, value) => {
+    expect(() => parseRuntimeConfig({ [name]: value })).toThrow(new RegExp(name));
+  });
+
+  it('parses valid OTP limits into milliseconds and counts', () => {
+    expect(parseRuntimeConfig({
+      SHARK_OTP_RESEND_COOLDOWN_SEC: '45',
+      SHARK_OTP_MAX_PER_DESTINATION_PER_DAY: '5',
+      SHARK_OTP_MAX_PER_IP_PER_HOUR: '100',
+    }).otp.limits).toEqual({ resendCooldownMs: 45_000, perDestinationPerDay: 5, perIpPerHour: 100 });
+  });
+});
+
+describe('error reporting and metrics configuration', () => {
+  const DSN = 'https://abc123public@errors.example/42';
+
+  it('resolves auto to the DSN, then the endpoint, then console in development, otherwise none', () => {
+    expect(parseRuntimeConfig({ SHARK_ERROR_DSN: DSN, SHARK_ERROR_REPORTING_ENDPOINT: 'https://hook.example/x' }).errorReporter)
+      .toBe('sentry');
+    expect(parseRuntimeConfig({ SHARK_ERROR_REPORTING_ENDPOINT: 'https://hook.example/x' }).errorReporter).toBe('http');
+    expect(parseRuntimeConfig({}).errorReporter).toBe('console');
+    expect(parseRuntimeConfig({ NODE_ENV: 'test' }).errorReporter).toBe('none');
+    expect(parseRuntimeConfig(productionEnv()).errorReporter).toBe('none');
+    expect(parseRuntimeConfig({ SHARK_ERROR_REPORTER: 'none', SHARK_ERROR_DSN: DSN }).errorReporter).toBe('none');
+  });
+
+  it('refuses an unknown reporter name', () => {
+    expect(() => parseRuntimeConfig({ SHARK_ERROR_REPORTER: 'datadog' })).toThrow(/Unknown SHARK_ERROR_REPORTER/);
+    expect(() => parseRuntimeConfig({ SHARK_ERROR_REPORTER: 'Sentry' })).toThrow(/SHARK_ERROR_REPORTER/);
+  });
+
+  it('refuses an explicit reporter without what it needs', () => {
+    expect(() => parseRuntimeConfig({ SHARK_ERROR_REPORTER: 'sentry' })).toThrow(/SHARK_ERROR_DSN/);
+    expect(() => parseRuntimeConfig({ SHARK_ERROR_REPORTER: 'http' })).toThrow(/SHARK_ERROR_REPORTING_ENDPOINT/);
+  });
+
+  it('derives the envelope URL and public key from the DSN, including a path prefix', () => {
+    expect(parseRuntimeConfig({ SHARK_ERROR_DSN: DSN }).errorDsn).toMatchObject({
+      publicKey: 'abc123public',
+      envelopeUrl: 'https://errors.example/api/42/envelope/',
+    });
+    expect(parseRuntimeConfig({ SHARK_ERROR_DSN: 'https://key@glitchtip.example:8443/errors/7' }).errorDsn?.envelopeUrl)
+      .toBe('https://glitchtip.example:8443/errors/api/7/envelope/');
+  });
+
+  it.each([
+    ['not a URL', 'sentry-dsn'],
+    ['no public key', 'https://errors.example/42'],
+    ['no project id', 'https://key@errors.example/'],
+    ['a non-numeric project id', 'https://key@errors.example/project'],
+    ['a non-HTTP scheme', 'ftp://key@errors.example/42'],
+  ])('refuses a malformed DSN: %s', (_case, dsn) => {
+    expect(() => parseRuntimeConfig({ SHARK_ERROR_DSN: dsn })).toThrow(/SHARK_ERROR_DSN/);
+  });
+
+  it('refuses a non-HTTPS DSN in production but allows it in development', () => {
+    expect(() => parseRuntimeConfig(productionEnv({ SHARK_ERROR_DSN: 'http://key@errors.example/42' })))
+      .toThrow(/SHARK_ERROR_DSN must use HTTPS/);
+    expect(parseRuntimeConfig(productionEnv({ SHARK_ERROR_DSN: DSN })).errorReporter).toBe('sentry');
+    expect(parseRuntimeConfig({ SHARK_ERROR_DSN: 'http://key@127.0.0.1:9999/1' }).errorDsn?.protocol).toBe('http:');
+  });
+
+  it('keeps the DSN key out of configuration errors', () => {
+    try {
+      parseRuntimeConfig(productionEnv({ SHARK_ERROR_DSN: 'http://do-not-print-this-key@errors.example/42' }));
+      throw new Error('expected configuration parsing to fail');
+    } catch (error) {
+      expect(String(error)).not.toContain('do-not-print-this-key');
+    }
+  });
+
+  it('disables metrics without a token and refuses a short token in production', () => {
+    expect(parseRuntimeConfig({}).metricsToken).toBeNull();
+    expect(parseRuntimeConfig({ SHARK_METRICS_TOKEN: 'short-dev-token' }).metricsToken).toBe('short-dev-token');
+    expect(() => parseRuntimeConfig(productionEnv({ SHARK_METRICS_TOKEN: 'x'.repeat(31) }))).toThrow(/SHARK_METRICS_TOKEN/);
+    expect(parseRuntimeConfig(productionEnv({ SHARK_METRICS_TOKEN: 'x'.repeat(32) })).metricsToken).toBe('x'.repeat(32));
+  });
+});
+
+describe('environment variable inventory', () => {
+  const apiSource = resolve(import.meta.dirname, '..');
+
+  function sourceFiles(directory: string): string[] {
+    return readdirSync(directory).flatMap((name) => {
+      const path = join(directory, name);
+      if (statSync(path).isDirectory()) return name === '__tests__' ? [] : sourceFiles(path);
+      return /\.(ts|tsx|js|mjs)$/.test(name) && !/\.test\./.test(name) ? [path] : [];
+    });
+  }
+
+  it('reads process.env only in lib/config.ts', () => {
+    const offenders = sourceFiles(apiSource)
+      .filter((path) => relative(apiSource, path) !== join('lib', 'config.ts'))
+      .filter((path) => /process\s*\.\s*env|process\s*\[\s*['"]env['"]\s*\]/.test(readFileSync(path, 'utf8')))
+      .map((path) => relative(apiSource, path));
+    expect(offenders).toEqual([]);
+  });
+
+  it('documents every declared variable in shark-fitness/.env.example', () => {
+    const example = readFileSync(resolve(apiSource, '../../../.env.example'), 'utf8');
+    const documented = new Set([...example.matchAll(/^#?\s*([A-Z][A-Z0-9_]*)=/gm)].map((match) => match[1]));
+    expect(RUNTIME_ENV_KEYS.length).toBeGreaterThan(40);
+    expect(RUNTIME_ENV_KEYS.filter((key) => !documented.has(key))).toEqual([]);
+  });
 });

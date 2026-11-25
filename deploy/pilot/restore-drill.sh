@@ -3,11 +3,21 @@
 # running app or its database.
 #
 #   Run as root:  restore-drill.sh [--gym <code> --email <owner email>]
-#                                  [--skip-synthetic] [--keep] [backup.db]
+#                                  [--skip-synthetic] [--keep]
+#                                  [backup.db | --from-offsite <object> --age-identity <file>]
 #
 # The backup defaults to the newest nightly copy. To drill a copy that has been
 # off the server, scp it and its .manifest.json into $SHARK_HOME/drill/inbox/
 # and pass its path.
+#
+# --from-offsite drills an encrypted off-site copy that backup.sh uploaded:
+# <object> is the offsite_object= line backup.sh printed (remote:path/x.db.age),
+# or a path under SHARK_BACKUP_OFFSITE_REMOTE such as nightly/shark-<stamp>.db.
+# It downloads the copy and its manifest with rclone, decrypts both with the
+# age identity file (the private key: bring it for the drill only, keep it in
+# /run or /dev/shm, and delete it afterwards), checks the copy's SHA-256
+# against the manifest, then runs the drill below on it. The decrypted copy is
+# deleted with the drill unless --keep.
 #
 #   1. pnpm db:backup:verify (scripts/verify-backup-restore.mjs) in a scratch
 #      container: the app's full synthetic backup-and-restore proof.
@@ -22,14 +32,19 @@
 set -euo pipefail
 
 SHARK_HOME=${SHARK_HOME:-/srv/shark-fitness}
+# rclone's remote and credentials, as `sudo rclone config` wrote them. Named
+# explicitly because a systemd service may run without $HOME.
+export RCLONE_CONFIG=${RCLONE_CONFIG:-/root/.config/rclone/rclone.conf}
 image=shark-fitness:pilot
-keep=0 synthetic=1 gym="" email="" backup=""
+keep=0 synthetic=1 gym="" email="" backup="" offsite_object="" age_identity=""
 while [ $# -gt 0 ]; do
   case $1 in
     --keep) keep=1 ;;
     --skip-synthetic) synthetic=0 ;;
     --gym) gym=${2:?--gym needs a gym code}; shift ;;
     --email) email=${2:?--email needs an address}; shift ;;
+    --from-offsite) offsite_object=${2:?--from-offsite needs an object}; shift ;;
+    --age-identity) age_identity=${2:?--age-identity needs a file}; shift ;;
     -*) echo "Unknown option $1. See the top of restore-drill.sh." >&2; exit 64 ;;
     *) backup=$1 ;;
   esac
@@ -37,6 +52,48 @@ while [ $# -gt 0 ]; do
 done
 { [ -z "$gym" ] && [ -z "$email" ]; } || { [ -n "$gym" ] && [ -n "$email" ]; } \
   || { echo "--gym and --email go together." >&2; exit 64; }
+{ [ -z "$offsite_object" ] && [ -z "$age_identity" ]; } || { [ -n "$offsite_object" ] && [ -n "$age_identity" ]; } \
+  || { echo "--from-offsite and --age-identity go together." >&2; exit 64; }
+[ -z "$offsite_object" ] || [ -z "$backup" ] \
+  || { echo "Give a backup file or --from-offsite, not both." >&2; exit 64; }
+
+stamp=$(date -u +%Y%m%dT%H%M%SZ)
+download=""
+
+if [ -n "$offsite_object" ]; then
+  [ -r "$age_identity" ] || { echo "Cannot read the age identity file $age_identity." >&2; exit 1; }
+  command -v age >/dev/null && command -v rclone >/dev/null \
+    || { echo "--from-offsite needs age and rclone; provision.sh installs both." >&2; exit 1; }
+  object=${offsite_object%.age}
+  if [[ $object != *:* ]]; then
+    remote=$(sed -n 's/^SHARK_BACKUP_OFFSITE_REMOTE=//p' "$SHARK_HOME/shark.env" 2>/dev/null | tail -n 1)
+    [ -n "$remote" ] || { echo "$object is not remote:path and SHARK_BACKUP_OFFSITE_REMOTE is not set in $SHARK_HOME/shark.env." >&2; exit 1; }
+    object=${remote%/}/${object#/}
+  fi
+  object_name=$(basename "$object")
+  [[ $object_name == shark-*.db ]] || { echo "$offsite_object does not name a backup (shark-<stamp>.db.age)." >&2; exit 1; }
+
+  download=$SHARK_HOME/drill/inbox/offsite-$stamp
+  install -d -m 700 "$SHARK_HOME/drill" "$SHARK_HOME/drill/inbox" "$download"
+  # Until the drill's own cleanup takes over: never leave a half-decrypted copy.
+  trap 'rm -rf "$download"' EXIT
+  echo "0/3 Downloading and decrypting $object.age"
+  rclone copyto "$object.age" "$download/$object_name.age"
+  rclone copyto "$object.manifest.json.age" "$download/$object_name.manifest.json.age"
+  (
+    umask 077
+    age -d -i "$age_identity" -o "$download/$object_name" "$download/$object_name.age"
+    age -d -i "$age_identity" -o "$download/$object_name.manifest.json" "$download/$object_name.manifest.json.age"
+  )
+  rm -f "$download/$object_name.age" "$download/$object_name.manifest.json.age"
+  expected=$(sed -n 's/.*"sha256": "\([a-f0-9]\{64\}\)".*/\1/p' "$download/$object_name.manifest.json")
+  actual=$(sha256sum "$download/$object_name")
+  actual=${actual%% *}
+  [ -n "$expected" ] && [ "$expected" = "$actual" ] \
+    || { rm -rf "$download"; echo "The decrypted copy does not match its manifest." >&2; exit 1; }
+  echo "offsite_download=verified sha256=$actual"
+  backup=$download/$object_name
+fi
 
 if [ -z "$backup" ]; then
   backup=$(ls -1t "$SHARK_HOME"/backups/nightly/shark-*.db 2>/dev/null | head -n 1 || true)
@@ -55,14 +112,20 @@ if [ -n "$gym" ]; then
   fi
 fi
 
-stamp=$(date -u +%Y%m%dT%H%M%SZ)
 drill=$SHARK_HOME/drill/$stamp
 name=shark-drill-$stamp
 install -d -m 700 "$SHARK_HOME/drill"
 install -d -m 700 -o 1000 -g 1000 "$drill" "$drill/in"
 cleanup() {
   docker rm -f "$name" >/dev/null 2>&1 || true
-  if [ "$keep" -eq 0 ]; then rm -rf "$drill"; else echo "kept=$drill"; fi
+  if [ "$keep" -eq 0 ]; then
+    rm -rf "$drill"
+    # A decrypted off-site copy holds members' personal data: it goes too.
+    if [ -n "$download" ]; then rm -rf "$download"; fi
+  else
+    echo "kept=$drill"
+    if [ -n "$download" ]; then echo "kept=$download"; fi
+  fi
 }
 trap cleanup EXIT
 
