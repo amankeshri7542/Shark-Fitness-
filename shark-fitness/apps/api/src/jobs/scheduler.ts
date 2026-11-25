@@ -10,6 +10,7 @@ import { pruneOperationalData } from '../services/maintenance.js';
 import { expireChallengeInvitations } from '../services/engagement-admin.js';
 import { extendActiveSeries } from '../services/schedule-series.js';
 import { runDueDunning } from '../services/dunning.js';
+import { reconcilePayments } from '../services/payments/reconciliation.js';
 import { rollUpCompletedDays } from '../services/reports.js';
 import { DAY, HOUR, MINUTE, addDays, isoDate, localClockOnDay, localDayIndex, now, startOfLocalDay } from '../lib/time.js';
 import { id } from '../lib/ids.js';
@@ -222,6 +223,12 @@ function extendSeriesHorizon(): JobSummary {
   return safeSummary(result);
 }
 
+/** Ask Razorpay about payments whose webhook never came (P02). A no-op
+ *  summary when no provider is configured. */
+async function reconcileProviderPayments(): Promise<JobSummary> {
+  return safeSummary(await reconcilePayments());
+}
+
 function pruneOperationalRows(): JobSummary {
   const result = pruneOperationalData();
   const removed = Object.values(result).reduce((total, count) => total + count, 0);
@@ -246,12 +253,19 @@ const JOBS: Job[] = [
   { name: 'run-dunning', everyMs: 15 * MINUTE, run: advanceDunning },
   { name: 'extend-class-series', everyMs: 6 * HOUR, run: extendSeriesHorizon },
   { name: 'prune-operational-data', everyMs: DAY, run: pruneOperationalRows },
+  { name: 'reconcile-payments', everyMs: 6 * HOUR, run: reconcileProviderPayments },
 ];
 
 /** The fixed job names: the only values the `job` metric label takes. */
 export const SCHEDULED_JOB_NAMES: readonly string[] = JOBS.map((job) => job.name);
 
-export function executeJob(job: Job, clock: () => number = now): void {
+/**
+ * Run one job and record it in `job_runs`. Synchronous jobs finish before this
+ * returns, as they always have. A job that returns a promise (one that talks
+ * to a provider, like `reconcile-payments`) is recorded when it settles, and
+ * this returns that promise.
+ */
+export function executeJob(job: Job, clock: () => number = now): void | Promise<void> {
   const runId = id('jobr');
   const startedAt = clock();
   db.insert(schema.jobRuns)
@@ -268,8 +282,9 @@ export function executeJob(job: Job, clock: () => number = now): void {
       buildId: runtimeConfig.release,
     })
     .run();
-  try {
-    const summary = safeSummary(job.run());
+
+  const succeed = (value: unknown): void => {
+    const summary = safeSummary(value);
     const finishedAt = clock();
     db.update(schema.jobRuns)
       .set({
@@ -290,7 +305,8 @@ export function executeJob(job: Job, clock: () => number = now): void {
       durationMs: Math.max(0, finishedAt - startedAt),
       summary,
     });
-  } catch (error) {
+  };
+  const fail = (error: unknown): never => {
     const finishedAt = clock();
     const errorCategory = categoryFor(error);
     const errorMessage = safeErrorMessage(error);
@@ -315,6 +331,17 @@ export function executeJob(job: Job, clock: () => number = now): void {
       errorMessage,
     });
     throw error;
+  };
+
+  // Recording success sits inside the failure handling on purpose: if the
+  // bookkeeping itself fails, the run is marked failed rather than left
+  // "running" for ever.
+  try {
+    const result = job.run();
+    if (result instanceof Promise) return result.then(succeed).then(undefined, fail);
+    succeed(result);
+  } catch (error) {
+    fail(error);
   }
 }
 
@@ -342,12 +369,22 @@ function safeErrorMessage(error: unknown): string {
 /** One scheduled tick: run the job, and report a failure once, tagged with
  *  the job's name. executeJob has already recorded it in job_runs. */
 export function runScheduledJob(job: Job, clock: () => number = now): void {
+  // An async job still running from the previous tick is left to finish.
+  if (inFlight.has(job.name)) return;
   try {
-    executeJob(job, clock);
+    const pending = executeJob(job, clock);
+    if (pending) {
+      inFlight.add(job.name);
+      pending
+        .catch((err: unknown) => reportException(err, { job: job.name, source: 'scheduler' }))
+        .finally(() => inFlight.delete(job.name));
+    }
   } catch (err) {
     reportException(err, { job: job.name, source: 'scheduler' });
   }
 }
+
+const inFlight = new Set<string>();
 
 export function startScheduler(): void {
   if (runtimeConfig.disableJobs) {
@@ -450,9 +487,9 @@ export const jobsForTest = {
   releaseExpiredHolds,
   deliverQueuedAutomations,
   pruneOperationalRows,
-  execute: (name: string, clock?: () => number): void => {
+  execute: (name: string, clock?: () => number): void | Promise<void> => {
     const job = JOBS.find((candidate) => candidate.name === name);
     if (!job) throw new Error(`Unknown scheduled job: ${name}`);
-    executeJob(job, clock);
+    return executeJob(job, clock);
   },
 };

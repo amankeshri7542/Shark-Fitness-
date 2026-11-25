@@ -15,6 +15,8 @@ import { id } from '../../lib/ids.js';
 import { DAY, now } from '../../lib/time.js';
 import { loadInvoiceInScope } from '../../services/billing.js';
 import { dunningForInvoice } from '../../services/dunning.js';
+import { resolvePaymentProvider } from '../../lib/payment-provider.js';
+import { invoicePaymentLinks } from '../../services/payments/payment-links.js';
 
 export const billingRoutes = new Hono();
 
@@ -417,6 +419,13 @@ billingRoutes.get('/invoices/:invoiceId', (c) => {
   const paymentIds = payments.map((p) => p.id);
   const refunds = paymentIds.length ? db.select().from(schema.refunds).where(inArray(schema.refunds.paymentId, paymentIds)).all() : [];
   const dunning = db.select().from(schema.dunningAttempts).where(eq(schema.dunningAttempts.invoiceId, invoiceId)).orderBy(schema.dunningAttempts.attempt).all();
+  const intents = db.select().from(schema.paymentIntents).where(and(eq(schema.paymentIntents.tenantId, ctx.tenantId), eq(schema.paymentIntents.invoiceId, invoiceId))).orderBy(desc(schema.paymentIntents.createdAt)).all();
+  const events = intents.length
+    ? db.select().from(schema.providerEvents).where(inArray(schema.providerEvents.intentId, intents.map((intent) => intent.id))).orderBy(desc(schema.providerEvents.receivedAt)).limit(50).all()
+    : [];
+  const exceptions = db.select().from(schema.paymentReconciliationExceptions).where(and(eq(schema.paymentReconciliationExceptions.tenantId, ctx.tenantId), eq(schema.paymentReconciliationExceptions.invoiceId, invoiceId))).all();
+  const refundedByPayment = new Map<string, number>();
+  for (const r of refunds) if (r.state !== 'failed') refundedByPayment.set(r.paymentId, (refundedByPayment.get(r.paymentId) ?? 0) + r.amountMinor);
 
   return c.json({
     invoice: {
@@ -442,8 +451,26 @@ billingRoutes.get('/invoices/:invoiceId', (c) => {
       document: taxDocumentKind(ctx.tenantId, invoice),
     },
     lines: lines.map((l) => ({ id: l.id, description: l.description, quantity: l.quantity, unitLabel: formatMoney(l.unitMinor, invoice.currency), taxLabel: formatMoney(l.taxMinor, invoice.currency), totalLabel: formatMoney(l.totalMinor, invoice.currency) })),
-    payments: payments.map((p) => ({ id: p.id, method: p.method, state: p.state, amountLabel: formatMoney(p.amountMinor, p.currency), provider: p.provider, failureReason: p.failureReason, recordedByName: p.recordedByName, createdAt: new Date(p.createdAt).toISOString() })),
-    refunds: refunds.map((r) => ({ id: r.id, paymentId: r.paymentId, amountLabel: formatMoney(r.amountMinor, invoice.currency), reason: r.reason, entitlementReversed: r.entitlementReversed, actorName: r.actorName, createdAt: new Date(r.createdAt).toISOString() })),
+    payments: payments.map((p) => {
+      const refundableMinor = p.state === 'succeeded' ? Math.max(0, p.amountMinor - (refundedByPayment.get(p.id) ?? 0)) : 0;
+      return { id: p.id, method: p.method, state: p.state, amountMinor: p.amountMinor, amountLabel: formatMoney(p.amountMinor, p.currency), provider: p.provider,
+        /** Razorpay's payment id (pay_…) for online payments; the UPI/card reference staff typed for manual ones. */
+        providerRef: p.providerRef, refundableMinor, refundableLabel: formatMoney(refundableMinor, p.currency),
+        failureReason: p.failureReason, recordedByName: p.recordedByName, createdAt: new Date(p.createdAt).toISOString() };
+    }),
+    refunds: refunds.map((r) => ({ id: r.id, paymentId: r.paymentId, amountLabel: formatMoney(r.amountMinor, invoice.currency), reason: r.reason, entitlementReversed: r.entitlementReversed, actorName: r.actorName, createdAt: new Date(r.createdAt).toISOString(),
+      /** succeeded | pending (with Razorpay) | failed (amount is refundable again). */
+      state: r.state, provider: r.provider, providerRefundId: r.providerRefundId, failureReason: r.failureReason })),
+    /** Online payment attempts (Checkout and payment links), newest first. */
+    attempts: intents.map((i) => ({ id: i.id, channel: i.channel, purpose: i.purpose, state: i.state, amountLabel: formatMoney(i.amountMinor, i.currency),
+      providerOrderId: i.providerOrderId, providerPaymentId: i.providerPaymentId, providerLinkId: i.providerLinkId, linkUrl: i.linkUrl,
+      expiresAt: i.expiresAt ? new Date(i.expiresAt).toISOString() : null, failureReason: i.failureReason ?? i.failureCode, createdByName: i.createdByName,
+      createdAt: new Date(i.createdAt).toISOString(), updatedAt: new Date(i.updatedAt).toISOString(), settledAt: i.settledAt ? new Date(i.settledAt).toISOString() : null })),
+    /** Signed provider events routed to those attempts. */
+    events: events.map((e) => ({ id: e.id, type: e.type, intentId: e.intentId, receivedAt: new Date(e.receivedAt).toISOString(), processedAt: e.processedAt ? new Date(e.processedAt).toISOString() : null, note: e.processingError })),
+    paymentLinks: invoicePaymentLinks(ctx.tenantId, invoiceId),
+    reconciliation: exceptions.map((x) => ({ id: x.id, kind: x.kind, state: x.state, detail: x.detail })),
+    onlinePayment: { available: resolvePaymentProvider() !== null },
     dunning: dunning.map((d) => ({ id: d.id, attempt: d.attempt, channel: d.channel, state: d.state, scheduledFor: new Date(d.scheduledFor).toISOString() })),
   });
 });

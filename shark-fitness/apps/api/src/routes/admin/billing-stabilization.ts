@@ -20,6 +20,8 @@ import {
 import { createMembershipPurchase, renewalQuote } from '../../services/billing-membership.js';
 import { loadInvoiceInScope } from '../../services/billing.js';
 import { loadMemberInScope } from '../../services/members.js';
+import { requireIdempotencyKey } from '../../services/payments/checkout.js';
+import { requestProviderRefund } from '../../services/payments/refunds.js';
 
 export const billingStabilizationRoutes = new Hono();
 
@@ -108,7 +110,7 @@ billingStabilizationRoutes.post(
       entitlementReversed: z.boolean().default(false),
     }),
   ),
-  (c) => {
+  async (c) => {
     const ctx = ctxOf(c);
     requirePermission(ctx, 'billing.refund');
     const body = c.req.valid('json');
@@ -119,6 +121,13 @@ billingStabilizationRoutes.post(
     if (!payment?.invoiceId) throw notFound('That payment');
     // Recheck branch access even for a cached retry response.
     loadInvoiceInScope(ctx, payment.invoiceId);
+    if (payment.provider === 'razorpay') {
+      // The money has to go back the way it came: through Razorpay, pending
+      // until Razorpay reports it processed (services/payments/refunds.ts).
+      return c.json(await requestProviderRefund({
+        ctx, paymentId, ...body, idempotencyKey: requireIdempotencyKey(c.req.header('idempotency-key')),
+      }));
+    }
     return c.json(runIdempotently(ctx, 'billing.refund', c.req.header('idempotency-key'),
       { paymentId, ...body }, () => transact(() => refundSafely({ ctx, paymentId, ...body })),
     ));
