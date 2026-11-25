@@ -1,4 +1,5 @@
 import { expireWaitlistOffers as expireOffersAndAdvance } from '../services/waitlist.js';
+import { purgeWithdrawnPhotos } from '../services/progress-photos.js';
 import { reconcileMembershipDates } from '../services/membership-dates.js';
 import { and, eq, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import { channels } from '@shark/contracts';
@@ -231,6 +232,7 @@ const JOBS: Job[] = [
   { name: 'extend-class-series', everyMs: 6 * HOUR, run: extendSeriesHorizon },
   { name: 'prune-operational-data', everyMs: DAY, run: pruneOperationalRows },
   { name: 'reconcile-payments', everyMs: 6 * HOUR, run: reconcileProviderPayments },
+  { name: 'purge-withdrawn-photos', everyMs: HOUR, run: () => purgeWithdrawnPhotos() },
 ];
 
 /** The fixed job names: the only values the `job` metric label takes. */

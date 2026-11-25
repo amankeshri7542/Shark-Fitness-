@@ -167,6 +167,12 @@ const TENANT_ONLY_META: Record<string, { label: string; help: string; kind: 'num
     kind: 'number',
     fallback: 7,
   },
+  photoRetentionDaysAfterWithdrawal: {
+    label: 'Photo retention after withdrawal',
+    help: 'Days progress photos are kept after a member withdraws photo consent, then deleted. They are hidden from coaches at once.',
+    kind: 'number',
+    fallback: 30,
+  },
 };
 
 function resolveSettings(

@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
+import { PHOTO_CONSENT_PURPOSE, PHOTO_CONSENT_TEXT, PHOTO_CONSENT_VERSION, onPhotoConsentChanged } from '../services/progress-photos.js';
 import { and, desc, eq, isNull, ne, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
-import { db, schema } from '../db/client.js';
+import { db, schema, transact } from '../db/client.js';
 import { ctxOf } from '../middleware/index.js';
 import { listSessions, revokeSession, viewerFor } from '../services/auth.js';
 import { audit } from '../lib/audit.js';
@@ -81,13 +82,18 @@ meRoutes.patch('/preferences', validate('json', PreferencesInput), (c) => {
   return c.json({ viewer: viewerFor(ctx.userId) });
 });
 
+/** The consent text a member agrees to has a version; most are 1.0. */
+function currentVersion(purpose: string): string {
+  return purpose === PHOTO_CONSENT_PURPOSE ? PHOTO_CONSENT_VERSION : '1.0';
+}
+
 const CONSENT_CATALOGUE = [
   { purpose: 'terms', required: true, description: 'Terms of membership' },
   { purpose: 'privacy', required: true, description: 'How your data is handled' },
   { purpose: 'marketing_email', required: false, description: 'Offers and news by email' },
   { purpose: 'marketing_sms', required: false, description: 'Offers and news by SMS' },
   { purpose: 'marketing_whatsapp', required: false, description: 'Offers and news on WhatsApp' },
-  { purpose: 'progress_photos', required: false, description: 'Store progress photos for you' },
+  { purpose: 'progress_photos', required: false, description: PHOTO_CONSENT_TEXT },
   { purpose: 'health_data', required: false, description: 'Import steps and sleep from your phone' },
   { purpose: 'community_visibility', required: false, description: 'Show your name on gym leaderboards' },
 ] as const;
@@ -105,7 +111,8 @@ meRoutes.get('/consents', (c) => {
     return {
       purpose: entry.purpose,
       granted: row?.granted ?? false,
-      version: row?.version ?? '1.0',
+      version: row?.version ?? currentVersion(entry.purpose),
+      currentVersion: currentVersion(entry.purpose),
       updatedAt: new Date(row?.updatedAt ?? Date.now()).toISOString(),
       required: entry.required,
       description: entry.description,
@@ -122,47 +129,55 @@ const ConsentInput = z.object({
 meRoutes.put('/consents', validate('json', ConsentInput), (c) => {
   const ctx = ctxOf(c);
   const { purpose, granted } = c.req.valid('json');
-  const existing = db
-    .select()
-    .from(schema.consents)
-    .where(
-      and(
-        eq(schema.consents.tenantId, ctx.tenantId),
-        eq(schema.consents.userId, ctx.userId),
-        eq(schema.consents.purpose, purpose),
-      ),
-    )
-    .get();
+  return transact(() => {
+    const existing = db
+      .select()
+      .from(schema.consents)
+      .where(
+        and(
+          eq(schema.consents.tenantId, ctx.tenantId),
+          eq(schema.consents.userId, ctx.userId),
+          eq(schema.consents.purpose, purpose),
+        ),
+      )
+      .get();
 
-  if (existing) {
-    db.update(schema.consents)
-      .set({ granted, updatedAt: now(), ip: ctx.ip })
-      .where(eq(schema.consents.id, existing.id))
-      .run();
-  } else {
-    db.insert(schema.consents)
-      .values({
-        id: id('con'),
-        tenantId: ctx.tenantId,
-        userId: ctx.userId,
-        purpose,
-        granted,
-        version: '1.0',
-        updatedAt: now(),
-        ip: ctx.ip,
-      })
-      .run();
-  }
+    // Agreeing records the version agreed to; withdrawing keeps the version
+    // that was withdrawn.
+    const version = granted ? currentVersion(purpose) : (existing?.version ?? currentVersion(purpose));
+    if (existing) {
+      db.update(schema.consents)
+        .set({ granted, version, updatedAt: now(), ip: ctx.ip })
+        .where(eq(schema.consents.id, existing.id))
+        .run();
+    } else {
+      db.insert(schema.consents)
+        .values({
+          id: id('con'),
+          tenantId: ctx.tenantId,
+          userId: ctx.userId,
+          purpose,
+          granted,
+          version,
+          updatedAt: now(),
+          ip: ctx.ip,
+        })
+        .run();
+    }
 
-  audit(ctx, {
-    action: granted ? 'consent.granted' : 'consent.withdrawn',
-    entityType: 'consent',
-    entityId: `${ctx.userId}:${purpose}`,
-    entityLabel: purpose,
-    before: { granted: existing?.granted ?? false },
-    after: { granted },
+    // Photo consent changes what coaches can see at once, and when photos go.
+    const photos = purpose === PHOTO_CONSENT_PURPOSE ? onPhotoConsentChanged(ctx, granted) : null;
+
+    audit(ctx, {
+      action: granted ? 'consent.granted' : 'consent.withdrawn',
+      entityType: 'consent',
+      entityId: `${ctx.userId}:${purpose}`,
+      entityLabel: purpose,
+      before: { granted: existing?.granted ?? false, version: existing?.version ?? null },
+      after: { granted, version },
+    });
+    return c.json({ ok: true, version, ...(photos ? { photos } : {}) });
   });
-  return c.json({ ok: true });
 });
 
 meRoutes.get('/sessions', (c) => {

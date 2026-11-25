@@ -86,6 +86,7 @@ db.insert(schema.tenants)
     branding: { accent: '#46c8dd', wordmark: 'SHARK' },
     policy: {
       graceDays: 7,
+      photoRetentionDaysAfterWithdrawal: 30,
       graceAllowsEntry: false,
       antiPassbackSeconds: 90,
       quietHoursFrom: '21:00',
