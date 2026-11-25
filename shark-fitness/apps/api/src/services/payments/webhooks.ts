@@ -9,7 +9,7 @@ import { now } from '../../lib/time.js';
 import { applyProviderPayment, captureOrRefetch } from './checkout.js';
 import { toPayment, toRefund } from './razorpay.js';
 import { applyRefundEvent } from './refunds.js';
-import { recordFailedAttempt, type IntentRow } from './settlement.js';
+import { LIVE_INTENT_STATES, recordFailedAttempt, type IntentRow, type IntentState } from './settlement.js';
 
 /**
  * Razorpay webhooks (`POST /v1/webhooks/razorpay`).
@@ -177,6 +177,10 @@ async function processEvent(
   switch (type) {
     case 'payment.authorized': {
       if (!intent || !payment) return 'No matching payment intent.';
+      // An attempt already retired (paid at the desk, voided, amount changed)
+      // must not take the money: left uncaptured, Razorpay returns it to the
+      // member by itself. Capturing it would only make a refund for staff.
+      if (!LIVE_INTENT_STATES.includes(intent.state as IntentState)) return `Not captured: the attempt is ${intent.state}.`;
       // Accounts without auto-capture leave payments authorized; capture here
       // so the member is not left waiting for staff. A ProviderError
       // propagates, and Razorpay redelivers the event.

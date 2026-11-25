@@ -132,6 +132,21 @@ describe('member checkout', () => {
     expect(paymentsFor(invoiceId)).toHaveLength(1);
   });
 
+  it('does not capture an authorized payment for an attempt already retired', async () => {
+    const { invoiceId } = openInvoice(member);
+    const { body } = await checkout(session, invoiceId);
+    db.update(schema.paymentIntents).set({ state: 'superseded' }).where(eq(schema.paymentIntents.id, body.intentId)).run();
+    const payment = harness.fake.pay(body.orderId, { status: 'authorized' });
+    const result = await confirm(body.intentId, {
+      razorpay_order_id: body.orderId,
+      razorpay_payment_id: String(payment.id),
+      razorpay_signature: harness.fake.checkoutSignature(body.orderId, String(payment.id)),
+    });
+    expect(result.body).toMatchObject({ state: 'expired' });
+    expect(harness.fake.payments.get(String(payment.id))!.status).toBe('authorized');
+    expect(paymentsFor(invoiceId)).toEqual([]);
+  });
+
   it('leaves a payment Razorpay has not finished in processing for the webhook', async () => {
     const { invoiceId } = openInvoice(member);
     const { body } = await checkout(session, invoiceId);

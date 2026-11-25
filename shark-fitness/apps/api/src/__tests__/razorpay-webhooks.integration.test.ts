@@ -74,6 +74,19 @@ describe('handled events', () => {
     expect(paymentsFor(order.invoiceId)).toHaveLength(1);
   });
 
+  it('payment.authorized for an attempt already retired is not captured (Razorpay returns uncaptured money by itself)', async () => {
+    const order = await liveOrder();
+    // Paid at the desk meanwhile: the online attempt is retired.
+    db.update(schema.invoices).set({ paidMinor: 29_500, state: 'paid' }).where(eq(schema.invoices.id, order.invoiceId)).run();
+    db.update(schema.paymentIntents).set({ state: 'superseded' }).where(eq(schema.paymentIntents.id, order.intentId)).run();
+    const payment = harness.fake.pay(order.orderId, { status: 'authorized' });
+    expect((await postWebhook(harness, 'payment.authorized', { payment })).status).toBe(200);
+    expect(harness.fake.payments.get(String(payment.id))!.status).toBe('authorized');
+    expect(harness.fake.requests.some((entry) => entry.path.endsWith(`/payments/${String(payment.id)}/capture`))).toBe(false);
+    expect(paymentsFor(order.invoiceId)).toHaveLength(0);
+    expect(intentRow(order.intentId).state).toBe('superseded');
+  });
+
   it('order.paid settles from its payment entity', async () => {
     const order = await liveOrder();
     const payment = harness.fake.pay(order.orderId);

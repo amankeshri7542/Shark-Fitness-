@@ -8,7 +8,7 @@ import { id } from '../../lib/ids.js';
 import { log } from '../../lib/observability.js';
 import { ProviderError, resolvePaymentProvider, type PaymentProvider, type ProviderPayment } from '../../lib/payment-provider.js';
 import { now } from '../../lib/time.js';
-import { markIntent, recordFailedAttempt, settleProviderPayment, type IntentRow } from './settlement.js';
+import { LIVE_INTENT_STATES, markIntent, recordFailedAttempt, settleProviderPayment, type IntentRow, type IntentState } from './settlement.js';
 
 /** Today's refusal, kept word for word: with no provider configured, member
  *  checkout answers 412 exactly as the retired endpoints always have. */
@@ -287,7 +287,11 @@ export async function confirmCheckout(ctx: RequestContext, intentId: string, inp
     if (payment.orderId !== intent.providerOrderId) {
       throw new AppError('SIGNATURE_INVALID', 'That payment belongs to a different order. Nothing was settled.');
     }
-    if (payment.status === 'authorized') payment = await captureOrRefetch(provider, payment);
+    // Never capture for an attempt already retired: uncaptured money goes back
+    // to the member by itself (see the payment.authorized webhook).
+    if (payment.status === 'authorized' && LIVE_INTENT_STATES.includes(intent.state as IntentState)) {
+      payment = await captureOrRefetch(provider, payment);
+    }
   } catch (error) {
     if (!(error instanceof ProviderError)) throw error;
     // We do not know yet. The webhook or the reconciliation job will.
