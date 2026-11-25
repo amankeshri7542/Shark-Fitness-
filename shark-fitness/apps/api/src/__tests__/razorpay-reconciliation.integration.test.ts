@@ -5,6 +5,8 @@ import { jobsForTest, SCHEDULED_JOB_NAMES } from '../jobs/scheduler.js';
 import { db, schema } from '../db/client.js';
 import { setPaymentProviderForTests } from '../lib/payment-provider.js';
 import { now } from '../lib/time.js';
+import type { RequestContext } from '../lib/context.js';
+import { listReconciliationExceptions } from '../services/payments/reconciliation.js';
 import {
   auditFor,
   checkout,
@@ -149,6 +151,13 @@ describe('reconcile-payments', () => {
     harness.fake.fault({ method: 'GET', path: /^\/v1\/payments$/ }, { status: 503 });
     await jobsForTest.execute('reconcile-payments');
     expect(latestRun()).toMatchObject({ status: 'succeeded', summary: expect.objectContaining({ providerErrors: 1 }) });
+  });
+
+  it('lists nothing for a caller with no branches in scope', async () => {
+    await stuck({ amount: 1_000 });
+    await jobsForTest.execute('reconcile-payments');
+    const ctx = { tenantId: member.tenantId, branchIds: [], activeBranchId: null, permissions: [], role: 'owner' } as unknown as RequestContext;
+    expect(listReconciliationExceptions(ctx, 'all').items).toEqual([]);
   });
 
   it('needs billing.view to list exceptions', async () => {

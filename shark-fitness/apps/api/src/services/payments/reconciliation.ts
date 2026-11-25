@@ -191,6 +191,8 @@ export const EXCEPTION_COPY: Record<string, string> = {
 export function listReconciliationExceptions(ctx: RequestContext, state: 'open' | 'resolved' | 'ignored' | 'all') {
   requirePermission(ctx, 'billing.view');
   const scope = branchScope(ctx);
+  // Fail closed like every other branch-scoped list: no branches, no rows.
+  if (scope.length === 0) return { onlinePayment: resolvePaymentProvider() !== null, items: [] };
   const rows = db
     .select({
       exception: schema.paymentReconciliationExceptions,
@@ -206,10 +208,8 @@ export function listReconciliationExceptions(ctx: RequestContext, state: 'open' 
       and(
         eq(schema.paymentReconciliationExceptions.tenantId, ctx.tenantId),
         state === 'all' ? undefined : eq(schema.paymentReconciliationExceptions.state, state),
-        // Unattributed exceptions (no branch) are for whoever sees every branch.
-        scope.length > 0
-          ? or(inArray(schema.paymentReconciliationExceptions.branchId, scope), isNull(schema.paymentReconciliationExceptions.branchId))
-          : undefined,
+        // Unattributed exceptions (no branch) are shown to every branch's billing staff.
+        or(inArray(schema.paymentReconciliationExceptions.branchId, scope), isNull(schema.paymentReconciliationExceptions.branchId)),
       ),
     )
     .orderBy(desc(schema.paymentReconciliationExceptions.createdAt))
