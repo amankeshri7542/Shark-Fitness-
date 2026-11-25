@@ -23,7 +23,7 @@ export default async function globalSetup(): Promise<void> {
   const tempDir = mkdtempSync(join(tmpdir(), 'shark-e2e-'));
   try {
     const database = join(tempDir, 'shark.db');
-    const port = await freePort();
+    const port = await chosenPort();
     const baseURL = `http://127.0.0.1:${port}`;
     const serverLog = join(tempDir, 'server.log');
     // Only what the server needs: nothing inherited from the developer's shell
@@ -74,6 +74,17 @@ export default async function globalSetup(): Promise<void> {
     rmSync(tempDir, { recursive: true, force: true });
     throw error;
   }
+}
+
+/** SHARK_E2E_PORT pins the port (machines that share a port range); otherwise any free one. */
+async function chosenPort(): Promise<number> {
+  const pinned = process.env.SHARK_E2E_PORT;
+  if (pinned === undefined || pinned === '') return freePort();
+  const port = Number(pinned);
+  if (!/^\d+$/.test(pinned) || port < 1 || port > 65_535) {
+    throw new Error(`SHARK_E2E_PORT must be a port number between 1 and 65535, not "${pinned}".`);
+  }
+  return port;
 }
 
 function freePort(): Promise<number> {

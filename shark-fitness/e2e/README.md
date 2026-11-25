@@ -12,7 +12,7 @@ First time on a machine: `pnpm -F @shark/e2e exec playwright install chromium`.
 
 ## What a run does
 
-`global-setup.ts` creates a temporary directory, migrates and seeds a new SQLite database there (the demo gyms from `apps/api/src/db/seed.ts`), and starts the API with `NODE_ENV=production` on a free port with a pass secret generated for that run, scheduled jobs off and errors reported to the server log. It never reads or writes `apps/api/data/shark.db`, and it passes the server only the variables it sets, so nothing in your shell can point it elsewhere. `global-teardown.ts` stops the server and deletes the directory. The server's process id is recorded in `e2e/.state/run.json` (git-ignored) while a run is in progress.
+`global-setup.ts` creates a temporary directory, migrates and seeds a new SQLite database there (the demo gyms from `apps/api/src/db/seed.ts`), and starts the API with `NODE_ENV=production` on a free port (or `SHARK_E2E_PORT`, when the machine reserves a port range) with a pass secret generated for that run, scheduled jobs off and errors reported to the server log. It never reads or writes `apps/api/data/shark.db`, and it passes the server only the variables it sets, so nothing in your shell can point it elsewhere. `global-teardown.ts` stops the server and deletes the directory. The server's process id is recorded in `e2e/.state/run.json` (git-ignored) while a run is in progress.
 
 Specs read the base URL from Playwright's `baseURL` and the server log from `SHARK_E2E_SERVER_LOG`. Shared sign-in steps live in `support/demo.ts`.
 
