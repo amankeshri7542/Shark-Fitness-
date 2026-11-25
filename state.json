@@ -77,6 +77,7 @@
   },
   "pushes": {
     "phase/P01-prod-readiness": "128aec1 at 2026-11-25 09:37 IST",
-    "phase/P02-payments-razorpay": "128aec1 at 2026-11-25 09:41 IST"
+    "phase/P02-payments-razorpay": "128aec1 at 2026-11-25 09:41 IST",
+    "phase/P06-staff-security": "128aec1 at 2026-11-25 09:42 IST"
   }
 }
