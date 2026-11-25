@@ -1,6 +1,7 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { expect } from 'vitest';
 import { app } from '../../app.js';
+import { resetRateLimitsForTest } from '../../middleware/index.js';
 import { db, schema } from '../../db/client.js';
 import { hashPassword } from '../../lib/crypto.js';
 import { id } from '../../lib/ids.js';
@@ -27,6 +28,9 @@ export async function signIn(email: string, password = 'shark1234', tenantSlug =
   const key = `${tenantSlug}:${email}`;
   const cached = sessions.get(key);
   if (cached) return cached;
+  // Suites here sign in dozens of fixture members from one address; the
+  // sign-in limiter has its own suite and must not decide these.
+  resetRateLimitsForTest();
   const response = await app.request('/v1/auth/password', {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin: ORIGIN },
@@ -221,4 +225,55 @@ export function createMember(input: {
 export async function signInMember(member: FixtureMember): Promise<Session> {
   if (!member.email) throw new Error('That fixture member has no login.');
   return signIn(member.email);
+}
+
+/** A class at `branchId` starting `startsInMs` from now, with free
+ *  cancellation until two hours before. Nothing else depends on the seed. */
+export function createClassSession(input: {
+  branchId?: string;
+  capacity: number;
+  startsInMs?: number;
+  creditsRequired?: number;
+  dropInPriceMinor?: number | null;
+  cancelDeadlineBeforeMs?: number;
+  tenantId?: string;
+}): string {
+  const tenantId = input.tenantId ?? TENANT;
+  const classTypeId = db
+    .select({ id: schema.classTypes.id })
+    .from(schema.classTypes)
+    .where(eq(schema.classTypes.tenantId, tenantId))
+    .get()!.id;
+  const atMs = now();
+  const startsAt = atMs + (input.startsInMs ?? 2 * 86_400_000);
+  const sessionId = id('ses');
+  db.insert(schema.classSessions)
+    .values({
+      id: sessionId,
+      tenantId,
+      branchId: input.branchId ?? 'br_kor',
+      classTypeId,
+      roomId: null,
+      trainerId: null,
+      seriesId: null,
+      startsAt,
+      endsAt: startsAt + 45 * 60_000,
+      capacity: input.capacity,
+      booked: 0,
+      state: 'scheduled',
+      bookingOpensAt: null,
+      cancelDeadlineAt: startsAt - (input.cancelDeadlineBeforeMs ?? 2 * 3_600_000),
+      creditsRequired: input.creditsRequired ?? 0,
+      dropInPriceMinor: input.dropInPriceMinor ?? null,
+      lateCancelFeeMinor: 0,
+      waitlistEnabled: true,
+      cancelledReason: null,
+      substituteFor: null,
+      notes: null,
+      version: 1,
+      createdAt: atMs,
+      updatedAt: atMs,
+    })
+    .run();
+  return sessionId;
 }

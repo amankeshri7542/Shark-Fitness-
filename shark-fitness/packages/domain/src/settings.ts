@@ -129,6 +129,7 @@ export const BRANCH_POLICY_KEYS = [
   'antiPassbackSeconds',
   'holdSeconds',
   'waitlistOfferMinutes',
+  'waitlistOfferCutoffMinutes',
   'allowNegativeStock',
   'quietHoursFrom',
   'quietHoursTo',

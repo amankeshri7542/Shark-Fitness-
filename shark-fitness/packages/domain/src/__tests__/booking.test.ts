@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyCancellation, evaluateEligibility, holdIsLive, planPromotion } from '../booking.js';
+import { classifyCancellation, evaluateEligibility, holdIsLive, offerExpiresAt, planPromotion } from '../booking.js';
 import type { EligibilityInput } from '../booking.js';
 
 const at = (iso: string) => new Date(iso);
@@ -126,6 +126,24 @@ describe('waitlist promotion', () => {
     ]);
     expect(plan.offer).toBeNull();
     expect(plan.skipped).toHaveLength(1);
+  });
+});
+
+describe('waitlist offer deadline (decision 12)', () => {
+  const MIN = 60_000;
+  const now = Date.parse('2026-08-06T06:00:00Z');
+
+  it('holds the seat for the offer window when class is far away', () => {
+    expect(offerExpiresAt(now, now + 6 * 60 * MIN, 30, 60)).toBe(now + 30 * MIN);
+  });
+
+  it('stops at the cut-off before class when that comes first', () => {
+    expect(offerExpiresAt(now, now + 80 * MIN, 30, 60)).toBe(now + 20 * MIN);
+  });
+
+  it('makes no offer once the cut-off has passed', () => {
+    expect(offerExpiresAt(now, now + 45 * MIN, 30, 60)).toBeNull();
+    expect(offerExpiresAt(now, now + 60 * MIN + 30_000, 30, 60)).toBeNull();
   });
 });
 

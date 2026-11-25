@@ -3,37 +3,32 @@ import { and, asc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { validate } from '../../middleware/validate.js';
 import { channels } from '@shark/contracts';
-import { classifyCancellation, evaluateEligibility, planPromotion, type WaitlistCandidate } from '@shark/domain';
+import { classifyCancellation, evaluateEligibility } from '@shark/domain';
 import { db, schema, transact } from '../../db/client.js';
 import { ctxOf } from '../../middleware/index.js';
 import { requireBranch } from '../../lib/context.js';
 import type { RequestContext } from '../../lib/context.js';
 import { audit } from '../../lib/audit.js';
 import { emit } from '../../lib/events.js';
-import { id } from '../../lib/ids.js';
-import { DAY, MINUTE, isoDate, localTime, now } from '../../lib/time.js';
-import { AppError, conflict, entitlementMissing, notFound, precondition } from '../../lib/errors.js';
+import { DAY, isoDate, localTime, now } from '../../lib/time.js';
+import { conflict, notFound, precondition } from '../../lib/errors.js';
 import {
-  WAITLIST_AVAILABLE,
   LIVE_BOOKING_STATES,
   LIVE_WAITLIST_STATES,
-  assertBranchAcceptsBookings,
   claimSeat,
   classCreditsHeld,
   deadHoldCount,
   eligibilityFor,
   membershipStanding,
-  myBookingFor,
   myBookingsAround,
-  myWaitlistFor,
-  overlapWith,
-  reapExpiredHolds,
   runClaim,
   sessionById,
   sessionQuery,
+  restoreBookingCredits,
   type EligibilityContext,
   type SessionRow,
 } from '../../services/booking.js';
+import { acceptOffer, joinWaitlist, leaveWaitlist, liveWaitlistCount, offerFreedSeats, offerTerms, waitlistRank } from '../../services/waitlist.js';
 
 /**
  * Explore and Book (UX-M04, PF-SCH).
@@ -52,9 +47,6 @@ import {
  *    engine — see `services/booking.ts`'s `claimSeat`.
  */
 export const scheduleRoutes = new Hono();
-
-/** How long a promoted member has to take the seat before the next in line. */
-const OFFER_WINDOW_MIN = 15;
 
 /** Days shown in the date strip, starting today in the branch's own zone. */
 const STRIP_DAYS = 7;
@@ -375,28 +367,19 @@ scheduleRoutes.get('/', validate('query', ListQuery), (c) => {
       productName: standing.productName,
     },
     credits: { class: creditsHeld },
-    waitlist: { available: WAITLIST_AVAILABLE, offerWindowMin: OFFER_WINDOW_MIN, message: 'Waitlists are unavailable. Ask reception about available classes.' },
+    waitlist: (() => {
+      const terms = offerTerms(ctx.tenantId, branch.id);
+      return {
+        available: true,
+        offerWindowMin: terms.offerWindowMin,
+        cutoffBeforeStartMin: terms.cutoffBeforeStartMin,
+        message: `When a seat opens, the first person in line is offered it and it is held for them for up to ${terms.offerWindowMin} minutes. Offers stop ${terms.cutoffBeforeStartMin} minutes before class.`,
+      };
+    })(),
     myBookedToday: [...myBookings.values()].length,
     items,
   });
 });
-
-/** Position as the member reads it: rank among those still waiting, so a
- *  departure ahead of them shows as movement rather than a frozen number. */
-function waitlistRank(sessionId: string, storedPosition: number): number {
-  const ahead = db
-    .select({ n: sql<number>`count(*)` })
-    .from(schema.waitlistEntries)
-    .where(
-      and(
-        eq(schema.waitlistEntries.sessionId, sessionId),
-        inArray(schema.waitlistEntries.state, [...LIVE_WAITLIST_STATES]),
-        lt(schema.waitlistEntries.position, storedPosition),
-      ),
-    )
-    .get();
-  return (ahead?.n ?? 0) + 1;
-}
 
 /* ============================================================================
    POST /book — the last-seat claim.
@@ -524,22 +507,7 @@ scheduleRoutes.delete('/booking/:id', (c) => {
 
     // The credit comes back only when the deadline was met. That is the whole
     // point of the deadline, and the member was told the time up front.
-    if (outcome.refundCredit && booking.creditsUsed > 0) {
-      db.insert(schema.credits)
-        .values({
-          id: id('crd'),
-          tenantId: ctx.tenantId,
-          memberId,
-          kind: 'class',
-          delta: booking.creditsUsed,
-          reason: `Cancelled ${session.name}`,
-          refType: 'booking',
-          refId: booking.id,
-          expiresOn: null,
-          createdAt: atMs,
-        })
-        .run();
-    }
+    if (outcome.refundCredit) restoreBookingCredits(ctx.tenantId, booking, `Cancelled ${session.name}`, atMs);
 
     audit(ctx, {
       action: outcome.state === 'late_cancelled' ? 'booking.late_cancelled' : 'booking.cancelled',
@@ -563,7 +531,8 @@ scheduleRoutes.delete('/booking/:id', (c) => {
       payload: { bookingId: booking.id, sessionId: session.id, memberId, state: outcome.state },
     });
 
-    return promoteWaitlist(ctx, session, atMs, tz);
+    const offers = offerFreedSeats(ctx, session.id, atMs);
+    return offers[0] ?? null;
   });
 
   const feeMinor = outcome.refundCredit ? 0 : session.lateCancelFeeMinor;
@@ -591,122 +560,23 @@ scheduleRoutes.delete('/booking/:id', (c) => {
   });
 });
 
-/**
- * Waitlist promotion (PF-SCH-002). Promotion re-checks eligibility from
- * scratch: someone whose credits or membership lapsed while they waited is
- * skipped with a reason rather than promoted into a booking that cannot work.
- */
-function promoteWaitlist(
-  ctx: RequestContext,
-  session: SessionRow,
-  atMs: number,
-  tz: string,
-): { memberId: string; position: number; offerExpiresAt: string; offerWindowMin: number } | null {
-  if (!WAITLIST_AVAILABLE) return null;
-  const queue = db
-    .select()
-    .from(schema.waitlistEntries)
-    .where(and(eq(schema.waitlistEntries.sessionId, session.id), eq(schema.waitlistEntries.state, 'waiting')))
-    .orderBy(asc(schema.waitlistEntries.position))
-    .all();
+/* ============================================================================
+   POST /waitlist — join. DELETE /waitlist/:id — leave, or decline an offer.
+   POST /waitlist/:id/accept — take an offered seat.
+   ========================================================================= */
 
-  if (queue.length === 0) return null;
-
-  const today = isoDate(atMs, tz);
-
-  const candidates: WaitlistCandidate[] = queue.map((entry) => {
-    const standing = membershipStanding(entry.memberId);
-    const creditsHeld = classCreditsHeld(entry.memberId, today);
-    const clash = overlapWith(
-      session,
-      myBookingsAround(entry.memberId, session.startsAt - DAY, session.endsAt + DAY),
-    );
-
-    const skipReason = !standing.entitled
-      ? (standing.reason ?? 'Membership no longer covers bookings')
-      : session.creditsRequired > 0 && creditsHeld < session.creditsRequired
-        ? 'No class credits left'
-        : clash
-          ? 'Already booked into an overlapping class'
-          : null;
-
-    return {
-      id: entry.id,
-      memberId: entry.memberId,
-      position: entry.position,
-      eligible: skipReason === null,
-      skipReason,
-    };
-  });
-
-  const plan = planPromotion(candidates, OFFER_WINDOW_MIN);
-
-  for (const skip of plan.skipped) {
-    db.update(schema.waitlistEntries)
-      .set({ state: 'expired', resolvedAt: atMs })
-      .where(eq(schema.waitlistEntries.id, skip.id))
-      .run();
-  }
-
-  if (!plan.offer) return null;
-
-  const offerExpiresAt = atMs + plan.offerWindowMin * MINUTE;
-  db.update(schema.waitlistEntries)
-    .set({ state: 'offered', offeredAt: atMs, offerExpiresAt })
-    .where(eq(schema.waitlistEntries.id, plan.offer.id))
-    .run();
-
-  const promotedMember = db
-    .select({ userId: schema.members.userId })
-    .from(schema.members)
-    .where(eq(schema.members.id, plan.offer.memberId))
-    .get();
-
-  if (promotedMember?.userId) {
-    db.insert(schema.notifications)
-      .values({
-        id: id('ntf'),
-        tenantId: ctx.tenantId,
-        userId: promotedMember.userId,
-        channel: 'in_app',
-        kind: 'waitlist_offer',
-        title: `A seat opened in ${session.name}`,
-        body: `${localTime(session.startsAt, tz)} today. The seat is held for you for ${plan.offerWindowMin} minutes, then it goes to the next person.`,
-        link: '/book',
-        templateCode: 'waitlist.offered',
-        state: 'sent',
-        attempts: 1,
-        lastError: null,
-        createdAt: atMs,
-        readAt: null,
-      })
-      .run();
-  }
-
-  emit({
-    tenantId: ctx.tenantId,
-    branchId: session.branchId,
-    channel: channels.member(plan.offer.memberId),
-    topic: 'waitlist.offered',
-    payload: {
-      sessionId: session.id,
-      waitlistId: plan.offer.id,
-      offerExpiresAt: new Date(offerExpiresAt).toISOString(),
-      offerWindowMin: plan.offerWindowMin,
-    },
-  });
-
+function serialiseEntry(entry: typeof schema.waitlistEntries.$inferSelect) {
   return {
-    memberId: plan.offer.memberId,
-    position: plan.offer.position,
-    offerExpiresAt: new Date(offerExpiresAt).toISOString(),
-    offerWindowMin: plan.offerWindowMin,
+    id: entry.id,
+    sessionId: entry.sessionId,
+    memberId: entry.memberId,
+    position: waitlistRank(entry.sessionId, entry.position),
+    state: entry.state,
+    joinedAt: new Date(entry.joinedAt).toISOString(),
+    offeredAt: entry.offeredAt === null ? null : new Date(entry.offeredAt).toISOString(),
+    offerExpiresAt: entry.offerExpiresAt === null ? null : new Date(entry.offerExpiresAt).toISOString(),
   };
 }
-
-/* ============================================================================
-   POST /waitlist — join. DELETE /waitlist/:id — leave.
-   ========================================================================= */
 
 const WaitlistBody = z.object({ sessionId: z.string().min(1) });
 
@@ -719,93 +589,21 @@ scheduleRoutes.post('/waitlist', validate('json', WaitlistBody), (c) => {
   const session = sessionById(ctx.tenantId, sessionId);
   if (!session) throw notFound('That class');
   requireBranch(ctx, session.branchId);
-  if (!WAITLIST_AVAILABLE) throw precondition('Waitlists are unavailable while seat reservations are being stabilized. Ask reception about available classes.');
 
   const branch = db.select().from(schema.branches).where(eq(schema.branches.id, session.branchId)).get();
   const tz = branch?.timezone ?? 'Asia/Kolkata';
   const today = isoDate(atMs, tz);
 
-  const entry = transact(() => {
-    const existing = myWaitlistFor(memberId, session.id);
-    if (existing) return existing;
-
-    assertBranchAcceptsBookings(ctx.tenantId, session.branchId);
-
-    if (session.state === 'cancelled') throw precondition('This class was cancelled.');
-    if (session.startsAt <= atMs) throw new AppError('BOOKING_WINDOW_CLOSED', 'This class has already started.');
-    if (!session.waitlistEnabled) throw precondition('This class does not run a waitlist.');
-    if (myBookingFor(memberId, session.id)) throw conflict('You already have a seat in this class.');
-
-    const standing = membershipStanding(memberId);
-    if (!standing.entitled) {
-      throw entitlementMissing(standing.reason ?? 'Your membership does not cover bookings right now.');
-    }
-
-    reapExpiredHolds(session.id, atMs);
-    const fresh = sessionById(ctx.tenantId, session.id)!;
-    if (fresh.booked < fresh.capacity) {
-      throw precondition('There are seats left in this class. Book one instead of waiting.');
-    }
-
-    const highest = db
-      .select({ max: sql<number>`coalesce(max(${schema.waitlistEntries.position}), 0)` })
-      .from(schema.waitlistEntries)
-      .where(eq(schema.waitlistEntries.sessionId, session.id))
-      .get();
-
-    const entryId = id('wtl');
-    db.insert(schema.waitlistEntries)
-      .values({
-        id: entryId,
-        tenantId: ctx.tenantId,
-        sessionId: session.id,
-        memberId,
-        position: (highest?.max ?? 0) + 1,
-        state: 'waiting',
-        joinedAt: atMs,
-        offeredAt: null,
-        offerExpiresAt: null,
-        resolvedAt: null,
-      })
-      .run();
-
-    emit({
-      tenantId: ctx.tenantId,
-      branchId: session.branchId,
-      channel: channels.branch(session.branchId),
-      topic: 'session.updated',
-      payload: { sessionId: session.id, waitlistJoined: true },
-    });
-
-    return db.select().from(schema.waitlistEntries).where(eq(schema.waitlistEntries.id, entryId)).get()!;
-  });
-
-  const waiting = db
-    .select({ n: sql<number>`count(*)` })
-    .from(schema.waitlistEntries)
-    .where(
-      and(
-        eq(schema.waitlistEntries.sessionId, session.id),
-        inArray(schema.waitlistEntries.state, [...LIVE_WAITLIST_STATES]),
-      ),
-    )
-    .get();
+  const entry = joinWaitlist(ctx, memberId, session, atMs);
+  const terms = offerTerms(ctx.tenantId, session.branchId);
+  const position = waitlistRank(entry.sessionId, entry.position);
 
   return c.json({
-    waitlist: {
-      id: entry.id,
-      sessionId: entry.sessionId,
-      memberId: entry.memberId,
-      position: waitlistRank(entry.sessionId, entry.position),
-      state: entry.state,
-      joinedAt: new Date(entry.joinedAt).toISOString(),
-      offeredAt: entry.offeredAt === null ? null : new Date(entry.offeredAt).toISOString(),
-      offerExpiresAt: entry.offerExpiresAt === null ? null : new Date(entry.offerExpiresAt).toISOString(),
-    },
-    waitlistCount: waiting?.n ?? 0,
-    offerWindowMin: OFFER_WINDOW_MIN,
+    waitlist: serialiseEntry(entry),
+    waitlistCount: liveWaitlistCount(session.id),
+    offerWindowMin: terms.offerWindowMin,
     creditsHeld: classCreditsHeld(memberId, today),
-    message: `You are number ${waitlistRank(entry.sessionId, entry.position)} in line. No credit is taken unless you take the seat.`,
+    message: `You are number ${position} in line. If a seat opens we hold it for you and tell you. No credit is taken unless you take the seat.`,
   });
 });
 
@@ -813,44 +611,61 @@ scheduleRoutes.delete('/waitlist/:id', (c) => {
   const ctx = ctxOf(c);
   const memberId = ctx.memberId!;
   const entryId = c.req.param('id');
+  const atMs = now();
 
-  const entry = db.select().from(schema.waitlistEntries).where(eq(schema.waitlistEntries.id, entryId)).get();
-  if (!entry || entry.tenantId !== ctx.tenantId || entry.memberId !== memberId) {
-    throw notFound('That waitlist place');
-  }
-
-  const session = sessionById(ctx.tenantId, entry.sessionId);
-
-  transact(() => {
-    // Removed rather than marked, so the member can rejoin the same class later.
-    db.delete(schema.waitlistEntries).where(eq(schema.waitlistEntries.id, entry.id)).run();
-
-    if (session) {
-      emit({
-        tenantId: ctx.tenantId,
-        branchId: session.branchId,
-        channel: channels.branch(session.branchId),
-        topic: 'session.updated',
-        payload: { sessionId: session.id, waitlistLeft: true },
-      });
-    }
-  });
-
-  const waiting = db
-    .select({ n: sql<number>`count(*)` })
-    .from(schema.waitlistEntries)
-    .where(
-      and(
-        eq(schema.waitlistEntries.sessionId, entry.sessionId),
-        inArray(schema.waitlistEntries.state, [...LIVE_WAITLIST_STATES]),
-      ),
-    )
-    .get();
+  const result = leaveWaitlist(ctx, memberId, entryId, atMs);
+  const entry = db.select().from(schema.waitlistEntries).where(eq(schema.waitlistEntries.id, entryId)).get()!;
 
   return c.json({
     ok: true,
     sessionId: entry.sessionId,
-    waitlistCount: waiting?.n ?? 0,
-    message: 'You are off the waitlist. Nothing was charged.',
+    waitlistCount: liveWaitlistCount(entry.sessionId),
+    message: result.declinedOffer
+      ? 'Seat declined. It has gone to the next person. Nothing was charged.'
+      : 'You are off the waitlist. Nothing was charged.',
+  });
+});
+
+const AcceptBody = z.object({
+  idempotencyKey: z.string().min(8),
+  acceptDropInCharge: z.boolean().default(false),
+});
+
+scheduleRoutes.post('/waitlist/:id/accept', validate('json', AcceptBody), (c) => {
+  const ctx = ctxOf(c);
+  const memberId = ctx.memberId!;
+  const body = c.req.valid('json');
+  const atMs = now();
+
+  const outcome = acceptOffer(ctx, {
+    memberId,
+    entryId: c.req.param('id'),
+    idempotencyKey: body.idempotencyKey,
+    acceptDropInCharge: body.acceptDropInCharge,
+    atMs,
+  });
+
+  if (outcome.kind === 'expired') {
+    throw conflict('That seat offer ran out before it was taken, so it went to the next person. Nothing was charged.', {
+      reason: 'offer_expired',
+    });
+  }
+  if (outcome.kind === 'gone') {
+    throw conflict('That seat offer is no longer open. Nothing was charged.', { reason: `offer_${outcome.state}` });
+  }
+
+  const booking = outcome.result.booking;
+  const session = sessionById(ctx.tenantId, booking.sessionId)!;
+  const tz = db.select({ tz: schema.branches.timezone }).from(schema.branches).where(eq(schema.branches.id, session.branchId)).get()?.tz ?? 'Asia/Kolkata';
+  return c.json({
+    replayed: outcome.result.replayed,
+    booking: serialiseBooking(booking),
+    creditsHeld: classCreditsHeld(memberId, isoDate(atMs, tz)),
+    message:
+      outcome.result.creditsUsed > 0
+        ? `Seat taken. ${outcome.result.creditsUsed} class ${outcome.result.creditsUsed === 1 ? 'credit was' : 'credits were'} used.`
+        : outcome.result.chargeMinor > 0
+          ? 'Seat taken. The drop-in is added to your account. Settle it in Billing or at reception.'
+          : 'Seat taken. See you there.',
   });
 });
