@@ -1,17 +1,17 @@
 # Shark Fitness build status
 
-Updated 2026-11-25 20:28 IST by runner.py v3 (parallel). Model: `claude-opus-5-5` (Claude Code CLI, effort high).
+Updated 2026-11-25 20:31 IST by runner.py v3 (parallel). Model: `claude-opus-5-5` (Claude Code CLI, effort high).
 Concurrency cap: 4 Shark sessions (and at most 6 `claude -p` processes on the box in total); stall timeout 30 min.
 
 Runner: `/workspace/shark-fitness-orchestration/runner.py`, log `/workspace/shark-fitness-orchestration/logs/runner.log`, per-session logs `/workspace/shark-fitness-orchestration/logs/<tag>-<n>.json`. Worktrees: `/workspace/sf-wt/<ID>` (P01: `/workspace/shark-fitness-repo`).
 Backups on origin: `phase/*` and `integration/*` branches (pushed after every commit), orchestration state on `orchestration/state`.
-Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "phase/P02-payments-razorpay": "2ffa570 at 2026-11-25 20:21 IST", "phase/P06-staff-security": "b189005 at 2026-11-25 20:28 IST", "phase/P04-member-mobile-app": "0d45e3b at 2026-11-25 20:25 IST", "phase/P03-public-website": "16b083b at 2026-11-25 20:26 IST"}
+Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "phase/P02-payments-razorpay": "2ffa570 at 2026-11-25 20:21 IST", "phase/P06-staff-security": "b189005 at 2026-11-25 20:28 IST", "phase/P04-member-mobile-app": "0d45e3b at 2026-11-25 20:25 IST", "phase/P03-public-website": "f7fa4ed at 2026-11-25 20:30 IST"}
 
 ## Nodes
 | Node | Title | State | Branch | Base | PR | Checks (runner-verified) | Notes |
 |---|---|---|---|---|---|---|---|
 | P01 | Finish pilot hosting (PR #27) and production readiness | done | `phase/P01-prod-readiness` | `claude/musing-wilbur-d67503` | https://github.com/amankeshri7542/Shark-Fitness-/pull/28 | typecheck:pass lint:pass test:pass build:pass e2e:pass |  |
-| P02 | Razorpay payments in test mode | verifying | `phase/P02-payments-razorpay` | `phase/P01-prod-readiness` |  |  |  |
+| P02 | Razorpay payments in test mode | pr | `phase/P02-payments-razorpay` | `phase/P01-prod-readiness` |  | typecheck:pass lint:pass test:pass build:pass e2e:pass |  |
 | P06 | Staff security: MFA, step-up auth, sessions, CSP, outbound webhooks | implementing | `phase/P06-staff-security` | `phase/P01-prod-readiness` |  |  |  |
 | P04 | Installable member app (PWA + Android TWA) and staff console PWA | implementing | `phase/P04-member-mobile-app` | `phase/P01-prod-readiness` |  |  |  |
 | P03 | Public website, public API and lead capture | implementing | `phase/P03-public-website` | `phase/P01-prod-readiness` |  |  |  |
@@ -28,8 +28,8 @@ Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "ph
 ## Running sessions
 | Node | Session tag | pid | Last activity | Started |
 |---|---|---|---|---|
-| P06 | P06-impl | 252755 | 2026-11-25 20:27 IST | 2026-11-25 14:21 IST |
-| P04 | P04-impl | 252400 | 2026-11-25 20:27 IST | 2026-11-25 14:20 IST |
+| P06 | P06-impl | 252755 | 2026-11-25 20:29 IST | 2026-11-25 14:21 IST |
+| P04 | P04-impl | 252400 | 2026-11-25 20:29 IST | 2026-11-25 14:20 IST |
 | P03 | P03-impl | 259584 | 2026-11-25 20:28 IST | 2026-11-25 15:23 IST |
 
 ## Blockers / waiting
