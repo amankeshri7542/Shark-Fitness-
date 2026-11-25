@@ -1,12 +1,12 @@
 {
  "phase": "P03",
- "status": "in_progress",
+ "status": "done",
  "items": [
   {
    "id": 1,
    "text": "AC1 website built by pnpm build; production serving / website, /app/ member, /admin/ console; immutable hashed assets with correct MIME, no-cache HTML; CI smoke checks all three",
-   "status": "todo",
-   "evidence": ""
+   "status": "done",
+   "evidence": "pnpm build builds apps/website (15 pages); local production smoke on :18406: / and /plans 200 text/html no-cache br, /app/ and /admin/ 200 text/html no-store, hashed assets text/javascript|font/woff2 immutable, missing assets 404 no-store, /sign-in 302 /app/sign-in; static-sites.test.ts (10) + static-sites-app.integration.test.ts (2); ci.yml static smoke + container smoke check /, /app/, /admin/"
   },
   {
    "id": 2,
@@ -53,8 +53,8 @@
   {
    "id": 9,
    "text": "AC9 docs updated; standard gates and pnpm e2e pass",
-   "status": "todo",
-   "evidence": ""
+   "status": "done",
+   "evidence": "docs/WEBSITE.md new; README, PILOT-HOSTING, .env.example, deploy/pilot compose + shark.env.example updated. Final: install/typecheck/lint pass; pnpm test 1,606 tests / 136 files pass (contracts 28, domain 271, website 24, member 40, admin 302, api 941); pnpm build pass; pnpm e2e 15 passed"
   },
   {
    "id": 10,
@@ -71,8 +71,8 @@
   {
    "id": 12,
    "text": "Screenshots in phases/P03-screens/ and PR description pr/P03.md",
-   "status": "todo",
-   "evidence": ""
+   "status": "done",
+   "evidence": "phases/P03-screens/ (25 PNGs: website desktop/mobile/light, trial received, admin leads Website filter, lead detail trial + confirmed, plans Show on website); pr/P03.md written"
   }
  ]
 }
