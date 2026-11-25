@@ -29,8 +29,8 @@
   {
    "id": 5,
    "text": "Credit packs: sale (staff + member checkout/unpaid invoice), allocation in settlement txn (manual + webhook), FIFO consumption, restore with original expiry, refund matrix, append-only trigger; Billing/Book/Member detail UI",
-   "status": "todo",
-   "evidence": ""
+   "status": "done",
+   "evidence": "commits 4eeed25, (admin panel). credit-packs.integration.test.ts 14/14: no credits before full pay (partial pay -> 0), allocation same txn (audit requestId match; blocked grant rolls payment back), Razorpay webhook allocation, FIFO earliest-expiry, restore keeps lot+expiry, late cancel forfeits, PT session FIFO, refund full/partial (7x59990)/expired refused, provider refund failure reinstates, append-only triggers. domain credits.test.ts 10/10. member CreditsPanel 7/7, admin MemberCredits 7/7, Book \"Uses 1 class credit\"."
   },
   {
    "id": 6,
