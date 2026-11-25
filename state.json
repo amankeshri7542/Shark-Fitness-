@@ -52,7 +52,9 @@
       }
     },
     "P05": {
-      "state": "pending"
+      "state": "pending",
+      "base": "phase/P02-payments-razorpay",
+      "base_sha": "2ffa5700a"
     },
     "P07": {
       "state": "pending"
