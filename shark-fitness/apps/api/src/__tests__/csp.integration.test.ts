@@ -156,6 +156,23 @@ describe('POST /v1/csp-reports', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const big = await app.request(CSP_REPORT_PATH, { method: 'POST', headers: { 'content-type': 'application/csp-report' }, body: 'x'.repeat(20_000) });
     expect(big.status).toBe(413);
+    // No Content-Length (chunked): reading stops at the cap. The stream never
+    // ends, so without the cap this request would hang until the test timed out.
+    let pulled = 0;
+    const endless = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled += 1;
+        controller.enqueue(new TextEncoder().encode('x'.repeat(4096)));
+      },
+    });
+    const chunked = await app.request(CSP_REPORT_PATH, {
+      method: 'POST',
+      headers: { 'content-type': 'application/csp-report' },
+      body: endless,
+      duplex: 'half',
+    } as RequestInit);
+    expect(chunked.status).toBe(413);
+    expect(pulled).toBeLessThan(10);
     let status = 204;
     for (let index = 0; index < 61 && status !== 429; index += 1) {
       status = (await app.request(CSP_REPORT_PATH, { method: 'POST', headers: { 'content-type': 'application/csp-report' }, body: '{}' })).status;

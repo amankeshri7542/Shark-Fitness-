@@ -88,11 +88,34 @@ class CspViolation extends Error {
   }
 }
 
+/**
+ * Reads at most MAX_BYTES of the body, Content-Length or not: a chunked request
+ * is cut off as soon as it passes the cap instead of being buffered whole.
+ * Returns null when the body is too large.
+ */
+async function readCapped(body: ReadableStream<Uint8Array> | null): Promise<string | null> {
+  if (!body) return '';
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_BYTES) {
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
 cspReportRoutes.post('/', rateLimit(60, 60_000, { bucket: 'csp-reports' }), async (c) => {
   const declared = Number(c.req.header('content-length') ?? '0');
   if (declared > MAX_BYTES) return c.body(null, 413);
-  const text = await c.req.text();
-  if (text.length > MAX_BYTES) return c.body(null, 413);
+  const text = await readCapped(c.req.raw.body);
+  if (text === null) return c.body(null, 413);
   for (const violation of parseCspReports(text)) {
     log('warn', 'csp_violation', { ...violation });
     captureException(new CspViolation(violation), { source: 'csp', route: violation.page, requestId: c.get('requestId') });
