@@ -15,10 +15,22 @@ interface PassPayload {
   code: { passes: Array<{ token: string; window: number }> } | null;
 }
 
-test('reception types a member code into Scan pass and sees Admitted, then Already checked in', async ({ page, baseURL }) => {
-  const owner = await apiSession(baseURL!, DEMO.owner.email);
+test('reception scans a member code from the code box: Admitted, then Already checked in; a blocked camera falls back to the box', async ({ page, baseURL }) => {
+  // The browser refuses the camera, as when reception has said no to the prompt.
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: { getUserMedia: () => Promise.reject(new DOMException('Permission denied', 'NotAllowedError')) },
+    });
+  });
   const member = await apiSession(baseURL!, DEMO.member.email);
   try {
+    await signInToConsole(page);
+    // The owner's own console session sets the scene: one sign-in, not two.
+    const csrf = await page.evaluate(() => sessionStorage.getItem('shark.admin.csrf') ?? '');
+    const ownerPatch = (path: string, data: unknown) =>
+      page.request.fetch(path, { method: 'PATCH', data, headers: { 'x-csrf-token': csrf, origin: baseURL! } });
+
     let pass = await member.get<PassPayload>('/v1/member/pass');
     const branch = pass.branch;
     if (pass.openSession) await member.send('POST', '/v1/member/pass/check-out');
@@ -26,16 +38,16 @@ test('reception types a member code into Scan pass and sees Admitted, then Alrea
     // The run can happen at any hour: open the branch all day for it, so the
     // hours rule (which has its own tests) does not decide this one.
     const allDay = { opensAt: '00:00', closesAt: '23:59', hours: null, holidays: [] };
-    let opened = await owner.send<{ consequences?: Array<{ code: string }> }>('PATCH', `/v1/admin/settings/branches/${branch.id}`, allDay);
-    if (opened.status !== 200 && opened.body.consequences) {
-      opened = await owner.send('PATCH', `/v1/admin/settings/branches/${branch.id}`, { ...allDay, acknowledge: opened.body.consequences.map((c) => c.code) });
+    let opened = await ownerPatch(`/v1/admin/settings/branches/${branch.id}`, allDay);
+    if (opened.status() !== 200) {
+      const { consequences } = (await opened.json()) as { consequences?: Array<{ code: string }> };
+      opened = await ownerPatch(`/v1/admin/settings/branches/${branch.id}`, { ...allDay, acknowledge: (consequences ?? []).map((c) => c.code) });
     }
-    expect(opened.status).toBe(200);
+    expect(opened.status()).toBe(200);
 
     pass = await member.get<PassPayload>(`/v1/member/pass?branchId=${branch.id}`);
     expect(pass.code, 'an entry code for the member').not.toBeNull();
 
-    await signInToConsole(page);
     await page.goto('/admin/floor');
     // The owner looks at all branches, so reception says which door this is.
     const scanning = page.getByLabel('Scanning at');
@@ -56,25 +68,15 @@ test('reception types a member code into Scan pass and sees Admitted, then Alrea
     await codeBox.press('Enter');
     await expect(page.getByRole('heading', { name: 'Already checked in' })).toBeVisible();
 
+    // Camera blocked: said plainly, and the code box takes over.
+    await page.getByRole('button', { name: 'Scan with camera' }).click();
+    await expect(page.getByText(/Camera access is blocked for this console/)).toBeVisible();
+    await expect(codeBox).toBeFocused();
+
     await member.send('POST', '/v1/member/pass/check-out');
   } finally {
-    await owner.dispose();
     await member.dispose();
   }
-});
-
-test('when the browser blocks the camera, the code box is the way in', async ({ page }) => {
-  await page.addInitScript(() => {
-    Object.defineProperty(navigator, 'mediaDevices', {
-      configurable: true,
-      value: { getUserMedia: () => Promise.reject(new DOMException('Permission denied', 'NotAllowedError')) },
-    });
-  });
-  await signInToConsole(page);
-  await page.goto('/admin/floor');
-  await page.getByRole('button', { name: 'Scan with camera' }).click();
-  await expect(page.getByText(/Camera access is blocked for this console/)).toBeVisible();
-  await expect(page.getByLabel('Pass code')).toBeFocused();
 });
 
 test('the camera is allowed for the console only', async ({ request }) => {

@@ -8,7 +8,7 @@ import { DEMO, signInToMemberApp } from '../support/demo';
  * exact statement rather than a race with the wall clock.
  */
 
-test('the QR code changes to a new token before its countdown runs out @mobile', async ({ page }) => {
+test('the QR code changes to a new token before its countdown runs out; offline it shows the member number @mobile', async ({ page, context }) => {
   await page.clock.install();
   await signInToMemberApp(page, DEMO.member);
   await page.goto('/pass');
@@ -30,18 +30,12 @@ test('the QR code changes to a new token before its countdown runs out @mobile',
   // The countdown ends: a different code is already on screen, with a full window.
   await page.clock.runFor(1200);
   await expect(qr).not.toHaveAttribute('data-qr-value', first!);
-  const next = Number(await countdown.textContent());
-  expect(next).toBeGreaterThan(20);
-});
+  expect(Number(await countdown.textContent())).toBeGreaterThan(20);
 
-test('offline, the pass shows the member number and says reception can use it @mobile', async ({ page, context }) => {
-  await signInToMemberApp(page, DEMO.member);
-  await page.goto('/pass');
-  await expect(page.locator('svg[data-qr-value]')).toBeVisible();
-
+  // No signal: no code to scan, the member number and what to do with it.
   await context.setOffline(true);
   await expect(page.getByText('Reception can check you in with this number.')).toBeVisible();
-  await expect(page.locator('svg[data-qr-value]')).toHaveCount(0);
+  await expect(qr).toHaveCount(0);
   await expect(page.getByText(/SF-\d+/).first()).toBeVisible();
   await context.setOffline(false);
 });
