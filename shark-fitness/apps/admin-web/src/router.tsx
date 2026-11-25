@@ -38,6 +38,7 @@ const SupportScreen = lazyRouteComponent(() => import('./screens/Support'));
 const SettingsScreen = lazyRouteComponent(() => import('./screens/Settings'));
 const PlatformScreen = lazyRouteComponent(() => import('./screens/Platform'));
 const AccountScreen = lazyRouteComponent(() => import('./screens/Account'));
+const InboxScreen = lazyRouteComponent(() => import('./screens/Inbox'));
 
 /** Shown while a screen chunk is in flight, inside the console shell so the
  *  rail and status strip stay put instead of the pane going blank. */
@@ -304,6 +305,21 @@ const platformRoute = createRoute({
   }),
 });
 
+/** Member conversations (P07). The open thread is in the URL so a
+ *  notification can point straight at it. */
+export interface InboxSearch {
+  conversation?: string;
+}
+const inboxRoute = createRoute({
+  getParentRoute: () => consoleRoute,
+  path: '/inbox',
+  component: InboxScreen,
+  validateSearch: (search: Record<string, unknown>): InboxSearch =>
+    typeof search.conversation === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(search.conversation)
+      ? { conversation: search.conversation }
+      : {},
+});
+
 /** Your own sign-in: two-step and devices. Every role can open it. */
 const accountRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/account', component: AccountScreen });
 
@@ -331,6 +347,7 @@ const routeTree = rootRoute.addChildren([
     settingsRoute,
     platformRoute,
     accountRoute,
+    inboxRoute,
   ]),
 ]);
 
