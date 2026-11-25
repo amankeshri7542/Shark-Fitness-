@@ -46,12 +46,7 @@
       "state": "implementing",
       "base": "phase/P01-prod-readiness",
       "base_sha": "2c15353fd",
-      "running": {
-        "tag": "P03-impl",
-        "pid": 252178,
-        "started": "2026-11-25 14:20 IST",
-        "activity": "2026-11-25 14:22 IST"
-      }
+      "running": null
     },
     "P05": {
       "state": "pending"
