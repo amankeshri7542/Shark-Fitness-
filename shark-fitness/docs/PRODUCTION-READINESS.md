@@ -20,7 +20,7 @@ Nothing here recommends architecture for a scale this product does not have.
 |---|---|---|
 | Business logic and authorisation | Strong. More than 1,200 automated tests, including tenant and branch isolation from the outside | No |
 | Persistence | SQLite on one disk. Nightly backups, optional age-encrypted off-site copies and restore drills are scripted (`deploy/pilot/`); no server, bucket or key exists yet | **Yes** until off-site copies are configured and drilled |
-| Payments | No real provider. Cash and card are recorded, not taken | **Yes** for card |
+| Payments | Razorpay in **test mode** (checkout, plan purchase, payment links, provider refunds, signed webhooks, reconciliation); live keys refused by config. Desk payments are still recorded, not taken | **Yes** until Razorpay KYC and a reviewed live-mode change |
 | Scaling | Single instance only, by design and by constraint | No, at this size |
 | Realtime | In-process WebSocket fan-out, lost on restart | No |
 | Scheduler | In-process timers, one set per instance | **Yes** if ever scaled |
@@ -29,7 +29,7 @@ Nothing here recommends architecture for a scale this product does not have.
 | Rate limiting | In-memory, endpoint-sensitive IP/actor/tenant budgets | Partially |
 | Migrations | Forward-only, additive, tested; CI fails on schema drift | No |
 
-**External blockers.** A payment provider where cards are accepted; a
+**External blockers.** Razorpay KYC and live keys (the integration runs in test mode); a
 configured error-reporting and alerting destination; and an off-site backup
 bucket with an age key whose private half the owner keeps. The code and scripts
 for all three are in the repository (November 2026); none has been connected to
@@ -200,32 +200,40 @@ longer means the scheduler is healthy forever.
 
 ## 7. Payment integration
 
-**There is no payment provider.** This is the second blocker.
+**Razorpay is integrated in test mode** (November 2026, phase P02;
+docs/PAYMENTS-RAZORPAY.md, ADR-003). It is a blocker only until the gym goes
+live: config refuses any key id that does not start `rzp_test_`.
 
-- Payments are **recorded**, not taken. `POST /billing/invoices/:id/payments`
-  writes a row saying cash or card was received. Nothing is charged.
-- `POST /billing/webhooks/demo` is a **simulator**, explicitly named so in the
-  source. It exists to exercise dunning and provider-event handling.
-- `payments.provider` is null everywhere. `provider_events` has the right shape
-  for real webhooks and has never seen one.
-- No stored cards, no mandates, no auto-renewal collection. A membership that
-  says `autoRenew: true` renews the *record*, not the charge.
+- **Members** pay open invoices and buy or renew plans in the app through
+  Razorpay Checkout (loaded on demand from `checkout.razorpay.com`). The
+  browser's success callback is verified (HMAC on our order id) and the payment
+  is then fetched server-to-server; only a captured payment settles.
+- **Webhooks** (`POST /v1/webhooks/razorpay`) are verified over the raw body,
+  stored in `provider_events` before processing, idempotent per event id, and
+  safe in any delivery order. Unknown events are stored and acknowledged.
+- **Settlement** uses the single existing path (receipt, dunning stop,
+  membership activation, audit as `system:razorpay`, realtime) at most once per
+  Razorpay payment (unique index). Amount or currency mismatches and payments for
+  already-settled invoices never settle; they become reconciliation exceptions.
+- **Refunds** of online payments go through Razorpay with an idempotency key and
+  stay pending until `refund.processed`; desk payments keep the manual path.
+- **Payment links** for open invoices are created with Razorpay notifications
+  off; staff copy and share them.
+- **Reconciliation**: the `reconcile-payments` job (every 6 h, `job_runs`) settles
+  what webhooks missed and records mismatches; staff resolve them with a reason
+  in Billing → Reconciliation.
+- No provider call ever runs inside a database transaction (enforced and tested).
+- Without the Razorpay variables the system behaves exactly as before: payments
+  are recorded, member checkout answers 412.
+- **Still not built:** stored cards, mandates (UPI Autopay / eMandate) and
+  automatic renewal collection. Dunning reports `no_stored_mandate` with a
+  provider and `no_payment_provider_configured` without one, and the console
+  never offers a retry that cannot happen. Drop-in class fees are still
+  collected at reception.
 
-**What is genuinely built** and would survive a real integration: the invoice
-and refund model, per-line tax, mixed tender, idempotency on the write path,
-the dunning state machine, and a grace period the door reads. Adding a provider
-is an adapter and a webhook verifier, not a redesign — but until it exists,
-this system cannot take money.
-
-**The provider boundary now has a shape.** `lib/payment-provider.ts` is the one
-seam a real integration plugs into; `resolvePaymentProvider()` returns null and
-there is no branch in it that can report a charge that did not happen. The
-dunning worker asks it on every attempt and writes the answer — today always
-`no_payment_provider_configured` — onto the attempt row, and the console read
-returns `automaticCollection: { available: false, reason, message }` so a UI
-cannot render a retry button over a capability that does not exist. The member's
-reminder says what is owed and where to settle it, and never says a charge was
-attempted or will be retried.
+**To go live:** see the checklist in docs/PAYMENTS-RAZORPAY.md (KYC, live keys
+in the secret store, a reviewed code change to allow them, a live webhook, one
+real low-value payment and refund, accountant sign-off, alerts, CSP).
 
 ---
 
@@ -450,8 +458,9 @@ Worth saying plainly, because the list above is all caveats:
 2. **Connect an error destination and the alert accounts**
    (docs/OPERATIONS-ALERTS.md) and test each channel. The reporting, metrics
    and rules exist; nobody is alerted until operations connects them.
-3. **Add a payment provider**, if the gym takes card. Recorded card payments
-   are not charges.
+3. **Take Razorpay live** when the gym is ready (KYC, live keys, the reviewed
+   config change; docs/PAYMENTS-RAZORPAY.md). Test mode is integrated and
+   tested; recorded desk card payments are still not charges.
 4. **Run the performance harness on the intended persistent disk** and retain
    results before onboarding each materially larger gym.
 5. **Add scheduler leadership and a shared database only before a second
