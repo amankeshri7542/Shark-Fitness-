@@ -10,12 +10,13 @@
       "pr": "https://github.com/amankeshri7542/Shark-Fitness-/pull/28"
     },
     "P02": {
-      "state": "pr",
+      "state": "done",
       "base": "phase/P01-prod-readiness",
       "base_sha": "128aec1e5",
       "running": null,
       "note": "",
-      "checks": "typecheck:pass lint:pass test:pass build:pass e2e:pass"
+      "checks": "typecheck:pass lint:pass test:pass build:pass e2e:pass",
+      "pr": "https://github.com/amankeshri7542/Shark-Fitness-/pull/29"
     },
     "P06": {
       "state": "implementing",
