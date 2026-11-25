@@ -22,12 +22,7 @@
       "state": "reviewing",
       "base": "phase/P01-prod-readiness",
       "base_sha": "128aec1e5",
-      "running": {
-        "tag": "P06-review",
-        "pid": 7831,
-        "started": "2026-11-25 23:08 IST",
-        "activity": "2026-11-25 23:08 IST"
-      },
+      "running": null,
       "note": ""
     },
     "P04": {
@@ -58,7 +53,12 @@
       "state": "implementing",
       "base": "phase/P02-payments-razorpay",
       "base_sha": "2ffa5700a",
-      "running": null
+      "running": {
+        "tag": "P05-impl",
+        "pid": 8712,
+        "started": "2026-11-25 23:09 IST",
+        "activity": "2026-11-25 23:09 IST"
+      }
     },
     "P07": {
       "state": "pending"
