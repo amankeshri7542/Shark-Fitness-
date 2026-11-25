@@ -111,6 +111,14 @@ export async function startFakeRazorpay(options: { port?: number; keyId?: string
         send(res, fault.behaviour.status, fault.behaviour.error ?? { error: { code: 'SERVER_ERROR', description: 'Fake fault' } });
         return;
       }
+      // Test control, not part of Razorpay's API: lets an E2E worker (another
+      // process) act as the member paying inside Checkout.
+      const control = url.pathname.match(/^\/__control\/orders\/([^/]+)\/payments$/);
+      if (control && record.method === 'POST') {
+        const order = orders.get(control[1]!);
+        if (!order) return error(res, 404, 'No such order (fake control).');
+        return send(res, 200, newPayment(order, String(body?.status ?? 'captured'), Number(body?.amount ?? order.amount), String(order.currency), 'upi'));
+      }
       if (req.headers.authorization !== expectedAuth) {
         error(res, 401, 'Authentication failed', 'BAD_REQUEST_ERROR');
         return;

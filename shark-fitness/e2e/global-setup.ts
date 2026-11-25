@@ -5,6 +5,7 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { API_ROOT, STATE_FILE, WORKSPACE_ROOT, type RunState } from './support/paths';
+import { startFakeRazorpay, type FakeRazorpay } from '../apps/api/src/testing/razorpay-fake';
 
 /**
  * Starts the real product the way production runs it: one Node process
@@ -12,7 +13,7 @@ import { API_ROOT, STATE_FILE, WORKSPACE_ROOT, type RunState } from './support/p
  * freshly migrated and seeded SQLite file in a temporary directory. Never
  * apps/api/data/shark.db.
  */
-export default async function globalSetup(): Promise<void> {
+export default async function globalSetup(): Promise<() => Promise<void>> {
   const missing = ['apps/member-pwa/dist/index.html', 'apps/admin-web/dist/index.html'].filter(
     (file) => !existsSync(resolve(WORKSPACE_ROOT, file)),
   );
@@ -21,7 +22,12 @@ export default async function globalSetup(): Promise<void> {
   }
 
   const tempDir = mkdtempSync(join(tmpdir(), 'shark-e2e-'));
+  // Razorpay in test mode, played by a local fake in this (the runner's)
+  // process for the whole run: the API talks to it, never to razorpay.com.
+  // Port 0 picks a free one; SHARK_E2E_RAZORPAY_PORT pins it.
+  let razorpay: FakeRazorpay | null = null;
   try {
+    razorpay = await startFakeRazorpay({ port: Number(process.env.SHARK_E2E_RAZORPAY_PORT ?? 0) });
     const database = join(tempDir, 'shark.db');
     const port = await freePort();
     const baseURL = `http://127.0.0.1:${port}`;
@@ -43,6 +49,12 @@ export default async function globalSetup(): Promise<void> {
       SHARK_RELEASE: 'e2e',
       // Error reports go to the server log, where the client-error spec reads them.
       SHARK_ERROR_REPORTER: 'console',
+      // Online payment through the fake Razorpay; keys are new every run.
+      SHARK_PAYMENT_PROVIDER: 'razorpay',
+      SHARK_RAZORPAY_KEY_ID: razorpay.keyId,
+      SHARK_RAZORPAY_KEY_SECRET: razorpay.keySecret,
+      SHARK_RAZORPAY_WEBHOOK_SECRET: razorpay.webhookSecret,
+      SHARK_RAZORPAY_API_BASE: razorpay.baseUrl,
     };
 
     for (const script of ['src/db/migrate.ts', 'src/db/seed.ts']) {
@@ -69,7 +81,20 @@ export default async function globalSetup(): Promise<void> {
 
     process.env.SHARK_E2E_BASE_URL = baseURL;
     process.env.SHARK_E2E_SERVER_LOG = serverLog;
+    // For the payment specs (support/razorpay.ts), which run in worker processes.
+    process.env.SHARK_E2E_RAZORPAY_API_BASE = razorpay.baseUrl;
+    process.env.SHARK_E2E_RAZORPAY_KEY_SECRET = razorpay.keySecret;
+    process.env.SHARK_E2E_RAZORPAY_WEBHOOK_SECRET = razorpay.webhookSecret;
+    const fake = razorpay;
+    // Runs before global-teardown.ts, which stops the API.
+    return async () => {
+      if (fake.unexpected.length > 0) {
+        console.warn(`Fake Razorpay saw requests it does not serve: ${fake.unexpected.map((r) => `${r.method} ${r.path}`).join(', ')}`);
+      }
+      await fake.close();
+    };
   } catch (error) {
+    await razorpay?.close();
     stopRecordedServer();
     rmSync(tempDir, { recursive: true, force: true });
     throw error;

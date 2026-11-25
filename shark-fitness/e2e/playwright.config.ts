@@ -26,5 +26,9 @@ export default defineConfig({
     // sees them, and a cached shell would hide the build under test.
     serviceWorkers: 'block',
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    // Payment specs (tagged @payments) run on a phone, where members pay.
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] }, grepInvert: /@payments/ },
+    { name: 'mobile-chromium', use: { ...devices['Pixel 7'] }, grep: /@payments/ },
+  ],
 });
