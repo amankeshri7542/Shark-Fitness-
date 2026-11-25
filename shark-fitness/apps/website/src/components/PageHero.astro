@@ -1,0 +1,37 @@
+---
+import Contours from './Contours.astro';
+import type { Crumb } from '../lib/schema';
+
+export interface Props {
+  title: string;
+  lede?: string;
+  /** Home is implied; give the trail after it. */
+  crumbs: Crumb[];
+}
+const { title, lede, crumbs } = Astro.props;
+const trail = [{ name: 'Home', path: '/' }, ...crumbs];
+---
+
+<section class="hero hero--page">
+  <Contours />
+  <div class="wrap">
+    <nav class="crumbs label" aria-label="Breadcrumb">
+      <ol>
+        {
+          trail.map((c, i) =>
+            i === trail.length - 1 ? (
+              <li aria-current="page">{c.name}</li>
+            ) : (
+              <li>
+                <a href={c.path}>{c.name}</a>
+              </li>
+            ),
+          )
+        }
+      </ol>
+    </nav>
+    <h1>{title}</h1>
+    {lede ? <p class="lede">{lede}</p> : null}
+    <slot />
+  </div>
+</section>

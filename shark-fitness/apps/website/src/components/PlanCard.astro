@@ -1,0 +1,42 @@
+---
+import type { PublicPlan } from '@shark/contracts';
+import { planNotes, plansWhere } from '../content/site';
+
+export interface Props {
+  plan: PublicPlan;
+  featured?: boolean;
+  /** Heading level inside the page outline. */
+  as?: 'h2' | 'h3';
+}
+const { plan, featured = false, as: Heading = 'h3' } = Astro.props;
+const notes = planNotes[plan.id];
+const isMembership = plan.kind === 'membership';
+---
+
+<article class:list={['cell', 'plan', { 'plan--featured': featured }]} id={plan.id} data-plan-id={plan.id}>
+  <p class="label label--accent">{featured ? 'Most chosen' : plansWhere(plan)}</p>
+  <Heading>{plan.name}</Heading>
+  <div class="plan__price">
+    <strong data-field="price">{plan.priceLabel}</strong>
+    <span class="muted" data-field="cadence">{plan.cadenceLabel}</span>
+  </div>
+  <p class="muted" data-field="tax">{plan.taxNote}{plan.taxMinor > 0 ? ` · ${plan.taxLabel} on an invoice for every payment` : ''}</p>
+  {notes ? <p>{notes.bestFor}</p> : <p>{plan.description}</p>}
+  {
+    notes ? (
+      <ul>
+        {notes.includes.map((line) => (
+          <li>{line}</li>
+        ))}
+      </ul>
+    ) : null
+  }
+  <div class="plan__foot">
+    <a class:list={['btn', 'btn--block', { 'btn--primary': featured }]} href={`/free-trial?plan=${encodeURIComponent(plan.id)}`}>
+      {isMembership ? 'Start with a free week' : 'Ask about this'}<span class="sr-only">: {plan.name}</span>
+    </a>
+    <a class="muted" href={`/app/billing?plan=${encodeURIComponent(plan.id)}`}>
+      Already a member? Buy or renew in the app<span class="sr-only">: {plan.name}</span>
+    </a>
+  </div>
+</article>

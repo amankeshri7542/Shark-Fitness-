@@ -1,0 +1,82 @@
+---
+import Layout from '../layouts/Layout.astro';
+import PageHero from '../components/PageHero.astro';
+import WeeklyTimetable from '../components/WeeklyTimetable.astro';
+import CtaBand from '../components/CtaBand.astro';
+import { LEVEL_LABEL, branches, branchExtra, classInfo } from '../content/site';
+import { breadcrumbs } from '../lib/schema';
+
+const crumbs = [{ name: 'Classes and timetable', path: '/classes' }];
+---
+
+<Layout
+  title="Classes and timetable"
+  description="Weekly class timetable for Shark Fitness Koramangala, Indiranagar and HSR Layout: Strength Clinic, Apex HIIT, Spin, boxing, mobility, yoga and swim."
+  path="/classes"
+  jsonLd={[breadcrumbs([{ name: 'Home', path: '/' }, ...crumbs])]}
+>
+  <PageHero
+    title="Classes and timetable"
+    lede="Coached small-group classes every day at every branch. Members book in the app; free trial guests are booked in by the team."
+    crumbs={crumbs}
+  />
+
+  <section class="section" aria-labelledby="types">
+    <div class="wrap">
+      <div class="section-head"><h2 id="types">What runs</h2></div>
+      <div class="seam seam--4">
+        {
+          classInfo.map((c) => (
+            <div class="cell">
+              <p class="label">{LEVEL_LABEL[c.level]}</p>
+              <h3>{c.name}</h3>
+              <p>{c.summary}</p>
+              <p class="muted">{c.whoFor}</p>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="weekly">
+    <div class="wrap">
+      <div class="section-head">
+        <h2 id="weekly">The weekly timetable</h2>
+        <p class="muted">Times are Bengaluru time. Holidays and the odd cover change are shown in “This week” below.</p>
+      </div>
+      <WeeklyTimetable />
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="this-week">
+    <div class="wrap">
+      <div class="section-head">
+        <h2 id="this-week">This week, with spaces</h2>
+        <p class="muted">The next seven days at one branch, and which classes are filling up.</p>
+      </div>
+      <div data-live-classes hidden>
+        <div style="display:grid;gap:20px">
+        <div class="field" style="max-width:360px">
+          <label for="live-branch">Branch</label>
+          <select class="select" id="live-branch">
+            {branches.map((b) => <option value={b.id}>{branchExtra(b).area}</option>)}
+          </select>
+        </div>
+        <p class="muted" data-live-state aria-live="polite"></p>
+        <div class="seam seam--3" data-live-output style="min-height:200px"></div>
+        </div>
+      </div>
+      <noscript><p class="muted">Turn on JavaScript to see this week’s dates and spaces. The weekly timetable above is current.</p></noscript>
+    </div>
+  </section>
+
+  <CtaBand title="Try a class free" />
+</Layout>
+
+<script>
+  import { mountLiveClasses } from '../scripts/live-classes';
+
+  const root = document.querySelector<HTMLElement>('[data-live-classes]');
+  if (root) mountLiveClasses(root);
+</script>

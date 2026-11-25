@@ -1,0 +1,31 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import PageHero from '../../components/PageHero.astro';
+import BranchCard from '../../components/BranchCard.astro';
+import CtaBand from '../../components/CtaBand.astro';
+import { branches } from '../../content/site';
+import { breadcrumbs, exerciseGym } from '../../lib/schema';
+
+const crumbs = [{ name: 'Locations', path: '/locations' }];
+---
+
+<Layout
+  title="Locations"
+  description="Shark Fitness gyms in Bengaluru: Koramangala 80 Feet Road, Indiranagar HAL 2nd Stage and HSR Layout Sector 2. Addresses, opening hours and parking."
+  path="/locations"
+  jsonLd={[...branches.map(exerciseGym), breadcrumbs([{ name: 'Home', path: '/' }, ...crumbs])]}
+>
+  <PageHero
+    title="Locations"
+    lede="Three gyms in south-east Bengaluru, each open from 5 am on weekdays. Elite Annual members can use all of them."
+    crumbs={crumbs}
+  />
+  <section class="section" aria-label="Our gyms">
+    <div class="wrap">
+      <div class="seam seam--3">
+        {branches.map((b) => <BranchCard branch={b} />)}
+      </div>
+    </div>
+  </section>
+  <CtaBand />
+</Layout>

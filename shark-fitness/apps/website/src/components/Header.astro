@@ -1,0 +1,50 @@
+---
+import Mark from './Mark.astro';
+import { NAV, isCurrent } from './nav';
+import { brand } from '../content/site';
+
+const { path } = Astro.props as { path: string };
+---
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="wordmark" href="/" aria-label={`${brand.name} home`}><Mark />{brand.name}</a>
+    <nav aria-label="Main">
+      <ul class="nav-links">
+        {
+          NAV.map((item) => (
+            <li>
+              <a href={item.href} aria-current={isCurrent(path, item.href) ? 'page' : undefined}>
+                {item.label}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </nav>
+    <div class="header-actions">
+      <a class="btn member-link" href="/app/">Member sign in</a>
+      <a class="btn btn--primary" href="/free-trial" aria-current={path === '/free-trial' ? 'page' : undefined}>Free trial</a>
+      <details class="menu">
+        <summary aria-label="Menu">
+          <svg width="20" height="14" viewBox="0 0 20 14" aria-hidden="true" focusable="false"><path d="M0 1h20M0 7h20M0 13h20" stroke="currentColor" stroke-width="2"></path></svg>
+        </summary>
+        <nav class="menu-panel" aria-label="Main, mobile">
+          <ul>
+            {
+              NAV.map((item) => (
+                <li>
+                  <a href={item.href} aria-current={isCurrent(path, item.href) ? 'page' : undefined}>
+                    {item.label}
+                  </a>
+                </li>
+              ))
+            }
+            <li><a href="/contact" aria-current={path === '/contact' ? 'page' : undefined}>Contact</a></li>
+            <li><a href="/app/">Member sign in</a></li>
+          </ul>
+        </nav>
+      </details>
+    </div>
+  </div>
+</header>

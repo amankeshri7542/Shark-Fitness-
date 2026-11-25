@@ -1,0 +1,102 @@
+---
+import '@shark/design-tokens/sonar.css';
+import '../styles/site.css';
+import antonLatin from '@fontsource/anton/files/anton-latin-400-normal.woff2?url';
+import antonLatinExt from '@fontsource/anton/files/anton-latin-ext-400-normal.woff2?url';
+import archivo400 from '@fontsource/archivo/files/archivo-latin-400-normal.woff2?url';
+import archivo600 from '@fontsource/archivo/files/archivo-latin-600-normal.woff2?url';
+import archivoExt400 from '@fontsource/archivo/files/archivo-latin-ext-400-normal.woff2?url';
+import narrow600 from '@fontsource/archivo-narrow/files/archivo-narrow-latin-600-normal.woff2?url';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+import { ANALYTICS_DOMAIN, ANALYTICS_SRC, SITE_INDEXABLE, SITE_URL, TENANT_SLUG, canonical } from '../lib/config';
+import { brand } from '../content/site';
+
+export interface Props {
+  title: string;
+  description: string;
+  path: string;
+  /** Structured data blocks for this page (schema.org), serialised as JSON-LD. */
+  jsonLd?: Array<Record<string, unknown>>;
+  /** 404 and other pages that must never be indexed, whatever SITE_INDEXABLE says. */
+  noindex?: boolean;
+  /** Inline script for the head, for the one page that needs to act before paint. */
+  headScript?: string;
+}
+
+const { title, description, path, jsonLd = [], noindex = false, headScript } = Astro.props;
+const fullTitle = path === '/' ? title : `${title} | ${brand.name}`;
+const url = canonical(path);
+const ogImage = `${SITE_URL}/og.png`;
+const robots = noindex || !SITE_INDEXABLE ? 'noindex, nofollow' : 'index, follow';
+
+/* Latin is what every page needs: preloaded. Latin-extended carries ₹ and is
+   fetched only on pages that print a rupee sign (unicode-range). */
+const fontFaces = [
+  ['Anton', 400, antonLatin, 'U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD'],
+  ['Anton', 400, antonLatinExt, 'U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF'],
+  ['Archivo', 400, archivo400, 'U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD'],
+  ['Archivo', 400, archivoExt400, 'U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF'],
+  ['Archivo', 600, archivo600, 'U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD'],
+  ['Archivo Narrow', 600, narrow600, 'U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD'],
+] as const;
+const fontCss = fontFaces
+  .map(([family, weight, src, range]) => `@font-face{font-family:"${family}";font-style:normal;font-weight:${weight};font-display:swap;src:url(${src}) format("woff2");unicode-range:${range}}`)
+  .join('');
+
+/* Before first paint, on every page:
+   - light theme when the system asks for it (DESIGN.md: a token swap);
+   - first-touch campaign attribution (QR codes, ads) kept for this visit, so a
+     visitor who lands on / and books from /free-trial is still attributed;
+   - retire a service worker an older member app installed at scope "/". */
+const bootScript = `(function(){var d=document.documentElement,m=matchMedia('(prefers-color-scheme: light)');function t(){d.dataset.theme=m.matches?'light':'dark'}t();m.addEventListener&&m.addEventListener('change',t);try{var q=new URLSearchParams(location.search),a={},k=['utm_source','utm_medium','utm_campaign','utm_term','utm_content','ref'];k.forEach(function(n){var v=q.get(n);if(v)a[n]=v.slice(0,100)});if(Object.keys(a).length&&!sessionStorage.getItem('sf.attribution'))sessionStorage.setItem('sf.attribution',JSON.stringify(a))}catch(e){}if('serviceWorker'in navigator)navigator.serviceWorker.getRegistrations().then(function(r){r.forEach(function(x){if(new URL(x.scope).pathname==='/')x.unregister()})}).catch(function(){})})();`;
+
+const ldJson = (data: Record<string, unknown>) => JSON.stringify(data).replace(/</g, '\\u003c');
+---
+
+<!doctype html>
+<html lang="en-IN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>{fullTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={url} />
+    <meta name="robots" content={robots} />
+    <meta name="theme-color" content="#04080b" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#eef2f4" media="(prefers-color-scheme: light)" />
+    <meta name="color-scheme" content="dark light" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="preload" href={antonLatin} as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href={archivo400} as="font" type="font/woff2" crossorigin />
+    <style is:inline set:html={fontCss} />
+    {headScript ? <script is:inline set:html={headScript} /> : null}
+    <script is:inline set:html={bootScript} />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={brand.name} />
+    <meta property="og:locale" content="en_IN" />
+    <meta property="og:title" content={fullTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={url} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content={`${brand.name}: three gyms in Bengaluru. Free trial week.`} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={fullTitle} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImage} />
+
+    {jsonLd.map((data) => <script type="application/ld+json" set:html={ldJson(data)} />)}
+    {ANALYTICS_SRC ? <script is:inline defer data-domain={ANALYTICS_DOMAIN || undefined} src={ANALYTICS_SRC} /> : null}
+  </head>
+  <body data-tenant={TENANT_SLUG}>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <Header path={path} />
+    <main id="main" tabindex="-1">
+      <slot />
+    </main>
+    <Footer />
+  </body>
+</html>
