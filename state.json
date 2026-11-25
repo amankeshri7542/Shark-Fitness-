@@ -55,7 +55,9 @@
       }
     },
     "P07": {
-      "state": "pending"
+      "state": "pending",
+      "base": "phase/P06-staff-security",
+      "base_sha": "d9e656c7d"
     },
     "INT1": {
       "state": "pending"
