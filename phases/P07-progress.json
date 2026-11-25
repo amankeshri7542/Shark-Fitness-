@@ -1,14 +1,78 @@
-{"phase":"P07","status":"in_progress","items":[
-{"id":1,"text":"AC1 Notification channels: log driver logged; real drivers vs fakes (provider ids, 4xx/5xx bounded retries); opt-out after queueing; missing template var; quiet hours defer; network guard","status":"todo","evidence":""},
-{"id":2,"text":"AC2 Member messaging: coach + front-desk threads; minor rule; internal notes never member-facing; attachments signed URLs + authz; admin Inbox","status":"todo","evidence":""},
-{"id":3,"text":"AC3 Community: report->queue->remove hidden + author notified; block both ways incl. groups; rate limit 429; approval mode; admin Community module","status":"todo","evidence":""},
-{"id":4,"text":"AC4 Tasks: idempotent generation across runs; branch scope 404; outcome on complete; status-strip count; Create task from alerts/member/lead","status":"todo","evidence":""},
-{"id":5,"text":"AC5 Coach view: trainer sees only assigned; safety check-in -> coach flag, no analytics event; opted-out excluded","status":"todo","evidence":""},
-{"id":6,"text":"AC6 Broadcasts: preview = actual recipients; threshold approval; dry run no deliveries; cost = recipients x rate","status":"todo","evidence":""},
-{"id":7,"text":"AC7 Quick add member: duplicate detection with link; created member can be activated","status":"todo","evidence":""},
-{"id":8,"text":"AC8 Command palette: e2e keyboard flow to member detail; Record payment opens payment flow; axe clean","status":"todo","evidence":""},
-{"id":9,"text":"AC9 New screens: loading/empty/error/permission/offline component tests; e2e per module; standard gates + pnpm e2e","status":"todo","evidence":""},
-{"id":10,"text":"navFor permission-aware for new modules; reception <= 7 (test)","status":"todo","evidence":""},
-{"id":11,"text":"Automations and dunning use the NotificationService; Automations UI shows real channel availability","status":"todo","evidence":""},
-{"id":12,"text":"Docs (.env.example, docs/, README) and pr/P07.md","status":"todo","evidence":""}
-]}
+{
+ "phase": "P07",
+ "status": "in_progress",
+ "items": [
+  {
+   "id": 1,
+   "text": "AC1 Notification channels: log driver logged; real drivers vs fakes (provider ids, 4xx/5xx bounded retries); opt-out after queueing; missing template var; quiet hours defer; network guard",
+   "status": "done",
+   "evidence": "apps/api notification-channels.integration.test.ts 15/15 (log driver logged; Resend/Twilio/MSG91/WhatsApp vs 127.0.0.1 fakes record provider ids; 5xx retried 3x then failed, 4xx not retried, network error retried; opt-out after queueing suppressed with no request; missing {{endsOn}} refused with reason; quiet hours deferred to 08:00 IST; network guard refuses api.resend.com and recorded no attempts). Full API suite 997/997 after rewiring."
+  },
+  {
+   "id": 2,
+   "text": "AC2 Member messaging: coach + front-desk threads; minor rule; internal notes never member-facing; attachments signed URLs + authz; admin Inbox",
+   "status": "todo",
+   "evidence": ""
+  },
+  {
+   "id": 3,
+   "text": "AC3 Community: report->queue->remove hidden + author notified; block both ways incl. groups; rate limit 429; approval mode; admin Community module",
+   "status": "todo",
+   "evidence": ""
+  },
+  {
+   "id": 4,
+   "text": "AC4 Tasks: idempotent generation across runs; branch scope 404; outcome on complete; status-strip count; Create task from alerts/member/lead",
+   "status": "todo",
+   "evidence": ""
+  },
+  {
+   "id": 5,
+   "text": "AC5 Coach view: trainer sees only assigned; safety check-in -> coach flag, no analytics event; opted-out excluded",
+   "status": "todo",
+   "evidence": ""
+  },
+  {
+   "id": 6,
+   "text": "AC6 Broadcasts: preview = actual recipients; threshold approval; dry run no deliveries; cost = recipients x rate",
+   "status": "todo",
+   "evidence": ""
+  },
+  {
+   "id": 7,
+   "text": "AC7 Quick add member: duplicate detection with link; created member can be activated",
+   "status": "todo",
+   "evidence": ""
+  },
+  {
+   "id": 8,
+   "text": "AC8 Command palette: e2e keyboard flow to member detail; Record payment opens payment flow; axe clean",
+   "status": "todo",
+   "evidence": ""
+  },
+  {
+   "id": 9,
+   "text": "AC9 New screens: loading/empty/error/permission/offline component tests; e2e per module; standard gates + pnpm e2e",
+   "status": "todo",
+   "evidence": ""
+  },
+  {
+   "id": 10,
+   "text": "navFor permission-aware for new modules; reception <= 7 (test)",
+   "status": "todo",
+   "evidence": ""
+  },
+  {
+   "id": 11,
+   "text": "Automations and dunning use the NotificationService; Automations UI shows real channel availability",
+   "status": "done",
+   "evidence": "notification-consumers.integration.test.ts 2/2 (email automation handed to service and sent via driver; dunning in-app sent + email step logged); admin Rules.test.tsx channel strip test (Delivers / Logged only / Not set up)."
+  },
+  {
+   "id": 12,
+   "text": "Docs (.env.example, docs/, README) and pr/P07.md",
+   "status": "todo",
+   "evidence": ""
+  }
+ ]
+}
