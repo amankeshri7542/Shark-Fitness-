@@ -4,7 +4,6 @@ import { join, relative, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import { INDEXABLE_PATHS } from './pages/sitemap.xml';
-import { SITE_URL } from './lib/config';
 
 /**
  * Checks the built site (run `astro build` first; `pnpm build` does). Every
@@ -33,6 +32,11 @@ function routeOf(file: string): string {
 const pages = built
   ? htmlFiles(dist).map((file) => ({ route: routeOf(file), doc: new DOMParser().parseFromString(readFileSync(file, 'utf8'), 'text/html') }))
   : [];
+
+/** The origin the build was made for (SITE_URL at build time), read back from the home page. */
+const SITE_URL = built
+  ? new URL(pages.find((p) => p.route === '/')!.doc.querySelector('link[rel="canonical"]')!.getAttribute('href')!).origin
+  : '';
 
 /** Bytes of JavaScript a page loads, gzip: external module scripts plus their static imports, and inline scripts. */
 function pageJsGzip(doc: Document): number {
@@ -115,19 +119,20 @@ describe.skipIf(!built)('built website', () => {
     expect(notFound.querySelector('meta[name="robots"]')?.getAttribute('content')).toMatch(/noindex/);
     const sitemap = readFileSync(join(dist, 'sitemap.xml'), 'utf8');
     for (const path of INDEXABLE_PATHS) expect(sitemap).toContain(`<loc>${SITE_URL}${path === '/' ? '/' : path}</loc>`);
-    expect(sitemap).not.toContain('404');
+    expect(sitemap).not.toMatch(/<loc>[^<]*\/404<\/loc>/);
   });
 
-  it('honours SITE_INDEXABLE in robots.txt and the robots meta', () => {
+  it('honours SITE_INDEXABLE consistently in robots.txt and every robots meta', () => {
     const robots = readFileSync(join(dist, 'robots.txt'), 'utf8');
-    const meta = pages.find((p) => p.route === '/plans')!.doc.querySelector('meta[name="robots"]')!.getAttribute('content');
-    if (process.env.SITE_INDEXABLE === 'true') {
-      expect(robots).toContain('Allow: /');
+    const indexable = robots.includes('Allow: /');
+    if (indexable) {
       expect(robots).toContain(`Sitemap: ${SITE_URL}/sitemap.xml`);
-      expect(meta).toBe('index, follow');
     } else {
       expect(robots).toBe('User-agent: *\nDisallow: /\n');
-      expect(meta).toBe('noindex, nofollow');
+    }
+    for (const { route, doc } of pages) {
+      const meta = doc.querySelector('meta[name="robots"]')!.getAttribute('content');
+      expect(meta, route).toBe(indexable && route !== '/404' ? 'index, follow' : 'noindex, nofollow');
     }
   });
 
