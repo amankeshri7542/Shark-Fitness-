@@ -74,6 +74,7 @@
     "phase/P03-public-website": "ffc6df2 at 2026-11-25 10:25 IST"
   },
   "blockers": [
-    "Claude usage limit hit (latest during P03-impl); new sessions paused, retrying every 30 min"
+    "Claude usage limit hit (latest during P03-impl); new sessions paused, retrying every 30 min",
+    "Claude usage limit hit (latest during P02-impl); new sessions paused, retrying every 30 min"
   ]
 }
