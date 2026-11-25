@@ -116,8 +116,8 @@ costs to close; read it before deploying this anywhere real.
 API reads is declared and validated in `apps/api/src/lib/config.ts`; a test
 refuses `process.env` anywhere else and any variable missing from
 `.env.example`. A sign-in-code provider chosen without its credentials, a
-malformed error DSN or a short metrics token stops the process before it opens
-the database.
+malformed error DSN or, in production, a short metrics token stops the process
+before it opens the database.
 
 **Branch scope has one answer, and it lives in `branchScope(ctx, branchId?)`.**
 No branch named and none selected means *every branch the caller may see* —
