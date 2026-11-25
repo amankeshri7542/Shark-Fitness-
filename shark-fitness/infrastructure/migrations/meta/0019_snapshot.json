@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "f15597f3-1de3-4ac0-8671-d58075ff7cb6",
+  "id": "01ad1782-9e7c-4932-90bb-99c626f0338a",
   "prevId": "f08338c6-f806-48a8-88d4-b0413129b2b9",
   "tables": {
     "audit_log": {
@@ -13135,6 +13135,13 @@
           "notNull": true,
           "autoincrement": false,
           "default": "'system'"
+        },
+        "template_code": {
+          "name": "template_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         },
         "title": {
           "name": "title",

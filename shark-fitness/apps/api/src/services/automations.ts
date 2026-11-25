@@ -36,6 +36,17 @@ import {
   now,
 } from '../lib/time.js';
 import { branchScope, requirePermission, type RequestContext } from '../lib/context.js';
+import { notificationDrivers } from './notifications/drivers.js';
+import { channelAvailability, queueNotification } from './notifications/service.js';
+import type { NotificationChannel } from '@shark/domain';
+
+/** True when a message on this channel can reach a person on this server:
+ *  in-app always; the others only with a real provider (not the log driver). */
+export function channelDelivers(channel: string): boolean {
+  if (channel === 'in_app') return true;
+  const driver = notificationDrivers()[channel as 'push' | 'email' | 'sms' | 'whatsapp'];
+  return Boolean(driver?.available && driver.delivers);
+}
 
 /**
  * Automations — event-triggered messaging (PF-COMM-003…006).
@@ -527,7 +538,7 @@ export function planRun(ctx: RequestContext, automation: AutomationRow, atMs: nu
       hasConsent: consentPurpose ? Boolean(subject.userId && consentedUserIds.has(subject.userId)) : true,
       hasDestination: channel === 'sms' || channel === 'whatsapp' ? Boolean(subject.phone) : channel === 'email' ? Boolean(subject.email) : Boolean(subject.userId),
       accountActive: Boolean(subject.userId && activeUserIds.has(subject.userId)),
-      providerAvailable: channel === 'in_app',
+      providerAvailable: channelDelivers(channel),
       branchTrades: branchTrades(subject.branchState),
       inQuietHours: inQuietHours(quiet.from, quiet.to, localMinutes(atMs, subject.branchTimezone)),
       alreadySent,
@@ -804,7 +815,7 @@ function deliveryDisposition(
   if (!hasActiveAccount(delivery.tenantId, delivery.userId)) {
     return { kind: 'suppress', reason: 'The member account is no longer active.' };
   }
-  if (delivery.channel !== 'in_app') {
+  if (!channelDelivers(delivery.channel)) {
     return { kind: 'suppress', reason: `No ${delivery.channel} delivery provider is configured. Nothing was sent.` };
   }
 
@@ -961,30 +972,39 @@ function processDelivery(deliveryId: string, atMs: number): { outcome: Execution
       return { outcome: 'suppressed', reason: disposition.reason };
     }
 
-    const notificationId = id('ntf');
+    // Handed to the NotificationService, which records the channel attempt
+    // (and, off in-app, checks consent and quiet hours again at send time).
     const current = delivery;
-    transact(() => {
-      db.insert(schema.notifications)
-        .values({
-          id: notificationId,
+    const handedOff = transact(() => {
+      const queued = queueNotification(
+        {
           tenantId: current.tenantId,
           userId: current.userId,
-          channel: 'in_app',
+          memberId: current.memberId,
+          branchId: current.branchId,
+          channel: current.channel as NotificationChannel,
+          // Automations are marketing in the consent sense: SMS, email and
+          // WhatsApp need the member's marketing consent, as they always have.
+          purpose: 'promotional',
+          source: 'automation',
+          sourceId: current.automationId,
+          dedupeKey: `automation:${current.id}`,
           kind: 'automation',
+          templateCode: current.templateCode,
           title: current.title,
           body: current.body,
-          link: null,
-          templateCode: current.templateCode,
-          state: 'sent',
-          attempts: current.attempts,
-          lastError: null,
-          createdAt: atMs,
-          readAt: null,
-        })
-        .run();
-      finishDelivery(deliveryId, 'sent', '', atMs, notificationId);
+        },
+        atMs,
+      );
+      if (queued.state === 'suppressed' || queued.state === 'failed') {
+        finishDelivery(deliveryId, 'suppressed', queued.reason, atMs, null);
+        return { outcome: 'suppressed' as const, reason: queued.reason };
+      }
+      const reason = current.channel === 'in_app' ? '' : `Handed to the ${current.channel} channel (delivery ${queued.deliveryId}).`;
+      finishDelivery(deliveryId, 'sent', reason, atMs, queued.notificationId);
+      return { outcome: 'sent' as const, reason };
     });
-    return { outcome: 'sent', reason: '' };
+    return handedOff;
   } catch (error) {
     const message = (error instanceof Error ? error.message : String(error)).slice(0, 200);
     const attempts = delivery?.attempts ?? db
@@ -1259,7 +1279,7 @@ export function listAutomations(ctx: RequestContext) {
       state: row.state,
       dryRun: row.dryRun,
       channel: row.actions[0]?.kind ?? 'in_app',
-      providerAvailable: (row.actions[0]?.kind ?? 'in_app') === 'in_app',
+      providerAvailable: channelDelivers(row.actions[0]?.kind ?? 'in_app'),
       templateCode: row.actions[0]?.templateCode ?? null,
       templateVersion: row.actions[0]?.templateVersion ?? null,
       delayMin: row.actions[0]?.delayMin ?? 0,
@@ -1278,6 +1298,8 @@ export function listAutomations(ctx: RequestContext) {
       lastRunAt: row.lastRunAt ? new Date(row.lastRunAt).toISOString() : null,
     })),
     triggers: TRIGGERS.map((t) => ({ ...t, variables: [...t.variables], fields: [...t.fields] })),
+    /** What each channel can really do on this server (P07). */
+    channels: channelAvailability(),
   };
 }
 

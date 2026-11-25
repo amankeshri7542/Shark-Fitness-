@@ -83,6 +83,7 @@ CREATE TABLE `notification_deliveries` (
 	`source_id` text,
 	`dedupe_key` text,
 	`kind` text DEFAULT 'system' NOT NULL,
+	`template_code` text,
 	`title` text NOT NULL,
 	`body_template` text NOT NULL,
 	`variables` text NOT NULL,

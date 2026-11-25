@@ -38,6 +38,8 @@ export const notificationDeliveries = sqliteTable(
     /** Same key on the same channel means the same message. */
     dedupeKey: text('dedupe_key'),
     kind: text('kind').notNull().default('system'),
+    /** The gym's message template this came from, when there was one. */
+    templateCode: text('template_code'),
     title: text('title').notNull(),
     bodyTemplate: text('body_template').notNull(),
     variables: text('variables', { mode: 'json' }).$type<Record<string, string | number | null>>().notNull(),
