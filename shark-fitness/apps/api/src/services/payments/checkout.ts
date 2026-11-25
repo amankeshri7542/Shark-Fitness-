@@ -149,14 +149,28 @@ export async function startInvoiceCheckout(
       if (keyed.requestHash !== hash || keyed.memberId !== ctx.memberId) {
         throw new AppError('IDEMPOTENCY_MISMATCH', 'This idempotency key was already used for a different request.');
       }
-      // A finished or failed attempt answers with what happened to it; an
-      // order-less failure (timeout) is retried below.
-      if (keyed.state !== 'failed' || keyed.providerOrderId) return keyed;
+      // A finished attempt answers with what happened to it, and so does one
+      // another request is still opening (no order yet).
+      if (!['processing', 'failed'].includes(keyed.state) || (keyed.state === 'processing' && !keyed.providerOrderId)) return keyed;
     }
 
+    // A retry with the same key ("Try again") re-checks the invoice too: it
+    // may have been paid at the desk or voided since the order was opened,
+    // and handing that order back would let the member pay twice.
     if (invoice.voided) throw conflict('This invoice was cancelled, so there is nothing to pay.');
     const due = invoice.totalMinor - invoice.paidMinor;
     if (due <= 0) throw conflict('This invoice is already paid.');
+    // Razorpay's minimum order is ₹1; asking for less only fails at Razorpay.
+    if (invoice.currency === 'INR' && due < 100) throw conflict('Online payments start at ₹1. Pay this balance at reception.');
+
+    if (keyed?.providerOrderId) {
+      if (keyed.amountMinor === due && keyed.currency === invoice.currency) return keyed;
+      // The amount owed changed (part paid at the desk, say): that order must
+      // not be paid against this invoice any more. The app says so and starts
+      // a fresh attempt for the current amount.
+      markIntent(keyed, { state: 'superseded' });
+      return { ...keyed, state: 'superseded' };
+    }
 
     if (keyed) {
       markIntent(keyed, { state: 'created', failureCode: null, failureReason: null, amountMinor: due, currency: invoice.currency });

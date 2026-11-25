@@ -242,6 +242,45 @@ describe('member checkout', () => {
     expect(harness.fake.orders.size).toBeGreaterThan(0);
   });
 
+  it('a retry with the same key re-checks the invoice: paid or void is 409, a changed amount retires the old order', async () => {
+    const paidAtDesk = openInvoice(member);
+    const paidKey = randomUUID();
+    expect((await checkout(session, paidAtDesk.invoiceId, paidKey)).response.status).toBe(200);
+    db.update(schema.invoices).set({ paidMinor: 29_500, state: 'paid' }).where(eq(schema.invoices.id, paidAtDesk.invoiceId)).run();
+    const afterPaid = await checkout(session, paidAtDesk.invoiceId, paidKey);
+    expect(afterPaid.response.status).toBe(409);
+    expect(afterPaid.body.orderId).toBeUndefined();
+
+    const voided = openInvoice(member);
+    const voidKey = randomUUID();
+    expect((await checkout(session, voided.invoiceId, voidKey)).response.status).toBe(200);
+    db.update(schema.invoices).set({ voided: true, state: 'void', voidReason: 'test' }).where(eq(schema.invoices.id, voided.invoiceId)).run();
+    expect((await checkout(session, voided.invoiceId, voidKey)).response.status).toBe(409);
+
+    const partly = openInvoice(member);
+    const partKey = randomUUID();
+    const first = await checkout(session, partly.invoiceId, partKey);
+    db.update(schema.invoices).set({ paidMinor: 10_000, state: 'partially_paid' }).where(eq(schema.invoices.id, partly.invoiceId)).run();
+    const stale = await checkout(session, partly.invoiceId, partKey);
+    expect(stale.response.status).toBe(200);
+    expect(stale.body).toMatchObject({ intentId: first.body.intentId, state: 'expired' });
+    expect(intentRow(first.body.intentId).state).toBe('superseded');
+    // A fresh attempt is for what is owed now, on a new order.
+    const fresh = await checkout(session, partly.invoiceId);
+    expect(fresh.body).toMatchObject({ state: 'processing', amountMinor: 19_500 });
+    expect(fresh.body.orderId).not.toBe(first.body.orderId);
+  });
+
+  it('refuses a balance below Razorpay’s ₹1 minimum without asking Razorpay', async () => {
+    const { invoiceId } = openInvoice(member);
+    db.update(schema.invoices).set({ paidMinor: 29_450, state: 'partially_paid' }).where(eq(schema.invoices.id, invoiceId)).run();
+    const orders = harness.fake.orders.size;
+    const response = await checkout(session, invoiceId);
+    expect(response.response.status).toBe(409);
+    expect((response.body.error as { message: string }).message).toMatch(/start at ₹1/);
+    expect(harness.fake.orders.size).toBe(orders);
+  });
+
   it('exposes online payment on the billing summary', async () => {
     const summary = (await (await request('GET', '/member/billing', session)).json()) as { onlinePayment: unknown };
     expect(summary.onlinePayment).toEqual({ available: true, provider: 'razorpay', testMode: true });
