@@ -33,7 +33,12 @@
       "state": "reviewing",
       "base": "phase/P01-prod-readiness",
       "base_sha": "128aec1e5",
-      "running": null,
+      "running": {
+        "tag": "P04-review",
+        "pid": 447664,
+        "started": "2026-11-25 20:36 IST",
+        "activity": "2026-11-25 20:36 IST"
+      },
       "note": ""
     },
     "P03": {
@@ -86,7 +91,7 @@
   "pushes": {
     "phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST",
     "phase/P02-payments-razorpay": "2ffa570 at 2026-11-25 20:21 IST",
-    "phase/P06-staff-security": "b189005 at 2026-11-25 20:28 IST",
+    "phase/P06-staff-security": "4cc1e5b at 2026-11-25 20:36 IST",
     "phase/P04-member-mobile-app": "9daf34f at 2026-11-25 20:34 IST",
     "phase/P03-public-website": "f7fa4ed at 2026-11-25 20:30 IST",
     "phase/P05-member-core-gaps": "2ffa570 at 2026-11-25 20:34 IST"

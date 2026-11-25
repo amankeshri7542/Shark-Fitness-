@@ -1,0 +1,12 @@
+{"phase":"P05","status":"in_progress","items":[
+{"id":1,"text":"Pass: real rotating QR with every state, plain-register enforcement via useCopy(surface), component tests, mobile Playwright (rotation before countdown end, offline shows member number)","status":"todo","evidence":""},
+{"id":2,"text":"POST /v1/admin/attendance/scan: admit once + Already checked in (one row), replayed/expired/other-tenant/other-branch-only/suspended/capacity denial codes, every decision audited, idempotent, emits occupancy","status":"todo","evidence":""},
+{"id":3,"text":"Admin Floor Scan pass (camera + keyboard-wedge/paste), override for denials, camera-denied fallback; E2E; Permissions-Policy camera=(self) only under /admin/","status":"todo","evidence":""},
+{"id":4,"text":"Waitlist with seat holds: 20-way last-seat race, accept-vs-expiry race, holds never exceed capacity (DB guard), capacity reduction raises alert and cancels nothing, expired-membership skip; member offer UI + admin roster","status":"todo","evidence":""},
+{"id":5,"text":"Credit packs: sale (staff + member checkout/unpaid invoice), allocation in settlement txn (manual + webhook), FIFO consumption, restore with original expiry, refund matrix, append-only trigger; Billing/Book/Member detail UI","status":"todo","evidence":""},
+{"id":6,"text":"Private media: MediaStorage port + local disk, uploads (413/422/EXIF strip/4096px/quota), signed URLs (403 expired, 404 other member), tombstones, backup/restore/verify include media with checksums, pilot scripts","status":"todo","evidence":""},
+{"id":7,"text":"Progress photos: consent with version, private/coach visibility, trainer access matrix, compare slider, delete, revoke hides immediately + scheduled deletion, privacy export lists photos","status":"todo","evidence":""},
+{"id":8,"text":"Freestyle workout: Log a workout from Train (also with no plan), exercise picker, same logger/outbox/PR/XP/Summary; E2E offline 2x3 sets -> exactly 6 stored once","status":"todo","evidence":""},
+{"id":9,"text":"Member and admin component tests for new UI states (loading/empty/error/permission/offline); plain register on Pass, Billing, refund surfaces","status":"todo","evidence":""},
+{"id":10,"text":"Docs: PRODUCTION-READINESS (waitlist, QR, media, backups), README offering, .env.example; standard gates + pnpm e2e green; PR description","status":"todo","evidence":""}
+]}
