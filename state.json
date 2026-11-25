@@ -36,12 +36,7 @@
       "state": "reviewing",
       "base": "phase/P01-prod-readiness",
       "base_sha": "2c15353fd",
-      "running": {
-        "tag": "P03-review",
-        "pid": 458032,
-        "started": "2026-11-25 20:38 IST",
-        "activity": "2026-11-25 21:00 IST"
-      },
+      "running": null,
       "note": ""
     },
     "P05": {
@@ -85,6 +80,7 @@
   },
   "blockers": [
     "Claude usage limit hit (latest during P05-impl); new sessions paused, retrying every 30 min",
-    "Claude usage limit hit (latest during P04-review); new sessions paused, retrying every 30 min"
+    "Claude usage limit hit (latest during P04-review); new sessions paused, retrying every 30 min",
+    "Claude usage limit hit (latest during P06-review); new sessions paused, retrying every 30 min"
   ]
 }
