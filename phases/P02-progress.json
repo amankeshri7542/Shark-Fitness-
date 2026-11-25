@@ -1,12 +1,12 @@
 {
   "phase": "P02",
-  "status": "in_progress",
+  "status": "done",
   "items": [
     {
       "id": 1,
       "text": "AC1 no provider env: existing billing/provider-truthfulness tests unchanged and green; member checkout 412",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "Existing payment-boundary, dunning, provider-truthfulness and billing suites unchanged and green in the full run (api 959/959); razorpay-checkout 'with no provider configured' test: new checkout/confirm/plan endpoints and retired checkout-intent all 412 with the same message, no intent rows created"
     },
     {
       "id": 2,
@@ -53,8 +53,8 @@
     {
       "id": 9,
       "text": "AC9 member PWA checkout state component tests + Playwright mobile @payments spec",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "apps/member-pwa BillingCheckout.test.tsx 11/11 (opening, dismissed+same-key retry, failed x3, confirming->paid with receipt, needs review, plan sheet, focus/Escape, no-provider) + Book drop-in test; e2e/specs/member-payments.spec.ts on Pixel 7: pnpm e2e -> 4 passed, pnpm e2e -- --grep @payments -> 1 passed (Paid + receipt 200, reload offers no Pay)"
     },
     {
       "id": 10,
@@ -71,8 +71,8 @@
     {
       "id": 12,
       "text": "AC12 docs, ADR-003, .env.example, PRODUCTION-READINESS s7; standard gates and pnpm e2e green",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "docs/PAYMENTS-RAZORPAY.md, docs/ADR-003-payment-provider.md, PRODUCTION-READINESS s7+summary, README, .env.example; pnpm install --frozen-lockfile/typecheck/lint/test/build all exit 0 (tests: contracts 6, domain 271, member 52, admin 305, api 959); pnpm e2e 4 passed; db:check-drift none"
     },
     {
       "id": 13,
@@ -89,8 +89,8 @@
     {
       "id": 15,
       "text": "Screenshots in phases/P02-screens and pr/P02.md",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "8 screenshots in phases/P02-screens (member pay now/dismissed/confirming/paid/drop-in; admin reconciliation/invoice drawer/payment link), reviewed; pr/P02.md written"
     }
   ]
 }
