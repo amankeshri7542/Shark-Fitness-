@@ -1,6 +1,6 @@
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '../lib/api';
+import { ApiError, api } from '../lib/api';
 import { useCopy } from '../lib/store';
 import { useUnits } from '../lib/preferences';
 import { QK } from '../lib/query-keys';
@@ -81,7 +81,10 @@ interface PlanPayload {
     items: PlanItem[];
   } | null;
   explanation: {
-    decisionId: string;
+    /** Null when the rules adjusted loads live and there is nothing to decide. */
+    decisionId: string | null;
+    /** False once the member has answered, or when there is no decision. */
+    decidable?: boolean;
     headline: string;
     body: string;
     inputs: string[];
@@ -100,7 +103,7 @@ export default function TrainScreen() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const { data, isLoading, error, refetch } = useQuery({
+  const { data, isLoading, refetch } = useQuery({
     queryKey: QK.plan,
     queryFn: () => api<PlanPayload>('/member/training/plan'),
   });
@@ -119,7 +122,9 @@ export default function TrainScreen() {
 
   if (isLoading) return <TrainSkeleton />;
 
-  if (error || !data) {
+  // A plan already on screen (often the saved offline copy) stays when a
+  // refresh fails; only with nothing to show is the failure the screen.
+  if (!data) {
     return (
       <ScreenBody>
         <Stack>
@@ -160,6 +165,7 @@ export default function TrainScreen() {
   }
 
   const { week, today, explanation } = data;
+  const decisionId = explanation?.decisionId ?? null;
 
   return (
     <ScreenBody>
@@ -210,28 +216,39 @@ export default function TrainScreen() {
               <p className="mt-1.5 text-[11px] leading-relaxed text-foam-45">{explanation.limitations}</p>
 
               <div className="mt-3 flex gap-2">
-                <Button
-                  variant="cta"
-                  size="sm"
-                  disabled={decide.isPending}
-                  onClick={() => decide.mutate({ id: explanation.decisionId, decision: 'accepted' })}
-                >
-                  Use it
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={decide.isPending}
-                  onClick={() => decide.mutate({ id: explanation.decisionId, decision: 'declined' })}
-                >
-                  Keep the old load
-                </Button>
+                {/* Only a change still waiting for an answer can be answered;
+                    the server refuses anything else. */}
+                {decisionId && explanation.decidable !== false ? (
+                  <>
+                    <Button
+                      variant="cta"
+                      size="sm"
+                      disabled={decide.isPending}
+                      onClick={() => decide.mutate({ id: decisionId, decision: 'accepted' })}
+                    >
+                      Use it
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={decide.isPending}
+                      onClick={() => decide.mutate({ id: decisionId, decision: 'declined' })}
+                    >
+                      Keep the old load
+                    </Button>
+                  </>
+                ) : null}
                 <Link to="/messages" className="ml-auto">
                   <Button variant="ghost" size="sm">
                     Ask coach
                   </Button>
                 </Link>
               </div>
+              {decide.error ? (
+                <p role="alert" className="mt-2 text-[12px] leading-relaxed text-chum">
+                  {decide.error instanceof ApiError ? decide.error.message : 'That did not go through. Your plan is unchanged.'}
+                </p>
+              ) : null}
             </Panel>
           ) : null}
 

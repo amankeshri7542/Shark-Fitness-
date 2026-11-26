@@ -7,6 +7,7 @@ import { useUnits, type Units } from '../lib/preferences';
 import { ScreenBody, Stack, Surface } from '../ui/shell';
 import {
   Bar,
+  Button,
   Chip,
   Display,
   EmptyState,
@@ -198,6 +199,16 @@ export default function ProgressScreen() {
                             Last worked {selected.lastWorkedLabel}
                           </p>
                         </Panel>
+                      ) : recovery.isLoading ? (
+                        <Skeleton className="h-24 w-full" />
+                      ) : recovery.error ? (
+                        // A failed estimate is not "nothing logged".
+                        <div className="flex flex-col items-start gap-2">
+                          <p className="text-[12px] text-foam-65">Could not load the recovery estimate.</p>
+                          <Button variant="outline" size="sm" onClick={() => void recovery.refetch()}>
+                            Try again
+                          </Button>
+                        </div>
                       ) : (
                         <p className="text-[12px] text-foam-45">No sets logged yet.</p>
                       )}
@@ -212,7 +223,16 @@ export default function ProgressScreen() {
               {/* Personal records */}
               <div>
                 <SectionRule>{copy('prTitle')}</SectionRule>
-                {records.data && records.data.items.length > 0 ? (
+                {records.isLoading ? (
+                  <Skeleton className="h-24 w-full" />
+                ) : records.error ? (
+                  // A failed load is not "no records yet".
+                  <ErrorState
+                    title="Could not load your records"
+                    body="Your records are safe on the server. Try again in a moment."
+                    onRetry={() => void records.refetch()}
+                  />
+                ) : records.data && records.data.items.length > 0 ? (
                   <div className="flex flex-col gap-2">
                     {records.data.items.slice(0, 6).map((pr) => (
                       <div

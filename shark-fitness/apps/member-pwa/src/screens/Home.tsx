@@ -91,14 +91,17 @@ export default function HomeScreen() {
   const units = useUnits();
   const navigate = useNavigate();
 
-  const { data, isLoading, error, refetch } = useQuery({
+  const { data, isLoading, refetch } = useQuery({
     queryKey: ['home'],
     queryFn: () => api<HomePayload>('/member/home'),
   });
 
   if (isLoading) return <HomeSkeleton />;
 
-  if (error || !data) {
+  // A day already on screen (often the saved offline copy) stays there when a
+  // refresh fails; the offline banner says how old it is. Only with nothing
+  // to show is the failure the screen.
+  if (!data) {
     return (
       <ScreenBody>
         <Stack>
