@@ -109,13 +109,46 @@ export function sniffMime(bytes: Uint8Array): string | null {
 
 /**
  * Drops metadata segments a phone writes into a JPEG (APP1 Exif/XMP carries
- * GPS; APP13 carries IPTC) and PNG text/EXIF chunks, so a photo of a bruise
+ * GPS; APP13 carries IPTC), PNG text/EXIF chunks and WebP EXIF/XMP chunks, so a photo of a bruise
  * does not tell the coach where the member lives. Image data is untouched.
  */
 export function stripImageMetadata(mime: string, bytes: Uint8Array): Uint8Array {
   if (mime === 'image/jpeg') return stripJpeg(bytes);
   if (mime === 'image/png') return stripPng(bytes);
+  if (mime === 'image/webp') return stripWebp(bytes);
   return bytes;
+}
+
+/** WebP is RIFF: drop the EXIF and XMP chunks and clear their VP8X flags. */
+function stripWebp(b: Uint8Array): Uint8Array {
+  const keep: Uint8Array[] = [];
+  let i = 12;
+  while (i + 8 <= b.length) {
+    const type = String.fromCharCode(...b.subarray(i, i + 4));
+    const size = (b[i + 4]! | (b[i + 5]! << 8) | (b[i + 6]! << 16) | (b[i + 7]! << 24)) >>> 0;
+    const end = Math.min(b.length, i + 8 + size + (size % 2));
+    if (type !== 'EXIF' && type !== 'XMP ') {
+      const chunk = b.slice(i, end);
+      // VP8X flags byte: bit 3 = Exif present, bit 2 = XMP present.
+      if (type === 'VP8X' && chunk.length > 8) chunk[8] = chunk[8]! & ~0x0c;
+      keep.push(chunk);
+    }
+    i = end;
+  }
+  const total = 12 + keep.reduce((n, part) => n + part.length, 0);
+  const result = new Uint8Array(total);
+  result.set(b.subarray(0, 12), 0);
+  const riffSize = total - 8;
+  result[4] = riffSize & 0xff;
+  result[5] = (riffSize >>> 8) & 0xff;
+  result[6] = (riffSize >>> 16) & 0xff;
+  result[7] = (riffSize >>> 24) & 0xff;
+  let offset = 12;
+  for (const part of keep) {
+    result.set(part, offset);
+    offset += part.length;
+  }
+  return result;
 }
 
 function stripJpeg(b: Uint8Array): Uint8Array {

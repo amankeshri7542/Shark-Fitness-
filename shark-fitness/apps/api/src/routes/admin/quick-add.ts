@@ -12,10 +12,13 @@ import { requirePermission } from '../../lib/context.js';
  */
 export const quickAddRoutes = new Hono();
 const quickAddLimit = rateLimit(60, 60_000, { identity: 'actor', bucket: 'admin-quick-add' });
+// The duplicate check says whether a phone or email is on file anywhere in
+// the gym (never whose): bounded so it cannot be used to sweep numbers.
+const checkLimit = rateLimit(60, 60_000, { identity: 'actor', bucket: 'admin-quick-add-check' });
 
 const Phone = z.string().trim().regex(/^\+?[0-9 ()-]{8,20}$/, 'Enter a phone number with at least 8 digits.');
 
-quickAddRoutes.get('/check', validate('query', z.object({ phone: z.string().max(30).optional(), email: z.string().max(200).optional() })), (c) => {
+quickAddRoutes.get('/check', checkLimit, validate('query', z.object({ phone: z.string().max(30).optional(), email: z.string().max(200).optional() })), (c) => {
   const ctx = ctxOf(c);
   requirePermission(ctx, 'member.edit');
   const { phone, email } = c.req.valid('query');
