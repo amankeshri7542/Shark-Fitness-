@@ -1,0 +1,43 @@
+---
+import Layout from '../layouts/Layout.astro';
+import PageHero from '../components/PageHero.astro';
+import CtaBand from '../components/CtaBand.astro';
+import { branches, brand } from '../content/site';
+import { breadcrumbs, organization } from '../lib/schema';
+
+const crumbs = [{ name: 'About', path: '/about' }];
+---
+
+<Layout
+  title="About us"
+  description="Shark Fitness started in 2024 with one strength gym in Koramangala. Today three coached gyms in Bengaluru, built around coaching rather than machines."
+  path="/about"
+  jsonLd={[organization(), breadcrumbs([{ name: 'Home', path: '/' }, ...crumbs])]}
+>
+  <PageHero title="About Shark Fitness" lede="A gym group built around coaching, not around the number of machines on the floor." crumbs={crumbs} />
+
+  <section class="section" aria-labelledby="story">
+    <div class="wrap prose">
+      <h2 id="story">How it started</h2>
+      <p>
+        {brand.name} opened its first floor on 80 Feet Road in Koramangala in 2024: four racks, two platforms and a coach on the
+        floor at every hour the doors were open. Members asked for more classes, then for a pool, then for somewhere closer to home.
+        Indiranagar followed, then HSR Layout.
+      </p>
+      <p>
+        We have grown to {branches.length} gyms without changing the idea. Every new member gets a coach for their first session, classes stay
+        small enough that the coach can see everyone, and the floor is never sold beyond what it can hold.
+      </p>
+      <h2>What we believe</h2>
+      <ul>
+        <li><strong>Coaching over equipment.</strong> A good coach with a barbell beats a room full of machines.</li>
+        <li><strong>Plain prices.</strong> GST is included in every price we show, and leaving is as simple as joining.</li>
+        <li><strong>No shame, no hype.</strong> Nobody is told to feel bad about where they are starting.</li>
+        <li><strong>Your data is yours.</strong> This website sets no cookies and loads no trackers. We use your details to call you back, and for nothing else unless you say so.</li>
+      </ul>
+      <h2>Working here</h2>
+      <p>We hire qualified coaches and front-desk staff in Bengaluru. Write to <a href={`mailto:${brand.email}`}>{brand.email}</a> with your CV.</p>
+    </div>
+  </section>
+  <CtaBand />
+</Layout>

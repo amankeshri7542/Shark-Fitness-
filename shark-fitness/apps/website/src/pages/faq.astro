@@ -1,0 +1,32 @@
+---
+import Layout from '../layouts/Layout.astro';
+import PageHero from '../components/PageHero.astro';
+import CtaBand from '../components/CtaBand.astro';
+import { faqs } from '../content/site';
+import { breadcrumbs, faqPage } from '../lib/schema';
+
+const crumbs = [{ name: 'FAQ', path: '/faq' }];
+---
+
+<Layout
+  title="Frequently asked questions"
+  description="Answers about the Shark Fitness free trial, GST-inclusive prices, freezing and cancelling, opening hours, class booking, injuries and parking."
+  path="/faq"
+  jsonLd={[faqPage(faqs), breadcrumbs([{ name: 'Home', path: '/' }, ...crumbs])]}
+>
+  <PageHero title="Questions, answered" lede="The things people ask us most. Anything else, ask us directly." crumbs={crumbs} />
+  <section class="section" aria-label="Questions">
+    <div class="wrap faq" style="max-width:880px">
+      {
+        faqs.map((faq) => (
+          <details>
+            <summary>{faq.q}</summary>
+            <p>{faq.a}</p>
+          </details>
+        ))
+      }
+      <p style="margin-top:24px"><a href="/contact">Ask us something else</a></p>
+    </div>
+  </section>
+  <CtaBand />
+</Layout>

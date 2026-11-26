@@ -44,8 +44,8 @@ const optionalSession: MiddlewareHandler = async (c, next) => {
  * Reads at most `maxBytes` of body, whether or not Content-Length was sent,
  * and hands the buffered copy on so the JSON validator can parse it.
  */
-function capBody(maxBytes: number): MiddlewareHandler {
-  const tooLarge = () => new AppError('PAYLOAD_TOO_LARGE', `Error reports are limited to ${maxBytes / 1024} KB.`);
+export function capBody(maxBytes: number, message = `Error reports are limited to ${maxBytes / 1024} KB.`): MiddlewareHandler {
+  const tooLarge = () => new AppError('PAYLOAD_TOO_LARGE', message);
   return async (c, next) => {
     const declared = Number(c.req.header('content-length'));
     if (Number.isFinite(declared) && declared > maxBytes) throw tooLarge();

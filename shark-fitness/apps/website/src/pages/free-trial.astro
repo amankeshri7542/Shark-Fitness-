@@ -1,0 +1,51 @@
+---
+import Layout from '../layouts/Layout.astro';
+import PageHero from '../components/PageHero.astro';
+import LeadForm from '../components/LeadForm.astro';
+import { branches, branchExtra, brand } from '../content/site';
+import { breadcrumbs } from '../lib/schema';
+
+const crumbs = [{ name: 'Free trial', path: '/free-trial' }];
+---
+
+<Layout
+  title="Book a free trial week"
+  description="Try Shark Fitness free for seven days in Koramangala, Indiranagar or HSR Layout, with one coached class. No card, no contract. The team calls to confirm."
+  path="/free-trial"
+  jsonLd={[breadcrumbs([{ name: 'Home', path: '/' }, ...crumbs])]}
+>
+  <PageHero
+    title="Free trial week"
+    lede="Seven days on the floor and one coached class, at the branch you choose. Tell us when suits you; someone from the team calls to confirm."
+    crumbs={crumbs}
+  />
+  <section class="section">
+    <div class="wrap form-layout">
+      <div>
+        <h2 class="sr-only">Your details</h2>
+        <LeadForm kind="trial" />
+      </div>
+      <aside class="seam" aria-labelledby="trial-facts">
+        <div class="cell">
+          <h2 id="trial-facts" style="font-size:28px">What happens next</h2>
+          <ul class="ticks">
+            <li>We call you, usually within a few hours of opening, to fix the day.</li>
+            <li>Bring trainers, water and a photo ID. Towels are provided.</li>
+            <li>A coach shows you round and runs your first session.</li>
+            <li>Nothing to pay, and no automatic messages afterwards.</li>
+          </ul>
+        </div>
+        <div class="cell">
+          <p class="label">Prefer to call?</p>
+          {
+            branches.map((b) => (
+              <p>
+                {branchExtra(b).area}: <a href={`tel:${(b.phone ?? brand.phone).replace(/\s/g, '')}`}>{b.phone ?? brand.phone}</a>
+              </p>
+            ))
+          }
+        </div>
+      </aside>
+    </div>
+  </section>
+</Layout>

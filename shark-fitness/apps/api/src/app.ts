@@ -13,6 +13,7 @@ import { authRoutes } from './routes/auth.js';
 import { authStabilizationRoutes } from './routes/auth-stabilization.js';
 import { meRoutes } from './routes/me.js';
 import { doorRoutes } from './routes/door.js';
+import { publicRoutes } from './routes/public.js';
 
 import { homeRoutes } from './routes/member/home.js';
 import { passRoutes } from './routes/member/pass.js';
@@ -35,6 +36,7 @@ import { leadsRoutes } from './routes/admin/leads.js';
 import { billingStabilizationRoutes } from './routes/admin/billing-stabilization.js';
 import { paymentAdminRoutes } from './routes/admin/payments.js';
 import { billingRoutes as adminBillingRoutes } from './routes/admin/billing.js';
+import { productWebsiteRoutes } from './routes/admin/product-website.js';
 import { attendanceRoutes } from './routes/admin/attendance.js';
 import { scheduleRoutes as adminScheduleRoutes } from './routes/admin/schedule.js';
 import { trainingRoutes as adminTrainingRoutes } from './routes/admin/training.js';
@@ -67,8 +69,11 @@ const authenticatedApiLimit = rateLimit(600, 60_000, {
 app.use('*', requestId);
 app.use('*', logger);
 app.use('*', securityHeaders);
+// CORS is an API concern. Applied to static files it replaced their
+// `Vary: Accept-Encoding` with `Vary: Origin` and, on precompressed responses,
+// dropped the Content-Type, so a browser showed the website's HTML as text.
 app.use(
-  '*',
+  '/v1/*',
   cors({
     origin: (origin) => (allowedOrigins().has(origin.replace(/\/$/, '')) ? origin : undefined),
     credentials: true,
@@ -118,6 +123,8 @@ app.route('/v1/auth', authStabilizationRoutes);
 app.route('/v1/auth', accountRecoveryRoutes);
 app.route('/v1/auth', authRoutes);
 app.route('/v1/door', doorRoutes);
+// The public website (PF-CRM-001). No session; see routes/public.ts.
+app.route('/v1/public/:tenantSlug', publicRoutes);
 
 app.use('/v1/me/*', protectedApiIpLimit, authenticate, authenticatedTenantLimit, authenticatedApiLimit);
 app.route('/v1/me', meRoutes);
@@ -139,6 +146,7 @@ app.route('/v1/admin/dashboard', dashboardRoutes);
 app.route('/v1/admin/members', memberOperationsRoutes);
 app.route('/v1/admin/members', membersRoutes);
 app.route('/v1/admin/leads', leadsRoutes);
+app.route('/v1/admin/billing/products', productWebsiteRoutes);
 app.route('/v1/admin/billing', billingStabilizationRoutes);
 app.route('/v1/admin/billing', paymentAdminRoutes);
 app.route('/v1/admin/billing', adminBillingRoutes);

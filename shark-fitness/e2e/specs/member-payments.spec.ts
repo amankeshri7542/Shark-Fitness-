@@ -14,7 +14,7 @@ import { razorpay, stubCheckout } from '../support/razorpay';
 test('a member pays an open invoice through Razorpay Checkout and sees Paid with a receipt @payments', async ({ page, request, baseURL }) => {
   const toRazorpay = await stubCheckout(page);
   await signInToMemberApp(page, DEMO.graceMember);
-  await page.goto('/billing');
+  await page.goto('/app/billing');
 
   await expect(page.getByText('Online payments use Razorpay test mode. No real money moves.')).toBeVisible();
   const pay = page.getByRole('button', { name: /^Pay ₹[\d,.]+ now for invoice SF-/ }).first();

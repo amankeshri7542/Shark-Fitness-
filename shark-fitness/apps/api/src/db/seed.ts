@@ -460,6 +460,10 @@ for (const p of PRODUCTS) {
       eligibility: row.eligibility,
       branchIds: p.access.branchIds,
       status: 'active',
+      // Everything a visitor can actually choose is on the website. The free
+      // trial is not: the website's own trial request replaces it, and staff
+      // assign it after they have spoken to the person.
+      isPublic: p.kind !== 'trial',
       createdAt: NOW - 700 * DAY,
       updatedAt: NOW - 40 * DAY,
     })

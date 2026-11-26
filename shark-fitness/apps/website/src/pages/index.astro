@@ -1,0 +1,144 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Contours from '../components/Contours.astro';
+import PlanCard from '../components/PlanCard.astro';
+import BranchCard from '../components/BranchCard.astro';
+import CtaBand from '../components/CtaBand.astro';
+import { branches, brand, classInfo, coaches, LEVEL_LABEL, plans, snapshot } from '../content/site';
+import { exerciseGym, organization } from '../lib/schema';
+
+const headline = plans.filter((p) => p.kind === 'membership').slice(0, 3);
+const featuredId = headline.find((p) => p.id === 'prd_elite_annual')?.id ?? headline.at(-1)?.id;
+const perBranch = Math.min(...branches.map((b) => (snapshot.timetable[b.id] ?? []).length));
+
+/* Old home-screen installs of the member app open "/", and old activation or
+   recovery links carry their one-time token in the fragment. Both belong to
+   the member app, which now lives at /app/. Runs before paint. */
+const forward = `(function(){var h=location.hash;if(/[#&](activationId|recoveryId)=/.test(h)){location.replace('/app/'+h);return}if(matchMedia('(display-mode: standalone)').matches)location.replace('/app/'+location.search+h)})();`;
+---
+
+<Layout
+  title="Shark Fitness: gyms in Koramangala, Indiranagar and HSR Layout"
+  description="Three coached gyms in Bengaluru, open 5 am to 11 pm on weekdays. Strength, HIIT, boxing, yoga and swim classes every day. Prices include GST. Try a free week."
+  path="/"
+  jsonLd={[organization(), ...branches.map(exerciseGym)]}
+  headScript={forward}
+>
+  <section class="hero">
+    <Contours />
+    <div class="wrap">
+      <p class="label label--accent">Bengaluru · {branches.length} gyms · open every day</p>
+      <h1>Train where someone notices.</h1>
+      <p class="lede">
+        {brand.promise} Coaches learn your name in the first week, and the floor is never so full that you wait for a rack.
+      </p>
+      <div class="actions">
+        <a class="btn btn--primary" href="/free-trial">Book a free trial</a>
+        <a class="btn" href="/plans">See plans and prices</a>
+      </div>
+      <dl class="seam seam--4 facts">
+        <div class="fact"><dt class="label">Branches</dt><dd style="margin:0"><strong>{branches.length}</strong></dd></div>
+        <div class="fact"><dt class="label">Open weekdays</dt><dd style="margin:0"><strong class="num">5 am–11 pm</strong></dd></div>
+        <div class="fact"><dt class="label">Classes a week, each gym</dt><dd style="margin:0"><strong class="num">{perBranch}+</strong></dd></div>
+        <div class="fact"><dt class="label">First week</dt><dd style="margin:0"><strong>Free</strong></dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="first-week">
+    <div class="wrap">
+      <div class="section-head">
+        <h2 id="first-week">How the free week works</h2>
+        <p class="lede">No card, no contract, and no sales pitch at the door.</p>
+      </div>
+      <div class="seam seam--3">
+        <div class="cell">
+          <h3>Tell us when</h3>
+          <p class="muted">Pick a class from the timetable or a time that suits you. It takes a minute.</p>
+        </div>
+        <div class="cell">
+          <h3>We call to confirm</h3>
+          <p class="muted">Someone from your branch calls, usually within a few hours of opening, and books you in.</p>
+        </div>
+        <div class="cell">
+          <h3>Train for seven days</h3>
+          <p class="muted">A coach shows you round, then the floor is yours for a week. Decide after, or don’t.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="plans-title">
+    <div class="wrap">
+      <div class="section-head">
+        <h2 id="plans-title">Plans, with GST included</h2>
+        <p class="lede">The price you see is the price you pay. Every payment comes with a GST invoice.</p>
+      </div>
+      <div class="seam seam--3">
+        {headline.map((plan) => <PlanCard plan={plan} featured={plan.id === featuredId} />)}
+      </div>
+      <p style="margin-top:20px"><a href="/plans">All plans, class packs and passes</a></p>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="classes-title">
+    <div class="wrap">
+      <div class="section-head">
+        <h2 id="classes-title">Classes every day</h2>
+        <p class="lede">Small groups, real coaching. From your first squat to sprint intervals.</p>
+      </div>
+      <div class="seam seam--4">
+        {
+          classInfo.map((c) => (
+            <div class="cell">
+              <p class="label">{LEVEL_LABEL[c.level]}</p>
+              <h3>{c.name}</h3>
+              <p class="muted">{c.summary}</p>
+            </div>
+          ))
+        }
+      </div>
+      <p style="margin-top:20px"><a href="/classes">This week’s timetable</a></p>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="branches-title">
+    <div class="wrap">
+      <div class="section-head">
+        <h2 id="branches-title">Three gyms, one membership</h2>
+        <p class="lede">Elite Annual works at all of them. Monthly plans have a home branch.</p>
+      </div>
+      <div class="seam seam--3">
+        {branches.map((b) => <BranchCard branch={b} />)}
+      </div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="coaches-title">
+    <div class="wrap">
+      <div class="section-head">
+        <h2 id="coaches-title">The people on the floor</h2>
+      </div>
+      <div class="seam seam--3">
+        {
+          coaches.map((coach) => (
+            <div class="cell">
+              <p class="label label--accent">{coach.role}</p>
+              <h3>{coach.name} {coach.surname}</h3>
+              <p class="muted">{coach.specialties.join(' · ')}</p>
+            </div>
+          ))
+        }
+      </div>
+      <p style="margin-top:20px"><a href="/coaches">Meet the coaches</a></p>
+    </div>
+  </section>
+
+  <CtaBand />
+</Layout>
+
+<script>
+  import { refreshPlans } from '../scripts/live-plans';
+
+  void refreshPlans();
+</script>

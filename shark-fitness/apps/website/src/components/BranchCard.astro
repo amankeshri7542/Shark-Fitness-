@@ -1,0 +1,30 @@
+---
+import type { PublicBranch } from '@shark/contracts';
+import { branchExtra, hoursSummary } from '../content/site';
+
+export interface Props {
+  branch: PublicBranch;
+}
+const { branch } = Astro.props;
+const extra = branchExtra(branch);
+---
+
+<article class="cell">
+  <p class="label label--accent">{branch.name}</p>
+  <h3><a href={`/locations/${branch.slug}`} style="text-decoration:none">{extra.area}</a></h3>
+  <p class="muted">{branch.addressLine}, {branch.city} {extra.postalCode}</p>
+  <dl style="margin:0;display:grid;gap:4px">
+    {
+      hoursSummary(branch).map((row) => (
+        <div style="display:flex;gap:12px">
+          <dt class="num" style="min-width:72px">{row.days}</dt>
+          <dd class="num" style="margin:0">{row.hours}</dd>
+        </div>
+      ))
+    }
+  </dl>
+  {branch.state === 'temporarily_closed' ? <p class="notice notice--bad">Temporarily closed. Call us before you visit.</p> : null}
+  <p>
+    <a href={`/locations/${branch.slug}`}>Opening hours, directions and facilities<span class="sr-only"> for {extra.area}</span></a>
+  </p>
+</article>

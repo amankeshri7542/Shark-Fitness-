@@ -41,6 +41,7 @@ const STAFF_TOPICS: Partial<Record<EventTopic, Permission>> = {
   'session.updated': 'schedule.view',
   'session.cancelled': 'schedule.view',
   'lead.stage_changed': 'lead.view',
+  'lead.captured': 'lead.view',
   'pos.sale_completed': 'inventory.view',
   'pos.return_completed': 'inventory.view',
   'pos.order_voided': 'inventory.view',

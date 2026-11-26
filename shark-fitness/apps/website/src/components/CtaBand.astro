@@ -1,0 +1,21 @@
+---
+export interface Props {
+  title?: string;
+  body?: string;
+}
+const {
+  title = 'Try it free for a week',
+  body = 'Seven days on the floor and one coached class. Tell us when suits you and the team will call to set it up. No card, no contract.',
+} = Astro.props;
+---
+
+<section class="cta-band" aria-labelledby="cta-title">
+  <div class="wrap">
+    <h2 id="cta-title">{title}</h2>
+    <p class="lede">{body}</p>
+    <div class="actions">
+      <a class="btn btn--primary" href="/free-trial">Book a free trial</a>
+      <a class="btn" href="/contact">Ask a question</a>
+    </div>
+  </div>
+</section>

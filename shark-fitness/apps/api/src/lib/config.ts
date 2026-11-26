@@ -5,6 +5,9 @@ const LOCAL_ORIGINS = [
   'http://127.0.0.1:5173',
   'http://localhost:5174',
   'http://127.0.0.1:5174',
+  // The public website's dev server (apps/website).
+  'http://localhost:5175',
+  'http://127.0.0.1:5175',
   'http://localhost:8787',
   'http://127.0.0.1:8787',
 ] as const;

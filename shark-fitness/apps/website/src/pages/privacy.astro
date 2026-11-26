@@ -1,0 +1,71 @@
+---
+import Layout from '../layouts/Layout.astro';
+import PageHero from '../components/PageHero.astro';
+import { PRIVACY_NOTICE_UPDATED, PRIVACY_NOTICE_VERSION, brand } from '../content/site';
+import { breadcrumbs } from '../lib/schema';
+
+const crumbs = [{ name: 'Privacy notice', path: '/privacy' }];
+---
+
+<Layout
+  title="Privacy notice"
+  description="How Shark Fitness uses the details you give on this website: what we collect, why, how long we keep it, and how to withdraw consent or ask for deletion."
+  path="/privacy"
+  jsonLd={[breadcrumbs([{ name: 'Home', path: '/' }, ...crumbs])]}
+>
+  <PageHero title="Privacy notice" lede="What we do with the details you give us on this website, in plain words." crumbs={crumbs} />
+  <section class="section">
+    <div class="wrap prose">
+      <p class="draft-banner">
+        <strong>Draft for legal review.</strong> This notice has not yet been reviewed by counsel and may change before it is final.
+        Version {PRIVACY_NOTICE_VERSION}, last updated {PRIVACY_NOTICE_UPDATED}.
+      </p>
+
+      <h2>Who we are</h2>
+      <p>
+        {brand.legalName} (“{brand.name}”, “we”) runs gyms in Bengaluru. For the details you give on this website we are the data fiduciary under
+        India’s Digital Personal Data Protection Act, 2023. Contact: <a href={`mailto:${brand.privacyEmail}`}>{brand.privacyEmail}</a>.
+      </p>
+
+      <h2>What we collect, and why</h2>
+      <ul>
+        <li><strong>Your name, mobile number and, if you give it, email</strong>: to call you back about your trial or question.</li>
+        <li><strong>Branch, goal, preferred time, chosen class and your message</strong>: so the person who calls you is prepared.</li>
+        <li><strong>How you found us</strong> (for example a QR code on a poster or a campaign link): to know which of our notices work. We keep the campaign name, not your browsing.</li>
+        <li><strong>Your choices on the form</strong>: that you agreed to be contacted, whether you want offers, which version of this notice you saw, and when.</li>
+      </ul>
+      <p>Please do not send medical records through the form. If you mention an injury, we use it only to plan your first session safely.</p>
+
+      <h2>What we do not do</h2>
+      <ul>
+        <li>This website sets no cookies and loads no advertising or analytics trackers.</li>
+        <li>We do not sell or rent your details, and we do not send them to advertisers.</li>
+        <li>We do not send you automatic messages. Offers and news reach you only if you ticked that box, and you can stop them at any time.</li>
+      </ul>
+
+      <h2>Who sees your details</h2>
+      <p>
+        Staff at the branch you chose, and managers who oversee it. Our gym software provider hosts the data for us in India under a contract
+        that lets them use it only to run our system.
+      </p>
+
+      <h2>How long we keep them</h2>
+      <p>
+        If you do not join, we keep your enquiry for up to 12 months, then delete or anonymise it. If you become a member, it becomes part of your
+        membership record and the member privacy notice applies.
+      </p>
+
+      <h2>Your rights</h2>
+      <ul>
+        <li>Ask what we hold about you, and have it corrected.</li>
+        <li>Withdraw your consent, including to offers, as easily as you gave it: write to us or tell the person who calls.</li>
+        <li>Ask us to delete your details, unless the law requires us to keep them.</li>
+        <li>Nominate someone to act for you, and complain to the Data Protection Board of India if we do not resolve a concern.</li>
+      </ul>
+      <p>Write to <a href={`mailto:${brand.privacyEmail}`}>{brand.privacyEmail}</a>. We reply within 30 days.</p>
+
+      <h2>Changes</h2>
+      <p>When this notice changes, the version above changes too. We record which version you agreed to.</p>
+    </div>
+  </section>
+</Layout>

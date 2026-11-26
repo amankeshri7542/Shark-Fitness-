@@ -9,12 +9,13 @@ import { startFakeRazorpay, type FakeRazorpay } from '../apps/api/src/testing/ra
 
 /**
  * Starts the real product the way production runs it: one Node process
- * serving the API, the member app at / and the console at /admin/, against a
+ * serving the API, the website at /, the member app at /app/ and the console
+ * at /admin/, against a
  * freshly migrated and seeded SQLite file in a temporary directory. Never
  * apps/api/data/shark.db.
  */
 export default async function globalSetup(): Promise<() => Promise<void>> {
-  const missing = ['apps/member-pwa/dist/index.html', 'apps/admin-web/dist/index.html'].filter(
+  const missing = ['apps/website/dist/index.html', 'apps/member-pwa/dist/index.html', 'apps/admin-web/dist/index.html'].filter(
     (file) => !existsSync(resolve(WORKSPACE_ROOT, file)),
   );
   if (missing.length > 0) {

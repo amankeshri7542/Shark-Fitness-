@@ -155,6 +155,7 @@ billingRoutes.get('/products', (c) => {
       eligibility: p.eligibility,
       branchIds: p.branchIds,
       status: p.status,
+      public: p.isPublic,
     })),
   });
 });

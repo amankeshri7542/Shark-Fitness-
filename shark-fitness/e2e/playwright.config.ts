@@ -30,5 +30,7 @@ export default defineConfig({
     // Payment specs (tagged @payments) run on a phone, where members pay.
     { name: 'chromium', use: { ...devices['Desktop Chrome'] }, grepInvert: /@payments/ },
     { name: 'mobile-chromium', use: { ...devices['Pixel 7'] }, grep: /@payments/ },
+    // The public website's flows again on a phone (P03): same server, mobile viewport and touch.
+    { name: 'website-mobile', use: { ...devices['Pixel 7'] }, testMatch: /website-.*\.spec\.ts$/ },
   ],
 });

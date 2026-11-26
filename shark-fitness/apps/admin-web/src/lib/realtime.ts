@@ -79,6 +79,7 @@ const INVALIDATES: Partial<Record<EventTopic, string[][]>> = {
   'session.updated': [['schedule']],
   'session.cancelled': [['schedule'], ['dashboard'], ['member-credits']],
   'lead.stage_changed': [['leads']],
+  'lead.captured': [['leads'], ['lead'], ['dashboard']],
   // An escalated ticket raises this too, and the support queue is where it has
   // to be acted on.
   'alert.raised': [['dashboard'], ['support']],

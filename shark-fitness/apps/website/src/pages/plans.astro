@@ -1,0 +1,75 @@
+---
+import Layout from '../layouts/Layout.astro';
+import PageHero from '../components/PageHero.astro';
+import PlanCard from '../components/PlanCard.astro';
+import CtaBand from '../components/CtaBand.astro';
+import { plans } from '../content/site';
+import { breadcrumbs, planOffers } from '../lib/schema';
+
+const memberships = plans.filter((p) => p.kind === 'membership');
+const others = plans.filter((p) => p.kind !== 'membership');
+const crumbs = [{ name: 'Plans and prices', path: '/plans' }];
+---
+
+<Layout
+  title="Plans and prices"
+  description="Shark Fitness membership prices in Bengaluru, GST included: Elite Annual, Depot Monthly, Off-Peak, class packs, personal training and day passes."
+  path="/plans"
+  jsonLd={[planOffers(plans), breadcrumbs([{ name: 'Home', path: '/' }, ...crumbs])]}
+>
+  <PageHero
+    title="Plans and prices"
+    lede="Every price includes 18% GST and comes with a GST invoice. Start with a free week; choose a plan after, if it suits you."
+    crumbs={crumbs}
+  />
+
+  <section class="section" aria-labelledby="memberships">
+    <div class="wrap">
+      <div class="section-head">
+        <h2 id="memberships">Memberships</h2>
+        <p class="muted">Monthly plans renew each month until you give notice. Elite Annual is paid for the year.</p>
+      </div>
+      <div class="seam seam--3">
+        {memberships.map((plan) => <PlanCard plan={plan} featured={plan.id === 'prd_elite_annual'} />)}
+      </div>
+    </div>
+  </section>
+
+  {
+    others.length > 0 ? (
+      <section class="section" aria-labelledby="packs">
+        <div class="wrap">
+          <div class="section-head">
+            <h2 id="packs">Class packs, coaching and passes</h2>
+            <p class="muted">For classes without a membership, one-to-one coaching, or a single visit.</p>
+          </div>
+          <div class="seam seam--4">
+            {others.map((plan) => <PlanCard plan={plan} />)}
+          </div>
+        </div>
+      </section>
+    ) : null
+  }
+
+  <section class="section" aria-labelledby="small-print">
+    <div class="wrap prose">
+      <h2 id="small-print">The small print, plainly</h2>
+      <ul>
+        <li>Prices include GST at 18%. Your invoice shows the price before tax and the GST separately.</li>
+        <li>Monthly plans need 7 days’ notice to cancel and end at the end of the paid month.</li>
+        <li>Elite Annual has a 12-month commitment. Leaving early costs ₹500.</li>
+        <li>Pay at reception by UPI, card or cash. Members can also buy and renew in the member app.</li>
+        <li>Prices can change. A change never affects a plan you have already paid for.</li>
+      </ul>
+      <p>Full details are in our <a href="/terms">terms</a>.</p>
+    </div>
+  </section>
+
+  <CtaBand />
+</Layout>
+
+<script>
+  import { refreshPlans } from '../scripts/live-plans';
+
+  void refreshPlans();
+</script>

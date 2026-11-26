@@ -84,6 +84,18 @@ const CSRF_TOKEN_EXEMPT_PATHS = new Set(['/v1/client-errors']);
 const WEBHOOK_PATH_PREFIX = '/v1/webhooks/';
 
 /**
+ * The public website's forms (`/v1/public/:tenant/…`) never read a session.
+ * A visitor who is also signed in to the member app on the same origin still
+ * carries `shark_session`, and the website has no CSRF token to send, so the
+ * double-submit check would refuse a real enquiry. Those routes demand a known
+ * Origin themselves, which is the boundary that matters for a write that acts
+ * on nobody's account.
+ */
+function isPublicSitePath(path: string): boolean {
+  return path.startsWith('/v1/public/');
+}
+
+/**
  * Rejects cross-origin unsafe requests and requires a double-submit token for
  * browser sessions. Login endpoints do not have a session cookie yet, so the
  * strict Origin check is their CSRF boundary.
@@ -105,7 +117,7 @@ export const csrfProtection: MiddlewareHandler = async (c, next) => {
     throw new AppError('FORBIDDEN', 'This request did not come from an allowed Shark Fitness app.');
   }
 
-  if (SESSION_ENTRY_PATHS.has(c.req.path) || CSRF_TOKEN_EXEMPT_PATHS.has(c.req.path)) {
+  if (SESSION_ENTRY_PATHS.has(c.req.path) || CSRF_TOKEN_EXEMPT_PATHS.has(c.req.path) || isPublicSitePath(c.req.path)) {
     await next();
     return;
   }

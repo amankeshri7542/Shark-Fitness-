@@ -76,7 +76,11 @@ const rootRoute = createRootRoute({
 /** Everything below this gate needs a session. */
 function requireSession(): void {
   if (useSession.getState().status === 'signed-out') {
-    throw redirect({ to: '/sign-in' });
+    // Keep an activation or recovery fragment: a link to /app/#activationId=…
+    // (or one forwarded from the website's /) must reach the sign-in screen
+    // with its one-time token intact.
+    const hash = window.location.hash.slice(1);
+    throw redirect({ to: '/sign-in', ...(/(?:^|&)(?:activationId|recoveryId)=/.test(hash) ? { hash } : {}) });
   }
 }
 
@@ -162,6 +166,9 @@ const routeTree = rootRoute.addChildren([
 
 export const router = createRouter({
   routeTree,
+  // Served under /app/ (vite.config.ts MEMBER_BASE). Route paths stay '/',
+  // '/book', …; links and the address bar carry the prefix.
+  basepath: '/app',
   defaultPreload: 'intent',
   defaultPendingComponent: RoutePending,
   // A screen that throws while rendering or loading shows the recovery panel
