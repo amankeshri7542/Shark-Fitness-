@@ -88,12 +88,7 @@
       "state": "implementing",
       "base": "integration/features",
       "base_sha": "4fa023bf9",
-      "running": {
-        "tag": "P10-impl",
-        "pid": 991499,
-        "started": "2026-11-26 08:41 IST",
-        "activity": "2026-11-26 08:41 IST"
-      }
+      "running": null
     },
     "INT2": {
       "state": "pending"

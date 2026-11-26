@@ -26,9 +26,7 @@ Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "ph
 | P12 | Release candidate verification and client handover | pending | `phase/P12-release-handover` | `` |  |  |  |
 
 ## Running sessions
-| Node | Session tag | pid | Last activity | Started |
-|---|---|---|---|---|
-| P10 | P10-impl | 991499 | 2026-11-26 08:41 IST | 2026-11-26 08:41 IST |
+- none
 
 ## Blockers / waiting
 - Claude usage limit hit (latest during P08-impl); new sessions paused, retrying every 30 min
