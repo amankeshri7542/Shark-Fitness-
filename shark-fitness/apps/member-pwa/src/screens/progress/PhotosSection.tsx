@@ -117,10 +117,16 @@ export function PhotosSection() {
         ) : (
           <ErrorState title="Could not load your photos" body="Nothing was changed. Try again." onRetry={() => void photos.refetch()} />
         )
-      ) : !data.consent.current ? (
+      ) : !data.consent.current && data.items.length === 0 ? (
         <ConsentCard consent={data.consent} retentionDays={data.retentionDays} busy={consent.isPending} online={online} onAgree={() => consent.mutate(true)} />
       ) : (
         <div className="flex flex-col gap-3">
+          {/* Without current consent nothing new can be added or shared, but
+              the photos already here stay visible to their owner, who can
+              still delete them before the scheduled deletion. */}
+          {!data.consent.current ? (
+            <ConsentCard consent={data.consent} retentionDays={data.retentionDays} busy={consent.isPending} online={online} onAgree={() => consent.mutate(true)} />
+          ) : null}
           {scheduled ? (
             <Panel tone="warn" className="p-3" role="status">
               <p className="text-[13px] leading-relaxed">Photo consent is withdrawn. These photos are hidden from your coach and will be deleted on {dateLabel(scheduled)}.</p>
@@ -133,9 +139,11 @@ export function PhotosSection() {
           ) : null}
 
           <div className="flex flex-wrap gap-2">
-            <Button variant="cta" size="md" disabled={!online} onClick={() => setUploading(true)}>
-              Add a photo
-            </Button>
+            {data.consent.current ? (
+              <Button variant="cta" size="md" disabled={!online} onClick={() => setUploading(true)}>
+                Add a photo
+              </Button>
+            ) : null}
             {data.items.length >= 2 ? (
               <Button variant="outline" size="md" onClick={() => setComparing(true)}>
                 Compare two dates
@@ -162,7 +170,7 @@ export function PhotosSection() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        disabled={!online || visibility.isPending || Boolean(photo.deleteAfter)}
+                        disabled={!online || visibility.isPending || Boolean(photo.deleteAfter) || !data.consent.current}
                         onClick={() => visibility.mutate({ id: photo.id, visibility: photo.visibility === 'coach' ? 'private' : 'coach' })}
                         aria-label={photo.visibility === 'coach' ? `Make the ${dateLabel(photo.takenOn)} photo private` : `Share the ${dateLabel(photo.takenOn)} photo with my coach`}
                       >
@@ -178,12 +186,14 @@ export function PhotosSection() {
             </ul>
           )}
 
-          <p className="text-[12px] leading-relaxed text-foam-65">
-            Private unless you share a photo with your assigned coach. Nobody else at the gym can see them.{' '}
-            <button type="button" className="underline" onClick={() => setWithdrawing(true)} disabled={!online}>
-              Withdraw photo consent
-            </button>
-          </p>
+          {data.consent.granted ? (
+            <p className="text-[12px] leading-relaxed text-foam-65">
+              Private unless you share a photo with your assigned coach. Nobody else at the gym can see them.{' '}
+              <button type="button" className="underline" onClick={() => setWithdrawing(true)} disabled={!online}>
+                Withdraw photo consent
+              </button>
+            </p>
+          ) : null}
         </div>
       )}
 

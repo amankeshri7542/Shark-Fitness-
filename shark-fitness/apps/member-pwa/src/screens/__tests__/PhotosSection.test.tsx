@@ -144,6 +144,30 @@ it('photos scheduled for deletion say when', async () => {
   expect(await screen.findByText(/will be deleted on 25 Dec 2026/)).toBeInTheDocument();
 });
 
+it('after withdrawing consent the member still sees their photos, when they go, and can delete them now', async () => {
+  // What the server sends after a withdrawal: consent no longer granted, the
+  // photos still listed with their deletion date.
+  api.mockImplementation(async (path: string, init?: { method?: string }) =>
+    init?.method === 'DELETE'
+      ? { ok: true }
+      : payload({
+          consent: { ...consent, granted: false, current: false },
+          items: [photo('a', '2026-09-01', { deleteAfter: '2026-12-25T00:00:00Z' })],
+        }),
+  );
+  renderSection();
+  expect(await screen.findByText(/will be deleted on 25 Dec 2026/)).toBeInTheDocument();
+  expect(screen.getByRole('img', { name: /Progress photo, front, 1 Sept 2026/ })).toBeInTheDocument();
+  // Agreeing again is offered; adding, sharing and withdrawing again are not.
+  expect(screen.getByRole('button', { name: 'I agree, store my photos' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Add a photo' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Withdraw photo consent' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Share the 1 Sept 2026 photo with my coach' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Delete the 1 Sept 2026 photo' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Delete photo' }));
+  await waitFor(() => expect(api).toHaveBeenCalledWith(expect.stringContaining('/member/progress/photos/a'), expect.objectContaining({ method: 'DELETE' })));
+});
+
 it('uploads a prepared photo as multipart with the chosen date, pose and audience', async () => {
   api.mockImplementation(async (path: string) => (path === '/member/media/uploads' ? { photo: photo('c', '2026-11-25') } : payload()));
   renderSection();
