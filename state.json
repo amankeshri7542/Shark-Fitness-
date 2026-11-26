@@ -58,12 +58,7 @@
       "state": "implementing",
       "base": "phase/P06-staff-security",
       "base_sha": "d9e656c7d",
-      "running": {
-        "tag": "P07-impl",
-        "pid": 561744,
-        "started": "2026-11-26 05:54 IST",
-        "activity": "2026-11-26 06:21 IST"
-      }
+      "running": null
     },
     "INT1": {
       "state": "pending"

@@ -1,6 +1,6 @@
 {
  "phase": "P07",
- "status": "in_progress",
+ "status": "done",
  "items": [
   {
    "id": 1,
@@ -11,50 +11,50 @@
   {
    "id": 2,
    "text": "AC2 Member messaging: coach + front-desk threads; minor rule; internal notes never member-facing; attachments signed URLs + authz; admin Inbox",
-   "status": "todo",
-   "evidence": "API: member-messaging.integration.test.ts 12/12 (coach+desk threads, role/branch visibility 404s, minor refusal 403 + tenant toggle, notes absent from 6 member endpoints, signed URL + GPS strip, 404 for others, 403 expired/tampered, 422 spoofed, 413 oversize). Member Messaging.test.tsx 9/9, admin Inbox.test.tsx 6/6. E2E pending."
+   "status": "done",
+   "evidence": "API: member-messaging.integration.test.ts 12/12 (coach+desk threads, role/branch visibility 404s, minor refusal 403 + tenant toggle, notes absent from 6 member endpoints, signed URL + GPS strip, 404 for others, 403 expired/tampered, 422 spoofed, 413 oversize). Member Messaging.test.tsx 9/9, admin Inbox.test.tsx 6/6. E2E pending. | API member-messaging 12/12; member Messaging.test.tsx 9/9; admin Inbox.test.tsx 6/6; e2e engagement-messaging (member -> desk, reception note + reply, member reads reply, note absent) passed."
   },
   {
    "id": 3,
    "text": "AC3 Community: report->queue->remove hidden + author notified; block both ways incl. groups; rate limit 429; approval mode; admin Community module",
-   "status": "todo",
-   "evidence": "API: community-moderation.integration.test.ts 10/10 (report->queue->remove tombstone for all + author notified + audit; hide/restore; reason required; scope 404; block both ways incl. shared challenge board; mute one-way; 429 comments and posts; approval mode; bans 403; minors anonymous). Member FeedPostCard.test.tsx 6/6, admin Community.test.tsx 6/6. E2E pending."
+   "status": "done",
+   "evidence": "API: community-moderation.integration.test.ts 10/10 (report->queue->remove tombstone for all + author notified + audit; hide/restore; reason required; scope 404; block both ways incl. shared challenge board; mute one-way; 429 comments and posts; approval mode; bans 403; minors anonymous). Member FeedPostCard.test.tsx 6/6, admin Community.test.tsx 6/6. E2E pending. | API community-moderation 10/10; member FeedPostCard 6/6; admin Community 6/6; e2e engagement-community (report -> queue -> remove with reason) passed."
   },
   {
    "id": 4,
    "text": "AC4 Tasks: idempotent generation across runs; branch scope 404; outcome on complete; status-strip count; Create task from alerts/member/lead",
-   "status": "todo",
-   "evidence": "API tasks.integration.test.ts 6/6 (generateTasks twice + scheduler job: exactly one task per failed payment / safety work order / lead SLA; 404 outside branch for GET/PATCH/complete; assign only to branch staff 422; trainer cannot assign others 403; complete requires outcome 422 then stores it + audit; summary.mine == list mine; toActOn == non-manual open). Admin Tasks.test.tsx 8/8 incl. status strip. E2E pending."
+   "status": "done",
+   "evidence": "API tasks.integration.test.ts 6/6 (generateTasks twice + scheduler job: exactly one task per failed payment / safety work order / lead SLA; 404 outside branch for GET/PATCH/complete; assign only to branch staff 422; trainer cannot assign others 403; complete requires outcome 422 then stores it + audit; summary.mine == list mine; toActOn == non-manual open). Admin Tasks.test.tsx 8/8 incl. status strip. E2E pending. | API tasks 6/6; admin Tasks.test.tsx 8/8 (incl. status strip); e2e engagement-tasks (create, My tasks chip, finish with outcome, Done tab) passed."
   },
   {
    "id": 5,
    "text": "AC5 Coach view: trainer sees only assigned; safety check-in -> coach flag, no analytics event; opted-out excluded",
-   "status": "todo",
-   "evidence": "API coaching.integration.test.ts 5/5 (rehan sees aman not rohit, nikhil vice versa, 404 cross; opted-out excluded + 404; safety check-in -> roster flagged, coach safety notification, no integrations-channel outbox event, note absent from outbox/audit/metric rows; reply notifies member (coaching purpose) and clears flag; template assign once 201/409/422/404). Admin Coaching.test.tsx 5/5. E2E pending."
+   "status": "done",
+   "evidence": "API coaching.integration.test.ts 5/5 (rehan sees aman not rohit, nikhil vice versa, 404 cross; opted-out excluded + 404; safety check-in -> roster flagged, coach safety notification, no integrations-channel outbox event, note absent from outbox/audit/metric rows; reply notifies member (coaching purpose) and clears flag; template assign once 201/409/422/404). Admin Coaching.test.tsx 5/5. E2E pending. | API coaching 5/5; admin Coaching 5/5; e2e engagement-coaching (coach assigns habit template) passed."
   },
   {
    "id": 6,
    "text": "AC6 Broadcasts: preview = actual recipients; threshold approval; dry run no deliveries; cost = recipients x rate",
-   "status": "todo",
-   "evidence": "API broadcasts.integration.test.ts 5/5 (preview recipients == sent recipients, excluded == suppressed rows, report totals; cost == recipients x rate for each channel with overridden rates, push all channel_unavailable; dry run creates 0 deliveries/notifications; threshold -> 412 awaiting_approval, manager approve 403, owner stale session 401 STEP_UP_REQUIRED then step-up -> approve -> send; double send 409; reception 403; unknown variable 422). Admin Marketing.test.tsx 6/6. E2E pending."
+   "status": "done",
+   "evidence": "API broadcasts.integration.test.ts 5/5 (preview recipients == sent recipients, excluded == suppressed rows, report totals; cost == recipients x rate for each channel with overridden rates, push all channel_unavailable; dry run creates 0 deliveries/notifications; threshold -> 412 awaiting_approval, manager approve 403, owner stale session 401 STEP_UP_REQUIRED then step-up -> approve -> send; double send 409; reception 403; unknown variable 422). Admin Marketing.test.tsx 6/6. E2E pending. | API broadcasts 5/5; admin Marketing 6/6; e2e engagement-marketing (preview, cost table, dry run, send, report) passed."
   },
   {
    "id": 7,
    "text": "AC7 Quick add member: duplicate detection with link; created member can be activated",
-   "status": "todo",
-   "evidence": ""
+   "status": "done",
+   "evidence": "API palette-quick-add 7/7 (duplicate phone -> 409 with existing link, duplicate seeded email, issue+redeem activation -> member session, plan assigned, trainer 403); admin QuickAddDialog 3/3; e2e palette Add member passed."
   },
   {
    "id": 8,
    "text": "AC8 Command palette: e2e keyboard flow to member detail; Record payment opens payment flow; axe clean",
-   "status": "todo",
-   "evidence": ""
+   "status": "done",
+   "evidence": "e2e engagement-palette: Ctrl+K, type name, ArrowDown to option, Enter -> member detail heading; Record payment -> invoice -> Billing \"Record payment\" dialog; axe on open palette: 0 violations. Admin CommandPalette.test.tsx 7/7."
   },
   {
    "id": 9,
    "text": "AC9 New screens: loading/empty/error/permission/offline component tests; e2e per module; standard gates + pnpm e2e",
-   "status": "todo",
-   "evidence": ""
+   "status": "done",
+   "evidence": "Component tests for loading/empty/error/permission/offline on Inbox, Community, Tasks, Coaching, Marketing (+ member NewMessage states). Gates: install/typecheck/lint pass; pnpm test 1757/154 files pass; pnpm build pass; pnpm e2e 14 passed."
   },
   {
    "id": 10,
@@ -71,8 +71,8 @@
   {
    "id": 12,
    "text": "Docs (.env.example, docs/, README) and pr/P07.md",
-   "status": "todo",
-   "evidence": ""
+   "status": "done",
+   "evidence": "docs/ENGAGEMENT.md, README paragraph, docs/SECURITY.md step-up row, .env.example (SHARK_NOTIFY_*, SHARK_MSG91_NOTIFY_FLOW_ID, SHARK_WHATSAPP_*, SHARK_MEDIA_DIR placeholders); pr/P07.md written."
   }
  ]
 }
