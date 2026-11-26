@@ -26,22 +26,28 @@ it('explains reception settlement for unpaid invoices without offering simulated
   expect(api).toHaveBeenCalledTimes(2);
 });
 
-it('offers canonical payment downloads and makes expiry discrepancies and unavailable PT use visible', () => {
+it('offers canonical payment downloads and makes a credit discrepancy and expired history visible', () => {
+  // P05: PT credits are now usable (a delivered session spends one), so the
+  // old "PT consumption is unavailable" line is gone; the ledger warning and
+  // expired history must still be shown plainly.
   const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity } } });
   client.setQueryData(['billing'], {
     outstandingMinor: 0, outstandingLabel: '₹0', membership: null, invoices: [],
     receipts: [{ id: 'receipt-id', amountLabel: '₹100', method: 'cash', settledAt: '2026-09-23T10:00:00Z' }],
-    credits: { balances: [{ kind: 'class', signedBalance: -1, usableUnits: 0, consumptionAvailable: true, warning: 'Reconcile' }, { kind: 'pt', signedBalance: 2, usableUnits: null, consumptionAvailable: false }],
-      historyNotice: 'Earlier grants may lack purchased terms.', entries: [{ id: 'old-grant', kind: 'class', delta: 10, reason: 'Class pack', expiresOn: '2026-01-01', expired: true, createdAt: '2025-01-01T00:00:00Z' }],
+    credits: { balances: [{ kind: 'class', signedBalance: 0, usableUnits: 0, ledgerUnits: -1, consumptionAvailable: true, warning: '1 credit was used before a matching purchase was recorded. Reception can check the history.', nextExpiry: null, lots: [] },
+      { kind: 'pt', signedBalance: 2, usableUnits: 2, ledgerUnits: 2, consumptionAvailable: true, warning: null, nextExpiry: { units: 2, on: '2026-12-01' }, lots: [] }],
+      packs: [], offers: [], saleAvailable: false, saleUnavailableReason: 'No credit packs are on sale at this branch right now.',
+      historyNotice: 'Every change to your credits is listed here.', entries: [{ id: 'old-grant', kind: 'class', delta: 10, reason: 'Class pack', refType: null, refId: null, expiresOn: '2026-01-01', expired: true, createdAt: '2025-01-01T00:00:00Z' }],
     },
   });
   render(<QueryClientProvider client={client}><Billing /></QueryClientProvider>);
   expect(screen.getByRole('link', { name: 'Download record' })).toHaveAttribute('href', '/v1/member/billing/payments/receipt-id/receipt');
   expect(screen.getByRole('link', { name: 'Print / PDF' })).toHaveAttribute('href', '/v1/member/billing/payments/receipt-id/receipt?format=html');
-  expect(screen.getByText('PT consumption is unavailable.')).toBeInTheDocument();
-  expect(screen.getByRole('alert')).toHaveTextContent('No adjustment has been made.');
+  expect(screen.getByRole('alert')).toHaveTextContent('Reception can check the history.');
+  expect(screen.getByText('2 expire on 1 Dec 2026')).toBeInTheDocument();
+  expect(screen.getByText('No credit packs are on sale at this branch right now.')).toBeInTheDocument();
   fireEvent.click(screen.getByText('Credit history'));
-  expect(screen.getByText('2025-01-01 · Expired 2026-01-01')).toBeVisible();
+  expect(screen.getByText('1 Jan 2025 · expired 1 Jan 2026')).toBeVisible();
   expect(api).not.toHaveBeenCalled();
 });
 

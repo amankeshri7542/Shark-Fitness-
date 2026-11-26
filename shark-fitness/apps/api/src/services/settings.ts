@@ -130,9 +130,15 @@ const POLICY_META: Record<
   },
   waitlistOfferMinutes: {
     label: 'Waitlist offer window',
-    help: 'Minutes the next member on the waitlist has to claim a freed seat.',
+    help: 'Minutes the next member on the waitlist has to claim a freed seat. The seat is held for them meanwhile.',
     kind: 'number',
-    fallback: 15,
+    fallback: 30,
+  },
+  waitlistOfferCutoffMinutes: {
+    label: 'Waitlist offer cut-off',
+    help: 'Minutes before class when offers stop. An offer never runs past this; a seat freed later is open to anyone.',
+    kind: 'number',
+    fallback: 60,
   },
   allowNegativeStock: {
     label: 'Sell stock you do not have',
@@ -160,6 +166,12 @@ const TENANT_ONLY_META: Record<string, { label: string; help: string; kind: 'num
     help: 'Days a failed payment has before the membership lapses. One promise for the whole gym.',
     kind: 'number',
     fallback: 7,
+  },
+  photoRetentionDaysAfterWithdrawal: {
+    label: 'Photo retention after withdrawal',
+    help: 'Days progress photos are kept after a member withdraws photo consent, then deleted. They are hidden from coaches at once.',
+    kind: 'number',
+    fallback: 30,
   },
 };
 

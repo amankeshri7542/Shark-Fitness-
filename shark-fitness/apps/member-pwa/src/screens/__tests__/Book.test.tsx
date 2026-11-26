@@ -67,3 +67,110 @@ it('confirms a drop-in fee, with its amount and terms, before booking', async ()
     method: 'POST', body: expect.objectContaining({ sessionId: 'ses_1', acceptDropInCharge: true }),
   })));
 });
+
+/* ——— Waitlist offers (P05, decision 12) ——————————————————————— */
+
+const baseSession = {
+  id: 'ses_full', name: 'Engine Room', category: 'conditioning', intensity: 'high', description: '', trainerName: 'Rehan', roomName: 'Floor',
+  branchName: 'Koramangala Depot', localTime: '18:00', localEndTime: '18:45', durationMin: 45, capacity: 12, booked: 12, seatsLeft: 0,
+  waitlistCount: 3, state: 'scheduled', cancelledReason: null, substituteFor: null, myBooking: null, myWaitlist: null,
+  eligibility: { canBook: true, action: 'waitlist', reason: 'Class is full. Join the waitlist.', creditsRequired: 1, creditsHeld: 2, dropInPriceMinor: null, cancelDeadlineAt: null },
+};
+
+function offerAt(secondsLeft: number) {
+  const serverNow = Date.now();
+  return {
+    serverNow: new Date(serverNow).toISOString(),
+    offer: {
+      waitlistId: 'wtl_1', sessionId: 'ses_full', name: 'Engine Room', trainerName: 'Rehan', localDate: '2026-10-24',
+      dateLabel: 'Saturday 24 October', localTime: '18:00', offerExpiresAt: new Date(serverNow + secondsLeft * 1000).toISOString(),
+      creditsRequired: 1, dropInPriceMinor: null,
+    },
+  };
+}
+
+function renderBook() {
+  return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><Book /></QueryClientProvider>);
+}
+
+it('shows what a full class costs before joining the line: "Uses 1 credit"', async () => {
+  api.mockResolvedValue({ ...schedule, items: [baseSession] });
+  renderBook();
+  expect(await screen.findByText('Uses 1 class credit · you have 2')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Waitlist' }));
+  const dialog = await screen.findByRole('dialog', { name: 'Join the waitlist' });
+  expect(dialog).toHaveTextContent('You would be number 4 in line.');
+  // Escape closes it; nothing was joined.
+  fireEvent.keyDown(document, { key: 'Escape' });
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  expect(api.mock.calls.some(([path]) => path === '/member/schedule/waitlist')).toBe(false);
+});
+
+it('a held seat shows its countdown; the dialog takes the seat through the accept endpoint', async () => {
+  const { serverNow, offer } = offerAt(14 * 60 + 5);
+  const offered = { ...baseSession, myWaitlist: { id: 'wtl_1', position: 1, state: 'offered', offerExpiresAt: offer.offerExpiresAt } };
+  api.mockImplementation(async (path: string) =>
+    path.endsWith('/accept') ? { message: 'Seat taken. 1 class credit was used.' } : { ...schedule, serverNow, offers: [offer], items: [offered] },
+  );
+  renderBook();
+
+  expect(await screen.findByText('A seat is held for you')).toBeInTheDocument();
+  expect(screen.getByText(/^14:0[45]$/)).toBeInTheDocument();
+  expect(screen.getByText('Uses 1 class credit')).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Answer' }));
+  const dialog = await screen.findByRole('dialog', { name: 'A seat is held for you' });
+  expect(dialog).toHaveTextContent('Engine Room with Rehan · Saturday 24 October at 18:00.');
+  // Focus starts inside the dialog.
+  expect(dialog).toContainElement(document.activeElement as HTMLElement);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Take the seat' }));
+  await waitFor(() =>
+    expect(api).toHaveBeenCalledWith(
+      '/member/schedule/waitlist/wtl_1/accept',
+      expect.objectContaining({ method: 'POST', body: expect.objectContaining({ acceptDropInCharge: false }) }),
+    ),
+  );
+  expect(await screen.findByText('Seat taken. 1 class credit was used.')).toBeInTheDocument();
+});
+
+it('letting a held seat go declines it; Escape only closes the dialog and keeps the offer', async () => {
+  const { serverNow, offer } = offerAt(600);
+  api.mockImplementation(async (path: string, init?: { method?: string }) =>
+    init?.method === 'DELETE' ? { message: 'Seat declined. It has gone to the next person. Nothing was charged.' } : { ...schedule, serverNow, offers: [offer], items: [] },
+  );
+  renderBook();
+  fireEvent.click(await screen.findByRole('button', { name: 'Answer' }));
+  await screen.findByRole('dialog', { name: 'A seat is held for you' });
+  fireEvent.keyDown(document, { key: 'Escape' });
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  expect(api.mock.calls.some(([, init]) => (init as { method?: string } | undefined)?.method === 'DELETE')).toBe(false);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Answer' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Let it go' }));
+  await waitFor(() => expect(api).toHaveBeenCalledWith('/member/schedule/waitlist/wtl_1', { method: 'DELETE' }));
+  expect(await screen.findByText(/It has gone to the next person/)).toBeInTheDocument();
+});
+
+it('an offer that has run out cannot be taken', async () => {
+  const { serverNow, offer } = offerAt(0);
+  api.mockResolvedValue({ ...schedule, serverNow, offers: [offer], items: [] });
+  renderBook();
+  expect(await screen.findByText('This offer has run out.')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Answer' })).toBeDisabled();
+});
+
+it('a refused accept explains itself in plain words', async () => {
+  const { serverNow, offer } = offerAt(300);
+  const { ApiError } = await import('../../lib/api');
+  api.mockImplementation(async (path: string) => {
+    if (path.endsWith('/accept')) {
+      throw new ApiError(409, { error: { code: 'CONFLICT', message: 'That seat offer ran out before it was taken, so it went to the next person. Nothing was charged.', requestId: 'r' } });
+    }
+    return { ...schedule, serverNow, offers: [offer], items: [] };
+  });
+  renderBook();
+  fireEvent.click(await screen.findByRole('button', { name: 'Answer' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Take the seat' }));
+  expect(await screen.findByText(/went to the next person\. Nothing was charged\./)).toBeInTheDocument();
+});

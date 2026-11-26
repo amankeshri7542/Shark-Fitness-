@@ -13,6 +13,7 @@ import { ProviderError, resolvePaymentProvider, type PaymentProvider, type Provi
 import { isoDate, now } from '../../lib/time.js';
 import { assertRefundableProduct, loadInvoiceInScope, refundableBalance } from '../billing.js';
 import { reverseMembership } from '../billing-stabilization.js';
+import { reinstateRevokedCredits } from '../credit-ledger.js';
 import { openReconciliationException, razorpayContext, settleProviderPayment, type IntentRow } from './settlement.js';
 
 /**
@@ -50,6 +51,10 @@ export async function requestProviderRefund(input: {
   reason: string;
   entitlementReversed: boolean;
   idempotencyKey: string;
+  /** Set only by the credit-pack refund (services/credit-packs.ts): runs in
+   *  the same transaction as the pending refund row, so the pack's credits
+   *  are taken back exactly when the refund is committed. */
+  creditPackRefund?: (refundId: string) => void;
 }): Promise<ProviderRefundResult> {
   const { ctx, paymentId, amountMinor, reason, entitlementReversed, idempotencyKey } = input;
   requirePermission(ctx, 'billing.refund');
@@ -72,7 +77,7 @@ export async function requestProviderRefund(input: {
       return { refund: keyed, payment, invoice };
     }
 
-    assertRefundableProduct(ctx, invoice);
+    assertRefundableProduct(ctx, invoice, input.creditPackRefund !== undefined);
     if (payment.state !== 'succeeded') throw conflict('Only a succeeded payment can be refunded.');
     if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) throw invalid('Refund amount must be a positive safe integer.');
     const refundable = refundableBalance(payment);
@@ -95,6 +100,7 @@ export async function requestProviderRefund(input: {
       updatedAt: now(),
     };
     db.insert(schema.refunds).values(refund).run();
+    input.creditPackRefund?.(refund.id);
     audit(ctx, {
       action: 'payment.refund_requested',
       entityType: 'invoice',
@@ -162,6 +168,8 @@ export async function submitProviderRefund(
           .where(and(eq(schema.refunds.id, refund.id), eq(schema.refunds.state, 'pending')))
           .run();
         audit(ctx, { action: 'payment.refund_refused', entityType: 'refund', entityId: refund.id, reason: error.description ?? null });
+        // The money never left, so a credit pack keeps its credits.
+        reinstateRevokedCredits(ctx, refund.id, now());
       });
     } else {
       log('warn', 'razorpay_refund_unconfirmed', { refundId: refund.id, kind: error.kind });
@@ -174,6 +182,7 @@ export async function submitProviderRefund(
       .set({ providerRefundId: providerRefund.id, updatedAt: now(), ...(providerRefund.status === 'failed' ? { state: 'failed', failureReason: 'Razorpay could not process the refund.' } : {}) })
       .where(eq(schema.refunds.id, refund.id))
       .run();
+    if (providerRefund.status === 'failed') reinstateRevokedCredits(ctx, refund.id, now());
     return db.select().from(schema.refunds).where(eq(schema.refunds.id, refund.id)).get()!;
   });
 }
@@ -253,6 +262,7 @@ export function applyRefundEvent(
   if (type === 'refund.failed') {
     if (refund.state === 'failed') return null;
     db.update(schema.refunds).set({ state: 'failed', failureReason: 'Razorpay could not process the refund.', updatedAt: now() }).where(eq(schema.refunds.id, refund.id)).run();
+    reinstateRevokedCredits(ctx, refund.id, now());
     audit(ctx, { action: 'payment.refund_failed', entityType: 'invoice', entityId: invoice.id, entityLabel: invoice.number, after: { refundId: refund.id, amountMinor: refund.amountMinor } });
     emit({ tenantId: invoice.tenantId, branchId: invoice.branchId, channel: channels.branch(invoice.branchId), topic: 'invoice.updated', payload: { invoiceId: invoice.id, state: invoice.state } });
     return null;

@@ -27,6 +27,9 @@ import { privacyRoutes } from './routes/admin/privacy.js';
 import { messagesRoutes } from './routes/member/messages.js';
 import { billingRoutes as memberBillingRoutes } from './routes/member/billing.js';
 import { mediaRoutes } from './routes/member/media.js';
+import { photoRoutes, uploadRoutes } from './routes/member/photos.js';
+import { fileRoutes } from './routes/files.js';
+import { memberPhotoRoutes } from './routes/admin/member-photos.js';
 
 import { dashboardRoutes } from './routes/admin/dashboard.js';
 import { memberOperationsRoutes } from './routes/admin/member-operations.js';
@@ -127,17 +130,20 @@ app.route('/v1/member/home', homeRoutes);
 app.route('/v1/member/pass', passRoutes);
 app.route('/v1/member/schedule', memberScheduleRoutes);
 app.route('/v1/member/training', memberTrainingRoutes);
+app.route('/v1/member/progress/photos', photoRoutes);
 app.route('/v1/member/progress', progressRoutes);
 app.route('/v1/member/habits', habitsRoutes);
 app.route('/v1/member/engagement', engagementRoutes);
 app.route('/v1/member/messages', messagesRoutes);
 app.route('/v1/member/billing', memberBillingRoutes);
+app.route('/v1/member/media/uploads', uploadRoutes);
 app.route('/v1/member/media', mediaRoutes);
 
 app.use('/v1/admin/*', protectedApiIpLimit, authenticate, authenticatedTenantLimit, authenticatedApiLimit, staffOnly);
 app.route('/v1/admin/dashboard', dashboardRoutes);
 app.route('/v1/admin/members', memberOperationsRoutes);
 app.route('/v1/admin/members', membersRoutes);
+app.route('/v1/admin/members', memberPhotoRoutes);
 app.route('/v1/admin/leads', leadsRoutes);
 app.route('/v1/admin/billing', billingStabilizationRoutes);
 app.route('/v1/admin/billing', paymentAdminRoutes);
@@ -163,5 +169,9 @@ app.route('/v1/admin/privacy', privacyRoutes);
    used: each route carries `platformOnly`, which refuses an impersonated
    session before it refuses a wrong role. This is the only mount in the app
    whose handlers read across tenants. */
+/* Private files (P05): signed, short-lived, re-authorised per request. */
+app.use('/v1/files/*', protectedApiIpLimit, authenticate, authenticatedTenantLimit, authenticatedApiLimit);
+app.route('/v1/files', fileRoutes);
+
 app.use('/v1/platform/*', protectedApiIpLimit, authenticate, authenticatedTenantLimit, authenticatedApiLimit);
 app.route('/v1/platform', platformRoutes);

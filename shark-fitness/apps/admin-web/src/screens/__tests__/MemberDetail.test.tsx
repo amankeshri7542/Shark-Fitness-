@@ -22,6 +22,7 @@ it('shows awaiting plan and pending payment honestly, and offers retry when the 
   };
   vi.mocked(api).mockImplementation(async (path) => {
     if (path.endsWith('/credits')) return { balances: [], entries: [] } as never;
+    if (path.endsWith('/progress-photos')) return { access: 'not_assigned', message: 'Shared only with the assigned coach.', items: [] } as never;
     if (path === '/admin/billing/products') throw new Error('offline');
     return member as never;
   });

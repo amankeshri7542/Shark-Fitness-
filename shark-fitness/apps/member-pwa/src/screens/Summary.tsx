@@ -65,7 +65,7 @@ function minutes(sec: number): string {
 
 export default function SummaryScreen() {
   const { workoutId } = useParams({ from: '/bare/workout/summary/$workoutId' });
-  const copy = useCopy();
+  const copy = useCopy('workout');
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['workout-summary', workoutId],

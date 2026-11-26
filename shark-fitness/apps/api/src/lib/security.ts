@@ -130,7 +130,11 @@ export const securityHeaders: MiddlewareHandler = async (c, next) => {
   c.header('x-content-type-options', 'nosniff');
   c.header('x-frame-options', 'DENY');
   c.header('referrer-policy', 'strict-origin-when-cross-origin');
-  c.header('permissions-policy', 'camera=(), microphone=(), geolocation=()');
+  // Reception scans member passes with the console's camera (UX-A08), so the
+  // console's own documents may ask for it. Nothing else may: the member app
+  // and every API response keep the camera off.
+  const consoleDocument = c.req.path === '/admin' || c.req.path.startsWith('/admin/');
+  c.header('permissions-policy', `camera=${consoleDocument ? '(self)' : '()'}, microphone=(), geolocation=()`);
   c.header('cross-origin-opener-policy', 'same-origin');
   c.header('cross-origin-resource-policy', 'same-site');
   if (runtimeConfig.isProduction) {

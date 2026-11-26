@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import type { Branch, Viewer } from '@shark/contracts';
-import { PREDATOR_COPY, type CopyKey, type Register, registerFor } from '@shark/design-tokens';
-import { api, auth } from './api';
+import { forgetPassCards } from './pass';
+import { PREDATOR_COPY, type CopyKey, type CopySurface, type Register, registerFor } from '@shark/design-tokens';
+import { OfflineError, api, auth } from './api';
 
 interface SessionState {
   viewer: Viewer | null;
@@ -33,8 +34,12 @@ export const useSession = create<SessionState>((set, get) => ({
       set({ status: 'signed-out' });
       return;
     }
+    // Who the server said this cookie belongs to, if it answered before the
+    // connection dropped. A remembered session is only used for that person.
+    let confirmed: Viewer | null = null;
     try {
       const { viewer } = await api<{ viewer: Viewer }>('/me');
+      confirmed = viewer;
       if (viewer.role !== 'member') {
         // A staff cookie is valid for the admin console, not the member app.
         // Refuse it before member-only queries render misleading network-error
@@ -45,15 +50,29 @@ export const useSession = create<SessionState>((set, get) => ({
       }
       set({ viewer, status: 'signed-in' });
       const branches = await api<{ items: Branch[]; activeBranchId: string | null }>('/me/branches');
+      const activeBranchId = branches.activeBranchId ?? viewer.homeBranchId ?? branches.items[0]?.id ?? null;
       set({
         branches: branches.items,
         // The member's own gym, not whichever branch the tenant lists first.
         // `activeBranchId` from the server means "a branch this request
         // selected", which for a fresh session is nothing at all.
-        activeBranchId: branches.activeBranchId ?? viewer.homeBranchId ?? branches.items[0]?.id ?? null,
+        activeBranchId,
       });
-    } catch {
+      rememberSession({ viewer, branches: branches.items, activeBranchId });
+    } catch (error) {
+      // No network is not "signed out". A member mid-workout in a basement
+      // reloads the app and must land back in their session, logging into
+      // the outbox (PF-WORK-005). The cookie decides once the server answers:
+      // the check runs again as soon as the phone is back online.
+      const stored = error instanceof OfflineError ? rememberedSession() : null;
+      const remembered = stored && (!confirmed || (stored.viewer.userId === confirmed.userId && stored.viewer.tenantId === confirmed.tenantId)) ? stored : null;
+      if (remembered) {
+        set({ viewer: remembered.viewer, branches: remembered.branches, activeBranchId: remembered.activeBranchId, status: 'signed-in' });
+        window.addEventListener('online', () => void get().bootstrap(), { once: true });
+        return;
+      }
       auth.clear();
+      forgetSession();
       set({ viewer: null, status: 'signed-out' });
     }
   },
@@ -65,10 +84,52 @@ export const useSession = create<SessionState>((set, get) => ({
       /* signing out locally matters more than the round trip succeeding */
     }
     auth.clear();
+    forgetPassCards();
+    forgetSession();
     set({ viewer: null, branches: [], activeBranchId: null, status: 'signed-out' });
     void get;
   },
 }));
+
+/* — The last confirmed session, for an offline reload only. Not a credential:
+     the HttpOnly cookie is, and the server re-checks it on reconnect. ————— */
+
+const SESSION_KEY = 'shark.member.session';
+
+interface RememberedSession {
+  viewer: Viewer;
+  branches: Branch[];
+  activeBranchId: string | null;
+}
+
+function rememberSession(session: RememberedSession): void {
+  try {
+    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  } catch {
+    /* private mode: an offline reload then shows sign-in, as before */
+  }
+}
+
+function rememberedSession(): RememberedSession | null {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    const parsed = raw ? (JSON.parse(raw) as RememberedSession) : null;
+    return parsed?.viewer?.role === 'member' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function forgetSession(): void {
+  try {
+    localStorage.removeItem(SESSION_KEY);
+    // The offline exercise library carries this member's own last weights and
+    // reps (FreestylePicker); the next person on this phone must not see them.
+    localStorage.removeItem('shark.exercise.library');
+  } catch {
+    /* nothing stored */
+  }
+}
 
 export const useViewer = (): Viewer | null => useSession((s) => s.viewer);
 
@@ -83,8 +144,13 @@ export function useActiveBranch(): Branch | null {
  * the plain register is forced regardless of preference. See the note in
  * packages/design-tokens/src/tone.ts.
  */
-export function useCopy(surface?: string): (key: CopyKey) => string {
+export function useCopy(surface: CopySurface): (key: CopyKey) => string {
   const preference = (useSession((s) => s.viewer?.preferences.register) ?? 'predator') as Register;
+  return copyFor(preference, surface);
+}
+
+/** The pure half of `useCopy`, so the plain-only rule is testable without React. */
+export function copyFor(preference: Register, surface: CopySurface): (key: CopyKey) => string {
   const register = registerFor(preference, surface);
   return (key: CopyKey) => PREDATOR_COPY[key][register];
 }

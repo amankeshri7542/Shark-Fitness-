@@ -19,10 +19,45 @@ const extras = [
 
   // A session can never be booked past its capacity, even if a service layer
   // bug tries. The database is the last line, not the first.
-  `CREATE TRIGGER IF NOT EXISTS class_sessions_capacity_guard
+  //
+  // Only an *increase* is refused. A manager may shrink a class below the
+  // people already in it (nobody is cancelled; the dashboard raises it), and
+  // from there a cancellation must still be able to give a seat back. The
+  // original guard refused any write while booked > capacity, so it is
+  // replaced rather than kept beside this one.
+  `DROP TRIGGER IF EXISTS class_sessions_capacity_guard`,
+  `CREATE TRIGGER IF NOT EXISTS class_sessions_capacity_guard_increase
      BEFORE UPDATE OF booked ON class_sessions
-     WHEN NEW.booked > NEW.capacity
+     WHEN NEW.booked > NEW.capacity AND NEW.booked > OLD.booked
      BEGIN SELECT RAISE(ABORT, 'CAPACITY_EXHAUSTED'); END`,
+
+  // The same rule counted from the rows themselves rather than the
+  // denormalised counter: live bookings plus live waitlist offers (each offer
+  // holds a seat, decision 12) never exceed capacity. A new live booking or a
+  // new offer is refused when the class is already full by that count.
+  `CREATE TRIGGER IF NOT EXISTS bookings_seat_count_guard
+     BEFORE INSERT ON bookings
+     WHEN NEW.state IN ('held', 'confirmed', 'attended')
+     BEGIN
+       SELECT RAISE(ABORT, 'CAPACITY_EXHAUSTED')
+       WHERE (SELECT count(*) FROM bookings
+                WHERE session_id = NEW.session_id AND state IN ('held', 'confirmed', 'attended'))
+           + (SELECT count(*) FROM waitlist_entries
+                WHERE session_id = NEW.session_id AND state = 'offered')
+           >= (SELECT capacity FROM class_sessions WHERE id = NEW.session_id);
+     END`,
+
+  `CREATE TRIGGER IF NOT EXISTS waitlist_offer_seat_count_guard
+     BEFORE UPDATE OF state ON waitlist_entries
+     WHEN NEW.state = 'offered' AND OLD.state != 'offered'
+     BEGIN
+       SELECT RAISE(ABORT, 'CAPACITY_EXHAUSTED')
+       WHERE (SELECT count(*) FROM bookings
+                WHERE session_id = NEW.session_id AND state IN ('held', 'confirmed', 'attended'))
+           + (SELECT count(*) FROM waitlist_entries
+                WHERE session_id = NEW.session_id AND state = 'offered' AND id != NEW.id)
+           >= (SELECT capacity FROM class_sessions WHERE id = NEW.session_id);
+     END`,
 
   `CREATE TRIGGER IF NOT EXISTS class_sessions_capacity_guard_neg
      BEFORE UPDATE OF booked ON class_sessions
@@ -76,6 +111,17 @@ const extras = [
   `CREATE TRIGGER IF NOT EXISTS xp_ledger_no_delete
      BEFORE DELETE ON xp_ledger
      BEGIN SELECT RAISE(ABORT, 'xp_ledger is append-only'); END`,
+
+  // And the credit ledger (decision 11). A balance is a replay of rows; a
+  // spend, a restored credit, a refund and its reversal are all new rows that
+  // cite the lot they touch.
+  `CREATE TRIGGER IF NOT EXISTS credits_no_update
+     BEFORE UPDATE ON credits
+     BEGIN SELECT RAISE(ABORT, 'credits is append-only'); END`,
+
+  `CREATE TRIGGER IF NOT EXISTS credits_no_delete
+     BEFORE DELETE ON credits
+     BEGIN SELECT RAISE(ABORT, 'credits is append-only'); END`,
 
   // And the stock ledger — stock on hand is a sum, never a stored counter.
   `CREATE TRIGGER IF NOT EXISTS stock_ledger_no_update

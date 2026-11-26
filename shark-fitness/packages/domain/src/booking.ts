@@ -177,6 +177,25 @@ export function planPromotion(
   return { offer: null, skipped, offerWindowMin };
 }
 
+/**
+ * When a waitlist offer made now must be answered by (decision 12): the
+ * earlier of the offer window and the cut-off before class. `null` means it is
+ * too late to offer the seat at all — the member would have no real time to
+ * take it, so the seat stays open for anyone to book directly.
+ */
+export function offerExpiresAt(
+  nowMs: number,
+  startsAtMs: number,
+  offerWindowMin: number,
+  cutoffBeforeStartMin: number,
+): number | null {
+  const byWindow = nowMs + Math.max(1, offerWindowMin) * 60_000;
+  const byCutoff = startsAtMs - Math.max(0, cutoffBeforeStartMin) * 60_000;
+  const deadline = Math.min(byWindow, byCutoff);
+  // Less than a minute to answer is not an offer.
+  return deadline - nowMs >= 60_000 ? deadline : null;
+}
+
 /** A hold that has expired does not occupy a seat. Capacity maths must use
  *  this rather than counting rows blindly. */
 export function holdIsLive(heldAt: Date, now: Date, holdSeconds = 120): boolean {
