@@ -1,11 +1,11 @@
 # Shark Fitness build status
 
-Updated 2026-11-26 06:17 IST by runner.py v3 (parallel). Model: `claude-opus-5-5` (Claude Code CLI, effort high).
+Updated 2026-11-26 06:18 IST by runner.py v3 (parallel). Model: `claude-opus-5-5` (Claude Code CLI, effort high).
 Concurrency cap: 4 Shark sessions (and at most 6 `claude -p` processes on the box in total); stall timeout 30 min.
 
 Runner: `/workspace/shark-fitness-orchestration/runner.py`, log `/workspace/shark-fitness-orchestration/logs/runner.log`, per-session logs `/workspace/shark-fitness-orchestration/logs/<tag>-<n>.json`. Worktrees: `/workspace/sf-wt/<ID>` (P01: `/workspace/shark-fitness-repo`).
 Backups on origin: `phase/*` and `integration/*` branches (pushed after every commit), orchestration state on `orchestration/state`.
-Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "phase/P02-payments-razorpay": "2ffa570 at 2026-11-25 20:21 IST", "phase/P06-staff-security": "d9e656c at 2026-11-26 00:51 IST", "phase/P04-member-mobile-app": "3f01e21 at 2026-11-26 00:56 IST", "phase/P03-public-website": "41af417 at 2026-11-26 00:51 IST", "phase/P05-member-core-gaps": "aed39cb at 2026-11-26 06:13 IST", "phase/P07-engagement-ops-modules": "3fc4799 at 2026-11-26 06:13 IST"}
+Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "phase/P02-payments-razorpay": "2ffa570 at 2026-11-25 20:21 IST", "phase/P06-staff-security": "d9e656c at 2026-11-26 00:51 IST", "phase/P04-member-mobile-app": "3f01e21 at 2026-11-26 00:56 IST", "phase/P03-public-website": "41af417 at 2026-11-26 00:51 IST", "phase/P05-member-core-gaps": "aed39cb at 2026-11-26 06:13 IST", "phase/P07-engagement-ops-modules": "0621707 at 2026-11-26 06:18 IST"}
 
 ## Nodes
 | Node | Title | State | Branch | Base | PR | Checks (runner-verified) | Notes |
@@ -15,7 +15,7 @@ Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "ph
 | P06 | Staff security: MFA, step-up auth, sessions, CSP, outbound webhooks | done | `phase/P06-staff-security` | `phase/P01-prod-readiness` | https://github.com/amankeshri7542/Shark-Fitness-/pull/31 | typecheck:pass lint:pass test:pass build:pass e2e:pass |  |
 | P04 | Installable member app (PWA + Android TWA) and staff console PWA | done | `phase/P04-member-mobile-app` | `phase/P01-prod-readiness` | https://github.com/amankeshri7542/Shark-Fitness-/pull/32 | typecheck:pass lint:pass test:pass build:pass e2e:pass |  |
 | P03 | Public website, public API and lead capture | done | `phase/P03-public-website` | `phase/P01-prod-readiness` | https://github.com/amankeshri7542/Shark-Fitness-/pull/30 | typecheck:pass lint:pass test:pass build:pass e2e:pass |  |
-| P05 | QR check-in, safe waitlist, credit packs, private media and progress photos | reviewing | `phase/P05-member-core-gaps` | `phase/P02-payments-razorpay` |  |  |  |
+| P05 | QR check-in, safe waitlist, credit packs, private media and progress photos | verifying | `phase/P05-member-core-gaps` | `phase/P02-payments-razorpay` |  |  |  |
 | P07 | Messaging channels, member messaging, community moderation, tasks, coaching, broadcasts | implementing | `phase/P07-engagement-ops-modules` | `phase/P06-staff-security` |  |  |  |
 | INT1 | Integrate feature phases P01-P07 | pending | `integration/features` | `` |  |  |  |
 | P08 | Full test pass: route coverage, critical scenarios, Playwright E2E for every app | pending | `phase/P08-test-suite` | `` |  |  |  |
