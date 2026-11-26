@@ -5,7 +5,7 @@ TODO:
 - DONE 4ca1955 backup scratch restore + streaming
 - DONE 6465651 credits eligibility + refund key
 - DONE fd71809+3c670ab ScanPass camera; DONE 0146347 PhotosSection
-- UI minors: exercise library cache not cleared on signOut; rest-day no Log a workout; Book offer countdown aria-live
+- DONE b5a1762 UI minors
 - media minor: files unlinked inside transaction
 - credits minors: refund idem key not checked against pack; others record only
 - then: full gates, build, e2e, db:backup:verify, write P05-review.md + PR section
