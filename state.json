@@ -67,12 +67,7 @@
       "state": "integrating",
       "base": "phase/P01-prod-readiness",
       "base_sha": "2c15353fd",
-      "running": {
-        "tag": "INT1-impl",
-        "pid": 764605,
-        "started": "2026-11-26 07:02 IST",
-        "activity": "2026-11-26 08:16 IST"
-      }
+      "running": null
     },
     "P08": {
       "state": "pending"
