@@ -92,6 +92,7 @@ High-risk routes call `requireFreshAuth(ctx, action)` (`apps/api/src/lib/step-up
 | Change sign-in security settings | `PATCH /v1/admin/security/settings` | `settings.security` |
 | Webhook: create, change URL, show or rotate secret | `POST /v1/admin/integrations/webhooks`, `PATCH …/:id` with `url`, `GET …/:id/secret`, `POST …/:id/rotate-secret` | `webhook.create`, `webhook.change_url`, `webhook.reveal_secret`, `webhook.rotate_secret` |
 | Approve a broadcast above the gym's recipient threshold (P07) | `POST /v1/admin/broadcasts/:id/approve` | `broadcast.approve` |
+| Raise the broadcast approval threshold, or allow staff direct messages with members under 18 (P07) | `PATCH /v1/admin/settings/engagement` | `settings.engagement` |
 
 The console shows one "Confirm it's you" dialog for any of these and then sends the original request again unchanged — same body, same `Idempotency-Key` — so a refund cannot be recorded twice.
 

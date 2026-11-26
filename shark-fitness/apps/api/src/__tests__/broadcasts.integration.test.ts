@@ -202,6 +202,19 @@ describe('owner approval above the threshold', () => {
     }
   });
 
+  it('needs a fresh re-authentication to raise the approval threshold, not to lower it', async () => {
+    const ownerId = userIdFor('owner@sharkfitness.in');
+    db.update(schema.sessions).set({ reauthenticatedAt: now() - 10 * MINUTE }).where(eq(schema.sessions.userId, ownerId)).run();
+    expect((await call(owner, 'PATCH', '/v1/admin/settings/engagement', { broadcastApprovalThreshold: 50 })).status).toBe(200);
+    const raise = await call(owner, 'PATCH', '/v1/admin/settings/engagement', { broadcastApprovalThreshold: 100_000 });
+    expect(raise.status).toBe(401);
+    expect((await json<{ error: { code: string } }>(raise)).error.code).toBe('STEP_UP_REQUIRED');
+    const minors = await call(owner, 'PATCH', '/v1/admin/settings/engagement', { allowStaffMinorMessaging: true });
+    expect(minors.status).toBe(401);
+    expect((await call(owner, 'POST', '/v1/auth/step-up', { password: 'shark1234', code: testTotp(ownerId) })).status).toBe(200);
+    await setEngagement({ broadcastApprovalThreshold: 100_000 });
+  });
+
   it('refuses a second send and keeps reception out', async () => {
     const { broadcast } = await create(manager, 'in_app');
     expect((await call(manager, 'POST', `/v1/admin/broadcasts/${broadcast.id}/send`)).status).toBe(200);

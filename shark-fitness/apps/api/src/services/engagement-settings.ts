@@ -4,6 +4,7 @@ import { db, schema, transact } from '../db/client.js';
 import { audit } from '../lib/audit.js';
 import { requirePermission, type RequestContext } from '../lib/context.js';
 import { notFound } from '../lib/errors.js';
+import { requireFreshAuth } from '../lib/step-up.js';
 import { now } from '../lib/time.js';
 
 /**
@@ -52,6 +53,13 @@ export interface EngagementSettingsPatch {
 export function updateEngagementSettings(ctx: RequestContext, patch: EngagementSettingsPatch): EngagementSettings {
   requirePermission(ctx, 'settings.manage');
   const before = engagementSettings(ctx.tenantId);
+  // Loosening a safeguard is as sensitive as the action it guards: letting
+  // bigger broadcasts go without an owner's approval, or opening staff
+  // direct messages with children, needs a fresh password (and code).
+  const raisesThreshold =
+    patch.broadcastApprovalThreshold !== undefined && patch.broadcastApprovalThreshold > before.broadcastApprovalThreshold;
+  const opensMinorMessaging = patch.allowStaffMinorMessaging === true && !before.allowStaffMinorMessaging;
+  if (raisesThreshold || opensMinorMessaging) requireFreshAuth(ctx, 'settings.engagement');
   const policy = { ...policyOf(ctx.tenantId) };
   if (patch.communityApprovalMode !== undefined) policy.communityApprovalMode = patch.communityApprovalMode;
   if (patch.allowStaffMinorMessaging !== undefined) policy.allowStaffMinorMessaging = patch.allowStaffMinorMessaging;
