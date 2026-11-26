@@ -1,6 +1,6 @@
 # Shark Fitness build status
 
-Updated 2026-11-26 08:28 IST by runner.py v3 (parallel). Model: `claude-opus-5-5` (Claude Code CLI, effort high).
+Updated 2026-11-26 08:40 IST by runner.py v3 (parallel). Model: `claude-opus-5-5` (Claude Code CLI, effort high).
 Concurrency cap: 4 Shark sessions (and at most 6 `claude -p` processes on the box in total); stall timeout 30 min.
 
 Runner: `/workspace/shark-fitness-orchestration/runner.py`, log `/workspace/shark-fitness-orchestration/logs/runner.log`, per-session logs `/workspace/shark-fitness-orchestration/logs/<tag>-<n>.json`. Worktrees: `/workspace/sf-wt/<ID>` (P01: `/workspace/shark-fitness-repo`).
@@ -17,7 +17,7 @@ Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "ph
 | P03 | Public website, public API and lead capture | done | `phase/P03-public-website` | `phase/P01-prod-readiness` | https://github.com/amankeshri7542/Shark-Fitness-/pull/30 | typecheck:pass lint:pass test:pass build:pass e2e:pass |  |
 | P05 | QR check-in, safe waitlist, credit packs, private media and progress photos | done | `phase/P05-member-core-gaps` | `phase/P02-payments-razorpay` | https://github.com/amankeshri7542/Shark-Fitness-/pull/33 | typecheck:pass lint:pass test:pass build:pass e2e:pass |  |
 | P07 | Messaging channels, member messaging, community moderation, tasks, coaching, broadcasts | done | `phase/P07-engagement-ops-modules` | `phase/P06-staff-security` | https://github.com/amankeshri7542/Shark-Fitness-/pull/34 | typecheck:pass lint:pass test:pass build:pass e2e:pass |  |
-| INT1 | Integrate feature phases P01-P07 | verifying | `integration/features` | `phase/P01-prod-readiness` |  |  |  |
+| INT1 | Integrate feature phases P01-P07 | pr | `integration/features` | `phase/P01-prod-readiness` |  | typecheck:pass lint:pass test:pass build:pass e2e:pass |  |
 | P08 | Full test pass: route coverage, critical scenarios, Playwright E2E for every app | pending | `phase/P08-test-suite` | `` |  |  |  |
 | P09 | Code review and fixes: security, correctness, performance, consistency | pending | `phase/P09-code-review` | `` |  |  |  |
 | P10 | UI/UX and accessibility audit of every app (findings report) | pending | `phase/P10-ux-audit` | `` |  |  |  |
