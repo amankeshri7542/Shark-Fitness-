@@ -5,14 +5,14 @@
     {
       "id": 1,
       "text": "Merge phase/P02-payments-razorpay",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "Merge commit dcdd5c4 (clean, no conflicts). pnpm install --frozen-lockfile ok; typecheck ok; db:check-drift none; pnpm test: contracts 6/6, domain 271/271, member-pwa 52/52, admin-web 305/305, api 967/967 (71 files)."
     },
     {
       "id": 2,
       "text": "Merge phase/P03-public-website",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "Merge commit 8dd1e94. 6 conflicts resolved (security.ts, e2e global-setup/playwright.config/demo.ts, 0018 snapshot + journal). Migration renumbered 0018->0019_public_website_leads, snapshot regenerated (drizzle-kit SQL identical to P03's). frozen install ok, typecheck ok, lint ok, drift none; pnpm test: contracts 28, domain 271, website 16 (+9 skipped until dist is built), member-pwa 52, admin-web 312, api 1020 \u2014 all pass."
     },
     {
       "id": 3,
