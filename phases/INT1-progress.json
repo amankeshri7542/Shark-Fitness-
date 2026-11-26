@@ -17,8 +17,8 @@
     {
       "id": 3,
       "text": "Merge phase/P04-member-mobile-app",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "Merge commit 5ac4d1a. 21 conflicted files resolved (see notes). 0018_push_notifications -> 0020 (drizzle-kit SQL identical). Lockfile regenerated; frozen install ok; typecheck ok; lint ok; drift none; pnpm test: contracts 28, domain 276, website 16 (+9 skipped pre-build), member-pwa 91, admin-web 312, api 1045 \u2014 all pass."
     },
     {
       "id": 4,
