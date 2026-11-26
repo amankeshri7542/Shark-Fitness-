@@ -42,3 +42,21 @@ contracts 28/2 files, domain 300/15, website 16 (+10 skipped until built)/2, mem
 ## Integration notes
 
 (none yet)
+
+## Findings log (raw, to be folded into docs/KNOWN-ISSUES.md and the PR)
+
+### Fixed (with regression tests)
+- API `POST /v1/admin/privacy/requests` had no staff permission check (any role could raise a deletion/export request for any member). Now `settings.manage`, as the module documents. Found by the authorization matrix.
+- Admin `platform/Tenants.tsx` ~184: failed tenant detail read spun forever → "This customer could not be read" + Try again. (agent A)
+- Admin `Equipment.tsx` ~154: first search keystroke replaced the page (and the search box) with the loading placeholder → previous list kept while filtering. (agent A)
+- Admin `Schedule.tsx` ~375: "All branches (0) · undefined" subtitle with no branch in scope. (agent A)
+
+### Not fixed → KNOWN-ISSUES (severity)
+- Low: `admin-web ui/__tests__/CommandPalette.test.tsx:131` flaky in the full run (races the palette's real search debounce).
+- Low: `schedule/Series.tsx:109` `?create=1` read once from window.location; palette "Create class" with Recurring tab open does nothing.
+- Low: `schedule/Series.tsx:145,196` rooms/trainers read failure shows no error; "New recurring class" toggles to Close with no form.
+- Low: `members/BulkActions.tsx:283` "Could not load trainers." without retry.
+- Low: `Billing.tsx:774` dunning read failure makes the section disappear silently.
+- Low: `Billing.tsx:165`, `Schedule.tsx:362`, `CommandCenter.tsx:103` error copy always "The API did not answer" even with a server reason (e.g. 403).
+- Low a11y: `Schedule.tsx:416-417` day buttons announced "Thu26"; `CommandCenter.tsx:149` button inside a link; `Tabs` aria-controls → never-rendered panel ids.
+- Low a11y: `ui/console.tsx:523` loading placeholder aria-hidden with no label.
