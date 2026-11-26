@@ -66,7 +66,13 @@
     "INT1": {
       "state": "integrating",
       "base": "phase/P01-prod-readiness",
-      "base_sha": "2c15353fd"
+      "base_sha": "2c15353fd",
+      "running": {
+        "tag": "INT1-impl",
+        "pid": 764605,
+        "started": "2026-11-26 07:02 IST",
+        "activity": "2026-11-26 07:02 IST"
+      }
     },
     "P08": {
       "state": "pending"
@@ -94,7 +100,8 @@
     "phase/P04-member-mobile-app": "3f01e21 at 2026-11-26 00:56 IST",
     "phase/P03-public-website": "41af417 at 2026-11-26 00:51 IST",
     "phase/P05-member-core-gaps": "aed39cb at 2026-11-26 06:13 IST",
-    "phase/P07-engagement-ops-modules": "05bd3d6 at 2026-11-26 06:44 IST"
+    "phase/P07-engagement-ops-modules": "05bd3d6 at 2026-11-26 06:44 IST",
+    "integration/features": "dcdd5c4 at 2026-11-26 07:03 IST"
   },
   "blockers": []
 }

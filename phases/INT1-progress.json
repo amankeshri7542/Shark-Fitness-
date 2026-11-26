@@ -1,0 +1,60 @@
+{
+  "phase": "INT1",
+  "status": "in_progress",
+  "items": [
+    {
+      "id": 1,
+      "text": "Merge phase/P02-payments-razorpay",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 2,
+      "text": "Merge phase/P03-public-website",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 3,
+      "text": "Merge phase/P04-member-mobile-app",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 4,
+      "text": "Merge phase/P06-staff-security",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 5,
+      "text": "Merge phase/P05-member-core-gaps",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 6,
+      "text": "Merge phase/P07-engagement-ops-modules",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 7,
+      "text": "Wire seams from the phases' Integration notes",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 8,
+      "text": "Full verification (install, typecheck, lint, test, build, e2e, production smoke)",
+      "status": "todo",
+      "evidence": ""
+    },
+    {
+      "id": 9,
+      "text": "PR description pr/INT1.md",
+      "status": "todo",
+      "evidence": ""
+    }
+  ]
+}
