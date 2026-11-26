@@ -36,8 +36,34 @@ type ProductRow = typeof schema.products.$inferSelect;
 export const CREDIT_PRODUCT_KINDS = ['class_pack', 'pt_credits'] as const;
 const kindOf = (product: { kind: string }): CreditKind => (product.kind === 'pt_credits' ? 'pt' : 'class');
 
+type MemberRow = typeof schema.members.$inferSelect;
+export type PackBuyer = 'member' | 'staff';
+
+/**
+ * The product's own eligibility rules, as membership sales apply them
+ * (`billing-membership.ts#validateMembershipProduct`): corporate-only packs
+ * need a sponsor, an age range binds once the date of birth is known, and a
+ * pack that needs approval cannot be self-bought — staff selling it at the
+ * desk are the approval. Returns why not, or null.
+ */
+function packEligibilityBlock(product: ProductRow, member: MemberRow, buyer: PackBuyer): string | null {
+  const rules = product.eligibility;
+  if (rules.corporateOnly && !member.corporateSponsorId) return 'That pack is only for members linked to a corporate sponsor.';
+  if (rules.requiresApproval && buyer === 'member') return 'That pack needs the gym to approve it. Ask reception.';
+  if (member.dob && (rules.minAge !== null || rules.maxAge !== null)) {
+    const today = isoDate(now(), branchTimeZone(member.tenantId, member.homeBranchId));
+    const [ty, tm, td] = today.split('-').map(Number) as [number, number, number];
+    const [by, bm, bd] = member.dob.split('-').map(Number) as [number, number, number];
+    const age = ty - by - (tm < bm || (tm === bm && td < bd) ? 1 : 0);
+    if (rules.minAge !== null && age < rules.minAge) return `That pack is for members aged ${rules.minAge} or over.`;
+    if (rules.maxAge !== null && age > rules.maxAge) return `That pack is for members aged ${rules.maxAge} or under.`;
+  }
+  return null;
+}
+
 /** A pack product this member may buy at their home branch. */
-function sellableProduct(tenantId: string, productId: string, homeBranchId: string): ProductRow {
+function sellableProduct(tenantId: string, productId: string, member: MemberRow, buyer: PackBuyer): ProductRow {
+  const homeBranchId = member.homeBranchId;
   const product = db
     .select()
     .from(schema.products)
@@ -48,16 +74,21 @@ function sellableProduct(tenantId: string, productId: string, homeBranchId: stri
   if (product.status !== 'active') throw invalid('That pack is not on sale.');
   if (!product.credits || product.credits <= 0) throw invalid('That pack has no credits set up. Ask the gym to fix the product first.');
   if (!planSoldAt(product.access, homeBranchId)) throw invalid('That pack is not sold at this home branch.');
+  const block = packEligibilityBlock(product, member, buyer);
+  if (block) throw invalid(block);
   return product;
 }
 
-export function packOffers(tenantId: string, homeBranchId: string) {
+export function packOffers(member: MemberRow, buyer: PackBuyer) {
   return db
     .select()
     .from(schema.products)
-    .where(and(eq(schema.products.tenantId, tenantId), eq(schema.products.status, 'active'), inArray(schema.products.kind, [...CREDIT_PRODUCT_KINDS])))
+    .where(and(eq(schema.products.tenantId, member.tenantId), eq(schema.products.status, 'active'), inArray(schema.products.kind, [...CREDIT_PRODUCT_KINDS])))
     .all()
-    .filter((product) => (product.credits ?? 0) > 0 && planSoldAt(product.access, homeBranchId))
+    .filter(
+      (product) =>
+        (product.credits ?? 0) > 0 && planSoldAt(product.access, member.homeBranchId) && packEligibilityBlock(product, member, buyer) === null,
+    )
     .map((product) => {
       const totals = totalsFor([{ quantity: 1, unitMinor: product.priceMinor, taxRateBp: product.taxRateBp }]);
       const units = product.credits!;
@@ -109,7 +140,7 @@ export function sellCreditPack(
       .where(and(eq(schema.members.id, input.memberId), eq(schema.members.tenantId, ctx.tenantId)))
       .get();
     if (!member) throw notFound('That member');
-    const product = sellableProduct(ctx.tenantId, input.productId, member.homeBranchId);
+    const product = sellableProduct(ctx.tenantId, input.productId, member, input.soldBy);
     const atMs = now();
     const packId = id('cpk');
 
@@ -207,7 +238,7 @@ function packView(pack: PackRow, today: string) {
   };
 }
 
-export function creditAccount(member: typeof schema.members.$inferSelect) {
+export function creditAccount(member: typeof schema.members.$inferSelect, buyer: PackBuyer = 'member') {
   const today = isoDate(now(), branchTimeZone(member.tenantId, member.homeBranchId));
   const entries = db
     .select()
@@ -256,7 +287,7 @@ export function creditAccount(member: typeof schema.members.$inferSelect) {
     .all()
     .map((pack) => packView(pack, today));
 
-  const offers = packOffers(member.tenantId, member.homeBranchId);
+  const offers = packOffers(member, buyer);
   return {
     today,
     balances,
@@ -346,6 +377,12 @@ export async function refundCreditPack(
     .where(and(eq(schema.refunds.tenantId, ctx.tenantId), eq(schema.refunds.idempotencyKey, input.idempotencyKey)))
     .get();
   if (prior) {
+    // The key must have been used for a refund of this pack's own invoice;
+    // otherwise a reused key would answer with another pack's refund.
+    const payment = db.select({ invoiceId: schema.payments.invoiceId }).from(schema.payments).where(eq(schema.payments.id, prior.paymentId)).get();
+    if (payment?.invoiceId !== pack.invoiceId) {
+      throw new AppError('IDEMPOTENCY_MISMATCH', 'That request key was already used for a different refund.');
+    }
     const revoked = db
       .select({ units: sql<number>`coalesce(-sum(${schema.credits.delta}), 0)` })
       .from(schema.credits)

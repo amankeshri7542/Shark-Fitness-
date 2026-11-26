@@ -87,6 +87,37 @@ beforeAll(async () => {
 });
 
 describe('sale and allocation', () => {
+  it("applies the product's eligibility rules: corporate-only, approval and age", async () => {
+    const member = await memberWithLogin('Eligible');
+    const corporate = packProduct({ credits: 5, expireDays: 60, priceMinor: 100_00 });
+    const approval = packProduct({ credits: 5, expireDays: 60, priceMinor: 100_00 });
+    const seniors = packProduct({ credits: 5, expireDays: 60, priceMinor: 100_00 });
+    const rules = { minAge: null, maxAge: null, corporateOnly: false, requiresApproval: false };
+    db.update(schema.products).set({ eligibility: { ...rules, corporateOnly: true } }).where(eq(schema.products.id, corporate)).run();
+    db.update(schema.products).set({ eligibility: { ...rules, requiresApproval: true } }).where(eq(schema.products.id, approval)).run();
+    db.update(schema.products).set({ eligibility: { ...rules, minAge: 60 } }).where(eq(schema.products.id, seniors)).run();
+    db.update(schema.members).set({ dob: '1995-01-01', corporateSponsorId: null }).where(eq(schema.members.id, member.memberId)).run();
+
+    const buy = (productId: string) => post(member.session, '/v1/member/billing/credit-packs', { productId }, { 'idempotency-key': key() });
+    for (const productId of [corporate, approval, seniors]) {
+      expect((await buy(productId)).status, productId).toBe(422);
+    }
+    const offered = (await account(member.session)).offers.map((offer) => offer.productId);
+    expect(offered).not.toContain(corporate);
+    expect(offered).not.toContain(approval);
+    expect(offered).not.toContain(seniors);
+
+    // At the desk, staff selling a pack that needs approval are the approval;
+    // corporate and age rules still hold.
+    expect((await sell(member.memberId, approval)).status).toBe(200);
+    expect((await sell(member.memberId, corporate)).status).toBe(422);
+    expect((await sell(member.memberId, seniors)).status).toBe(422);
+    const staffOffers = (await account(owner, member.memberId)).offers.map((offer) => offer.productId);
+    expect(staffOffers).toContain(approval);
+    expect(staffOffers).not.toContain(corporate);
+    expect(db.select().from(schema.creditPacks).where(eq(schema.creditPacks.memberId, member.memberId)).all()).toHaveLength(1);
+  });
+
   it('no credits before the invoice is paid in full; they appear with the payment that completes it', async () => {
     const member = createMember({ firstName: 'Alloc' });
     const productId = packProduct({ credits: 5, expireDays: 90, priceMinor: 5_000_00 });
@@ -244,6 +275,26 @@ describe('refunds (decision 11)', () => {
     const invoice = db.select().from(schema.invoices).where(eq(schema.invoices.id, sale.body.invoiceId)).get()!;
     expect(invoice.refundedMinor).toBe(6_000_00);
     expect(db.select().from(schema.auditLog).where(and(eq(schema.auditLog.entityId, sale.body.packId), eq(schema.auditLog.action, 'credit_pack.refunded'))).get()?.reason).toBe('Moving cities');
+  });
+
+  it('a refund key replays only for its own pack; reused on another pack it is refused', async () => {
+    const member = createMember({ firstName: 'RefundKey' });
+    const product = packProduct({ credits: 4, expireDays: 90, priceMinor: 400_00 });
+    const first = await sell(member.memberId, product);
+    await payAtDesk(first.body.invoiceId, first.body.totalMinor);
+    const second = await sell(member.memberId, product);
+    await payAtDesk(second.body.invoiceId, second.body.totalMinor);
+
+    const idem = key();
+    const refundWith = (packId: string) => post(owner, `/v1/admin/billing/credit-packs/${packId}/refund`, { reason: 'Changed plans' }, { 'idempotency-key': idem });
+    expect((await refundWith(first.body.packId)).status).toBe(200);
+    const replay = await refundWith(first.body.packId);
+    expect(replay.status).toBe(200);
+    expect(((await replay.json()) as { message: string }).message).toContain('already recorded');
+
+    const reused = await refundWith(second.body.packId);
+    expect(reused.status).toBe(409);
+    expect(db.select().from(schema.creditPacks).where(eq(schema.creditPacks.id, second.body.packId)).get()!.state).toBe('active');
   });
 
   it('partly used: unused credits × unit price, with the reason recorded', async () => {

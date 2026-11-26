@@ -32,7 +32,7 @@ billingStabilizationRoutes.get('/members/:memberId/credits', (c) => {
   requirePermission(ctx, 'member.view');
   const member = loadMemberInScope(ctx, c.req.param('memberId'));
   requireAssignedMember(ctx, member.trainerId);
-  const account = readCreditAccount(member);
+  const account = readCreditAccount(member, 'staff');
   // A coach sees how many credits a member has and their history; what packs
   // cost, their invoices and refund amounts are billing information (P05).
   if (!can(ctx.role, 'billing.view')) return c.json({ ...account, packs: undefined, offers: undefined, saleAvailable: false });
