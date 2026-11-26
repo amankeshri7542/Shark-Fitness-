@@ -10,7 +10,7 @@ import { id } from '../lib/ids.js';
 import { DAY, addDays, isoDate, localClockOnDay, localMinutes, now } from '../lib/time.js';
 import { branchTimeZone } from '../lib/branch-time.js';
 import { branchPolicy } from '../lib/policy.js';
-import { NO_PROVIDER, submitRetry } from '../lib/payment-provider.js';
+import { NO_PROVIDER, NO_STORED_MANDATE, resolvePaymentProvider, submitRetry } from '../lib/payment-provider.js';
 
 /**
  * Dunning (PF-BILL-005) — the internal state machine.
@@ -529,11 +529,18 @@ export function dunningForInvoice(ctx: RequestContext, invoiceId: string) {
      * Stated on every read, because the console must not imply a retry that
      * cannot happen. This is the string a UI shows next to "retry payment".
      */
-    automaticCollection: {
-      available: false,
-      reason: NO_PROVIDER,
-      message:
-        'No payment provider is connected, so this charge cannot be retried automatically. The member has been asked to settle it at reception or in the app.',
-    },
+    automaticCollection: resolvePaymentProvider()
+      ? {
+          available: false,
+          reason: NO_STORED_MANDATE,
+          message:
+            'Online payment is connected, but no saved payment method or mandate is held, so this charge cannot be retried automatically. The member can pay with Pay now in the app, or you can send them a payment link.',
+        }
+      : {
+          available: false,
+          reason: NO_PROVIDER,
+          message:
+            'No payment provider is connected, so this charge cannot be retried automatically. The member has been asked to settle it at reception or in the app.',
+        },
   };
 }

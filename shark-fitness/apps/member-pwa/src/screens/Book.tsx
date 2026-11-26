@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, idempotencyKey } from '../lib/api';
 import { ApiError } from '../lib/api';
 import { ScreenBody, Stack, Surface } from '../ui/shell';
+import { Sheet } from '../ui/Sheet';
 import {
   Button,
   Chip,
@@ -70,6 +71,8 @@ export default function BookScreen() {
   const [date, setDate] = useState<string | null>(null);
   const [category, setCategory] = useState('all');
   const [sheet, setSheet] = useState<Session | null>(null);
+  /** A drop-in is money: it is confirmed with its amount and terms first. */
+  const [dropIn, setDropIn] = useState<Session | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const query = new URLSearchParams();
@@ -249,7 +252,7 @@ export default function BookScreen() {
                   key={session.id}
                   session={session}
                   busy={busy}
-                  onBook={() => book.mutate(session)}
+                  onBook={() => (session.eligibility.action === 'pay' ? setDropIn(session) : book.mutate(session))}
                   onCancel={() => session.myBooking && cancel.mutate(session.myBooking.id)}
                   onWaitlist={() => setSheet(session)}
                   onLeaveWaitlist={() => session.myWaitlist && leaveWaitlist.mutate(session.myWaitlist.id)}
@@ -259,6 +262,19 @@ export default function BookScreen() {
           )}
         </Stack>
       </Surface>
+
+      {dropIn ? (
+        <DropInSheet
+          session={dropIn}
+          busy={book.isPending}
+          onConfirm={() => {
+            const session = dropIn;
+            setDropIn(null);
+            book.mutate(session);
+          }}
+          onClose={() => setDropIn(null)}
+        />
+      ) : null}
 
       {sheet ? (
         <WaitlistSheet
@@ -361,6 +377,46 @@ function SessionRow({ session, busy, onBook, onCancel, onWaitlist, onLeaveWaitli
         </div>
       </div>
     </Panel>
+  );
+}
+
+function DropInSheet({ session, busy, onConfirm, onClose }: {
+  session: Session;
+  busy: boolean;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  const price = session.eligibility.dropInPriceMinor ?? 0;
+  const deadline = session.eligibility.cancelDeadlineAt
+    ? new Date(session.eligibility.cancelDeadlineAt).toLocaleString('en-IN', { weekday: 'short', hour: 'numeric', minute: '2-digit' })
+    : null;
+  return (
+    <Sheet label="Book with a drop-in fee" onClose={onClose}>
+      <Display size="sm" as="h2">
+        Book with a drop-in fee?
+      </Display>
+      <p className="mt-2.5 text-[14px] leading-relaxed text-pretty text-foam-80">
+        {session.name} · {session.localTime} · {session.trainerName}. {session.eligibility.reason}
+      </p>
+      <Panel className="mt-3 p-3">
+        <Label>Drop-in fee</Label>
+        <div className="mt-1">
+          <Metric value={rupees(price)} size="md" />
+        </div>
+        <p className="mt-2 text-[12px] leading-relaxed text-foam-65">
+          Pay it at reception when you arrive; it is not charged online.
+          {deadline ? ` If you cannot make it, cancel before ${deadline}.` : ''}
+        </p>
+      </Panel>
+      <div className="mt-3.5 flex gap-2.5">
+        <Button variant="cta" size="lg" className="flex-1" onClick={onConfirm} disabled={busy}>
+          {busy ? 'Booking…' : `Book · ${rupees(price)}`}
+        </Button>
+        <Button variant="outline" size="lg" onClick={onClose}>
+          Not now
+        </Button>
+      </div>
+    </Sheet>
   );
 }
 

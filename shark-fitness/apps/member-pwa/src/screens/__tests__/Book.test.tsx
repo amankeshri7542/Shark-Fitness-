@@ -40,3 +40,30 @@ it('names each day in the strip for a screen reader, count included', async () =
   fireEvent.click(screen.getByRole('button', { name: 'Sun 25, 1 class' }));
   await waitFor(() => expect(api).toHaveBeenLastCalledWith('/member/schedule?date=2026-10-25'));
 });
+
+it('confirms a drop-in fee, with its amount and terms, before booking', async () => {
+  const dropIn = {
+    id: 'ses_1', name: 'Engine Room', category: 'conditioning', intensity: 'high', description: '', trainerName: 'Rehan', roomName: 'Floor',
+    branchName: 'Koramangala Depot', localTime: '07:00', localEndTime: '07:45', durationMin: 45, capacity: 12, booked: 4, seatsLeft: 8,
+    waitlistCount: 0, state: 'scheduled', cancelledReason: null, substituteFor: null, myBooking: null, myWaitlist: null,
+    eligibility: { canBook: true, action: 'pay', reason: 'Needs 1 class credit · you have 0.', creditsRequired: 1, creditsHeld: 0, dropInPriceMinor: 50000, cancelDeadlineAt: null },
+  };
+  api.mockImplementation(async (path: string) => (path.startsWith('/member/schedule/book') ? { ok: true } : { ...schedule, items: [dropIn] }));
+  render(<QueryClientProvider client={new QueryClient()}><Book /></QueryClientProvider>);
+
+  fireEvent.click(await screen.findByRole('button', { name: '₹500' }));
+  const dialog = await screen.findByRole('dialog', { name: 'Book with a drop-in fee' });
+  expect(dialog).toHaveTextContent('Needs 1 class credit · you have 0.');
+  expect(dialog).toHaveTextContent('Pay it at reception when you arrive; it is not charged online.');
+  // Nothing is booked or charged until the member says yes.
+  expect(api.mock.calls.some(([path]) => path === '/member/schedule/book')).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: 'Not now' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  expect(api.mock.calls.some(([path]) => path === '/member/schedule/book')).toBe(false);
+
+  fireEvent.click(screen.getByRole('button', { name: '₹500' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Book · ₹500' }));
+  await waitFor(() => expect(api).toHaveBeenCalledWith('/member/schedule/book', expect.objectContaining({
+    method: 'POST', body: expect.objectContaining({ sessionId: 'ses_1', acceptDropInCharge: true }),
+  })));
+});

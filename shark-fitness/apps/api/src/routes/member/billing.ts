@@ -8,6 +8,11 @@ import { formatMoney } from '@shark/domain';
 import { db, schema } from '../../db/client.js';
 import { ctxOf } from '../../middleware/index.js';
 import { notFound, precondition } from '../../lib/errors.js';
+import { z } from 'zod';
+import { validate } from '../../middleware/validate.js';
+import { resolvePaymentProvider } from '../../lib/payment-provider.js';
+import { confirmCheckout, memberCheckoutStatus, requireIdempotencyKey, requireProvider, startInvoiceCheckout } from '../../services/payments/checkout.js';
+import { memberPlanOptions, startPlanCheckout } from '../../services/payments/plans.js';
 
 export const billingRoutes = new Hono();
 
@@ -38,7 +43,10 @@ billingRoutes.get('/', (c) => {
       sql`${schema.invoices.voided} = 0 and ${schema.invoices.totalMinor} > ${schema.invoices.paidMinor}`,
     )).get()?.total ?? 0;
   const member = db.select().from(schema.members).where(and(eq(schema.members.tenantId, ctx.tenantId), eq(schema.members.id, memberId))).get()!;
+  const provider = resolvePaymentProvider();
   return c.json({
+    /** Whether Pay now / plan purchase can be offered. Test mode only (P02). */
+    onlinePayment: { available: provider !== null, provider: provider?.name ?? null, testMode: provider !== null },
     outstandingMinor: outstanding,
     outstandingLabel: formatMoney(outstanding, 'INR'),
     credits: readCreditAccount(member),
@@ -102,11 +110,51 @@ billingRoutes.get('/invoices/:invoiceId', (c) => {
 
 // Retired endpoints fail closed, including retries of historical demo intents.
 // A server-generated simulated outcome is not evidence of received funds.
+// Online payment, when configured, lives at /invoices/:invoiceId/checkout.
 const receptionSettlement = () => {
   throw precondition('Online payment is unavailable. Pay at reception; staff will record independently received funds.');
 };
 billingRoutes.post('/checkout-intent', receptionSettlement);
 billingRoutes.post('/checkout-intent/:intentId/confirm', receptionSettlement);
+
+/* — Razorpay Checkout (P02). Each answers 412 exactly like the retired
+     endpoints when no provider is configured. ——————————————————————— */
+
+billingRoutes.post('/invoices/:invoiceId/checkout', async (c) => {
+  const ctx = ctxOf(c);
+  requireProvider();
+  const key = requireIdempotencyKey(c.req.header('idempotency-key'));
+  return c.json(await startInvoiceCheckout(ctx, c.req.param('invoiceId'), key));
+});
+
+const ConfirmBody = z.object({
+  razorpay_order_id: z.string().min(1).max(100),
+  razorpay_payment_id: z.string().min(1).max(100),
+  razorpay_signature: z.string().min(1).max(256),
+});
+
+billingRoutes.post('/checkout/:intentId/confirm', validate('json', ConfirmBody), async (c) => {
+  const ctx = ctxOf(c);
+  requireProvider();
+  return c.json(await confirmCheckout(ctx, c.req.param('intentId'), c.req.valid('json')));
+});
+
+/** Polling fallback while the app waits for the server's word (realtime
+ *  usually answers first). */
+billingRoutes.get('/checkout/:intentId', (c) => {
+  const ctx = ctxOf(c);
+  c.header('Cache-Control', 'no-store');
+  return c.json(memberCheckoutStatus(ctx, c.req.param('intentId')));
+});
+
+billingRoutes.get('/plans', (c) => c.json(memberPlanOptions(ctxOf(c))));
+
+billingRoutes.post('/plans/:productId/checkout', async (c) => {
+  const ctx = ctxOf(c);
+  requireProvider();
+  const key = requireIdempotencyKey(c.req.header('idempotency-key'));
+  return c.json(await startPlanCheckout(ctx, c.req.param('productId'), key));
+});
 
 billingRoutes.get('/payments/:paymentId/receipt', (c) => {
   const ctx = ctxOf(c);

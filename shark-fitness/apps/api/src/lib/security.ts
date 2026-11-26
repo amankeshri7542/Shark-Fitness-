@@ -77,6 +77,13 @@ const SESSION_ENTRY_PATHS = new Set(['/v1/auth/password', '/v1/auth/otp/start', 
 const CSRF_TOKEN_EXEMPT_PATHS = new Set(['/v1/client-errors']);
 
 /**
+ * Server-to-server provider webhooks. They carry no cookie and no Origin, and
+ * act on nothing a browser session could; each handler authenticates the
+ * request by verifying the provider's signature over the raw body.
+ */
+const WEBHOOK_PATH_PREFIX = '/v1/webhooks/';
+
+/**
  * Rejects cross-origin unsafe requests and requires a double-submit token for
  * browser sessions. Login endpoints do not have a session cookie yet, so the
  * strict Origin check is their CSRF boundary.
@@ -84,6 +91,11 @@ const CSRF_TOKEN_EXEMPT_PATHS = new Set(['/v1/client-errors']);
 export const csrfProtection: MiddlewareHandler = async (c, next) => {
   const method = c.req.method.toUpperCase();
   if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') {
+    await next();
+    return;
+  }
+
+  if (c.req.path.startsWith(WEBHOOK_PATH_PREFIX)) {
     await next();
     return;
   }

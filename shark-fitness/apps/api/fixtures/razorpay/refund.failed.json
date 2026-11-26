@@ -1,0 +1,73 @@
+{
+  "entity": "event",
+  "account_id": "acc_FixtureAccount",
+  "event": "refund.failed",
+  "contains": [
+    "refund",
+    "payment"
+  ],
+  "payload": {
+    "refund": {
+      "entity": {
+        "id": "rfnd_FixtureRef001",
+        "entity": "refund",
+        "amount": 29500,
+        "currency": "INR",
+        "payment_id": "pay_FixturePay0001",
+        "notes": {
+          "refund_id": "ref_fixture"
+        },
+        "receipt": "ref_fixture",
+        "acquirer_data": {
+          "rrn": null
+        },
+        "created_at": 1795000500,
+        "batch_id": null,
+        "status": "failed",
+        "speed_processed": "normal",
+        "speed_requested": "normal"
+      }
+    },
+    "payment": {
+      "entity": {
+        "id": "pay_FixturePay0001",
+        "entity": "payment",
+        "amount": 29500,
+        "currency": "INR",
+        "status": "captured",
+        "order_id": "order_FixtureOrd001",
+        "invoice_id": null,
+        "international": false,
+        "method": "upi",
+        "amount_refunded": 0,
+        "refund_status": null,
+        "captured": true,
+        "description": "Invoice SF-2026-00001",
+        "card_id": null,
+        "bank": null,
+        "wallet": null,
+        "vpa": "success@razorpay",
+        "email": "member@example.com",
+        "contact": "+919000090000",
+        "notes": {
+          "tenant_id": "ten_fixture",
+          "intent_id": "pi_fixture",
+          "invoice_id": "inv_fixture"
+        },
+        "fee": 708,
+        "tax": 108,
+        "error_code": null,
+        "error_description": null,
+        "error_source": null,
+        "error_step": null,
+        "error_reason": null,
+        "acquirer_data": {
+          "rrn": "000000000001",
+          "upi_transaction_id": "FIXTURE0001"
+        },
+        "created_at": 1795000000
+      }
+    }
+  },
+  "created_at": 1795000001
+}
