@@ -1,6 +1,6 @@
 {
   "phase": "INT1",
-  "status": "in_progress",
+  "status": "done",
   "items": [
     {
       "id": 1,
@@ -47,14 +47,14 @@
     {
       "id": 8,
       "text": "Full verification (install, typecheck, lint, test, build, e2e, production smoke)",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "install/typecheck/lint pass; drift none; pnpm test 2,257 passed 0 failed; build pass (precache 695.98 KiB); e2e 76 passed 0 failed (after fixing 7 combination failures, 02c2d00); prod smoke 23/23 + CDP browser smoke pass."
     },
     {
       "id": 9,
       "text": "PR description pr/INT1.md",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "pr/INT1.md written: title, summary, branches with heads, conflicts, seams, how to test, real results, follow-ups."
     }
   ]
 }

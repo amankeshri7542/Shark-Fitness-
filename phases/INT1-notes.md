@@ -129,3 +129,19 @@ Decided not to wire (recorded as follow-ups):
 - P07's failed-payment task generator reads `payments.state = 'failed'`. P02 records a declined online attempt on `payment_intents` (the member is usually retrying), not as a failed payment row. Creating a "call this member" task per declined UPI attempt would be noise; overdue money is already chased by dunning. If the gym wants it, the generator can read failed intents older than N hours.
 - Razorpay CSP origins beyond P06's list (`cdn.razorpay.com` images, regional `api-sg`), noted as unverified by P02 and P06: cannot be confirmed without the live sandbox modal. Not added.
 - Payment-link creation is not step-up guarded: it sends nothing and moves no money; resolving a mismatch and refunding are guarded.
+
+## Full verification (item 8)
+
+- `pnpm install --frozen-lockfile`, `pnpm typecheck`, `pnpm lint`: pass. `db:check-drift`: none.
+- `pnpm test`: contracts 28, domain 300, website 25 (+1 skipped guard), member-pwa 192, admin-web 411, api 1301. All pass: 2,257 tests.
+- `pnpm build`: pass. Member precache 695.98 KiB, console 617.98 KiB.
+- `pnpm e2e` (port 18710): first full run 69 passed / 7 failed, all from combining branches:
+  - P04's owner API sign-in without P06's MFA (push and haptics specs);
+  - the inline `onclick` on the offline pages, refused by P06's CSP;
+  - the offline-Home spec's snapshot wait, which my early snapshot satisfied too soon.
+  Fixed in 02c2d00. Final full run: **76 passed, 0 failed**.
+- Production smoke (port 18720, temp DB): 23/23 HTTP checks, and `admin-browser-smoke.mjs` passed. Production needs `SHARK_MFA_ENCRYPTION_KEY` (P06) in addition to the brief's command.
+- Also fixed during verification:
+  - a cross-suite fixture leak in `phase4-attendance` (P05 members with grants);
+  - the member precache at 702 KiB, over budget (`NewMessage` is now online-only).
+- Scratch files lived only under /tmp/int1 and are removed. The smoke server and the headless Chrome I started are stopped.
