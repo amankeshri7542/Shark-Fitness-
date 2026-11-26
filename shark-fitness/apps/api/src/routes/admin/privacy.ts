@@ -46,6 +46,10 @@ const SubmitBody = z.object({
 /** Raising a request on a member's behalf — they phoned, or wrote in. */
 privacyRoutes.post('/requests', validate('json', SubmitBody), (c) => {
   const ctx = ctxOf(c);
+  // The service is shared with members' own requests, which need no staff
+  // permission, so the staff gate lives here (P08: any role could raise a
+  // deletion request for anyone in the gym).
+  requirePermission(ctx, 'settings.manage');
   const body = c.req.valid('json');
   const response = runIdempotently(ctx, '/admin/privacy/requests', c.req.header('idempotency-key'), body, () =>
     submitPrivacyRequest(ctx, body),

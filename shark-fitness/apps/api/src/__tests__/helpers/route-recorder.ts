@@ -7,7 +7,10 @@ import { appendFileSync } from 'node:fs';
  * method, path, status and, for refusals, the error code and message.
  * `scripts/route-coverage.ts` resolves those requests to registered routes.
  *
- * Off by default, so ordinary `pnpm test` runs import nothing extra.
+ * Off by default, so ordinary `pnpm test` runs import nothing extra. A request
+ * sent with `x-route-coverage: skip` is not logged: the authorization matrix
+ * replays every admin route with lenient validation, and coverage should count
+ * behavioural tests only.
  */
 const log = process.env.SHARK_ROUTE_COVERAGE_LOG;
 
@@ -15,6 +18,7 @@ if (log) {
   const { app } = await import('../../app.js');
   const original = app.fetch;
   const record = async (request: Request, response: Response): Promise<void> => {
+    if (request.headers.get('x-route-coverage') === 'skip') return;
     let code: string | undefined;
     let message: string | undefined;
     if (response.status >= 400 && (response.headers.get('content-type') ?? '').includes('json')) {
