@@ -6,7 +6,7 @@ import { appendFileSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSyn
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { createBackup, restoreBackup } from './sqlite-backup.mjs';
+import { createBackup, mediaDirectoryFor, restoreBackup } from './sqlite-backup.mjs';
 import { mediaFingerprint } from './media-archive.mjs';
 
 const repository = process.cwd();
@@ -410,6 +410,28 @@ try {
 
 // A file written after the snapshot must not come back.
 writeFileSync(join(sourceMedia, 'after-backup.jpg'), Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+// The CLI's choice of media directory: SHARK_MEDIA_DIR belongs to SHARK_DB
+// only, so a restore into a scratch path never lands on (or, with --replace,
+// wipes) the live photos.
+{
+  const saved = { db: process.env.SHARK_DB, media: process.env.SHARK_MEDIA_DIR };
+  process.env.SHARK_DB = source;
+  process.env.SHARK_MEDIA_DIR = sourceMedia;
+  try {
+    const scratch = join(root, 'scratch', 'shark.db');
+    assert.equal(mediaDirectoryFor(scratch, { forRestore: true }), join(root, 'scratch', 'media'), 'A scratch restore must not use the live media directory.');
+    assert.equal(mediaDirectoryFor(source, { forRestore: true }), resolve(sourceMedia), 'Restoring the live database restores its media directory.');
+    assert.equal(mediaDirectoryFor(source), resolve(sourceMedia), 'Backing up the live database archives its media directory.');
+    delete process.env.SHARK_DB;
+    assert.equal(mediaDirectoryFor(scratch, { forRestore: true }), join(root, 'scratch', 'media'), 'Without SHARK_DB a restore stays beside its target.');
+  } finally {
+    for (const [key, value] of [['SHARK_DB', saved.db], ['SHARK_MEDIA_DIR', saved.media]]) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
 const restoreResult = await restoreBackup(backup, restored, { mediaTarget: restoredMedia });
 assert.equal(statSync(restored).mode & 0o777, 0o600, 'Restored records must be owner-only.');
 assert.deepEqual(restoreResult.media.fingerprint, mediaAtBackup, 'Restored media differs from the media at backup time.');

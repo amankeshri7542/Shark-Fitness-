@@ -20,7 +20,8 @@ backup uses SQLite's online backup API, verifies integrity, and writes a checksu
 The private media directory (SHARK_MEDIA_DIR, else "media" beside the database) is archived beside it as
 <backup>.media.tar, with every file's SHA-256 in the manifest.
 restore requires and verifies that manifest (and every media file), and never overwrites without both
-destructive flags. Media is restored to SHARK_MEDIA_DIR, else "media" beside the restored database.
+destructive flags. Media is restored to SHARK_MEDIA_DIR only when the target is SHARK_DB, else to
+"media" beside the restored database (a scratch restore never touches the live media directory).
 verify is a fast artifact-level checksum/restore probe; pnpm db:backup:verify runs the full application recovery proof.`;
 
 function fail(message) {
@@ -236,9 +237,26 @@ export async function restoreBackup(source, target, { replace = false, mediaTarg
   return { target: targetPath, manifest, media: media ? { directory: mediaPath, fileCount: media.fileCount, fingerprint: mediaFingerprint(mediaPath) } : null };
 }
 
-/** The media directory the API uses for a database at `databasePath`. */
-export function mediaDirectoryFor(databasePath) {
-  return process.env.SHARK_MEDIA_DIR ? resolve(process.cwd(), process.env.SHARK_MEDIA_DIR) : join(dirname(resolve(databasePath)), 'media');
+/**
+ * The media directory the API uses for a database at `databasePath`.
+ *
+ * SHARK_MEDIA_DIR belongs to the live database (SHARK_DB). Restoring into any
+ * other path — a scratch copy, a drill — must never land on, or with
+ * --replace wipe, the live photos, so a restore uses SHARK_MEDIA_DIR only when
+ * the target *is* SHARK_DB, and "media" beside the target otherwise. A backup
+ * of SHARK_DB (or of the default source when SHARK_DB is unset) archives
+ * SHARK_MEDIA_DIR.
+ */
+export function mediaDirectoryFor(databasePath, { forRestore = false } = {}) {
+  const database = resolve(databasePath);
+  const configured = process.env.SHARK_MEDIA_DIR;
+  if (configured) {
+    const live = process.env.SHARK_DB
+      ? [resolve(process.cwd(), process.env.SHARK_DB), resolve(apiDirectory, process.env.SHARK_DB)]
+      : null;
+    if (live ? live.includes(database) : !forRestore) return resolve(process.cwd(), configured);
+  }
+  return join(dirname(database), 'media');
 }
 
 async function commandBackup(args) {
@@ -263,7 +281,7 @@ async function commandRestore(args) {
     fail('Destructive restore requires both --replace and --yes-replace.');
   }
   const target = absolute(targetArg);
-  const result = await restoreBackup(absolute(backupArg), target, { replace: destructive, mediaTarget: mediaDirectoryFor(target) });
+  const result = await restoreBackup(absolute(backupArg), target, { replace: destructive, mediaTarget: mediaDirectoryFor(target, { forRestore: true }) });
   console.log(`restored=${result.target}`);
   console.log(`verifiedSha256=${result.manifest.sha256}`);
   if (result.media) console.log(`mediaRestored=${result.media.directory} files=${result.media.fileCount} (every file checksum verified)`);

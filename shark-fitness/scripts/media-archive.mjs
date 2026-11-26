@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, statSync, writeSync } from 'node:fs';
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, statSync, writeSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 
 /**
@@ -12,6 +12,9 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
  */
 
 const BLOCK = 512;
+/** Archives are read in pieces of this size, never whole: the media
+ *  directory of a busy gym can pass the 2 GiB a single Buffer can hold. */
+const CHUNK = 1024 * 1024;
 
 function sha256(buffer) {
   return createHash('sha256').update(buffer).digest('hex');
@@ -78,28 +81,67 @@ export function writeMediaArchive(root, archivePath) {
   } finally {
     closeSync(fd);
   }
-  const archive = readFileSync(archivePath);
-  return { archiveSizeBytes: archive.length, sha256: sha256(archive), fileCount: entries.length, files: entries };
+  return { archiveSizeBytes: statSync(archivePath).size, sha256: sha256Range(archivePath, 0, statSync(archivePath).size), fileCount: entries.length, files: entries };
+}
+
+/** SHA-256 of `length` bytes of a file from `start`, read in chunks. */
+function sha256Range(path, start, length) {
+  const hash = createHash('sha256');
+  const fd = openSync(path, 'r');
+  try {
+    const buffer = Buffer.alloc(CHUNK);
+    let done = 0;
+    while (done < length) {
+      const read = readSync(fd, buffer, 0, Math.min(CHUNK, length - done), start + done);
+      if (read === 0) throw new Error('The media archive is truncated.');
+      hash.update(buffer.subarray(0, read));
+      done += read;
+    }
+  } finally {
+    closeSync(fd);
+  }
+  return hash.digest('hex');
+}
+
+/** The entries of an archive written by `writeMediaArchive`: path, size and
+ *  where the data starts. Reads headers only. */
+function archiveEntries(archivePath) {
+  const total = statSync(archivePath).size;
+  const fd = openSync(archivePath, 'r');
+  const entries = [];
+  try {
+    const block = Buffer.alloc(BLOCK);
+    let offset = 0;
+    while (offset + BLOCK <= total) {
+      if (readSync(fd, block, 0, BLOCK, offset) !== BLOCK) throw new Error('The media archive is truncated.');
+      if (block.every((byte) => byte === 0)) break;
+      const path = block.toString('utf8', 0, 100).replace(/\0.*$/s, '');
+      const size = Number.parseInt(block.toString('latin1', 124, 136).replace(/\0.*$/s, '').trim(), 8);
+      if (!path || !Number.isSafeInteger(size) || block[156] !== 0x30) throw new Error('The media archive is damaged.');
+      if (path.startsWith('/') || path.split('/').includes('..')) throw new Error(`The media archive holds an unsafe path: ${path}`);
+      const start = offset + BLOCK;
+      if (start + size > total) throw new Error('The media archive is truncated.');
+      entries.push({ path, size, start });
+      offset = start + size + ((BLOCK - (size % BLOCK)) % BLOCK);
+    }
+  } finally {
+    closeSync(fd);
+  }
+  return entries;
 }
 
 /** Reads every file out of an archive written by `writeMediaArchive`. */
 export function readMediaArchive(archivePath) {
-  const archive = readFileSync(archivePath);
-  const files = [];
-  let offset = 0;
-  while (offset + BLOCK <= archive.length) {
-    const block = archive.subarray(offset, offset + BLOCK);
-    if (block.every((byte) => byte === 0)) break;
-    const path = block.toString('utf8', 0, 100).replace(/\0.*$/s, '');
-    const size = Number.parseInt(block.toString('latin1', 124, 136).replace(/\0.*$/s, '').trim(), 8);
-    if (!path || !Number.isSafeInteger(size) || block[156] !== 0x30) throw new Error('The media archive is damaged.');
-    if (path.startsWith('/') || path.split('/').includes('..')) throw new Error(`The media archive holds an unsafe path: ${path}`);
-    const start = offset + BLOCK;
-    if (start + size > archive.length) throw new Error('The media archive is truncated.');
-    files.push({ path, bytes: archive.subarray(start, start + size) });
-    offset = start + size + ((BLOCK - (size % BLOCK)) % BLOCK);
-  }
-  return files;
+  return archiveEntries(archivePath).map((entry) => {
+    const bytes = Buffer.alloc(entry.size);
+    const fd = openSync(archivePath, 'r');
+    try {
+      if (entry.size > 0 && readSync(fd, bytes, 0, entry.size, entry.start) !== entry.size) throw new Error('The media archive is truncated.');
+    } finally {
+      closeSync(fd);
+    }
+    return { path: entry.path, bytes };
+  });
 }
 
 /**
@@ -108,30 +150,42 @@ export function readMediaArchive(archivePath) {
  * anything if a single file's checksum disagrees.
  */
 export function extractMediaArchive(archivePath, media, destination) {
-  const archive = readFileSync(archivePath);
-  if (archive.length !== media.archiveSizeBytes) throw new Error('Media archive size does not match its manifest. Refusing to restore.');
-  if (sha256(archive) !== media.sha256) throw new Error('Media archive checksum does not match its manifest. Refusing to restore.');
-  const files = readMediaArchive(archivePath);
+  const size = statSync(archivePath).size;
+  if (size !== media.archiveSizeBytes) throw new Error('Media archive size does not match its manifest. Refusing to restore.');
+  if (sha256Range(archivePath, 0, size) !== media.sha256) throw new Error('Media archive checksum does not match its manifest. Refusing to restore.');
+  const files = archiveEntries(archivePath);
   const expected = new Map(media.files.map((file) => [file.path, file]));
   if (files.length !== expected.size) throw new Error('Media archive file count does not match its manifest. Refusing to restore.');
   for (const file of files) {
     const want = expected.get(file.path);
-    if (!want || want.bytes !== file.bytes.length || want.sha256 !== sha256(file.bytes)) {
+    if (!want || want.bytes !== file.size || want.sha256 !== sha256Range(archivePath, file.start, file.size)) {
       throw new Error(`Media file checksum does not match its manifest: ${file.path}. Refusing to restore.`);
     }
   }
   const base = resolve(destination);
   mkdirSync(base, { recursive: true, mode: 0o700 });
-  for (const file of files) {
-    const full = resolve(base, file.path);
-    if (!full.startsWith(`${base}${sep}`)) throw new Error(`Refusing to write outside the media directory: ${file.path}`);
-    mkdirSync(dirname(full), { recursive: true, mode: 0o700 });
-    const fd = openSync(full, 'wx', 0o600);
-    try {
-      writeSync(fd, file.bytes);
-    } finally {
-      closeSync(fd);
+  const source = openSync(archivePath, 'r');
+  try {
+    const buffer = Buffer.alloc(CHUNK);
+    for (const file of files) {
+      const full = resolve(base, file.path);
+      if (!full.startsWith(`${base}${sep}`)) throw new Error(`Refusing to write outside the media directory: ${file.path}`);
+      mkdirSync(dirname(full), { recursive: true, mode: 0o700 });
+      const fd = openSync(full, 'wx', 0o600);
+      try {
+        let done = 0;
+        while (done < file.size) {
+          const read = readSync(source, buffer, 0, Math.min(CHUNK, file.size - done), file.start + done);
+          if (read === 0) throw new Error('The media archive is truncated.');
+          writeSync(fd, buffer, 0, read);
+          done += read;
+        }
+      } finally {
+        closeSync(fd);
+      }
     }
+  } finally {
+    closeSync(source);
   }
   return { fileCount: files.length };
 }
