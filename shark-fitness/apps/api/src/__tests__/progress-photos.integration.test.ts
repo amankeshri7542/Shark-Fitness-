@@ -3,10 +3,10 @@ import { join } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { app } from '../app.js';
-import { db, schema } from '../db/client.js';
+import { db, schema, transact } from '../db/client.js';
 import { runtimeConfig } from '../lib/config.js';
 import { now } from '../lib/time.js';
-import { signMediaUrl } from '../services/media.js';
+import { destroyMedia, signMediaUrl, unlinkCommitted } from '../services/media.js';
 import { purgeWithdrawnPhotos } from '../services/progress-photos.js';
 import { JPEG_WITH_GPS, PNG_WITH_TEXT } from './fixtures/images.js';
 import { ORIGIN, TENANT, createMember, get, headers, send, signIn, signInMember, type FixtureMember, type Session } from './support/fixtures.js';
@@ -297,6 +297,22 @@ describe('deletion and export', () => {
     expect((await fetchFile(member.session, photo.url!)).status).toBe(404);
     const audit = db.select().from(schema.auditLog).where(and(eq(schema.auditLog.entityId, photo.id), eq(schema.auditLog.action, 'progress_photo.deleted'))).get();
     expect(audit).toBeTruthy();
+  });
+
+  it('a deletion whose transaction rolls back keeps the file with its live row', async () => {
+    const member = await memberWithConsent('Rollback');
+    const photo = await uploaded(member.session);
+    const media = mediaOf(photo.id);
+    expect(() =>
+      transact(() => {
+        destroyMedia(media.id, 'About to fail');
+        throw new Error('a later step failed');
+      }),
+    ).toThrow('a later step failed');
+    unlinkCommitted();
+    expect(mediaOf(photo.id).deletedAt).toBeNull();
+    expect(existsSync(filePath(media.storageKey))).toBe(true);
+    expect((await fetchFile(member.session, photo.url!)).status).toBe(200);
   });
 
   it('the privacy export lists the member’s photos, deleted ones included, without the images', async () => {

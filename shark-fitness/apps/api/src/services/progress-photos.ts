@@ -6,7 +6,7 @@ import { invalid, notFound, precondition } from '../lib/errors.js';
 import { id } from '../lib/ids.js';
 import { policyValue } from '../lib/policy.js';
 import { DAY, now } from '../lib/time.js';
-import { destroyMedia, signMediaUrl, storeImage } from './media.js';
+import { destroyMedia, signMediaUrl, storeImage, unlinkCommitted } from './media.js';
 import { loadMemberInScope } from './members.js';
 
 /**
@@ -190,6 +190,7 @@ export function deletePhoto(ctx: RequestContext, photoId: string) {
     if (photo.mediaId) destroyMedia(photo.mediaId, 'Deleted by the member');
     audit(ctx, { action: 'progress_photo.deleted', entityType: 'progress_photo', entityId: photo.id, before: { takenOn: photo.takenOn }, after: { deleted: true } });
   });
+  unlinkCommitted();
   return { ok: true };
 }
 
@@ -242,6 +243,7 @@ export function purgeWithdrawnPhotos(atMs = now()): { photosDeleted: number } {
       if (photo.mediaId) destroyMedia(photo.mediaId, 'Photo consent withdrawn; retention period ended', atMs);
     });
   }
+  unlinkCommitted();
   return { photosDeleted: due.length };
 }
 

@@ -1,6 +1,6 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { and, eq, isNull, sql } from 'drizzle-orm';
-import { db, schema, transact } from '../db/client.js';
+import { db, schema, sqlite, transact } from '../db/client.js';
 import { runtimeConfig } from '../lib/config.js';
 import { AppError, invalid, precondition } from '../lib/errors.js';
 import { id } from '../lib/ids.js';
@@ -141,12 +141,31 @@ export function readMediaBytes(media: MediaRow): Buffer | null {
 /**
  * Destroys the bytes and leaves the row as a tombstone (what was held, its
  * checksum, when and why it went). Idempotent. Inside or outside a
- * transaction; the file is removed after the row says so.
+ * transaction; the file is removed only once the tombstone is committed.
  */
 export function destroyMedia(mediaId: string, reason: string, atMs = now()): boolean {
   const media = db.select().from(schema.mediaObjects).where(eq(schema.mediaObjects.id, mediaId)).get();
   if (!media || media.deletedAt !== null) return false;
   db.update(schema.mediaObjects).set({ deletedAt: atMs, deletedReason: reason }).where(eq(schema.mediaObjects.id, mediaId)).run();
-  mediaStorage()?.delete(media.storageKey);
+  if (sqlite.inTransaction) {
+    // A later step of the caller's transaction may still fail and roll the
+    // row back to live; the bytes must still be there if it does. SQLite
+    // transactions here are synchronous, so by the time a microtask runs the
+    // outcome is settled.
+    if (pendingUnlinks.length === 0) queueMicrotask(unlinkCommitted);
+    pendingUnlinks.push({ mediaId, storageKey: media.storageKey });
+  } else {
+    mediaStorage()?.delete(media.storageKey);
+  }
   return true;
+}
+
+const pendingUnlinks: Array<{ mediaId: string; storageKey: string }> = [];
+
+/** Removes the files whose tombstones committed; a rolled-back one keeps its file. */
+export function unlinkCommitted(): void {
+  for (const { mediaId, storageKey } of pendingUnlinks.splice(0)) {
+    const row = db.select({ deletedAt: schema.mediaObjects.deletedAt }).from(schema.mediaObjects).where(eq(schema.mediaObjects.id, mediaId)).get();
+    if (row && row.deletedAt !== null) mediaStorage()?.delete(storageKey);
+  }
 }
