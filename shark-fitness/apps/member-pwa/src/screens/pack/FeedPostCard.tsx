@@ -115,7 +115,7 @@ export function FeedPostCard({ post, onChanged, onKudos }: { post: FeedPost; onC
   const comments = post.comments ?? [];
 
   return (
-    <Panel className="p-3">
+    <Panel as="article" aria-label={`Post by ${post.authorName}`} className="p-3">
       {post.moderationNote ? (
         <p role="note" className="mb-2.5 border border-flare px-2.5 py-2 text-[12px] leading-relaxed text-flare">
           {post.moderationNote}

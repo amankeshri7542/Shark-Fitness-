@@ -295,7 +295,7 @@ export function CommandPalette() {
             aria-label="Search and commands"
           >
             {mode !== 'all' ? (
-              <div className="flex items-center gap-2 border-b border-line px-4 py-2 text-[12px] text-foam-65">
+              <div className="flex items-center gap-2 border-b border-line px-4 py-2 text-[12px] text-foam-80">
                 <span className="font-utility text-[10px] font-semibold uppercase tracking-[0.14em] text-sonar">
                   {mode === 'payment' ? 'Record payment' : 'Check in member'}
                 </span>
@@ -336,17 +336,17 @@ export function CommandPalette() {
                     className={cx('cursor-pointer border-b border-line-10 px-4 py-2', index === active ? 'bg-wash-sonar' : '')}
                   >
                     {header ? (
-                      <span className="mb-0.5 block font-utility text-[9px] font-semibold uppercase tracking-[0.14em] text-foam-50" aria-hidden="true">
+                      <span className="mb-0.5 block font-utility text-[10px] font-semibold uppercase tracking-[0.14em] text-foam-80" aria-hidden="true">
                         {header}
                       </span>
                     ) : null}
                     <span className="block text-[13px] text-foam">{item.label}</span>
-                    {item.detail ? <span className="block text-[11px] text-foam-65">{item.detail}</span> : null}
+                    {item.detail ? <span className="block text-[12px] text-foam-80">{item.detail}</span> : null}
                   </li>
                 );
               })}
             </ul>
-            <div role="status" aria-live="polite" className="px-4 py-2 text-[12px] text-foam-65">
+            <div role="status" aria-live="polite" className="px-4 py-2 text-[12px] text-foam-80">
               {status ?? (mode === 'all' && term.length < 2 ? 'Type two letters to search. ↑↓ to move, Enter to open.' : '')}
             </div>
           </div>
