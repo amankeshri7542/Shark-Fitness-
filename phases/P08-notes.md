@@ -60,3 +60,14 @@ contracts 28/2 files, domain 300/15, website 16 (+10 skipped until built)/2, mem
 - Low: `Billing.tsx:165`, `Schedule.tsx:362`, `CommandCenter.tsx:103` error copy always "The API did not answer" even with a server reason (e.g. 403).
 - Low a11y: `Schedule.tsx:416-417` day buttons announced "Thu26"; `CommandCenter.tsx:149` button inside a link; `Tabs` aria-controls → never-rendered panel ids.
 - Low a11y: `ui/console.tsx:523` loading placeholder aria-hidden with no label.
+- Admin `settings/Setup.tsx` "Do it" link dropped `?tab=`, every step opened Business. (agent B, Medium)
+- Admin `StaffDetail.tsx` coverage panel said "Available — no absence" while loading / on read failure; affected classes and substitutes failures showed nothing → loading/error with retry. (agent B, Medium)
+- Admin `staff/Commission.tsx` approval-rules read failure told the user their role cannot approve → "approval rights couldn't be checked". (agent B, Medium)
+- Admin `settings/Privacy.tsx` request detail read failure rendered nothing → error with retry. (agent B, Low)
+- Admin `reports/Attendance.tsx` + `reports/shared.tsx`: no visits labelled 00:00 the peak; hour chart named its columns "days" → "No visits in range", `Trend` `unit` prop. (agent B, Low)
+
+### Not fixed (agent B) → KNOWN-ISSUES
+- Medium: `settings/BranchPane.tsx:307,400,541` hours/holidays/overrides saves clear the draft before the server answers; failed save loses the edit silently; failed room add silent.
+- Medium: `TrainingBuilder.tsx:85` (+ `mutate` :42) add day/exercise errors go to the banner behind the dialog; `DayForm` isPending hard-coded false.
+- Low: `TrainingBuilder.tsx:75` "1 exercises".
+- Low a11y: unlabeled loading placeholders `settings/Branches.tsx:54`, `Privacy.tsx:68/219/350`, `Setup.tsx:27`, `staff/Commission.tsx:198`.
