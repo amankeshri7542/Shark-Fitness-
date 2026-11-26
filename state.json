@@ -76,19 +76,34 @@
       "state": "implementing",
       "base": "integration/features",
       "base_sha": "4fa023bf9",
-      "running": null
+      "running": {
+        "tag": "P08-impl",
+        "pid": 1088609,
+        "started": "2026-11-26 11:18 IST",
+        "activity": "2026-11-26 11:22 IST"
+      }
     },
     "P09": {
       "state": "implementing",
       "base": "integration/features",
       "base_sha": "4fa023bf9",
-      "running": null
+      "running": {
+        "tag": "P09-impl",
+        "pid": 1088612,
+        "started": "2026-11-26 11:18 IST",
+        "activity": "2026-11-26 11:24 IST"
+      }
     },
     "P10": {
       "state": "implementing",
       "base": "integration/features",
       "base_sha": "4fa023bf9",
-      "running": null
+      "running": {
+        "tag": "P10-impl",
+        "pid": 1088608,
+        "started": "2026-11-26 11:18 IST",
+        "activity": "2026-11-26 11:23 IST"
+      }
     },
     "INT2": {
       "state": "pending"
@@ -109,12 +124,9 @@
     "phase/P05-member-core-gaps": "aed39cb at 2026-11-26 06:13 IST",
     "phase/P07-engagement-ops-modules": "05bd3d6 at 2026-11-26 06:44 IST",
     "integration/features": "4fa023b at 2026-11-26 08:17 IST",
-    "phase/P08-test-suite": "4fa023b at 2026-11-26 08:42 IST",
+    "phase/P08-test-suite": "f28302c at 2026-11-26 11:24 IST",
     "phase/P09-code-review": "4fa023b at 2026-11-26 08:42 IST",
     "phase/P10-ux-audit": "4fa023b at 2026-11-26 08:42 IST"
   },
-  "blockers": [
-    "Claude usage limit hit (latest during P10-impl); new sessions paused, retrying every 30 min",
-    "Claude usage limit hit (latest during P09-impl); new sessions paused, retrying every 30 min"
-  ]
+  "blockers": []
 }

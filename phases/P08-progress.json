@@ -1,0 +1,12 @@
+{"phase":"P08","status":"in_progress","items":[
+{"id":1,"text":"Route coverage script + route-coverage.json 100% except <=5 documented exceptions","status":"todo","evidence":""},
+{"id":2,"text":"Authorization matrix: every admin route x reception/trainer/accountant + cross-tenant owner","status":"todo","evidence":""},
+{"id":3,"text":"Critical scenarios named [PRD0..] tests + docs/TEST-STRATEGY.md","status":"todo","evidence":""},
+{"id":4,"text":"Component tests for every admin/member screen; untested-screens script prints none","status":"todo","evidence":""},
+{"id":5,"text":"Playwright suite >=45 specs on desktop-1440/tablet-768/pixel7/iphone13, 3 green runs, a11y JSON","status":"todo","evidence":""},
+{"id":6,"text":"perf:concurrency invariants + p95 in PERFORMANCE-BASELINE.md; perf:baseline passes","status":"todo","evidence":""},
+{"id":7,"text":"Coverage thresholds configured and passing; CI updated, actionlint clean","status":"todo","evidence":""},
+{"id":8,"text":"Standard gates pass; per-package test counts reported","status":"todo","evidence":""},
+{"id":9,"text":"Bugs fixed with regression tests / docs/KNOWN-ISSUES.md","status":"todo","evidence":""},
+{"id":10,"text":"PR description pr/P08.md","status":"todo","evidence":""}
+]}

@@ -1,0 +1,11 @@
+{"phase":"P10","status":"in_progress","items":[
+{"id":1,"text":"AC1: audit tool runs end to end with one command (pnpm -F @shark/e2e audit), exits 0, outputs at stated paths, every route of the three apps in the coverage table with its screenshot set","status":"todo","evidence":""},
+{"id":2,"text":"AC2: UX-AUDIT.md has a section for each UX-A01..A15, UX-M01..M14 and each website page, every PRD 03 mandatory state evaluated","status":"todo","evidence":""},
+{"id":3,"text":"AC3: every finding in findings.json has evidence and a PRD 03/WCAG reference; validate-findings.mjs prints counts matching the report summary","status":"todo","evidence":""},
+{"id":4,"text":"AC4: contrast table covers all text and non-text tokens on all surfaces in both themes, failures flagged","status":"todo","evidence":""},
+{"id":5,"text":"AC5: keyboard walkthroughs of scenario 17 and member check-in/booking/workout (scenario 18, reduced motion) documented step by step with pass/fail","status":"todo","evidence":""},
+{"id":6,"text":"AC6: no product source files changed (diff limited to e2e/audit/**, docs/ux-audit/**, package.json script lines)","status":"todo","evidence":""},
+{"id":7,"text":"AC7: standard gates (typecheck, lint, test, build) and pnpm e2e pass","status":"todo","evidence":""},
+{"id":8,"text":"Unit tests for audit logic (contrast maths, token parser, findings validator)","status":"todo","evidence":""},
+{"id":9,"text":"PR description pr/P10.md written, scratch files removed","status":"todo","evidence":""}
+]}

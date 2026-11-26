@@ -1,0 +1,11 @@
+{"phase":"P09","status":"in_progress","items":[
+{"id":1,"text":"Review report docs/reviews/CODE-REVIEW-2026-11.md with findings table + ASVS L2 checklist; Critical/High fixed with regression tests; Mediums fixed or scheduled in KNOWN-ISSUES","status":"todo","evidence":""},
+{"id":2,"text":"IDOR enumeration, mutating-route CSRF and strict-schema tests pass and run in CI","status":"todo","evidence":""},
+{"id":3,"text":"pnpm audit --prod and pinned gitleaks over full history: no unaddressed High/Critical, no unallowlisted findings; summarized in report","status":"todo","evidence":""},
+{"id":4,"text":"One money/date/number formatting module across website, member, admin; lint forbids stray en-IN locale formatting; unit tests for negative, zero, lakh/crore, timezone edges","status":"todo","evidence":""},
+{"id":5,"text":"Bundle budget script runs in CI and passes; budgets recorded in report","status":"todo","evidence":""},
+{"id":6,"text":"EXPLAIN QUERY PLAN tests for new hot queries; perf scripts within targets","status":"todo","evidence":""},
+{"id":7,"text":"Standard gates, pnpm e2e and route coverage pass; test counts not lower than baseline","status":"todo","evidence":""},
+{"id":8,"text":"Correctness sweep: dead/duplicate code, query-key factories, Platform comment, transactions, timezone, error codes, contracts","status":"todo","evidence":""},
+{"id":9,"text":"Docs: KNOWN-ISSUES, report, pr/P09.md","status":"todo","evidence":""}
+]}
