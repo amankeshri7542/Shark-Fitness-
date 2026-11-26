@@ -5,7 +5,7 @@ Concurrency cap: 4 Shark sessions (and at most 6 `claude -p` processes on the bo
 
 Runner: `/workspace/shark-fitness-orchestration/runner.py`, log `/workspace/shark-fitness-orchestration/logs/runner.log`, per-session logs `/workspace/shark-fitness-orchestration/logs/<tag>-<n>.json`. Worktrees: `/workspace/sf-wt/<ID>` (P01: `/workspace/shark-fitness-repo`).
 Backups on origin: `phase/*` and `integration/*` branches (pushed after every commit), orchestration state on `orchestration/state`.
-Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "phase/P02-payments-razorpay": "2ffa570 at 2026-11-25 20:21 IST", "phase/P06-staff-security": "d9e656c at 2026-11-26 00:51 IST", "phase/P04-member-mobile-app": "3f01e21 at 2026-11-26 00:56 IST", "phase/P03-public-website": "41af417 at 2026-11-26 00:51 IST", "phase/P05-member-core-gaps": "aed39cb at 2026-11-26 06:13 IST", "phase/P07-engagement-ops-modules": "05bd3d6 at 2026-11-26 06:44 IST", "integration/features": "4fa023b at 2026-11-26 08:17 IST", "phase/P08-test-suite": "4fa023b at 2026-11-26 08:42 IST"}
+Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "phase/P02-payments-razorpay": "2ffa570 at 2026-11-25 20:21 IST", "phase/P06-staff-security": "d9e656c at 2026-11-26 00:51 IST", "phase/P04-member-mobile-app": "3f01e21 at 2026-11-26 00:56 IST", "phase/P03-public-website": "41af417 at 2026-11-26 00:51 IST", "phase/P05-member-core-gaps": "aed39cb at 2026-11-26 06:13 IST", "phase/P07-engagement-ops-modules": "05bd3d6 at 2026-11-26 06:44 IST", "integration/features": "4fa023b at 2026-11-26 08:17 IST", "phase/P08-test-suite": "4fa023b at 2026-11-26 08:42 IST", "phase/P09-code-review": "4fa023b at 2026-11-26 08:42 IST"}
 
 ## Nodes
 | Node | Title | State | Branch | Base | PR | Checks (runner-verified) | Notes |
@@ -32,4 +32,4 @@ Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "ph
 | P10 | P10-impl | 991499 | 2026-11-26 08:41 IST | 2026-11-26 08:41 IST |
 
 ## Blockers / waiting
-- none
+- Claude usage limit hit (latest during P08-impl); new sessions paused, retrying every 30 min
