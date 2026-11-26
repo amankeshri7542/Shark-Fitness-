@@ -166,7 +166,7 @@ export function inboxThread(ctx: RequestContext, conversationId: string) {
     .where(and(eq(schema.staff.tenantId, ctx.tenantId), eq(schema.users.accountState, 'active')))
     .all()
     .filter((s) => s.branchIds.includes(branchId))
-    .filter((s) => (conversation.kind === 'coach' ? ['trainer', 'owner', 'regional_manager', 'branch_manager'] : ['reception', 'owner', 'regional_manager', 'branch_manager']).includes(s.role))
+    .filter((s) => assignableRoles(conversation.kind).includes(s.role))
     .map((s) => ({ staffId: s.staffId, name: s.name, roleLabel: STAFF_ROLE_LABEL[s.role] ?? s.role }));
 
   const names = staffNames([conversation.assignedStaffId ?? '']);
@@ -342,6 +342,15 @@ export function addInboxNote(ctx: RequestContext, conversationId: string, body: 
   return { noteId };
 }
 
+/** Who may hold a thread: coaches take coach threads, the desk takes desk
+ *  threads, managers either. Assigning is a grant of access, so it is checked
+ *  here and not only in the picker. */
+function assignableRoles(kind: string): string[] {
+  return kind === 'coach'
+    ? ['trainer', 'owner', 'regional_manager', 'branch_manager']
+    : ['reception', 'owner', 'regional_manager', 'branch_manager'];
+}
+
 export function assignInbox(ctx: RequestContext, conversationId: string, staffId: string | null) {
   requirePermission(ctx, 'inbox.view');
   const { conversation, member } = loadConversationForStaff(ctx, conversationId);
@@ -349,13 +358,16 @@ export function assignInbox(ctx: RequestContext, conversationId: string, staffId
   let assigneeUserId: string | null = null;
   if (staffId) {
     const target = db
-      .select({ userId: schema.staff.userId, branchIds: schema.staff.branchIds, state: schema.users.accountState })
+      .select({ userId: schema.staff.userId, branchIds: schema.staff.branchIds, state: schema.users.accountState, role: schema.users.role })
       .from(schema.staff)
       .innerJoin(schema.users, eq(schema.users.id, schema.staff.userId))
       .where(and(eq(schema.staff.id, staffId), eq(schema.staff.tenantId, ctx.tenantId)))
       .get();
     if (!target || target.state !== 'active' || !target.branchIds.includes(branchId)) {
       throw invalid('That person does not work at this branch.');
+    }
+    if (!assignableRoles(conversation.kind).includes(target.role)) {
+      throw invalid(conversation.kind === 'coach' ? 'Only a coach or a manager can take a coach thread.' : 'Only the front desk or a manager can take a desk thread.');
     }
     assigneeUserId = target.userId;
   }

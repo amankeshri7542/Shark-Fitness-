@@ -6,7 +6,7 @@ import { eq, inArray } from 'drizzle-orm';
 import { app } from '../app.js';
 import { db, schema } from '../db/client.js';
 import { localDiskStorage, setMediaStorage, signMediaPath } from '../lib/media-storage.js';
-import { call, headers, memberIdFor, signIn, type TestSession } from './helpers/session.js';
+import { call, headers, memberIdFor, signIn, staffIdFor, type TestSession } from './helpers/session.js';
 
 /* ============================================================================
    Member-started conversations, the staff Inbox and attachments (P07 AC2;
@@ -218,6 +218,33 @@ describe('the staff inbox', () => {
     const thread = await json<{ assignable: Array<{ staffId: string; roleLabel: string }> }>(await call(owner, 'GET', `/v1/admin/inbox/${conversationId}`));
     const target = thread.assignable.find((s) => s.roleLabel === 'Front desk')!;
     expect((await call(owner, 'POST', `/v1/admin/inbox/${conversationId}/assign`, { staffId: target.staffId })).status).toBe(200);
+  });
+});
+
+describe('who may hold a thread (review fixes)', () => {
+  it('will not hand a desk thread to a coach, who then still cannot read it', async () => {
+    const { conversationId } = await json<{ conversationId: string }>(await start(aman, 'desk', 'Question about my invoice'));
+    const assign = await call(manager, 'POST', `/v1/admin/inbox/${conversationId}/assign`, { staffId: staffIdFor(OTHER_COACH) });
+    expect(assign.status).toBe(422);
+    expect((await call(otherCoach, 'GET', `/v1/admin/inbox/${conversationId}`)).status).toBe(404);
+  });
+
+  it('moves coach threads to the new coach when the member changes coach', async () => {
+    const { conversationId } = await json<{ conversationId: string }>(await start(aman, 'coach', 'Can we change my split?'));
+    expect((await call(coach, 'GET', `/v1/admin/inbox/${conversationId}`)).status).toBe(200);
+    const rehan = staffIdFor(COACH);
+    const nikhil = staffIdFor(OTHER_COACH);
+    try {
+      const moved = await call(manager, 'POST', '/v1/admin/training/assign-trainer', { memberId: amanId, trainerId: nikhil });
+      expect(moved.status).toBe(200);
+      // The previous coach no longer reads, replies to or is told about the thread.
+      expect((await call(coach, 'GET', `/v1/admin/inbox/${conversationId}`)).status).toBe(404);
+      expect((await call(coach, 'POST', `/v1/admin/inbox/${conversationId}/reply`, { body: 'Still here', clientId: clientId() })).status).toBe(404);
+      const view = await json<{ conversation: { assignee: { staffId: string } | null } }>(await call(otherCoach, 'GET', `/v1/admin/inbox/${conversationId}`));
+      expect(view.conversation.assignee?.staffId).toBe(nikhil);
+    } finally {
+      expect((await call(manager, 'POST', '/v1/admin/training/assign-trainer', { memberId: amanId, trainerId: rehan })).status).toBe(200);
+    }
   });
 });
 

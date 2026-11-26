@@ -62,6 +62,26 @@ export function staffCanSee(ctx: RequestContext, conversation: Conversation, mem
   return conversation.kind === 'reception';
 }
 
+/**
+ * A member's coach threads follow the member to their new coach. Without
+ * this, the previous coach kept reading (and being notified about) a member
+ * they no longer coach, because the thread still named them (PF-STAFF-005).
+ * A thread a manager handed to someone else (cover) keeps that assignee.
+ */
+export function handOverCoachThreads(tenantId: string, memberId: string, from: string | null, to: string | null): void {
+  if (from === to) return;
+  const where = and(
+    eq(schema.conversations.tenantId, tenantId),
+    eq(schema.conversations.memberId, memberId),
+    eq(schema.conversations.kind, 'coach'),
+  );
+  db.update(schema.conversations).set({ staffId: to }).where(where).run();
+  db.update(schema.conversations)
+    .set({ assignedStaffId: to })
+    .where(and(where, from ? eq(schema.conversations.assignedStaffId, from) : isNull(schema.conversations.assignedStaffId)))
+    .run();
+}
+
 /** Loads a conversation the staff caller may see, or 404 (never 403: a 403 says it exists). */
 export function loadConversationForStaff(ctx: RequestContext, conversationId: string): { conversation: Conversation; member: Member } {
   const conversation = db

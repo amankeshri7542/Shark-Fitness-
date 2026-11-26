@@ -8,6 +8,7 @@ import { emit } from '../lib/events.js';
 import { invalid, notFound } from '../lib/errors.js';
 import { id } from '../lib/ids.js';
 import { isoDate, now } from '../lib/time.js';
+import { handOverCoachThreads } from './messaging.js';
 
 /**
  * Members directory bulk actions (Design PRD §5.5): tag, assign a coach,
@@ -189,6 +190,7 @@ export function bulkAssignTrainer(ctx: RequestContext, input: { memberIds: strin
         .set({ trainerId: input.trainerId, version: m.version + 1, updatedAt: at })
         .where(eq(schema.members.id, m.id))
         .run();
+      handOverCoachThreads(ctx.tenantId, m.id, m.trainerId, input.trainerId);
       audit(ctx, {
         action: input.trainerId ? 'member.trainer_assigned' : 'member.trainer_removed',
         entityType: 'member',
