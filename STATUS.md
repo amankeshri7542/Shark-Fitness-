@@ -1,11 +1,11 @@
 # Shark Fitness build status
 
-Updated 2026-11-26 05:24 IST by runner.py v3 (parallel). Model: `claude-opus-5-5` (Claude Code CLI, effort high).
+Updated 2026-11-26 05:56 IST by runner.py v3 (parallel). Model: `claude-opus-5-5` (Claude Code CLI, effort high).
 Concurrency cap: 4 Shark sessions (and at most 6 `claude -p` processes on the box in total); stall timeout 30 min.
 
 Runner: `/workspace/shark-fitness-orchestration/runner.py`, log `/workspace/shark-fitness-orchestration/logs/runner.log`, per-session logs `/workspace/shark-fitness-orchestration/logs/<tag>-<n>.json`. Worktrees: `/workspace/sf-wt/<ID>` (P01: `/workspace/shark-fitness-repo`).
 Backups on origin: `phase/*` and `integration/*` branches (pushed after every commit), orchestration state on `orchestration/state`.
-Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "phase/P02-payments-razorpay": "2ffa570 at 2026-11-25 20:21 IST", "phase/P06-staff-security": "d9e656c at 2026-11-26 00:51 IST", "phase/P04-member-mobile-app": "3f01e21 at 2026-11-26 00:56 IST", "phase/P03-public-website": "41af417 at 2026-11-26 00:51 IST", "phase/P05-member-core-gaps": "d52d428 at 2026-11-26 02:15 IST", "phase/P07-engagement-ops-modules": "dd41970 at 2026-11-26 02:13 IST"}
+Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "phase/P02-payments-razorpay": "2ffa570 at 2026-11-25 20:21 IST", "phase/P06-staff-security": "d9e656c at 2026-11-26 00:51 IST", "phase/P04-member-mobile-app": "3f01e21 at 2026-11-26 00:56 IST", "phase/P03-public-website": "41af417 at 2026-11-26 00:51 IST", "phase/P05-member-core-gaps": "4ca1955 at 2026-11-26 05:56 IST", "phase/P07-engagement-ops-modules": "d54dd38 at 2026-11-26 05:56 IST"}
 
 ## Nodes
 | Node | Title | State | Branch | Base | PR | Checks (runner-verified) | Notes |
@@ -26,7 +26,10 @@ Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "ph
 | P12 | Release candidate verification and client handover | pending | `phase/P12-release-handover` | `` |  |  |  |
 
 ## Running sessions
-- none
+| Node | Session tag | pid | Last activity | Started |
+|---|---|---|---|---|
+| P05 | P05-review | 561741 | 2026-11-26 05:56 IST | 2026-11-26 05:54 IST |
+| P07 | P07-impl | 561744 | 2026-11-26 05:55 IST | 2026-11-26 05:54 IST |
 
 ## Blockers / waiting
-- Claude usage limit hit (latest during P05-review); new sessions paused, retrying every 30 min
+- none
