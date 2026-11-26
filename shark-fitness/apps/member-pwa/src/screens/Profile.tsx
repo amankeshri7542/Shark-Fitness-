@@ -261,7 +261,9 @@ export default function ProfileScreen() {
           <SectionRule>Your data</SectionRule>
           {consents.isLoading ? (
             <Skeleton className="h-40" />
-          ) : consents.error || !consents.data ? (
+          ) : !consents.data ? (
+            // Saved permissions (kept for offline use) stay on screen when a
+            // refresh fails; only with none is the failure shown.
             <ErrorState
               title="Could not load your permissions"
               body="Your settings are unchanged. Try again in a moment."
