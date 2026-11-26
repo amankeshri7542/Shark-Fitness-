@@ -19,3 +19,6 @@ test-results/
 # Postman suite output: holds live session tokens for the demo accounts
 scripts/postman/out/
 e2e/.state/
+
+# Request log of a route-coverage run (apps/api test:route-coverage)
+data/route-coverage.ndjson
