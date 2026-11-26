@@ -162,7 +162,9 @@ export function ScanPass({
 
   // The detection loop outlives renders; it must submit with today's branch.
   const submitRef = useRef(submit);
-  submitRef.current = submit;
+  useEffect(() => {
+    submitRef.current = submit;
+  }, [submit]);
 
   const stopCamera = useCallback(() => {
     generationRef.current += 1;
