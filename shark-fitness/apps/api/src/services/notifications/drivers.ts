@@ -1,6 +1,7 @@
 import { classifyProviderResponse } from '@shark/domain';
 import { runtimeConfig, type NotifyConfig, type RuntimeConfig } from '../../lib/config.js';
 import { basicAuth, jsonObject, providerPost, type ProviderResponse } from '../../lib/provider-http.js';
+import { webPushDriver } from './web-push.js';
 
 /**
  * Channel drivers for the NotificationService (PF-COMM-002).
@@ -31,6 +32,10 @@ export interface OutboundMessage {
   templateParams: string[];
   tenantId: string;
   userId: string;
+  /** The notification_deliveries row: a stable key for drivers that dedupe (push). */
+  deliveryId?: string;
+  /** In-app kind (payment_due, waitlist_offer, …): push picks its category from it. */
+  kind?: string;
 }
 
 export type DriverResult =
@@ -206,10 +211,11 @@ export function whatsappCloudDriver(
 }
 
 /**
- * Push belongs to P04 (web push with VAPID). Until that driver is registered
- * with `setNotificationDrivers`, the channel is reported as unavailable and a
- * push delivery is suppressed with that reason — never "logged" as if it had
- * a real path.
+ * Push belongs to P04 (web push with VAPID): `webPushDriver` (./web-push.ts)
+ * is the push driver, available exactly when VAPID keys are configured. This
+ * stand-in is for callers that build drivers by hand without push; a push
+ * delivery is then suppressed with the reason — never "logged" as if it had a
+ * real path.
  */
 export const pushUnavailable: ChannelDriver = {
   name: 'none',
@@ -239,7 +245,8 @@ export function driversFromConfig(
     return value;
   };
   return {
-    push: pushUnavailable,
+    // Reports itself unavailable until VAPID keys are configured (P04).
+    push: webPushDriver,
     email: notify.emailDriver === 'resend' ? resendDriver(required(notify.resend, 'resend'), fetchFn) : logDriver('email'),
     sms:
       notify.smsDriver === 'msg91'

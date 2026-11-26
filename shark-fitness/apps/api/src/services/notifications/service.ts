@@ -435,6 +435,8 @@ async function processOne(deliveryId: string, atMs: number): Promise<DeliverySta
     templateParams: verdict.params,
     tenantId: row.tenantId,
     userId: row.userId,
+    deliveryId: row.id,
+    kind: row.kind,
   });
   const doneAt = now() > atMs ? now() : atMs;
 

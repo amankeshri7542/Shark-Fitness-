@@ -251,6 +251,18 @@ describe('POST /v1/public/:tenant/leads', () => {
 
     const event = db.select().from(schema.outboxEvents).where(eq(schema.outboxEvents.topic, 'lead.captured')).orderBy(desc(schema.outboxEvents.seq)).get();
     expect(event?.payload).toMatchObject({ leadId: row!.id, source: 'website' });
+
+    // Integration (P06): outbound webhooks hear of it as lead.created, with
+    // ids and states only — never the visitor's name, phone or email.
+    const integration = db
+      .select()
+      .from(schema.outboxEvents)
+      .where(eq(schema.outboxEvents.topic, 'integration.event'))
+      .all()
+      .map((e) => e.payload as { type: string; data: Record<string, unknown> })
+      .find((p) => p.type === 'lead.created' && p.data.leadId === row!.id);
+    expect(integration?.data).toEqual({ leadId: row!.id, branchId: row!.branchId, source: 'website', stage: 'new', duplicateOfId: null });
+    expect(JSON.stringify(integration)).not.toContain(body.phone as string);
   });
 
   it('records marketing consent as refused unless ticked', async () => {

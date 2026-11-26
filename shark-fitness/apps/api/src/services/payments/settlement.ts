@@ -9,6 +9,8 @@ import { log } from '../../lib/observability.js';
 import type { ProviderPayment } from '../../lib/payment-provider.js';
 import { now } from '../../lib/time.js';
 import { settleInvoicePayment } from '../billing.js';
+import { emitIntegrationEvent } from '../integration-events.js';
+import { notifyPaymentOutcome } from '../notifications.js';
 
 export type IntentRow = typeof schema.paymentIntents.$inferSelect;
 export type IntentState = 'created' | 'processing' | 'succeeded' | 'failed' | 'expired' | 'superseded' | 'needs_review';
@@ -247,6 +249,37 @@ export function recordFailedAttempt(intentId: string, payment: ProviderPayment):
     topic: 'payment.failed',
     payload: { intentId: intent.id, invoiceId: intent.invoiceId },
   });
+  // Outbound webhooks (P06): ids, amounts and the provider's reason code only.
+  emitIntegrationEvent({
+    tenantId: intent.tenantId,
+    branchId: intent.branchId,
+    type: 'payment.failed',
+    data: {
+      intentId: intent.id,
+      invoiceId: intent.invoiceId,
+      memberId: intent.memberId,
+      amountMinor: intent.amountMinor,
+      currency: intent.currency,
+      failureCode: payment.errorReason ?? payment.errorCode ?? 'payment_failed',
+    },
+  });
+  // The member's phone (P04): in the app, and as a push when they have it on.
+  // One per provider payment, so a second failed try is a second message.
+  const member = db.select({ userId: schema.members.userId }).from(schema.members).where(eq(schema.members.id, intent.memberId)).get();
+  const invoice = db.select({ number: schema.invoices.number }).from(schema.invoices).where(eq(schema.invoices.id, intent.invoiceId)).get();
+  if (member?.userId && invoice) {
+    notifyPaymentOutcome({
+      tenantId: intent.tenantId,
+      userId: member.userId,
+      branchId: intent.branchId,
+      invoiceId: intent.invoiceId,
+      invoiceNumber: invoice.number,
+      amountMinor: intent.amountMinor,
+      currency: intent.currency,
+      outcome: 'failed',
+      attemptRef: String(payment.id),
+    });
+  }
   return { changed: true };
 }
 

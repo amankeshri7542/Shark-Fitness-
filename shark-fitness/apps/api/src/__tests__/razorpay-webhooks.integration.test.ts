@@ -103,6 +103,17 @@ describe('handled events', () => {
     const status = await (await request('GET', `/member/billing/checkout/${order.intentId}`, session)).json();
     expect(status).toMatchObject({ state: 'failed', failureReason: 'Payment failed because the UPI request was declined by the payer.' });
     expect(paymentsFor(order.invoiceId)).toEqual([]);
+
+    // Integration (P04): the member hears it plainly, in the app (and as a push
+    // when they have it on), once per provider payment.
+    const userId = db.select().from(schema.members).where(eq(schema.members.id, member.memberId)).get()!.userId!;
+    const told = db.select().from(schema.notifications).where(and(eq(schema.notifications.userId, userId), eq(schema.notifications.kind, 'payment_failed'))).all();
+    expect(told).toHaveLength(1);
+    expect(told[0]).toMatchObject({ title: 'Payment did not go through', link: '/billing' });
+    // Integration (P06): outbound webhooks get payment.failed with ids and amounts only.
+    const events = db.select().from(schema.outboxEvents).where(and(eq(schema.outboxEvents.tenantId, member.tenantId), eq(schema.outboxEvents.topic, 'integration.event'))).all();
+    const failed = events.map((row) => row.payload as { type?: string; data?: Record<string, unknown> }).find((p) => p.type === 'payment.failed' && p.data?.intentId === order.intentId);
+    expect(failed?.data).toMatchObject({ invoiceId: order.invoiceId, memberId: member.memberId, failureCode: 'payment_declined' });
   });
 
   it('stores and acknowledges an event it does not act on', async () => {

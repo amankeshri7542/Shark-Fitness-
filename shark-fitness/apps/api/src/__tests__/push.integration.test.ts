@@ -8,6 +8,7 @@ import { addDays, isoDate, localClockOnDay, now } from '../lib/time.js';
 import { deliverDuePushes, notifyPaymentOutcome, notifyUser, quietHoursFor } from '../services/notifications.js';
 import { isAllowedPushEndpoint } from '../services/push.js';
 import { createSession } from '../services/auth.js';
+import { processNotificationQueue, queueNotification } from '../services/notifications/service.js';
 import { startFakePushService, verifyVapid, type FakePushService } from './fixtures/fake-push-service.js';
 
 /**
@@ -202,6 +203,50 @@ describe('push subscriptions API', () => {
 });
 
 describe('push delivery', () => {
+  it('carries the NotificationService push channel (P07) through the device queue, once per delivery', async () => {
+    const user = userByEmail('aman@sharkfitness.in');
+    const { browser } = await subscribe(await aman());
+    const at = clockTomorrow('12:00');
+    const queued = queueNotification(
+      {
+        tenantId: user.tenantId,
+        userId: user.id,
+        channel: 'push',
+        purpose: 'operational',
+        source: 'message',
+        kind: 'message',
+        title: 'Reply from the desk',
+        body: 'The desk replied to your message.',
+        link: '/messages',
+        dedupeKey: 'int1:push-channel',
+      },
+      at,
+    );
+    expect(queued.state).toBe('queued');
+    const run = await processNotificationQueue(at);
+    expect(run.sent).toBe(1);
+    const delivery = db.select().from(schema.notificationDeliveries).where(eq(schema.notificationDeliveries.id, queued.deliveryId)).get()!;
+    expect(delivery).toMatchObject({ state: 'sent', provider: 'web-push' });
+    const rows = db.select().from(schema.pushDeliveries).where(eq(schema.pushDeliveries.userId, user.id)).all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ category: 'message', dedupeKey: `notify:${queued.deliveryId}`, path: '/messages', notificationId: null });
+
+    expect((await deliverDuePushes(at)).sent).toBe(1);
+    expect(JSON.parse(browser.decrypt(service.received[0]!.body))).toMatchObject({ title: 'Reply from the desk', path: '/messages' });
+  });
+
+  it('reports the push channel unusable for a member with no device', async () => {
+    const user = userByEmail('rohit@sharkfitness.in');
+    const at = clockTomorrow('12:00');
+    const queued = queueNotification(
+      { tenantId: user.tenantId, userId: user.id, channel: 'push', purpose: 'operational', source: 'message', title: 'Hello', body: 'Hi', dedupeKey: 'int1:no-device' },
+      at,
+    );
+    await processNotificationQueue(at);
+    const delivery = db.select().from(schema.notificationDeliveries).where(eq(schema.notificationDeliveries.id, queued.deliveryId)).get()!;
+    expect(delivery).toMatchObject({ state: 'failed', reason: 'The member has no device with notifications switched on.' });
+  });
+
   it('sends an encrypted payload with only title, body and deep link, signed with VAPID', async () => {
     const user = userByEmail('aman@sharkfitness.in');
     const { browser } = await subscribe(await aman());

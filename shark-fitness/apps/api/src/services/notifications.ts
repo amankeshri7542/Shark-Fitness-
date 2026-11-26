@@ -136,6 +136,27 @@ export function notifyUser(input: NotifyInput, atMs: number = now()): string | n
   return notificationId;
 }
 
+/**
+ * Push only, for P07's NotificationService `push` channel: queues the durable
+ * delivery (consent, quiet hours, dedupe and dead-device cleanup still apply
+ * when it is sent) and says whether there was anywhere to send it.
+ */
+export function queuePushOnly(
+  input: Omit<NotifyInput, 'inApp' | 'push'> & { push: NonNullable<NotifyInput['push']> },
+  atMs: number = now(),
+): 'queued' | 'duplicate' | 'no_device' | 'off' {
+  if (!pushConfigured()) return 'off';
+  if (!hasLiveDevice(input.tenantId, input.userId, atMs)) return 'no_device';
+  const before = db
+    .select({ id: schema.pushDeliveries.id })
+    .from(schema.pushDeliveries)
+    .where(and(eq(schema.pushDeliveries.userId, input.userId), eq(schema.pushDeliveries.dedupeKey, input.push.dedupeKey)))
+    .get();
+  if (before) return 'duplicate';
+  notifyUser({ ...input, inApp: false }, atMs);
+  return 'queued';
+}
+
 /* — Payment outcome: the seam the payment provider integration calls ——— */
 
 /**

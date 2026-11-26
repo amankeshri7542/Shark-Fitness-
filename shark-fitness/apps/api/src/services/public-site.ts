@@ -25,6 +25,7 @@ import { runIdempotently } from '../lib/idempotency.js';
 import { log } from '../lib/observability.js';
 import { HOUR, addDays, daysBetween, isoDate, localClockOnDay, localTime, now } from '../lib/time.js';
 import { sessionQuery } from './booking.js';
+import { emitIntegrationEvent } from './integration-events.js';
 
 /**
  * The public website's reads and writes (`routes/public.ts`).
@@ -582,6 +583,14 @@ function insertLead(
       updatedAt: atMs,
     })
     .run();
+  // Outbound webhooks (P06): a website lead is a new lead like one keyed in at
+  // the desk. Ids and states only; never the visitor's contact details.
+  emitIntegrationEvent({
+    tenantId: tenant.id,
+    branchId: branch.id,
+    type: 'lead.created',
+    data: { leadId: values.leadId, branchId: branch.id, source: 'website', stage: values.stage, duplicateOfId: null },
+  });
 }
 
 function addActivity(tenantId: string, leadId: string, body: string, atMs: number): void {
