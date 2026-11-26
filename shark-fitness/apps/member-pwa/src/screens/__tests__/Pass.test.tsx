@@ -194,6 +194,51 @@ describe('Pass', () => {
     expect(screen.getByText('Reception can check you in with this number.')).toBeInTheDocument();
   });
 
+  it('keeps the screen awake while a code shows, and lets go when the pass closes', async () => {
+    const release = vi.fn(() => Promise.resolve());
+    const request = vi.fn(() => Promise.resolve({ release }));
+    Object.defineProperty(navigator, 'wakeLock', { configurable: true, value: { request } });
+    try {
+      api.mockResolvedValue(payload());
+      const view = renderPass();
+      await screen.findByRole('img', { name: /Entry code for Aman Mehta/ });
+      await waitFor(() => expect(request).toHaveBeenCalledWith('screen'));
+      view.unmount();
+      await waitFor(() => expect(release).toHaveBeenCalled());
+    } finally {
+      delete (navigator as { wakeLock?: unknown }).wakeLock;
+    }
+  });
+
+  it('sweeps the sonar line only while getting a fresh code, and not at all under reduced motion', async () => {
+    const spent = payload({ code: { rotateSec: 30, serverEpoch: Math.floor(NOW / 1000), serverTime: new Date(NOW).toISOString(), passes: passes(WINDOW - 10, 2) } });
+    const sweep = (root: HTMLElement) => root.querySelector('[style*="sf-sonar"]');
+
+    // A spent run whose refresh is still on its way: acquiring.
+    api.mockResolvedValueOnce(spent).mockImplementation(() => new Promise(() => undefined));
+    const acquiring = renderPass();
+    expect(await screen.findByText('Getting a fresh code…')).toBeInTheDocument();
+    expect(sweep(acquiring.container)).not.toBeNull();
+    acquiring.unmount();
+
+    api.mockReset();
+    useSession.setState({ viewer: { ...viewer, preferences: { ...viewer.preferences, reducedMotion: true } } } as never);
+    api.mockResolvedValueOnce(spent).mockImplementation(() => new Promise(() => undefined));
+    const reduced = renderPass();
+    expect(await screen.findByText('Getting a fresh code…')).toBeInTheDocument();
+    expect(sweep(reduced.container)).toBeNull();
+    reduced.unmount();
+
+    // A code on screen with nothing being fetched: no sweep.
+    api.mockReset();
+    useSession.setState({ viewer } as never);
+    api.mockResolvedValue(payload());
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: NOW });
+    const steady = renderPass();
+    await screen.findByRole('img', { name: /Entry code for Aman Mehta/ });
+    await waitFor(() => expect(sweep(steady.container)).toBeNull());
+  });
+
   it('lets a member entitled to several branches pick where they are checking in', async () => {
     api.mockResolvedValue(
       payload({
