@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '../lib/api';
+import { ApiError, OfflineError, api } from '../lib/api';
+import { FeedPostCard, type FeedPost } from './pack/FeedPostCard';
 import { useCopy } from '../lib/store';
 import { ScreenBody, Stack, Surface } from '../ui/shell';
 import {
@@ -78,23 +79,6 @@ interface EngagementPayload {
   referral: Referral;
 }
 
-interface FeedPost {
-  id: string;
-  authorName: string;
-  authorInitials: string;
-  authorKind: 'member' | 'staff' | 'gym';
-  isMine: boolean;
-  kind: string;
-  badge: string | null;
-  body: string;
-  removed: boolean;
-  removedNote: string | null;
-  relativeTime: string;
-  kudos: number;
-  kudosByMe: boolean;
-  commentCount: number;
-}
-
 const rupees = (minor: number): string => `₹${(minor / 100).toLocaleString('en-IN')}`;
 
 export default function PackScreen() {
@@ -123,20 +107,31 @@ export default function PackScreen() {
     onSuccess: refreshFeed,
   });
 
+  const [postNotice, setPostNotice] = useState<string | null>(null);
   const post = useMutation({
-    mutationFn: (body: string) => api('/member/engagement/feed', { method: 'POST', body: { body } }),
-    onSuccess: () => {
+    mutationFn: (body: string) =>
+      api<{ awaitingApproval?: boolean; safetyNote?: string | null }>('/member/engagement/feed', { method: 'POST', body: { body } }),
+    onSuccess: (result) => {
       setDraft('');
       setComposerOpen(false);
+      setPostNotice(
+        result.awaitingApproval
+          ? 'Posted. A moderator checks new posts before the gym sees them; until then only you can see it.'
+          : (result.safetyNote ?? null),
+      );
       refreshFeed();
     },
   });
-
-  const report = useMutation({
-    mutationFn: (id: string) =>
-      api('/member/engagement/report', { method: 'POST', body: { targetType: 'post', targetId: id, reason: 'other' } }),
-    onSuccess: refreshFeed,
-  });
+  const postError =
+    post.error instanceof ApiError
+      ? post.error.status === 429
+        ? 'You have posted a lot in the last hour. Try again a little later.'
+        : post.error.message
+      : post.error instanceof OfflineError
+        ? 'You are offline. Your post is still in the box.'
+        : post.error
+          ? 'That did not post. Try again.'
+          : null;
 
   if (engagement.isLoading) return <PackSkeleton />;
 
@@ -372,6 +367,11 @@ export default function PackScreen() {
                   placeholder="Share a session, a milestone, or a question for the gym."
                   className="sf-field resize-none"
                 />
+                {postError ? (
+                  <p role="alert" className="mt-2 text-[12px] text-chum">
+                    {postError}
+                  </p>
+                ) : null}
                 <div className="mt-2 flex items-center gap-2">
                   <span className="font-utility text-[10px] uppercase tracking-[0.1em] text-foam-35">
                     {draft.length}/500
@@ -389,6 +389,12 @@ export default function PackScreen() {
               </Panel>
             ) : null}
 
+            {postNotice ? (
+              <Panel tone="accent" className="mb-2.5 p-3" role="status">
+                <p className="text-[13px] leading-relaxed">{postNotice}</p>
+              </Panel>
+            ) : null}
+
             {feed.isLoading ? (
               <Skeleton className="h-32 w-full" />
             ) : !feed.data || feed.data.items.length === 0 ? (
@@ -399,66 +405,7 @@ export default function PackScreen() {
             ) : (
               <div className="flex flex-col gap-2.5">
                 {feed.data.items.map((p) => (
-                  <Panel key={p.id} className="p-3">
-                    {p.removed ? (
-                      <p className="text-[12px] italic leading-relaxed text-foam-45">
-                        {p.removedNote ?? 'This post was removed by a moderator.'}
-                      </p>
-                    ) : (
-                      <>
-                        <div className="flex items-center gap-2.5">
-                          <span
-                            className={cx(
-                              'grid h-8 w-8 flex-none place-items-center border font-utility text-[11px] font-semibold',
-                              p.authorKind === 'gym' ? 'border-line-accent text-sonar' : 'border-line-strong',
-                            )}
-                          >
-                            {p.authorInitials}
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <div className="truncate text-[13px]">
-                              {p.authorName}
-                              {p.authorKind === 'gym' ? (
-                                <span className="ml-1.5 text-[11px] text-foam-45">· announcement</span>
-                              ) : null}
-                            </div>
-                            <div className="font-utility text-[10px] uppercase tracking-[0.1em] text-foam-35">
-                              {p.relativeTime}
-                            </div>
-                          </div>
-                          {p.badge ? <Chip tone="accent" glyph={false}>{p.badge}</Chip> : null}
-                        </div>
-
-                        <p className="mt-2.5 text-[14px] leading-relaxed text-pretty">{p.body}</p>
-
-                        <div className="mt-2.5 flex items-center gap-3 border-t border-line-10 pt-2.5">
-                          <button
-                            type="button"
-                            onClick={() => kudos.mutate({ id: p.id, on: !p.kudosByMe })}
-                            className={cx(
-                              'font-utility text-[11px] font-semibold uppercase tracking-[0.1em]',
-                              p.kudosByMe ? 'text-sonar' : 'text-foam-50 hover:text-foam',
-                            )}
-                          >
-                            <span aria-hidden="true">◆</span> {p.kudos} kudos
-                          </button>
-                          <span className="font-utility text-[11px] uppercase tracking-[0.1em] text-foam-45">
-                            {p.commentCount} comment{p.commentCount === 1 ? '' : 's'}
-                          </span>
-                          <span className="flex-1" />
-                          {!p.isMine ? (
-                            <button
-                              type="button"
-                              onClick={() => report.mutate(p.id)}
-                              className="font-utility text-[10px] uppercase tracking-[0.1em] text-foam-35 hover:text-chum"
-                            >
-                              Report
-                            </button>
-                          ) : null}
-                        </div>
-                      </>
-                    )}
-                  </Panel>
+                  <FeedPostCard key={p.id} post={p} onChanged={refreshFeed} onKudos={(on) => kudos.mutate({ id: p.id, on })} />
                 ))}
               </div>
             )}

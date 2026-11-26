@@ -14,6 +14,7 @@ import { MemberPhotos } from './members/MemberPhotos';
 import { AccountRecovery } from '../ui/AccountRecovery';
 import { AccountActivation } from '../ui/AccountActivation';
 import { RecordPaymentSheet } from './Billing';
+import { NewTaskDialog } from '../ui/NewTaskDialog';
 
 interface Detail {
   member: {
@@ -31,6 +32,7 @@ interface Detail {
     emergencyContact: { name: string; phone: string; relationship: string } | null;
     lifecycle: string;
     joinedOn: string;
+    homeBranchId?: string;
     lastVisitLabel: string;
     branchName: string;
     trainerId: string | null;
@@ -102,6 +104,8 @@ export default function MemberDetailScreen() {
   const canRecordPayment = usePermission('billing.record_payment');
   const [payingInvoice, setPayingInvoice] = useState<{ id: string; dueLabel: string; dueMinor: number } | null>(null);
   const [sheet, setSheet] = useState<Sheet>(null);
+  const [taskOpen, setTaskOpen] = useState(false);
+  const canTask = usePermission('task.view');
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['member', memberId],
@@ -139,6 +143,11 @@ export default function MemberDetailScreen() {
           <Link to="/members">
             <Button variant="ghost">← Directory</Button>
           </Link>
+          {canTask ? (
+            <Button variant="outline" onClick={() => setTaskOpen(true)}>
+              Create task
+            </Button>
+          ) : null}
           {canManage && data.membership ? (
             <>
               {data.membership.state === 'frozen' ? (
@@ -551,6 +560,13 @@ export default function MemberDetailScreen() {
             void queryClient.invalidateQueries({ queryKey: ['member', memberId] });
             void queryClient.invalidateQueries({ queryKey: ['members'] });
           }}
+        />
+      ) : null}
+      {taskOpen ? (
+        <NewTaskDialog
+          open
+          onClose={() => setTaskOpen(false)}
+          prefill={{ title: `Follow up with ${m.name}`, memberId: m.id, branchId: m.homeBranchId ?? null }}
         />
       ) : null}
     </Page>

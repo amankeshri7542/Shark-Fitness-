@@ -144,7 +144,8 @@ export default function FloorScreen() {
     const requested = new URLSearchParams(window.location.search).get('filter');
     return requested === 'denied' || requested === 'granted' || requested === 'overridden' ? requested : 'all';
   });
-  const [search, setSearch] = useState('');
+  // The command palette's "Check in member" lands here as /floor?q=<member no>.
+  const [search, setSearch] = useState(() => new URLSearchParams(window.location.search).get('q')?.slice(0, 80) ?? '');
   const [overrideFor, setOverrideFor] = useState<string | null>(null);
   const [overrideReason, setOverrideReason] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);

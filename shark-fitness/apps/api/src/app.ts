@@ -57,6 +57,14 @@ import { platformRoutes } from './routes/platform.js';
 import { supportRoutes } from './routes/admin/support.js';
 import { securityRoutes } from './routes/admin/security.js';
 import { integrationRoutes } from './routes/admin/integrations.js';
+import { attachmentRoutes } from './routes/attachments.js';
+import { inboxRoutes } from './routes/admin/inbox.js';
+import { communityRoutes } from './routes/admin/community.js';
+import { taskRoutes } from './routes/admin/tasks.js';
+import { coachingRoutes } from './routes/admin/coaching.js';
+import { broadcastRoutes } from './routes/admin/broadcasts.js';
+import { searchRoutes } from './routes/admin/search.js';
+import { quickAddRoutes } from './routes/admin/quick-add.js';
 
 export const app = new Hono();
 export const PROTECTED_API_IP_MAX = 2_000;
@@ -143,6 +151,10 @@ app.use('/v1/me/*', protectedApiIpLimit, authenticate, authenticatedTenantLimit,
 app.route('/v1/me/push-subscriptions', pushSubscriptionRoutes);
 app.route('/v1/me', meRoutes);
 
+/* Message attachments: members and staff, each re-checked per file (P07). */
+app.use('/v1/attachments/*', protectedApiIpLimit, authenticate, authenticatedTenantLimit, authenticatedApiLimit);
+app.route('/v1/attachments', attachmentRoutes);
+
 app.use('/v1/member/*', protectedApiIpLimit, authenticate, authenticatedTenantLimit, authenticatedApiLimit, memberOnly);
 app.route('/v1/member/home', homeRoutes);
 app.route('/v1/member/pass', passRoutes);
@@ -159,6 +171,7 @@ app.route('/v1/member/media', mediaRoutes);
 
 app.use('/v1/admin/*', protectedApiIpLimit, authenticate, authenticatedTenantLimit, authenticatedApiLimit, staffOnly);
 app.route('/v1/admin/dashboard', dashboardRoutes);
+app.route('/v1/admin/members/quick-add', quickAddRoutes);
 app.route('/v1/admin/members', memberOperationsRoutes);
 app.route('/v1/admin/members', membersRoutes);
 app.route('/v1/admin/members', memberPhotoRoutes);
@@ -185,6 +198,12 @@ app.route('/v1/admin/engagement', adminEngagementRoutes);
 app.route('/v1/admin/privacy', privacyRoutes);
 app.route('/v1/admin/security', securityRoutes);
 app.route('/v1/admin/integrations', integrationRoutes);
+app.route('/v1/admin/inbox', inboxRoutes);
+app.route('/v1/admin/community', communityRoutes);
+app.route('/v1/admin/tasks', taskRoutes);
+app.route('/v1/admin/coaching', coachingRoutes);
+app.route('/v1/admin/broadcasts', broadcastRoutes);
+app.route('/v1/admin/search', searchRoutes);
 
 /* Platform administration (PF-PLAT). `staffOnly` is not enough here and is not
    used: each route carries `platformOnly`, which refuses an impersonated

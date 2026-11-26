@@ -10,6 +10,7 @@
     "store-screenshots": "playwright test --config playwright.capture.config.ts"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.10.2",
     "@playwright/test": "1.65.1",
     "@types/node": "22.10.7",
     "otpauth": "9.6.0",

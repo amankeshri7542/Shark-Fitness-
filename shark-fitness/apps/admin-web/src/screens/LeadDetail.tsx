@@ -7,6 +7,7 @@ import { Page } from '../ui/shell';
 import { Button, Chip, ErrorState, Field, Label, Panel, PermissionState, Seam, SelectField, Skeleton, type Tone } from '../ui/console';
 import { SOURCE_LABEL } from './lead-source';
 import { ConfirmDialog } from '../ui/overlay';
+import { NewTaskDialog } from '../ui/NewTaskDialog';
 
 interface Activity {
   id: string;
@@ -26,6 +27,7 @@ interface Detail {
     email: string | null;
     source: string;
     stage: string;
+    branchId: string;
     branchName: string;
     ownerName: string | null;
     expectedValueMinor: number;
@@ -67,6 +69,8 @@ export default function LeadDetailScreen() {
   const queryClient = useQueryClient();
   const canView = usePermission('lead.view');
   const canManage = usePermission('lead.manage');
+  const canTask = usePermission('task.view');
+  const [taskOpen, setTaskOpen] = useState(false);
   const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [lossSheet, setLossSheet] = useState<LossKind | null>(null);
@@ -153,7 +157,24 @@ export default function LeadDetailScreen() {
   const moveableStages = data.availableStages.filter((s) => !['lost', 'disqualified'].includes(s));
 
   return (
-    <Page title={lead.name} kicker={`${lead.branchName} · ${SOURCE_LABEL[lead.source] ?? lead.source.replace(/_/g, ' ')}`}>
+    <Page
+      title={lead.name}
+      kicker={`${lead.branchName} · ${SOURCE_LABEL[lead.source] ?? lead.source.replace(/_/g, ' ')}`}
+      actions={
+        canTask ? (
+          <Button variant="outline" onClick={() => setTaskOpen(true)}>
+            Create task
+          </Button>
+        ) : undefined
+      }
+    >
+      {taskOpen ? (
+        <NewTaskDialog
+          open
+          onClose={() => setTaskOpen(false)}
+          prefill={{ title: `Follow up ${lead.name}`, leadId: lead.id, branchId: lead.branchId }}
+        />
+      ) : null}
       <Seam className="border-b border-line" direction="y">
         <div className="flex flex-wrap items-center gap-2 p-3.5">
           <Chip tone={STAGE_TONE[lead.stage] ?? 'accent'}>{lead.stage.replace(/_/g, ' ')}</Chip>

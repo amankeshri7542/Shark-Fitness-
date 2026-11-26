@@ -253,6 +253,18 @@ describe('members bulk: message', () => {
     expect(db.select().from(schema.messages).where(eq(schema.messages.conversationId, opened[0]!.id)).all()).toHaveLength(1);
   });
 
+  it('leaves out members under 18 while staff-minor messages are off (P07 decision 16)', async () => {
+    const adult = makeMember();
+    const minor = makeMember({ dob: '2012-06-01' });
+    const res = await post(await reception(), '/bulk/message', { memberIds: [adult, minor], body: 'Holiday hours this week.' });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { sent: number; skippedMinors: number; message: string };
+    expect(body).toMatchObject({ sent: 1, skippedMinors: 1 });
+    expect(body.message).toMatch(/under 18 was left out/);
+    const minorThreads = db.select().from(schema.conversations).where(eq(schema.conversations.memberId, minor)).all();
+    expect(minorThreads).toHaveLength(0);
+  });
+
   it('rejects an empty message', async () => {
     const a = makeMember();
     const res = await post(await reception(), '/bulk/message', { memberIds: [a], body: '   ' });

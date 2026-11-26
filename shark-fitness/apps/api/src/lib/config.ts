@@ -271,6 +271,10 @@ const RuntimeEnvironmentShape = z.object({
     SHARK_READER_KEYS_JSON: ReaderKeys,
     SHARK_DEMO_READER_KEY: z.string().min(1).optional(),
     SHARK_MEDIA_BUCKET: z.string().transform((value) => value.trim()).optional(),
+    /** Private media on local disk: progress photos (P05) and message
+     *  attachments (P07). Must sit outside every static root. Optional outside
+     *  production (defaults to a `media` folder beside SHARK_DB); in
+     *  production, uploads stay off until it is set. */
     SHARK_MEDIA_DIR: z.preprocess(blankAsUnset, z.string().trim().min(1).optional()),
     SHARK_MEDIA_QUOTA_MB: z.preprocess(blankAsUnset, boundedInteger('SHARK_MEDIA_QUOTA_MB', 1, 1_000_000).optional()),
     SHARK_ERROR_REPORTING_ENDPOINT: HttpEndpoint.optional(),
@@ -324,6 +328,21 @@ const RuntimeEnvironmentShape = z.object({
       boundedInteger('SHARK_OTP_MAX_PER_DESTINATION_PER_DAY', 1, 1_000).optional(),
     ),
     SHARK_OTP_MAX_PER_IP_PER_HOUR: z.preprocess(blankAsUnset, boundedInteger('SHARK_OTP_MAX_PER_IP_PER_HOUR', 1, 10_000).optional()),
+    /* Member notification channels (P07). Every channel defaults to `log`:
+       the attempt is recorded as "logged, not delivered" and nothing leaves
+       the server. Provider credentials are shared with the OTP senders. */
+    SHARK_NOTIFY_EMAIL_DRIVER: providerName('SHARK_NOTIFY_EMAIL_DRIVER', ['log', 'resend'] as const),
+    SHARK_NOTIFY_EMAIL_FROM: OptionalText,
+    SHARK_NOTIFY_SMS_DRIVER: providerName('SHARK_NOTIFY_SMS_DRIVER', ['log', 'msg91', 'twilio'] as const),
+    /** MSG91 Flow (DLT template) used when a message names no template of its own. */
+    SHARK_MSG91_NOTIFY_FLOW_ID: OptionalText,
+    SHARK_NOTIFY_WHATSAPP_DRIVER: providerName('SHARK_NOTIFY_WHATSAPP_DRIVER', ['log', 'cloud'] as const),
+    SHARK_WHATSAPP_ACCESS_TOKEN: OptionalText,
+    SHARK_WHATSAPP_PHONE_NUMBER_ID: OptionalText,
+    SHARK_WHATSAPP_TEMPLATE_LANGUAGE: z.preprocess(
+      blankAsUnset,
+      z.string().regex(/^[a-z]{2}(_[A-Z]{2})?$/, 'SHARK_WHATSAPP_TEMPLATE_LANGUAGE must look like en or en_US.').optional(),
+    ),
     SHARK_IDEMPOTENCY_RETENTION_DAYS: boundedInteger('SHARK_IDEMPOTENCY_RETENTION_DAYS', 7, 365).optional(),
     SHARK_OUTBOX_RETENTION_DAYS: boundedInteger('SHARK_OUTBOX_RETENTION_DAYS', 7, 365).optional(),
     SHARK_SESSION_RETENTION_DAYS: boundedInteger('SHARK_SESSION_RETENTION_DAYS', 1, 365).optional(),
@@ -356,7 +375,31 @@ const OTP_CREDENTIALS = {
   resend: ['SHARK_RESEND_API_KEY', 'SHARK_OTP_EMAIL_FROM'],
 } as const;
 
+const NOTIFY_CREDENTIALS = {
+  SHARK_NOTIFY_EMAIL_DRIVER: { resend: ['SHARK_RESEND_API_KEY', 'SHARK_NOTIFY_EMAIL_FROM'] },
+  SHARK_NOTIFY_SMS_DRIVER: {
+    msg91: ['SHARK_MSG91_AUTH_KEY'],
+    twilio: ['SHARK_TWILIO_ACCOUNT_SID', 'SHARK_TWILIO_AUTH_TOKEN', 'SHARK_TWILIO_FROM'],
+  },
+  SHARK_NOTIFY_WHATSAPP_DRIVER: { cloud: ['SHARK_WHATSAPP_ACCESS_TOKEN', 'SHARK_WHATSAPP_PHONE_NUMBER_ID'] },
+} as const;
+
 const RuntimeEnvironment = RuntimeEnvironmentShape.superRefine((environment, ctx) => {
+    for (const [variable, drivers] of Object.entries(NOTIFY_CREDENTIALS) as Array<
+      [keyof typeof NOTIFY_CREDENTIALS, Record<string, readonly (keyof typeof environment)[]>]
+    >) {
+      const driver = environment[variable];
+      if (!driver || driver === 'log') continue;
+      for (const key of drivers[driver] ?? []) {
+        if (!environment[key]) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [key],
+            message: `${String(key)} is required when ${variable}=${driver}.`,
+          });
+        }
+      }
+    }
     if (environment.SHARK_MEDIA_BUCKET) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -586,6 +629,7 @@ export interface RuntimeConfig {
   };
   /** Digital Asset Links for the Android TWA. Null serves 404. */
   androidAppLinks: { packageName: string; sha256CertFingerprints: string[] } | null;
+  notify: NotifyConfig;
   release: string;
   retention: {
     idempotencyKeysMs: number;
@@ -636,6 +680,17 @@ function resolveMediaDir(configured: string | undefined, databasePath: string, p
   }
   if (production) return null;
   return resolvePath(dirname(resolvePath(databasePath)), 'media');
+}
+
+/** Member notification drivers (P07). `log` unless chosen and credentialed. */
+export interface NotifyConfig {
+  emailDriver: 'log' | 'resend';
+  smsDriver: 'log' | 'msg91' | 'twilio';
+  whatsappDriver: 'log' | 'cloud';
+  resend: { apiKey: string; from: string } | null;
+  msg91: { authKey: string; defaultFlowId: string | null } | null;
+  twilio: { accountSid: string; authToken: string; from: string } | null;
+  whatsapp: { accessToken: string; phoneNumberId: string; language: string } | null;
 }
 
 export function parseRuntimeConfig(environment: Record<string, string | undefined>): RuntimeConfig {
@@ -733,6 +788,30 @@ export function parseRuntimeConfig(environment: Record<string, string | undefine
       parsed.SHARK_ANDROID_PACKAGE && parsed.SHARK_ANDROID_CERT_SHA256
         ? { packageName: parsed.SHARK_ANDROID_PACKAGE, sha256CertFingerprints: parsed.SHARK_ANDROID_CERT_SHA256 }
         : null,
+    notify: {
+      emailDriver: parsed.SHARK_NOTIFY_EMAIL_DRIVER ?? 'log',
+      smsDriver: parsed.SHARK_NOTIFY_SMS_DRIVER ?? 'log',
+      whatsappDriver: parsed.SHARK_NOTIFY_WHATSAPP_DRIVER ?? 'log',
+      resend:
+        parsed.SHARK_RESEND_API_KEY && parsed.SHARK_NOTIFY_EMAIL_FROM
+          ? { apiKey: parsed.SHARK_RESEND_API_KEY, from: parsed.SHARK_NOTIFY_EMAIL_FROM }
+          : null,
+      msg91: parsed.SHARK_MSG91_AUTH_KEY
+        ? { authKey: parsed.SHARK_MSG91_AUTH_KEY, defaultFlowId: parsed.SHARK_MSG91_NOTIFY_FLOW_ID ?? null }
+        : null,
+      twilio:
+        parsed.SHARK_TWILIO_ACCOUNT_SID && parsed.SHARK_TWILIO_AUTH_TOKEN && parsed.SHARK_TWILIO_FROM
+          ? { accountSid: parsed.SHARK_TWILIO_ACCOUNT_SID, authToken: parsed.SHARK_TWILIO_AUTH_TOKEN, from: parsed.SHARK_TWILIO_FROM }
+          : null,
+      whatsapp:
+        parsed.SHARK_WHATSAPP_ACCESS_TOKEN && parsed.SHARK_WHATSAPP_PHONE_NUMBER_ID
+          ? {
+              accessToken: parsed.SHARK_WHATSAPP_ACCESS_TOKEN,
+              phoneNumberId: parsed.SHARK_WHATSAPP_PHONE_NUMBER_ID,
+              language: parsed.SHARK_WHATSAPP_TEMPLATE_LANGUAGE ?? 'en',
+            }
+          : null,
+    },
     release: parsed.SHARK_RELEASE || parsed.RENDER_GIT_COMMIT || parsed.GITHUB_SHA || 'local',
     retention: {
       idempotencyKeysMs: (parsed.SHARK_IDEMPOTENCY_RETENTION_DAYS ?? 30) * DAY_MS,

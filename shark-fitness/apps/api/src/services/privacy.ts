@@ -562,6 +562,22 @@ export function generateExportPackage(ctx: RequestContext, requestId: string) {
       .from(schema.notifications)
       .where(eq(schema.notifications.userId, user.id))
       .all(),
+    /** Every attempt to reach them on a channel, and its outcome (P07). */
+    notificationDeliveries: db
+      .select({
+        channel: schema.notificationDeliveries.channel,
+        purpose: schema.notificationDeliveries.purpose,
+        source: schema.notificationDeliveries.source,
+        title: schema.notificationDeliveries.title,
+        state: schema.notificationDeliveries.state,
+        reason: schema.notificationDeliveries.reason,
+        destinationHint: schema.notificationDeliveries.destinationHint,
+        createdAt: schema.notificationDeliveries.createdAt,
+        deliveredAt: schema.notificationDeliveries.deliveredAt,
+      })
+      .from(schema.notificationDeliveries)
+      .where(eq(schema.notificationDeliveries.userId, user.id))
+      .all(),
   };
 
   if (member) {

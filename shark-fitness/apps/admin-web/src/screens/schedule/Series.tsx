@@ -105,7 +105,8 @@ export default function SeriesSurface() {
   const queryClient = useQueryClient();
 
   const [open, setOpen] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
+  // The command palette's "Create class" opens the form: /schedule?tab=series&create=1.
+  const [creating, setCreating] = useState(() => new URLSearchParams(window.location.search).get('create') === '1');
   const [notice, setNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [includeEnded, setIncludeEnded] = useState(false);

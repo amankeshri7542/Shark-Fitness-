@@ -97,6 +97,10 @@ const CONSENT_CATALOGUE = [
   { purpose: 'health_data', required: false, description: 'Import steps and sleep from your phone' },
   { purpose: 'community_visibility', required: false, description: 'Show your name on gym leaderboards' },
   { purpose: 'push_notifications', required: false, description: 'Notifications on your phone about classes, bookings, messages and payments' },
+  // On unless switched off (P07). Receipts and payment problems are part of the
+  // membership and are not switchable; offers above need a yes per channel.
+  { purpose: 'notifications_operational', required: false, defaultGranted: true, description: 'Class changes, booking updates and replies from the desk' },
+  { purpose: 'notifications_coaching', required: false, defaultGranted: true, description: 'Check-in feedback and nudges from your coach' },
 ] as const;
 
 meRoutes.get('/consents', (c) => {
@@ -111,7 +115,7 @@ meRoutes.get('/consents', (c) => {
     const row = stored.find((s) => s.purpose === entry.purpose);
     return {
       purpose: entry.purpose,
-      granted: row?.granted ?? false,
+      granted: row?.granted ?? ('defaultGranted' in entry ? entry.defaultGranted : false),
       version: row?.version ?? currentVersion(entry.purpose),
       currentVersion: currentVersion(entry.purpose),
       updatedAt: new Date(row?.updatedAt ?? Date.now()).toISOString(),

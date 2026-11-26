@@ -175,3 +175,31 @@ async function refreshCsrf(): Promise<void> {
 export function idempotencyKey(scope: string, ...parts: (string | number)[]): string {
   return `${scope}:${parts.join(':')}:${crypto.randomUUID().slice(0, 8)}`;
 }
+
+/**
+ * Multipart upload of one file as field `file` (message attachments). Online
+ * only: a photo of an injury is not something to queue silently for later.
+ */
+export async function uploadFile<T>(path: string, file: File): Promise<T> {
+  if (!csrf.get()) await refreshCsrf();
+  const form = new FormData();
+  form.append('file', file);
+  let response: Response;
+  try {
+    response = await fetch(`${API_ORIGIN}/v1${path}`, {
+      method: 'POST',
+      headers: { accept: 'application/json', 'x-csrf-token': csrf.get() ?? '' },
+      credentials: 'include',
+      body: form,
+    });
+  } catch {
+    throw new OfflineError();
+  }
+  const text = await response.text();
+  const payload = text ? (JSON.parse(text) as unknown) : null;
+  if (!response.ok) throw new ApiError(response.status, payload as ErrorEnvelope);
+  return payload as T;
+}
+
+/** A signed `/v1/...` media path as a URL the browser can load. */
+export const mediaUrl = (signedPath: string): string => `${API_ORIGIN}${signedPath}`;

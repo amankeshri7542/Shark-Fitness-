@@ -19,6 +19,9 @@ import { id } from '../../lib/ids.js';
 import { DAY, HOUR, MINUTE, daysBetween, isoDate, now, relativeTime } from '../../lib/time.js';
 import { conflict, forbidden, invalid, notFound, rateLimited } from '../../lib/errors.js';
 import { requireBranch, type RequestContext } from '../../lib/context.js';
+import { engagementSettings } from '../../services/engagement-settings.js';
+import { memberIsMinor } from '../../services/messaging.js';
+import { activeCommunityBan } from '../../services/community.js';
 
 export const engagementRoutes = new Hono();
 
@@ -120,10 +123,32 @@ function blockSet(ctx: RequestContext): { hidden: Set<string>; iBlocked: Set<str
   return { hidden, iBlocked };
 }
 
+/** Muting is one-way and feed-only: I stop seeing them; they are not told and
+ *  still see me. Leaderboards are unaffected (that is what blocking is for). */
+function mutedSet(ctx: RequestContext): Set<string> {
+  return new Set(
+    db
+      .select({ id: schema.communityMutes.mutedMemberId })
+      .from(schema.communityMutes)
+      .where(and(eq(schema.communityMutes.tenantId, ctx.tenantId), eq(schema.communityMutes.memberId, ctx.memberId!)))
+      .all()
+      .map((r) => r.id),
+  );
+}
+
+/** Staff removed this member from the community: reading stays, writing stops. */
+function assertCanWrite(ctx: RequestContext): void {
+  if (activeCommunityBan(ctx.tenantId, ctx.memberId!)) {
+    throw forbidden('Posting and commenting are switched off for your account. Ask the front desk if you think this is a mistake.');
+  }
+}
+
 interface Person {
   id: string;
   name: string;
   initials: string;
+  /** Under 18: no public name or profile in the community (ENT-CHILD-003). */
+  minor: boolean;
 }
 
 function peopleByIds(tenantId: string, ids: string[]): Map<string, Person> {
@@ -135,15 +160,22 @@ function peopleByIds(tenantId: string, ids: string[]): Map<string, Person> {
       firstName: schema.members.firstName,
       lastName: schema.members.lastName,
       initials: schema.members.initials,
+      dob: schema.members.dob,
+      homeBranchId: schema.members.homeBranchId,
     })
     .from(schema.members)
     .where(and(eq(schema.members.tenantId, tenantId), inArray(schema.members.id, unique)))
     .all();
   return new Map(
-    rows.map((r) => [
-      r.id,
-      { id: r.id, name: `${r.firstName} ${r.lastName.slice(0, 1)}.`.trim(), initials: r.initials },
-    ]),
+    rows.map((r) => {
+      const minor = memberIsMinor({ dob: r.dob, tenantId, homeBranchId: r.homeBranchId });
+      return [
+        r.id,
+        minor
+          ? { id: r.id, name: 'A member', initials: '··', minor }
+          : { id: r.id, name: `${r.firstName} ${r.lastName.slice(0, 1)}.`.trim(), initials: r.initials, minor },
+      ];
+    }),
   );
 }
 
@@ -533,6 +565,7 @@ function serialisePost(
   iBlocked: Set<string>,
 ) {
   const removed = post.state === 'removed' || post.deletedAt !== null;
+  const heldBack = post.state === 'pending' || post.state === 'hidden' || post.state === 'rejected';
   const author = post.memberId ? people.get(post.memberId) : null;
   const staffName = post.staffId ? staffNames.get(post.staffId) : null;
   const mine = post.memberId !== null && post.memberId === ctx.memberId;
@@ -558,6 +591,12 @@ function serialisePost(
       body: cm.state === 'removed' ? '' : cm.body,
       state: cm.state,
       removed: cm.state === 'removed',
+      moderationNote:
+        cm.state === 'removed'
+          ? 'Removed after a moderation review.'
+          : cm.state === 'hidden'
+            ? 'Hidden by a moderator. Only you can see it.'
+            : null,
       createdAt: new Date(cm.createdAt).toISOString(),
       relativeTime: relativeTime(cm.createdAt),
       canDelete: cm.memberId === ctx.memberId,
@@ -579,18 +618,30 @@ function serialisePost(
     /** A removed post leaves a tombstone. Content never silently disappears. */
     removedNote: removed ? 'This post was removed after a moderation review.' : null,
     underReview: post.state === 'flagged',
+    /** Only the author ever receives a held-back post; this says why. */
+    moderationNote: heldBack
+      ? post.state === 'pending'
+        ? 'Waiting for a moderator. Only you can see it until it is approved.'
+        : post.state === 'hidden'
+          ? `Hidden by a moderator${post.moderationReason ? `: ${post.moderationReason}` : '.'} Only you can see it.`
+          : `Not approved${post.moderationReason ? `: ${post.moderationReason}` : '.'} Only you can see it.`
+      : null,
     state: post.state,
     visibility: post.visibility,
     createdAt: new Date(post.createdAt).toISOString(),
     relativeTime: relativeTime(post.createdAt),
     kudos: post.kudosCount,
     kudosByMe: kudosByMe.has(post.id),
-    commentCount: post.commentCount,
+    // What this person can see: the stored counter also counts comments by
+    // people they blocked or muted (and hidden ones), and a count larger than
+    // the list tells them a blocked member is still commenting.
+    commentCount: postComments.length,
     comments: postComments,
     canReport: !removed && !mine && post.authorKind === 'member',
     canBlock: !mine && post.authorKind === 'member' && post.memberId !== null,
+    canMute: !mine && post.authorKind === 'member' && post.memberId !== null,
     canDelete: mine && !removed,
-    canComment: !removed,
+    canComment: !removed && !heldBack,
   };
 }
 
@@ -601,7 +652,8 @@ function staffInitials(name: string | null | undefined): string {
 }
 
 function feedFor(ctx: RequestContext, scope: Scope, limit: number) {
-  const { hidden, iBlocked } = blockSet(ctx);
+  const { hidden: blockedBothWays, iBlocked } = blockSet(ctx);
+  const hidden = new Set([...blockedBothWays, ...mutedSet(ctx)]);
 
   const rows = db
     .select()
@@ -619,7 +671,10 @@ function feedFor(ctx: RequestContext, scope: Scope, limit: number) {
     .orderBy(desc(schema.posts.createdAt))
     .limit(limit)
     .all()
-    .filter((post) => !(post.memberId && hidden.has(post.memberId)));
+    .filter((post) => !(post.memberId && hidden.has(post.memberId)))
+    // Waiting for approval, hidden by a moderator or rejected: the author
+    // still sees it (with the reason); nobody else does.
+    .filter((post) => !['pending', 'hidden', 'rejected'].includes(post.state) || post.memberId === ctx.memberId);
 
   const postIds = rows.map((p) => p.id);
 
@@ -631,6 +686,8 @@ function feedFor(ctx: RequestContext, scope: Scope, limit: number) {
         .orderBy(schema.comments.createdAt)
         .all()
         .filter((cm) => !hidden.has(cm.memberId))
+        .filter((cm) => cm.deletedAt === null)
+        .filter((cm) => cm.state !== 'hidden' || cm.memberId === ctx.memberId)
     : [];
 
   const kudos = postIds.length
@@ -688,7 +745,8 @@ function postForFeedInteraction(ctx: RequestContext, postId: string) {
     post.visibility !== 'private' &&
     (post.visibility === 'tenant' || post.branchId === scope.branchId);
   const hidden = post?.memberId ? blockSet(ctx).hidden.has(post.memberId) : false;
-  if (!visible || hidden) throw notFound('That post');
+  const heldBack = post && ['pending', 'hidden', 'rejected'].includes(post.state) && post.memberId !== ctx.memberId;
+  if (!visible || hidden || heldBack) throw notFound('That post');
   return post;
 }
 
@@ -1375,11 +1433,14 @@ engagementRoutes.post('/feed', validate('json', PostInput), (c) => {
   const scope = scopeOf(ctx);
   const input = c.req.valid('json');
 
+  assertCanWrite(ctx);
   const budget = postBudget(ctx);
   if (budget.remaining <= 0) {
     // A rate limit is a plain, honest statement, not a telling-off.
     throw rateLimited(budget.retryAfterSec || 60);
   }
+  // Approval mode (tenant setting): every member post waits for a moderator.
+  const awaitingApproval = engagementSettings(ctx.tenantId).communityApprovalMode;
 
   // Safety scan is the domain's, not this route's. A post that mentions injury
   // or distress is still published, but it is routed to a human as well.
@@ -1403,7 +1464,7 @@ engagementRoutes.post('/feed', validate('json', PostInput), (c) => {
         refType: null,
         refId: null,
         visibility: input.visibility,
-        state: needsReview ? 'flagged' : 'visible',
+        state: awaitingApproval ? 'pending' : needsReview ? 'flagged' : 'visible',
         kudosCount: 0,
         commentCount: 0,
         createdAt: now(),
@@ -1433,8 +1494,8 @@ engagementRoutes.post('/feed', validate('json', PostInput), (c) => {
       tenantId: ctx.tenantId,
       branchId: scope.branchId,
       channel: channels.branch(scope.branchId),
-      topic: 'post.created',
-      payload: { postId, authorKind: 'member' },
+      topic: awaitingApproval ? 'alert.raised' : 'post.created',
+      payload: awaitingApproval ? { kind: 'community_approval', postId } : { postId, authorKind: 'member' },
     });
   });
 
@@ -1446,6 +1507,7 @@ engagementRoutes.post('/feed', validate('json', PostInput), (c) => {
       ok: true,
       post: serialisePost(ctx, created, people, new Map(), new Set(), [], new Set()),
       postBudget: postBudget(ctx),
+      awaitingApproval,
       safetyNote: signals.length
         ? 'Thanks for saying it. Someone from the gym team will read this and get in touch — nothing automated replies to a message like this.'
         : null,
@@ -1529,6 +1591,7 @@ engagementRoutes.post(
       throw conflict('That post was removed, so it can no longer be replied to.');
     }
 
+    assertCanWrite(ctx);
     const budget = commentBudget(ctx);
     if (budget.remaining <= 0) throw rateLimited(budget.retryAfterSec || 60);
 
@@ -1658,7 +1721,10 @@ engagementRoutes.post('/report', validate('json', ReportInput), (c) => {
         .get()?.n ?? 1;
 
     if (input.targetType === 'post' && reportCount >= 3) {
-      db.update(schema.posts).set({ state: 'flagged' }).where(eq(schema.posts.id, input.targetId)).run();
+      db.update(schema.posts).set({ state: 'flagged' }).where(and(eq(schema.posts.id, input.targetId), eq(schema.posts.state, 'visible'))).run();
+    }
+    if (input.targetType === 'comment' && reportCount >= 3) {
+      db.update(schema.comments).set({ state: 'flagged' }).where(and(eq(schema.comments.id, input.targetId), eq(schema.comments.state, 'visible'))).run();
     }
 
     audit(ctx, {
@@ -1766,8 +1832,20 @@ engagementRoutes.get('/blocks', (c) => {
     .all();
 
   const people = peopleByIds(ctx.tenantId, rows.map((r) => r.blockedMemberId));
+  const mutes = db
+    .select()
+    .from(schema.communityMutes)
+    .where(and(eq(schema.communityMutes.tenantId, ctx.tenantId), eq(schema.communityMutes.memberId, ctx.memberId!)))
+    .all();
+  const mutedPeople = peopleByIds(ctx.tenantId, mutes.map((r) => r.mutedMemberId));
 
   return c.json({
+    muted: mutes.map((r) => ({
+      memberId: r.mutedMemberId,
+      name: mutedPeople.get(r.mutedMemberId)?.name ?? 'A member',
+      initials: mutedPeople.get(r.mutedMemberId)?.initials ?? '··',
+      since: new Date(r.createdAt).toISOString(),
+    })),
     items: rows.map((r) => ({
       memberId: r.blockedMemberId,
       name: people.get(r.blockedMemberId)?.name ?? 'A member',
@@ -1776,6 +1854,58 @@ engagementRoutes.get('/blocks', (c) => {
       relativeTime: relativeTime(r.createdAt),
     })),
   });
+});
+
+/* — Mute (one-way, feed only) and deleting your own comment (P07) ——————— */
+
+engagementRoutes.post('/mute/:memberId', (c) => {
+  const ctx = ctxOf(c);
+  const targetId = c.req.param('memberId');
+  if (targetId === ctx.memberId) throw invalid('You cannot mute yourself.');
+  const target = db
+    .select({ id: schema.members.id })
+    .from(schema.members)
+    .where(and(eq(schema.members.id, targetId), eq(schema.members.tenantId, ctx.tenantId)))
+    .get();
+  if (!target) throw notFound('That member');
+  db.insert(schema.communityMutes)
+    .values({ id: id('mut'), tenantId: ctx.tenantId, memberId: ctx.memberId!, mutedMemberId: targetId, createdAt: now() })
+    .onConflictDoNothing()
+    .run();
+  return c.json({
+    ok: true,
+    muted: true,
+    message: 'Muted. Their posts and comments are hidden from your feed. They are not told, and they can still see yours — block them if you need that too.',
+  });
+});
+
+engagementRoutes.delete('/mute/:memberId', (c) => {
+  const ctx = ctxOf(c);
+  const removed = db
+    .delete(schema.communityMutes)
+    .where(and(eq(schema.communityMutes.memberId, ctx.memberId!), eq(schema.communityMutes.mutedMemberId, c.req.param('memberId'))))
+    .run();
+  if (removed.changes === 0) throw notFound('That mute');
+  return c.json({ ok: true, muted: false, message: 'Unmuted. Their posts will appear in your feed again.' });
+});
+
+engagementRoutes.delete('/feed/:id/comments/:commentId', (c) => {
+  const ctx = ctxOf(c);
+  const post = postForFeedInteraction(ctx, c.req.param('id'));
+  const comment = db
+    .select()
+    .from(schema.comments)
+    .where(and(eq(schema.comments.id, c.req.param('commentId')), eq(schema.comments.postId, post.id), eq(schema.comments.tenantId, ctx.tenantId)))
+    .get();
+  if (!comment || comment.memberId !== ctx.memberId || comment.deletedAt !== null) throw notFound('That comment');
+  transact(() => {
+    db.update(schema.comments).set({ deletedAt: now() }).where(eq(schema.comments.id, comment.id)).run();
+    db.update(schema.posts)
+      .set({ commentCount: sql`max(${schema.posts.commentCount} - 1, 0)` })
+      .where(eq(schema.posts.id, post.id))
+      .run();
+  });
+  return c.json({ ok: true, message: 'Comment deleted.' });
 });
 
 /* ============================================================================

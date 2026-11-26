@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from '../support/fixtures';
-import { DEMO } from '../support/demo';
+import { DEMO, submitSignIn } from '../support/demo';
 
 /** The Koramangala branch manager: no two-step sign-in required, so no code to wait for. */
 const MANAGER = { email: 'manager@sharkfitness.in', password: DEMO.owner.password };
@@ -9,7 +9,7 @@ async function fillSignIn(page: Page): Promise<void> {
   await page.getByLabel('Gym code').fill(DEMO.gym);
   await page.getByLabel('Work email').fill(MANAGER.email);
   await page.getByLabel('Password').fill(MANAGER.password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await submitSignIn(page);
 }
 
 async function signIn(page: Page): Promise<void> {

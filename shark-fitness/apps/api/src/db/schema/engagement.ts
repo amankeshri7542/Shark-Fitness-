@@ -183,6 +183,10 @@ export const posts = sqliteTable(
     commentCount: integer('comment_count').notNull().default(0),
     createdAt: integer('created_at').notNull(),
     deletedAt: integer('deleted_at'),
+    /** Why staff hid, removed or rejected it — shown to the author (P07). */
+    moderationReason: text('moderation_reason'),
+    moderatedAt: integer('moderated_at'),
+    moderatedByUserId: text('moderated_by_user_id'),
   },
   (t) => ({ byFeed: index('posts_feed_idx').on(t.tenantId, t.branchId, t.createdAt) }),
 );
@@ -211,6 +215,9 @@ export const comments = sqliteTable(
     state: text('state').notNull().default('visible'),
     createdAt: integer('created_at').notNull(),
     deletedAt: integer('deleted_at'),
+    moderationReason: text('moderation_reason'),
+    moderatedAt: integer('moderated_at'),
+    moderatedByUserId: text('moderated_by_user_id'),
   },
   (t) => ({ byPost: index('comments_post_idx').on(t.postId, t.createdAt) }),
 );
@@ -229,6 +236,7 @@ export const contentReports = sqliteTable(
     resolvedById: text('resolved_by_id'),
     resolution: text('resolution'),
     createdAt: integer('created_at').notNull(),
+    resolvedAt: integer('resolved_at'),
   },
   (t) => ({ byState: index('content_reports_idx').on(t.tenantId, t.state) }),
 );
@@ -262,6 +270,16 @@ export const conversations = sqliteTable(
     muted: integer('muted', { mode: 'boolean' }).notNull().default(false),
     lastMessageAt: integer('last_message_at').notNull(),
     createdAt: integer('created_at').notNull(),
+    /** The branch whose desk or coach answers (P07 staff inbox scope). */
+    branchId: text('branch_id'),
+    /** What a member-started thread is about (topic picker). */
+    topic: text('topic'),
+    /** Staff member currently responsible for replying. */
+    assignedStaffId: text('assigned_staff_id'),
+    /** Last time any staff member read the thread (shared inbox read state). */
+    staffReadAt: integer('staff_read_at'),
+    /** member | staff | system */
+    startedBy: text('started_by'),
   },
   (t) => ({ byMember: index('conversations_member_idx').on(t.memberId, t.lastMessageAt) }),
 );

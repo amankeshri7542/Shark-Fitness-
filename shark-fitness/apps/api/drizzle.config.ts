@@ -18,6 +18,7 @@ export default {
     './src/db/schema/push.ts',
     './src/db/schema/security.ts',
     './src/db/schema/member-core.ts',
+    './src/db/schema/engagement-ops.ts',
   ],
   out: '../../infrastructure/migrations',
   dialect: 'sqlite',
