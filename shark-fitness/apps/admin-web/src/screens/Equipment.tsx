@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, OfflineError, api } from '../lib/api';
 import { useAdmin, useBranchScope, usePermission } from '../lib/store';
 import { useOnline } from '../lib/realtime';
@@ -155,6 +155,10 @@ export default function EquipmentScreen() {
     queryKey: ['facility', branchId, search, status, workOrderState, severity],
     queryFn: () => api<FacilityPayload>(`/admin/facility?${params.toString()}`, { branchId }),
     enabled: canView,
+    // A new filter is a new query key. Without the previous answer standing in,
+    // every keystroke in Search swapped the page for the loading skeleton and
+    // took the search box (and the cursor) with it.
+    placeholderData: keepPreviousData,
   });
 
   const refresh = (): void => {
