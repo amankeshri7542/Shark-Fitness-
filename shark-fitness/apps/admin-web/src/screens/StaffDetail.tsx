@@ -428,7 +428,18 @@ function CoveragePanel({
         </div>
       ) : null}
 
-      {live.length === 0 ? (
+      {/* "Available" is a claim about this person's diary. It is made only
+          once the diary has been read — not while it loads, and not over a
+          failed read. */}
+      {absences.isLoading ? (
+        <Skeleton className="h-16" />
+      ) : absences.isError ? (
+        <ErrorState
+          title="Absences could not be read"
+          body={absences.error instanceof ApiError ? absences.error.message : 'The server did not answer.'}
+          onRetry={() => void absences.refetch()}
+        />
+      ) : live.length === 0 ? (
         <EmptyState title="Available" body="No absence is recorded for this profile." />
       ) : (
         <div className="divide-y divide-line">
@@ -459,6 +470,12 @@ function CoveragePanel({
 
       {impact.isLoading ? (
         <Skeleton className="h-24" />
+      ) : impact.isError ? (
+        <ErrorState
+          title="What this affects could not be read"
+          body={impact.error instanceof ApiError ? impact.error.message : 'The server did not answer.'}
+          onRetry={() => void impact.refetch()}
+        />
       ) : impact.data && impact.data.sessions.length + impact.data.appointments.length === 0 ? (
         <EmptyState title="Nothing affected" body="No classes or appointments fall inside a recorded absence." />
       ) : (
@@ -548,7 +565,17 @@ function SubstitutePicker({
   });
 
   if (candidates.isLoading) return <Skeleton className="h-20" />;
-  if (!candidates.data) return null;
+  if (candidates.error || !candidates.data) {
+    return (
+      <div className="border-t border-line">
+        <ErrorState
+          title="Cover could not be looked up"
+          body={candidates.error instanceof ApiError ? candidates.error.message : 'The server did not answer.'}
+          onRetry={() => void candidates.refetch()}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="border-t border-line bg-wash-sonar-soft">

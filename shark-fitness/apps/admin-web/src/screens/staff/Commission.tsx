@@ -258,7 +258,13 @@ export default function CommissionSurface() {
         <p className="border-t border-line px-3.5 py-2.5 text-[11px] leading-relaxed text-foam-45">
           {data.settlementNote}
         </p>
-        {!canApprove ? (
+        {/* A failed rules read is not a permission answer: saying "your role
+            cannot approve" over it sends a manager to ask for access they have. */}
+        {rules.isError ? (
+          <p className="border-t border-line px-3.5 py-2.5 text-[11px] leading-relaxed text-foam-45">
+            Whether you can approve could not be checked, so approving and settling are off. Reload to try again.
+          </p>
+        ) : !canApprove ? (
           <p className="border-t border-line px-3.5 py-2.5 text-[11px] leading-relaxed text-foam-45">
             Your role can read these figures and cannot approve or settle them. That separation is deliberate.
           </p>
