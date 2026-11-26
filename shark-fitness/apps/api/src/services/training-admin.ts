@@ -9,6 +9,7 @@ import { id } from '../lib/ids.js';
 import { now } from '../lib/time.js';
 import { loadStaffInScope } from './staff.js';
 import { loadMemberInScope } from './members.js';
+import { handOverCoachThreads } from './messaging.js';
 
 /**
  * Program builder, exercise library and trainer/program assignment
@@ -851,6 +852,7 @@ export function assignTrainer(ctx: RequestContext, memberId: string, trainerId: 
       .set({ trainerId })
       .where(and(eq(schema.members.id, memberId), eq(schema.members.tenantId, ctx.tenantId)))
       .run();
+    handOverCoachThreads(ctx.tenantId, memberId, before, trainerId);
 
     audit(ctx, {
       action: 'member.trainer_assigned',
@@ -941,6 +943,7 @@ export function assignProgram(ctx: RequestContext, input: AssignProgramInput) {
         .set({ trainerId })
         .where(and(eq(schema.members.id, member.id), eq(schema.members.tenantId, ctx.tenantId)))
         .run();
+      handOverCoachThreads(ctx.tenantId, member.id, member.trainerId, trainerId);
       audit(ctx, {
         action: 'member.trainer_assigned',
         entityType: 'member',

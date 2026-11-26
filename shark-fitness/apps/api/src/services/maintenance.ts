@@ -35,6 +35,8 @@ export interface OperationalPruneResult {
   usedAccessWindows: number;
   automationRuns: number;
   automationDeliveries: number;
+  /** Finished channel attempts (P07), on the automation-history retention. */
+  notificationDeliveries: number;
   jobRuns: number;
 }
 
@@ -81,6 +83,7 @@ export function pruneOperationalData(options: PruneOptions = {}): OperationalPru
     usedAccessWindows: 0,
     automationRuns: 0,
     automationDeliveries: 0,
+    notificationDeliveries: 0,
     jobRuns: 0,
   };
 
@@ -222,6 +225,23 @@ function pruneOperationalBatch(atMs: number, batchSize: number): OperationalPrun
       ? 0
       : db.delete(schema.automationDeliveries).where(inArray(schema.automationDeliveries.id, deliveryIds)).run().changes;
 
+    const notificationIds = db
+      .select({ id: schema.notificationDeliveries.id })
+      .from(schema.notificationDeliveries)
+      .where(
+        and(
+          lt(schema.notificationDeliveries.updatedAt, automationCutoff),
+          inArray(schema.notificationDeliveries.state, ['logged', 'sent', 'suppressed', 'failed']),
+        ),
+      )
+      .orderBy(schema.notificationDeliveries.updatedAt)
+      .limit(batchSize)
+      .all()
+      .map((row) => row.id);
+    const notificationDeliveries = notificationIds.length === 0
+      ? 0
+      : db.delete(schema.notificationDeliveries).where(inArray(schema.notificationDeliveries.id, notificationIds)).run().changes;
+
     const jobIds = db
       .select({ id: schema.jobRuns.id })
       .from(schema.jobRuns)
@@ -248,6 +268,7 @@ function pruneOperationalBatch(atMs: number, batchSize: number): OperationalPrun
       usedAccessWindows,
       automationRuns,
       automationDeliveries,
+      notificationDeliveries,
       jobRuns,
     };
   });

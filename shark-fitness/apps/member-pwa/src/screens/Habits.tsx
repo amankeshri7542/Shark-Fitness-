@@ -20,6 +20,7 @@ import {
   Skeleton,
   cx,
 } from '../ui/primitives';
+import { WeeklyCheckIn } from './habits/WeeklyCheckIn';
 
 /**
  * Habits and daily metrics.
@@ -317,6 +318,9 @@ export default function HabitsScreen() {
             </Panel>
           </>
         ) : null}
+
+        {/* — Weekly check-in (PF-NUTR-003), read by the coach —————— */}
+        <WeeklyCheckIn />
       </Stack>
     </ScreenBody>
   );

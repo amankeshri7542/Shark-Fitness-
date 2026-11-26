@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { can, navFor } from '../permissions.js';
+import { can, modulesFor, navFor } from '../permissions.js';
 
 describe('role permissions', () => {
   it('gives a member no staff permission at all', () => {
@@ -33,10 +33,40 @@ describe('role permissions', () => {
     expect(can('owner', 'platform.impersonate')).toBe(false);
   });
 
-  it('shows reception five or six modules, not sixteen', () => {
+  it('shows reception at most seven rail modules, not sixteen', () => {
     const nav = navFor('reception');
-    expect(nav.length).toBeLessThanOrEqual(8);
+    expect(nav.length).toBeLessThanOrEqual(7);
     expect(navFor('owner').length).toBeGreaterThan(nav.length);
+    // The desk's day: check-in, members, money, the class grid and member messages.
+    expect(nav.map((m) => m.key)).toEqual(
+      expect.arrayContaining(['home', 'inbox', 'members', 'attendance', 'billing', 'schedule']),
+    );
+  });
+
+  it('keeps every permitted module one palette search away even when the rail is trimmed', () => {
+    const all = modulesFor('reception').map((m) => m.key);
+    expect(all).toEqual(expect.arrayContaining(['store', 'support', 'tasks']));
+    for (const m of modulesFor('reception')) expect(can('reception', m.permission)).toBe(true);
+  });
+
+  it('makes the P07 modules permission-aware', () => {
+    const owner = navFor('owner').map((m) => m.key);
+    expect(owner).toEqual(expect.arrayContaining(['tasks', 'inbox', 'coaching', 'community', 'marketing']));
+
+    const trainer = navFor('trainer').map((m) => m.key);
+    expect(trainer).toEqual(expect.arrayContaining(['tasks', 'inbox', 'coaching']));
+    expect(trainer).not.toContain('community');
+    expect(trainer).not.toContain('marketing');
+
+    const accountant = navFor('accountant').map((m) => m.key);
+    expect(accountant).toContain('tasks');
+    expect(accountant).not.toContain('inbox');
+    expect(accountant).not.toContain('coaching');
+
+    expect(can('owner', 'broadcast.approve')).toBe(true);
+    expect(can('regional_manager', 'broadcast.approve')).toBe(false);
+    expect(can('branch_manager', 'broadcast.send')).toBe(true);
+    expect(can('reception', 'broadcast.send')).toBe(false);
   });
 });
 

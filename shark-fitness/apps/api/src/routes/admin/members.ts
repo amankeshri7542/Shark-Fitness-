@@ -430,6 +430,7 @@ membersRoutes.get('/:memberId', (c) => {
       lifecycle: member.lifecycle,
       joinedOn: member.joinedOn,
       lastVisitLabel: member.lastVisitAt ? relativeTime(member.lastVisitAt) : 'Never',
+      homeBranchId: member.homeBranchId,
       branchName: branch?.name ?? '',
       trainerId: member.trainerId,
       trainerName: trainer?.name ?? null,

@@ -84,6 +84,32 @@ beforeEach(() => {
 });
 
 describe('Rules — truthful provider and branch scope controls', () => {
+  it('shows what each channel can really do on this server', async () => {
+    apiMock.mockImplementation((path: string) => {
+      if (path === '/admin/automations') {
+        return Promise.resolve({
+          items: [externalRule],
+          triggers: [trigger],
+          channels: [
+            { channel: 'in_app', available: true, delivers: true, driver: 'in_app', label: 'In-app', note: 'Delivered to the inbox.' },
+            { channel: 'push', available: false, delivers: false, driver: 'none', label: 'push', note: 'push is not set up on this server.' },
+            { channel: 'sms', available: true, delivers: false, driver: 'log', label: 'SMS', note: 'No SMS provider is configured.' },
+            { channel: 'email', available: true, delivers: true, driver: 'resend', label: 'email', note: 'Sent through resend.' },
+          ],
+        });
+      }
+      throw new Error(`Unexpected API call: ${path}`);
+    });
+    renderRules();
+
+    const strip = await screen.findByRole('region', { name: 'Message channels' });
+    const item = (label: string) => [...strip.querySelectorAll('li')].find((li) => li.textContent?.startsWith(label));
+    expect(item('In-app')?.textContent).toContain('Delivers');
+    expect(item('push')?.textContent).toContain('Not set up');
+    expect(item('SMS')?.textContent).toContain('Logged only');
+    expect(item('email')?.textContent).toContain('Delivers');
+  });
+
   it('never offers to send through an unavailable provider', async () => {
     const user = userEvent.setup();
     renderRules();

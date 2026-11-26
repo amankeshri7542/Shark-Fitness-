@@ -171,6 +171,15 @@ through an IndexedDB outbox with a client-generated id that doubles as the idemp
 key. Losing signal mid-workout costs a retry and nothing else. Bookings deliberately do
 *not* queue — a last-seat claim has to wait for the server.
 
+**Messages are recorded, not assumed.** Every channel (in-app, push, email,
+SMS, WhatsApp) goes through one NotificationService that checks purpose
+consent at queue time and again at send time, defers quiet hours in branch
+time and writes each attempt to `notification_deliveries`. Off in-app, every
+channel defaults to a `log` driver that says "logged, not delivered". Member
+messaging, the staff Inbox, community moderation, tasks, the coach view,
+broadcasts, quick add and the command palette are described in
+`docs/ENGAGEMENT.md`.
+
 **Status is never colour alone.** Every `Chip` pairs its colour with a glyph, per WCAG
 2.2 and the design PRD.
 

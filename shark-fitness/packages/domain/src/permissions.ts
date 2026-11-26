@@ -43,6 +43,17 @@ export const PERMISSIONS = [
   'lead.manage',
   'community.moderate',
   'support.manage',
+  /** Read and reply to member conversations: the coach's own threads, the
+   *  branch desk's threads for front-of-house and managers (P07). */
+  'inbox.view',
+  /** See the task queue and work your own tasks. */
+  'task.view',
+  /** Create tasks for others, reassign and cancel any task in scope. */
+  'task.manage',
+  /** Compose, preview and send a one-off broadcast (PF-COMM-006). */
+  'broadcast.send',
+  /** Release a broadcast above the gym's approval threshold. Owner only. */
+  'broadcast.approve',
   'inventory.view',
   'inventory.manage',
   'facility.view',
@@ -76,6 +87,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'training.view', 'training.assign', 'training.program.manage',
     'lead.view', 'lead.manage',
     'community.moderate', 'support.manage',
+    'inbox.view', 'task.view', 'task.manage', 'broadcast.send',
     'inventory.view', 'inventory.manage',
     'facility.view', 'facility.manage',
     'report.view', 'report.financial', 'report.export',
@@ -92,6 +104,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'training.view', 'training.assign',
     'lead.view', 'lead.manage',
     'community.moderate', 'support.manage',
+    'inbox.view', 'task.view', 'task.manage', 'broadcast.send',
     'inventory.view', 'inventory.manage',
     'facility.view', 'facility.manage',
     'report.view', 'report.export',
@@ -106,6 +119,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'lead.view', 'lead.manage',
     'inventory.view',
     'support.manage',
+    'inbox.view', 'task.view', 'task.manage',
   ],
   // Trainers see their assigned members only. The scope test in the repository
   // enforces that; this list only says which verbs they may attempt at all.
@@ -116,6 +130,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'schedule.view',
     'training.view', 'training.assign', 'training.program.manage', 'training.notes.private',
     'facility.view',
+    'inbox.view', 'task.view',
   ],
   accountant: [
     'dashboard.view',
@@ -124,6 +139,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'report.view', 'report.financial', 'report.export',
     'inventory.view',
     'audit.view',
+    'task.view',
   ],
   member: [],
 };
@@ -147,6 +163,8 @@ export interface NavModule {
 
 export const ADMIN_NAV: NavModule[] = [
   { key: 'home', label: 'Command', to: '/', permission: 'dashboard.view' },
+  { key: 'tasks', label: 'Tasks', to: '/tasks', permission: 'task.view' },
+  { key: 'inbox', label: 'Inbox', to: '/inbox', permission: 'inbox.view' },
   { key: 'leads', label: 'Leads', to: '/leads', permission: 'lead.view' },
   { key: 'members', label: 'Members', to: '/members', permission: 'member.view' },
   { key: 'memberships', label: 'Plans', to: '/plans', permission: 'product.manage' },
@@ -154,15 +172,28 @@ export const ADMIN_NAV: NavModule[] = [
   { key: 'attendance', label: 'Floor', to: '/floor', permission: 'attendance.view' },
   { key: 'schedule', label: 'Schedule', to: '/schedule', permission: 'schedule.view' },
   { key: 'training', label: 'Training', to: '/training', permission: 'training.view' },
+  { key: 'coaching', label: 'Nutrition & Habits', to: '/coaching', permission: 'training.assign' },
+  { key: 'community', label: 'Community', to: '/community', permission: 'community.moderate' },
   { key: 'staff', label: 'Staff', to: '/staff', permission: 'staff.view' },
   { key: 'store', label: 'Store', to: '/store', permission: 'inventory.view' },
   { key: 'equipment', label: 'Equipment', to: '/equipment', permission: 'facility.view' },
+  { key: 'marketing', label: 'Marketing', to: '/marketing', permission: 'broadcast.send' },
   { key: 'automations', label: 'Automations', to: '/automations', permission: 'automation.manage' },
   { key: 'reports', label: 'Reports', to: '/reports', permission: 'report.view' },
   { key: 'support', label: 'Support', to: '/support', permission: 'support.manage' },
   { key: 'settings', label: 'Settings', to: '/settings', permission: 'settings.manage' },
   { key: 'platform', label: 'Platform', to: '/platform', permission: 'platform.admin' },
 ];
+
+/**
+ * The rail for roles whose permissions open more modules than their day needs
+ * (Design PRD §3.1: "Reception staff should not see sixteen modules when they
+ * only need five"). Everything else their permissions allow stays one ⌘K away
+ * (`modulesFor`), and Tasks is always in the status strip as "My tasks".
+ */
+const RAIL_FOCUS: Partial<Record<Role, string[]>> = {
+  reception: ['home', 'inbox', 'members', 'attendance', 'billing', 'schedule', 'leads'],
+};
 
 /** Roles that operate the product rather than use it. They have no gym. */
 const PLATFORM_ROLES: Role[] = ['platform_admin', 'platform_support'];
@@ -181,6 +212,13 @@ const PLATFORM_ROLES: Role[] = ['platform_admin', 'platform_support'];
  * an account and enter it, and may not administer anybody.
  */
 export function navFor(role: Role): NavModule[] {
+  const modules = modulesFor(role);
+  const focus = RAIL_FOCUS[role];
+  return focus ? modules.filter((m) => focus.includes(m.key)) : modules;
+}
+
+/** Every module a role may open, rail or not — what the command palette lists. */
+export function modulesFor(role: Role): NavModule[] {
   if (PLATFORM_ROLES.includes(role)) {
     return [{ key: 'platform', label: 'Platform', to: '/platform', permission: 'platform.impersonate' }];
   }

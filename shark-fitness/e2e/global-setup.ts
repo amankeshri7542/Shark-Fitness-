@@ -43,6 +43,8 @@ export default async function globalSetup(): Promise<void> {
       SHARK_PASS_SECRET: randomBytes(48).toString('base64'),
       SHARK_MFA_ENCRYPTION_KEY: randomBytes(32).toString('base64'),
       SHARK_DISABLE_JOBS: 'true',
+      // Private media (message attachments) in this run's temp folder.
+      SHARK_MEDIA_DIR: join(tempDir, 'media'),
       SHARK_RELEASE: 'e2e',
       // Error reports go to the server log, where the client-error spec reads them.
       SHARK_ERROR_REPORTER: 'console',

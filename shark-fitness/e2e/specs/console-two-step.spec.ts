@@ -1,5 +1,6 @@
 import { expect, test } from '../support/fixtures';
 import { totpFor } from '../support/totp';
+import { submitSignIn } from '../support/demo';
 
 /**
  * PRD 04 ENT-IAM-001: an owner without two-step sign-in meets the enrolment
@@ -12,7 +13,7 @@ test('an owner without MFA is gated to enrolment, enrols, and is asked for a cod
   await page.getByLabel('Gym code').fill('reef');
   await page.getByLabel('Work email').fill('owner@reefathletic.in');
   await page.getByLabel('Password').fill('shark1234');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await submitSignIn(page);
 
   await expect(page.getByRole('heading', { level: 1, name: 'Set up two-step sign-in' })).toBeVisible();
   await expect(page.getByText(/Owners, regional managers and platform staff must use two-step sign-in/)).toBeVisible();
@@ -36,7 +37,7 @@ test('an owner without MFA is gated to enrolment, enrols, and is asked for a cod
   await page.getByLabel('Gym code').fill('reef');
   await page.getByLabel('Work email').fill('owner@reefathletic.in');
   await page.getByLabel('Password').fill('shark1234');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await submitSignIn(page);
   await expect(page.getByRole('heading', { level: 1, name: 'Enter your code' })).toBeVisible();
   await page.getByRole('button', { name: 'Use a recovery code' }).click();
   await page.getByLabel('Recovery code').fill(recovery);

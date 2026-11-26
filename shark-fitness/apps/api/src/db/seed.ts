@@ -2481,6 +2481,11 @@ db.insert(schema.conversations)
     muted: false,
     lastMessageAt: NOW - 2 * HOUR,
     createdAt: NOW - 300 * DAY,
+    branchId: 'br_kor',
+    topic: 'training',
+    assignedStaffId: coachRehan.staffId,
+    staffReadAt: NOW - 2 * HOUR,
+    startedBy: 'staff',
   })
   .run();
 
@@ -2529,6 +2534,11 @@ db.insert(schema.conversations)
     muted: false,
     lastMessageAt: NOW - 5 * DAY,
     createdAt: NOW - 30 * DAY,
+    branchId: 'br_kor',
+    topic: 'membership',
+    assignedStaffId: reception.staffId,
+    staffReadAt: NOW - 5 * DAY,
+    startedBy: 'member',
   })
   .run();
 

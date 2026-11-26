@@ -8,6 +8,8 @@ import { emit } from '../lib/events.js';
 import { invalid, notFound } from '../lib/errors.js';
 import { id } from '../lib/ids.js';
 import { isoDate, now } from '../lib/time.js';
+import { handOverCoachThreads, memberIsMinor } from './messaging.js';
+import { engagementSettings } from './engagement-settings.js';
 
 /**
  * Members directory bulk actions (Design PRD §5.5): tag, assign a coach,
@@ -189,6 +191,7 @@ export function bulkAssignTrainer(ctx: RequestContext, input: { memberIds: strin
         .set({ trainerId: input.trainerId, version: m.version + 1, updatedAt: at })
         .where(eq(schema.members.id, m.id))
         .run();
+      handOverCoachThreads(ctx.tenantId, m.id, m.trainerId, input.trainerId);
       audit(ctx, {
         action: input.trainerId ? 'member.trainer_assigned' : 'member.trainer_removed',
         entityType: 'member',
@@ -229,7 +232,12 @@ export function bulkMessage(ctx: RequestContext, input: { memberIds: string[]; b
   const body = input.body.trim();
   if (body.length === 0) throw invalid('Write a message first.', [{ path: 'body', code: 'empty', message: 'Required' }]);
 
-  const members = membersInScope(ctx, input.memberIds);
+  const inScope = membersInScope(ctx, input.memberIds);
+  // Staff↔minor direct messages are off unless the gym turned them on (plan
+  // decision 16); a bulk note is a direct message in each member's thread.
+  const minorsAllowed = engagementSettings(ctx.tenantId).allowStaffMinorMessaging;
+  const members = minorsAllowed ? inScope : inScope.filter((m) => !memberIsMinor(m));
+  const skippedMinors = inScope.length - members.length;
   const at = now();
   const branchNames = new Map(
     db.select({ id: schema.branches.id, name: schema.branches.name }).from(schema.branches).all().map((b) => [b.id, b.name]),
@@ -332,9 +340,13 @@ export function bulkMessage(ctx: RequestContext, input: { memberIds: string[]; b
     sent: sent.length,
     conversationsCreated: created,
     withoutApp,
+    skippedMinors,
     message:
       `Sent to ${sent.length} ${sent.length === 1 ? 'member' : 'members'} in the app.` +
-      (withoutApp > 0 ? ` ${withoutApp} ${withoutApp === 1 ? 'has' : 'have'} not signed in to the app yet and will see it when they do.` : ''),
+      (withoutApp > 0 ? ` ${withoutApp} ${withoutApp === 1 ? 'has' : 'have'} not signed in to the app yet and will see it when they do.` : '') +
+      (skippedMinors > 0
+        ? ` ${skippedMinors} under 18 ${skippedMinors === 1 ? 'was' : 'were'} left out: direct messages with members under 18 are switched off at this gym.`
+        : ''),
   };
 }
 

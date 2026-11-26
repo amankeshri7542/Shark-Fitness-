@@ -4,6 +4,21 @@ import type { Branch, ImpersonationBanner, Viewer } from '@shark/contracts';
 import { can, type Permission } from '@shark/domain';
 import { ApiError, api, auth } from './api';
 
+/** Command palette recents, one list per tenant and person (ui/CommandPalette). */
+export const PALETTE_RECENT_PREFIX = 'shark.admin.palette.recent';
+
+/** Forget every palette recent on this browser (sign-out on a shared desk PC). */
+export function clearPaletteRecents(): void {
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (key?.startsWith(PALETTE_RECENT_PREFIX)) localStorage.removeItem(key);
+    }
+  } catch {
+    /* private mode: nothing was stored */
+  }
+}
+
 interface AdminState {
   viewer: Viewer | null;
   /**
@@ -141,6 +156,7 @@ export const useAdmin = create<AdminState>((set, get) => ({
     }
     auth.clear();
     localStorage.removeItem(BRANCH_KEY);
+    clearPaletteRecents();
     set({ viewer: null, impersonation: null, branches: [], activeBranchId: null, status: 'signed-out', sessionEnded: null, mfaPending: null });
   },
 }));

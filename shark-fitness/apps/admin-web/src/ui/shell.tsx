@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
+import { api } from '../lib/api';
 import { navFor } from '@shark/domain';
 import { Button, Chip, LiveDot, cx } from './console';
-import { useFocusTrap } from './overlay';
-import { useAdmin, useViewer } from '../lib/store';
+import { useAdmin, usePermission, useViewer } from '../lib/store';
 import { useConnection, useOnline } from '../lib/realtime';
 
 /* Each module gets a mark rather than an icon font — a clip-path shape in the
@@ -25,6 +25,11 @@ const MARKS: Record<string, string> = {
   support: 'polygon(0 0,100% 0,100% 70%,60% 70%,36% 100%,36% 70%,0 70%)',
   settings: 'polygon(38% 0,62% 0,62% 24%,100% 38%,100% 62%,62% 76%,62% 100%,38% 100%,38% 76%,0 62%,0 38%,38% 24%)',
   platform: 'polygon(50% 0,100% 50%,50% 100%,0 50%)',
+  tasks: 'polygon(0 0,100% 0,100% 100%,0 100%,0 80%,80% 80%,80% 20%,0 20%)',
+  inbox: 'polygon(0 0,100% 0,100% 100%,0 100%,0 55%,32% 55%,50% 72%,68% 55%,100% 55%,100% 45%,0 45%)',
+  coaching: 'polygon(50% 0,100% 38%,82% 100%,18% 100%,0 38%)',
+  community: 'polygon(0 20%,40% 20%,40% 0,100% 0,100% 60%,60% 60%,60% 100%,0 100%)',
+  marketing: 'polygon(0 30%,60% 0,60% 100%,0 70%)',
 };
 
 export function Rail() {
@@ -95,7 +100,24 @@ export function Rail() {
  * visible on every screen, because the PRD requires branch scope to be
  * permanently visible wherever it affects the data.
  */
-export function StatusStrip({ alertCount = 0 }: { alertCount?: number }) {
+/** My open tasks and the alert-born work in scope, for the strip (P07). */
+export function useTaskSummary(): { mine: number; mineOverdue: number; toActOn: number } | null {
+  const canView = usePermission('task.view');
+  const branchId = useAdmin((s) => s.activeBranchId);
+  const summary = useQuery({
+    queryKey: ['tasks', 'summary', branchId],
+    queryFn: () => api<{ mine: number; mineOverdue: number; toActOn: number }>('/admin/tasks/summary'),
+    enabled: canView,
+    refetchInterval: 60_000,
+  });
+  return summary.data ?? null;
+}
+
+export function StatusStrip({ alertCount = 0, myTasks = null }: {
+  alertCount?: number;
+  /** Null hides the chip (no task permission, or not loaded yet). */
+  myTasks?: { open: number; overdue: number } | null;
+}) {
   const viewer = useViewer();
   const branches = useAdmin((s) => s.branches);
   const activeBranchId = useAdmin((s) => s.activeBranchId);
@@ -151,13 +173,21 @@ export function StatusStrip({ alertCount = 0 }: { alertCount?: number }) {
         Search <span className="ml-1 text-foam-35">⌘K</span>
       </Button>
 
+      {myTasks ? (
+        <Link to="/tasks" search={{ view: 'mine' }} aria-label={`My tasks: ${myTasks.open} open${myTasks.overdue ? `, ${myTasks.overdue} overdue` : ''}`}>
+          <Chip tone={myTasks.overdue > 0 ? 'bad' : myTasks.open > 0 ? 'accent' : 'neutral'}>
+            My tasks {myTasks.open}
+            {myTasks.overdue > 0 ? ` · ${myTasks.overdue} late` : ''}
+          </Chip>
+        </Link>
+      ) : null}
+
       {alertCount > 0 ? (
-        <Link to="/">
+        <Link to="/tasks" search={{ view: 'open' }}>
           <Chip tone="warn">{alertCount} to act on</Chip>
         </Link>
-      ) : (
-        <ConnectionBadge />
-      )}
+      ) : null}
+      <ConnectionBadge />
 
       <button
         type="button"
@@ -289,101 +319,4 @@ export function Page({ title, kicker, actions, children }: {
   );
 }
 
-/**
- * ⌘K. Jumps to a module, filtered to what the role may open.
- *
- * It says "module" because that is all it does. The placeholder used to offer
- * members, invoices and classes, and the no-results line suggested trying a
- * member name — against an index that has only ever held the fifteen or so
- * modules in the rail. Typing a member's name returned "nothing matches",
- * which reads as "that member does not exist": a promise the console does not
- * keep, answered with a statement that is not true. Member and invoice search
- * live on their own screens and are reachable from here in one press; when
- * this palette can genuinely search them, the copy can say so again.
- */
-export function CommandPalette() {
-  const open = useAdmin((s) => s.paletteOpen);
-  const togglePalette = useAdmin((s) => s.togglePalette);
-  const viewer = useViewer();
-  const navigate = useNavigate();
-  const [query, setQuery] = useState('');
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const closePalette = () => togglePalette(false);
-  const panelRef = useFocusTrap(open, closePalette, inputRef);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        togglePalette();
-      }
-      if (e.key === 'Escape') togglePalette(false);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [togglePalette]);
-
-  if (!open || !viewer) return null;
-
-  const modules = navFor(viewer.role).filter((m) =>
-    m.label.toLowerCase().includes(query.toLowerCase()),
-  );
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-scrim pt-[12vh]"
-      onClick={() => togglePalette(false)}
-      role="presentation"
-    >
-      <div
-        ref={panelRef}
-        tabIndex={-1}
-        data-overlay-panel=""
-        className="w-[min(560px,92vw)] border border-line-strong bg-overlay"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Search and commands"
-      >
-        <input
-          ref={inputRef}
-          autoFocus
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Jump to a module"
-          className="w-full border-0 border-b border-line bg-transparent px-4 py-3.5 text-[15px] outline-none placeholder:text-foam-35"
-        />
-        <ul className="max-h-[50vh] overflow-y-auto">
-          {modules.map((m) => (
-            <li key={m.key}>
-              <button
-                type="button"
-                onClick={() => {
-                  togglePalette(false);
-                  setQuery('');
-                  void navigate({ to: m.to });
-                }}
-                className="flex w-full items-center gap-3 border-b border-line-10 px-4 py-2.5 text-left hover:bg-wash-sonar"
-              >
-                <span
-                  aria-hidden="true"
-                  className="h-2.5 w-2.5 flex-none bg-sonar"
-                  style={{ clipPath: MARKS[m.key] ?? MARKS.home }}
-                />
-                <span className="text-[13px]">{m.label}</span>
-              </button>
-            </li>
-          ))}
-          {modules.length === 0 ? (
-            <li className="px-4 py-4 text-[13px] text-foam-45">
-              No module matches “{query}”. Members and invoices are searched on their own screens.
-            </li>
-          ) : null}
-        </ul>
-        <div className="border-t border-line px-4 py-2 font-utility text-[9px] uppercase tracking-[0.12em] text-foam-35">
-          Modules your role can open
-        </div>
-      </div>
-    </div>
-  );
-}
+export { CommandPalette } from './CommandPalette';

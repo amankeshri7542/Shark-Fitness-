@@ -31,6 +31,7 @@ const PackScreen = lazyRouteComponent(() => import('./screens/Pack'));
 const ChallengeScreen = lazyRouteComponent(() => import('./screens/Challenge'));
 const MessagesScreen = lazyRouteComponent(() => import('./screens/Messages'));
 const ConversationScreen = lazyRouteComponent(() => import('./screens/Conversation'));
+const NewMessageScreen = lazyRouteComponent(() => import('./screens/NewMessage'));
 const BillingScreen = lazyRouteComponent(() => import('./screens/Billing'));
 const LibraryScreen = lazyRouteComponent(() => import('./screens/Library'));
 const ProfileScreen = lazyRouteComponent(() => import('./screens/Profile'));
@@ -117,6 +118,7 @@ const challengeRoute = createRoute({
 const bookRoute = createRoute({ getParentRoute: () => tabsRoute, path: '/book', component: BookScreen });
 const habitsRoute = createRoute({ getParentRoute: () => tabsRoute, path: '/habits', component: HabitsScreen });
 const messagesRoute = createRoute({ getParentRoute: () => tabsRoute, path: '/messages', component: MessagesScreen });
+const newMessageRoute = createRoute({ getParentRoute: () => tabsRoute, path: '/messages/new', component: NewMessageScreen });
 const conversationRoute = createRoute({
   getParentRoute: () => tabsRoute,
   path: '/messages/$conversationId',
@@ -151,6 +153,7 @@ const routeTree = rootRoute.addChildren([
     bookRoute,
     habitsRoute,
     messagesRoute,
+    newMessageRoute,
     conversationRoute,
     billingRoute,
     libraryRoute,

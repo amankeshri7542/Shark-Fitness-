@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { nextOwnerCode } from './totp';
 
 /** The seeded demo gym (apps/api/src/db/seed.ts). */
@@ -7,6 +7,26 @@ export const DEMO = {
   owner: { email: 'owner@sharkfitness.in', password: 'shark1234' },
   member: { email: 'aman@sharkfitness.in', password: 'shark1234' },
 } as const;
+
+/**
+ * Clicks "Sign in". The API allows ten password sign-ins a minute from one
+ * address, and a full run signs in more often than that, so a 429 is waited
+ * out (for the `retryAfterSec` the API sends) and the click repeated, rather
+ * than letting one spec fail because of another's sign-ins.
+ */
+export async function submitSignIn(page: Page): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const answer = page.waitForResponse((r) => r.url().endsWith('/v1/auth/password') && r.request().method() === 'POST');
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    const response = await answer;
+    if (response.status() !== 429) return;
+    const body = (await response.json().catch(() => ({}))) as { error?: { retryAfterSec?: number } };
+    const waitMs = ((body.error?.retryAfterSec ?? 60) + 1) * 1000;
+    // The wait is the limiter's, not the product's: give the spec that time back.
+    test.info().setTimeout(test.info().timeout + waitMs);
+    await page.waitForTimeout(waitMs);
+  }
+}
 
 /** Password, then the owner's authenticator code (two-step sign-in is mandatory for owners). */
 export async function signInToConsole(page: Page, path = '/admin/'): Promise<void> {
@@ -20,7 +40,7 @@ export async function completeConsoleSignIn(page: Page): Promise<void> {
   await page.getByLabel('Gym code').fill(DEMO.gym);
   await page.getByLabel('Work email').fill(DEMO.owner.email);
   await page.getByLabel('Password').fill(DEMO.owner.password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await submitSignIn(page);
   await expect(page.getByRole('heading', { level: 1, name: 'Enter your code' })).toBeVisible();
   await page.getByLabel('Authenticator code').fill(await nextOwnerCode());
   await page.getByRole('button', { name: 'Verify' }).click();
@@ -31,6 +51,22 @@ export async function signInToMemberApp(page: Page): Promise<void> {
   await page.getByLabel('Gym code').fill(DEMO.gym);
   await page.getByLabel('Email').fill(DEMO.member.email);
   await page.getByLabel('Password').fill(DEMO.member.password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await submitSignIn(page);
   await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible();
+}
+
+/** Staff who do not owe two-step sign-in (branch manager, reception, coaches). */
+export const STAFF = {
+  manager: 'manager@sharkfitness.in',
+  reception: 'reception@sharkfitness.in',
+  coach: 'rehan@sharkfitness.in',
+} as const;
+
+export async function signInToConsoleAs(page: Page, email: string, path = '/admin/'): Promise<void> {
+  await page.goto(path);
+  await page.getByLabel('Gym code').fill(DEMO.gym);
+  await page.getByLabel('Work email').fill(email);
+  await page.getByLabel('Password').fill(DEMO.owner.password);
+  await submitSignIn(page);
+  await expect(page.getByRole('navigation', { name: 'Modules' })).toBeVisible();
 }

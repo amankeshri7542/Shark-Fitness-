@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, api, API_ORIGIN } from '../lib/api';
@@ -81,10 +81,14 @@ export default function BillingScreen() {
   const canRefund = usePermission('billing.refund');
   const canWriteOff = usePermission('billing.write_off');
   const queryClient = useQueryClient();
-  const { state } = useSearch({ from: '/console/billing' });
+  const { state, invoice: linkedInvoice, pay } = useSearch({ from: '/console/billing' });
   const stateFilter = state ?? '';
   const navigate = useNavigate({ from: '/billing' });
-  const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
+  // A link (search result, command palette) can open an invoice directly.
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(linkedInvoice ?? null);
+  useEffect(() => {
+    if (linkedInvoice) setSelectedInvoiceId(linkedInvoice);
+  }, [linkedInvoice]);
 
   const summary = useQuery({ queryKey: ['billing-summary'], queryFn: () => api<Summary>('/admin/billing/summary'), enabled: canView });
   const invoices = useQuery({
@@ -253,11 +257,16 @@ export default function BillingScreen() {
 
       {selectedInvoiceId ? (
         <InvoiceDetailPanel
+          key={selectedInvoiceId}
           invoiceId={selectedInvoiceId}
           canRecordPayment={canRecordPayment}
           canRefund={canRefund}
           canWriteOff={canWriteOff}
-          onClose={() => setSelectedInvoiceId(null)}
+          initialSheet={pay === 1 && selectedInvoiceId === linkedInvoice && canRecordPayment ? 'payment' : null}
+          onClose={() => {
+            setSelectedInvoiceId(null);
+            if (linkedInvoice) void navigate({ search: (prev) => ({ ...prev, invoice: undefined, pay: undefined }), replace: true });
+          }}
           onChanged={invalidateAll}
         />
       ) : null}
@@ -270,6 +279,7 @@ function InvoiceDetailPanel({
   canRecordPayment,
   canRefund,
   canWriteOff,
+  initialSheet = null,
   onClose,
   onChanged,
 }: {
@@ -277,10 +287,12 @@ function InvoiceDetailPanel({
   canRecordPayment: boolean;
   canRefund: boolean;
   canWriteOff: boolean;
+  /** Open straight onto a sheet (the palette's Record payment). */
+  initialSheet?: 'payment' | null;
   onClose: () => void;
   onChanged: () => void;
 }) {
-  const [sheet, setSheet] = useState<'payment' | 'void' | { refundPaymentId: string } | null>(null);
+  const [sheet, setSheet] = useState<'payment' | 'void' | { refundPaymentId: string } | null>(initialSheet);
   const { data, isLoading, error, refetch } = useQuery({ queryKey: ['invoice', invoiceId], queryFn: () => api<InvoiceDetail>(`/admin/billing/invoices/${invoiceId}`) });
 
   return (

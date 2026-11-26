@@ -8,6 +8,8 @@ import { emit } from '../lib/events.js';
 import { processDueDeliveries, runDueAutomations } from '../services/automations.js';
 import { pruneOperationalData } from '../services/maintenance.js';
 import { runWebhookDispatch } from '../services/webhooks.js';
+import { processNotificationQueue } from '../services/notifications/service.js';
+import { generateTasks } from '../services/tasks.js';
 import { expireChallengeInvitations } from '../services/engagement-admin.js';
 import { extendActiveSeries } from '../services/schedule-series.js';
 import { runDueDunning } from '../services/dunning.js';
@@ -236,6 +238,12 @@ function pruneOperationalRows(): JobSummary {
   return { ...result, challengeInvitationsExpired: expired };
 }
 
+async function deliverNotifications(): Promise<JobSummary> {
+  const result = await processNotificationQueue();
+  if (result.processed > 0) log('info', 'scheduler_notifications_completed', { ...result });
+  return safeSummary(result);
+}
+
 const JOBS: Job[] = [
   { name: 'deliver-automation-queue', everyMs: MINUTE, run: deliverQueuedAutomations },
   { name: 'run-automations', everyMs: HOUR, run: runAutomations },
@@ -251,6 +259,12 @@ const JOBS: Job[] = [
      what is due. Asynchronous — it waits on receivers — and never overlaps
      itself; a slow receiver delays the next tick rather than doubling up. */
   { name: 'deliver-webhooks', everyMs: 30_000, run: () => runWebhookDispatch() },
+  /* Member notifications on push, email, SMS and WhatsApp (P07). Consent and
+     quiet hours are checked again at send time inside the service. */
+  { name: 'deliver-notifications', everyMs: MINUTE, run: deliverNotifications },
+  /* Turn operational alerts into named tasks (P07). Idempotent through the
+     unique generation key, so overlapping ticks cannot duplicate one. */
+  { name: 'generate-tasks', everyMs: 15 * MINUTE, run: () => safeSummary(generateTasks()) },
 ];
 
 /** The fixed job names: the only values the `job` metric label takes. */

@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
+import { NewTaskDialog, type TaskPrefill } from '../ui/NewTaskDialog';
 import { api } from '../lib/api';
-import { useAdmin, useBranchTimeZone } from '../lib/store';
+import { useAdmin, useBranchTimeZone, usePermission } from '../lib/store';
 import { OccupancyTrace } from '../ui/OccupancyTrace';
 import {
   Bar,
@@ -86,6 +88,8 @@ interface Dashboard {
 export default function CommandCenterScreen() {
   const branchId = useAdmin((s) => s.activeBranchId);
   const timeZone = useBranchTimeZone();
+  const canTask = usePermission('task.view');
+  const [taskFor, setTaskFor] = useState<TaskPrefill | null>(null);
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['dashboard', branchId],
@@ -136,11 +140,20 @@ export default function CommandCenterScreen() {
               </span>
               <span className="font-utility text-[12px] font-semibold uppercase tracking-[0.1em]">{alert.title}</span>
               <span className="min-w-0 flex-1 truncate text-[12px] text-foam-65">{alert.detail}</span>
+              {canTask ? (
+                <Button
+                  variant="ghost"
+                  onClick={() => setTaskFor({ title: alert.title, detail: alert.detail, link: alert.actionTo, branchId })}
+                >
+                  Create task
+                </Button>
+              ) : null}
               <Link to={alert.actionTo as '/'}>
                 <Button variant="outline">{alert.actionLabel}</Button>
               </Link>
             </div>
           ))}
+          {taskFor ? <NewTaskDialog open onClose={() => setTaskFor(null)} prefill={taskFor} /> : null}
         </div>
       ) : (
         <div className="flex items-center gap-3 border-b border-line bg-wash-kelp px-4 py-2.5">

@@ -1,5 +1,7 @@
 import { and, asc, eq, inArray, isNull, lte, or } from 'drizzle-orm';
 import { channels } from '@shark/contracts';
+import type { NotificationChannel } from '@shark/domain';
+import { queueNotification } from './notifications/service.js';
 import { DUNNING_OFFSETS_DAYS, dunningPlan, formatMoney, insideQuietHours } from '@shark/domain';
 import { db, schema, transact } from '../db/client.js';
 import { branchScope, requirePermission, type RequestContext } from '../lib/context.js';
@@ -390,26 +392,36 @@ function notifyMember(
       ? `Invoice ${invoice.number} still has ${amount} outstanding. We cannot collect it automatically, so please settle it at reception — the team has been asked to get in touch.`
       : `Invoice ${invoice.number} has ${amount} outstanding. We cannot collect it automatically, so please settle it at reception or in the app.`;
 
-  const notificationId = id('ntf');
-  db.insert(schema.notifications)
-    .values({
-      id: notificationId,
-      tenantId: invoice.tenantId,
-      userId: member.userId,
-      channel: 'in_app',
-      kind: 'payment_due',
-      title: isFinal ? 'Your membership payment is overdue' : 'A payment is outstanding',
-      body,
-      link: '/billing',
-      templateCode: `dunning.attempt_${step.attempt}`,
-      state: 'sent',
-      attempts: 1,
-      lastError: null,
-      createdAt: atMs,
-      readAt: null,
-    })
-    .run();
-  return notificationId;
+  const title = isFinal ? 'Your membership payment is overdue' : 'A payment is outstanding';
+  const common = {
+    tenantId: invoice.tenantId,
+    userId: member.userId,
+    memberId: invoice.memberId,
+    branchId: invoice.branchId,
+    // About money the member owes: part of the contract, never marketing.
+    purpose: 'transactional' as const,
+    source: 'dunning',
+    sourceId: invoice.id,
+    kind: 'payment_due',
+    templateCode: `dunning.attempt_${step.attempt}`,
+    title,
+    body,
+    link: '/billing',
+  };
+  // The app inbox always hears about it; the step's own channel (email, SMS,
+  // WhatsApp) goes through the NotificationService, which records whether a
+  // provider actually delivered it or only logged it.
+  const inApp = queueNotification(
+    { ...common, channel: 'in_app', dedupeKey: `dunning:${invoice.id}:${step.attempt}:in_app` },
+    atMs,
+  );
+  if (step.channel !== 'in_app') {
+    queueNotification(
+      { ...common, channel: step.channel as NotificationChannel, dedupeKey: `dunning:${invoice.id}:${step.attempt}:${step.channel}` },
+      atMs,
+    );
+  }
+  return inApp.notificationId;
 }
 
 function closeStep(step: DunningAttempt, atMs: number, reason: string): void {

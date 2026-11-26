@@ -6,7 +6,7 @@ import {
   lazyRouteComponent,
   redirect,
 } from '@tanstack/react-router';
-import { CommandPalette, Rail, StatusStrip } from './ui/shell';
+import { CommandPalette, Rail, StatusStrip, useTaskSummary } from './ui/shell';
 import { SupportBanner } from './ui/SupportBanner';
 import { useAdmin } from './lib/store';
 
@@ -38,6 +38,11 @@ const SupportScreen = lazyRouteComponent(() => import('./screens/Support'));
 const SettingsScreen = lazyRouteComponent(() => import('./screens/Settings'));
 const PlatformScreen = lazyRouteComponent(() => import('./screens/Platform'));
 const AccountScreen = lazyRouteComponent(() => import('./screens/Account'));
+const InboxScreen = lazyRouteComponent(() => import('./screens/Inbox'));
+const CommunityScreen = lazyRouteComponent(() => import('./screens/Community'));
+const TasksScreen = lazyRouteComponent(() => import('./screens/Tasks'));
+const CoachingScreen = lazyRouteComponent(() => import('./screens/Coaching'));
+const MarketingScreen = lazyRouteComponent(() => import('./screens/Marketing'));
 
 /** Shown while a screen chunk is in flight, inside the console shell so the
  *  rail and status strip stay put instead of the pane going blank. */
@@ -55,6 +60,7 @@ function RoutePending() {
 }
 
 function ConsoleLayout() {
+  const tasks = useTaskSummary();
   return (
     // The support banner sits above the console grid rather than inside it, so
     // it cannot be scrolled away and does not compete with the rail for space.
@@ -62,7 +68,7 @@ function ConsoleLayout() {
       <SupportBanner />
       <div className="bridge min-h-0 flex-1">
         <Rail />
-        <StatusStrip />
+        <StatusStrip alertCount={tasks?.toActOn ?? 0} myTasks={tasks ? { open: tasks.mine, overdue: tasks.mineOverdue } : null} />
         <div className="bridge-main col-start-2 min-h-0 overflow-hidden">
           <Outlet />
         </div>
@@ -138,13 +144,21 @@ const membersRoute = createRoute({
 const memberDetailRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/members/$memberId', component: MemberDetailScreen });
 const plansRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/plans', component: PlansScreen });
 const INVOICE_STATES = ['', 'outstanding', 'open', 'partially_paid', 'overdue', 'paid', 'void', 'partially_refunded', 'refunded'] as const;
-type BillingSearch = { state?: (typeof INVOICE_STATES)[number] };
+type BillingSearch = {
+  state?: (typeof INVOICE_STATES)[number];
+  /** Open this invoice (command palette, search results). */
+  invoice?: string;
+  /** With `invoice`: open straight onto Record payment. */
+  pay?: 1;
+};
 const billingRoute = createRoute({
   getParentRoute: () => consoleRoute,
   path: '/billing',
   component: BillingScreen,
   validateSearch: (search: Record<string, unknown>): BillingSearch => ({
     state: INVOICE_STATES.includes(search.state as never) ? (search.state as BillingSearch['state']) : undefined,
+    ...(typeof search.invoice === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(search.invoice) ? { invoice: search.invoice } : {}),
+    ...(search.pay === 1 || search.pay === '1' ? { pay: 1 as const } : {}),
   }),
 });
 const floorRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/floor', component: FloorScreen });
@@ -154,6 +168,8 @@ const floorRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/flo
 const SCHEDULE_TABS = ['day', 'series'] as const;
 export interface ScheduleSearch {
   tab: (typeof SCHEDULE_TABS)[number];
+  /** Open the new-class form (command palette "Create class"). */
+  create?: 1;
 }
 const scheduleRoute = createRoute({
   getParentRoute: () => consoleRoute,
@@ -161,6 +177,7 @@ const scheduleRoute = createRoute({
   component: ScheduleScreen,
   validateSearch: (search: Record<string, unknown>): ScheduleSearch => ({
     tab: SCHEDULE_TABS.includes(search.tab as never) ? (search.tab as ScheduleSearch['tab']) : 'day',
+    ...(search.create === 1 || search.create === '1' ? { create: 1 as const } : {}),
   }),
 });
 const trainingRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/training', component: TrainingScreen });
@@ -304,6 +321,45 @@ const platformRoute = createRoute({
   }),
 });
 
+/** Member conversations (P07). The open thread is in the URL so a
+ *  notification can point straight at it. */
+export interface InboxSearch {
+  conversation?: string;
+}
+const inboxRoute = createRoute({
+  getParentRoute: () => consoleRoute,
+  path: '/inbox',
+  component: InboxScreen,
+  validateSearch: (search: Record<string, unknown>): InboxSearch =>
+    typeof search.conversation === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(search.conversation)
+      ? { conversation: search.conversation }
+      : {},
+});
+
+const TASK_VIEWS = ['mine', 'open', 'done'] as const;
+export interface TasksSearch {
+  view: (typeof TASK_VIEWS)[number];
+  task?: string;
+}
+const tasksRoute = createRoute({
+  getParentRoute: () => consoleRoute,
+  path: '/tasks',
+  component: TasksScreen,
+  validateSearch: (search: Record<string, unknown>): TasksSearch => ({
+    view: TASK_VIEWS.includes(search.view as never) ? (search.view as TasksSearch['view']) : 'mine',
+    ...(typeof search.task === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(search.task) ? { task: search.task } : {}),
+  }),
+});
+const coachingRoute = createRoute({
+  getParentRoute: () => consoleRoute,
+  path: '/coaching',
+  component: CoachingScreen,
+  validateSearch: (search: Record<string, unknown>): { member?: string } =>
+    typeof search.member === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(search.member) ? { member: search.member } : {},
+});
+const marketingRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/marketing', component: MarketingScreen });
+const communityRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/community', component: CommunityScreen });
+
 /** Your own sign-in: two-step and devices. Every role can open it. */
 const accountRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/account', component: AccountScreen });
 
@@ -331,6 +387,11 @@ const routeTree = rootRoute.addChildren([
     settingsRoute,
     platformRoute,
     accountRoute,
+    inboxRoute,
+    communityRoute,
+    tasksRoute,
+    coachingRoute,
+    marketingRoute,
   ]),
 ]);
 

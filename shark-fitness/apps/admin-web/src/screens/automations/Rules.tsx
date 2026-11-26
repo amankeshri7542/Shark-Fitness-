@@ -23,6 +23,7 @@ import {
 } from '../../ui/console';
 import { Modal } from '../../ui/overlay';
 import Preview from './Preview';
+import { ChannelStrip, type ChannelAvailability } from '../../ui/channels';
 
 /* ============================================================================
    The rules.
@@ -70,6 +71,8 @@ export interface TriggerSpec {
 interface Payload {
   items: AutomationRow[];
   triggers: TriggerSpec[];
+  /** Real channel availability on this server (absent from older APIs). */
+  channels?: ChannelAvailability[];
 }
 
 const CHANNELS = [
@@ -127,6 +130,7 @@ export default function Rules() {
           New rule
         </Button>
       </Toolbar>
+      {automations.data.channels ? <ChannelStrip channels={automations.data.channels} /> : null}
 
       {items.length === 0 ? (
         <EmptyState

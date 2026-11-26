@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { app } from '../app.js';
+import { setMediaStorage } from '../lib/media-storage.js';
 import { signInRequest } from './helpers/mfa.js';
 
 async function signInMember(): Promise<{ cookie: string; csrfToken: string }> {
@@ -15,7 +16,38 @@ async function signInMember(): Promise<{ cookie: string; csrfToken: string }> {
 }
 
 describe('external provider truthfulness', () => {
-  it('reports message attachments unavailable and refuses client-supplied file URLs', async () => {
+  it('reports message attachments unavailable without storage and refuses client-supplied file URLs', async () => {
+    // P07 added a MediaStorage port; a server without one (production with no
+    // SHARK_MEDIA_DIR) must still say so rather than offer a paperclip.
+    setMediaStorage(null);
+    try {
+      await expectAttachmentsUnavailable();
+    } finally {
+      setMediaStorage(undefined);
+    }
+  });
+
+  it('refuses client-supplied file URLs even when storage is configured', async () => {
+    const session = await signInMember();
+    const headers = { cookie: session.cookie, origin: 'http://localhost:5173' };
+    const inbox = (await (await app.request('/v1/member/messages', { headers })).json()) as {
+      attachments: { enabled: boolean };
+      items: Array<{ id: string }>;
+    };
+    expect(inbox.attachments.enabled).toBe(true);
+    const sendResponse = await app.request(`/v1/member/messages/${inbox.items[0]!.id}`, {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json', 'x-csrf-token': session.csrfToken },
+      body: JSON.stringify({
+        clientId: 'provider-url-regression',
+        body: 'Please see the attachment.',
+        attachments: [{ name: 'injury.pdf', url: 'https://files.example/injury.pdf', sizeBytes: 128 }],
+      }),
+    });
+    expect(sendResponse.status).toBe(422);
+  });
+
+  async function expectAttachmentsUnavailable(): Promise<void> {
     const session = await signInMember();
     const headers = { cookie: session.cookie, origin: 'http://localhost:5173' };
     const inboxResponse = await app.request('/v1/member/messages', { headers });
@@ -43,5 +75,5 @@ describe('external provider truthfulness', () => {
     });
     expect(sendResponse.status).toBe(422);
     expect((await sendResponse.json()) as unknown).toMatchObject({ error: { code: 'VALIDATION_FAILED' } });
-  });
+  }
 });
