@@ -104,3 +104,28 @@ P03 and P04 both moved the member app to `/app/`; P04 also added a placeholder `
 - Admin `Billing.tsx`: P02's refund sheet state (`provider`, `refundableLabel`) with P07's `initialSheet` (palette "Record payment"). `LeadDetail.tsx`: P07's "Create task" action with P03's `SOURCE_LABEL` kicker.
 - scheduler (P05 `purge-withdrawn-photos` + P07 `deliver-notifications`, `generate-tasks`), schema barrel, domain index, `.env.example`, e2e `demo.ts` (P02 account parameter + P07 `submitSignIn`, which waits out the sign-in limit), `global-setup.ts` (one `SHARK_MEDIA_DIR`): both kept.
 - Migration `0019_engagement_ops` → `0023_engagement_ops` (SQL unchanged). drizzle-kit generated SQL identical except P07's hand-written `conversations.branch_id` backfill; snapshot regenerated. Note: `_journal.json` auto-merged without a conflict marker into a broken order, so it was restored from HEAD before the entry was appended.
+
+## Seams wired (item 7)
+
+| From → to | Seam | Where | Test |
+|---|---|---|---|
+| P03 → P02 | Website "Buy or renew in the app" link `/app/billing?plan=<id>` opens the plan sheet with that plan chosen (price, GST and terms still shown before any invoice); the param is cleared once dealt with | `member-pwa/src/screens/Billing.tsx`, `billing/PlanSheet.tsx`, `router.tsx` (search validation) | `BillingCheckout.test.tsx` new case |
+| P05/P02 → P06 | Step-up on the credit-pack refund (`billing.refund`) and on reconciliation resolve/ignore (`billing.reconcile`) | `routes/admin/billing-stabilization.ts`, `services/payments/reconciliation.ts`, `docs/SECURITY.md` matrix | new cases in `credit-packs` and `razorpay-reconciliation` integration tests |
+| P03/P04 → P06 | CSP: `ROOT_SURFACE = 'website'`; inline scripts and `<style>` of each built front end (P04 theme boot script, P03 theme/legacy-link scripts and inlined CSS, both offline pages) allowed by SHA-256 computed from the served HTML at mount time; still no `unsafe-inline`/`unsafe-eval`/`unsafe-hashes` | `lib/csp.ts`, `lib/static-sites.ts` | `csp.integration.test.ts` (/ = website, hashing), e2e `security-headers.spec.ts` (all four surfaces) |
+| P03 → P06 | Website `style=""` attributes (would need `unsafe-hashes`, which P06's tests forbid) moved into utility classes with identical declarations (`!important` keeps inline precedence) | `apps/website/src/**`, `styles/site.css` | `built-site.test.ts` new case: no `[style]` on any page |
+| P02 → P06 | `Cross-Origin-Opener-Policy: same-origin-allow-popups` on the member surface only (Razorpay popup methods report through `window.opener`) | `lib/security.ts` | `csp.integration.test.ts`, e2e headers |
+| P07 → P04 | NotificationService `push` channel driver = P04 web push (`webPushDriver`, available iff VAPID configured), via `queuePushOnly` | `services/notifications/web-push.ts`, `drivers.ts`, `service.ts` (passes delivery id/kind), `notifications.ts` | `push.integration.test.ts` two new cases |
+| P04 → P07 | Class-reminder automation and dunning keep P04's push next to P07's channel delivery | `services/automations.ts`, `services/dunning.ts` (merge) | existing P04/P07 suites |
+| P05 → P04/P06 | Waitlist offers/skips/expiry/withdrawal pushed (booking category, offer push expires with the hold); `class.waitlist_promoted` integration event | `services/waitlist.ts` (merge) | existing waitlist + push suites |
+| P02 → P04/P06 | A failed provider payment tells the member (`notifyPaymentOutcome`, once per provider payment) and emits `payment.failed` (ids, amounts, failure code) | `services/payments/settlement.ts#recordFailedAttempt` | `razorpay-webhooks` payment.failed case extended |
+| P03 → P06 | Website leads emit `lead.created` (ids/states only), like desk-created leads | `services/public-site.ts#insertLead` | `public-site` creation case extended |
+| P02/P05/P07 → P03/P04 | E2E specs open member routes under `/app/` (`/app/billing`, `/app/pack`, `/app/messages/new`, `/app/pass`, `/app/workout?mode=freestyle`) | `e2e/specs/*` | e2e |
+| P06 → all | Every e2e spec uses `support/fixtures` (CSP violation listener + per-test client address), incl. P02/P03/P05 specs that imported Playwright directly | `e2e/specs/*` | e2e |
+| P05 → P06 | `attendance.checked_in` integration event for reception scans (`method: desk_scan`) | `services/access.ts` (merge) | existing |
+
+Already satisfied by the merges themselves (verified, no change): P04→P02 "Payment received" on every settlement (`settleInvoicePayment`), P02 `payment.succeeded` event in the shared settlement path, P02 refund route step-up (P06 guarded the mounted handler), P06 broadcast-approval step-up in P07, P05 camera permission on `/admin/*` only, P04 notification deep links prefixed with `/app` (`deepLinkUrl`; in-app links go through the router's basepath), P07 palette `initialSheet` kept on `InvoiceDetailPanel`, P05 media backup covers P07's `attachments/` folder.
+
+Decided not to wire (recorded as follow-ups):
+- P07's failed-payment task generator reads `payments.state = 'failed'`. P02 records a declined online attempt on `payment_intents` (the member is usually retrying), not as a failed payment row. Creating a "call this member" task per declined UPI attempt would be noise; overdue money is already chased by dunning. If the gym wants it, the generator can read failed intents older than N hours.
+- Razorpay CSP origins beyond P06's list (`cdn.razorpay.com` images, regional `api-sg`), noted as unverified by P02 and P06: cannot be confirmed without the live sandbox modal. Not added.
+- Payment-link creation is not step-up guarded: it sends nothing and moves no money; resolving a mismatch and refunding are guarded.

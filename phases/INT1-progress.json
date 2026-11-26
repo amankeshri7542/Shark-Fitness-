@@ -41,8 +41,8 @@
     {
       "id": 7,
       "text": "Wire seams from the phases' Integration notes",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "Commits bd87ffb, a09be82, 3aca858: 13 seams wired with tests (see notes table); 3 deliberately not wired, with reasons."
     },
     {
       "id": 8,
