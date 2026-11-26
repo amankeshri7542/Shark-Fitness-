@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { can as canRole, modulesFor, type Permission } from '@shark/domain';
 import { ApiError, OfflineError, api } from '../lib/api';
-import { useAdmin, useViewer } from '../lib/store';
+import { PALETTE_RECENT_PREFIX, useAdmin, useViewer } from '../lib/store';
 import { cx } from './console';
 import { useFocusTrap } from './overlay';
 import { NewTaskDialog } from './NewTaskDialog';
@@ -53,7 +53,10 @@ interface RecentItem {
   to: string;
 }
 
-const RECENT_KEY = 'shark.admin.palette.recent';
+/** Recents are per person: a desk PC is shared, and a pick names a member or
+ *  an invoice amount the next person to sign in may not be allowed to see.
+ *  Sign-out clears them all (`clearPaletteRecents` in lib/store). */
+const recentKey = (owner: string) => `${PALETTE_RECENT_PREFIX}:${owner}`;
 const TYPE_LABEL: Record<SearchResult['type'], string> = {
   member: 'Members',
   lead: 'Leads',
@@ -62,19 +65,19 @@ const TYPE_LABEL: Record<SearchResult['type'], string> = {
   staff: 'Staff',
 };
 
-function readRecents(): RecentItem[] {
+function readRecents(owner: string): RecentItem[] {
   try {
-    const parsed = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]') as unknown;
+    const parsed = JSON.parse(localStorage.getItem(recentKey(owner)) ?? '[]') as unknown;
     return Array.isArray(parsed) ? (parsed as RecentItem[]).filter((r) => typeof r?.to === 'string' && r.to.startsWith('/')).slice(0, 6) : [];
   } catch {
     return [];
   }
 }
 
-function saveRecent(item: RecentItem): void {
+function saveRecent(owner: string, item: RecentItem): void {
   try {
-    const next = [item, ...readRecents().filter((r) => r.key !== item.key)].slice(0, 6);
-    localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+    const next = [item, ...readRecents(owner).filter((r) => r.key !== item.key)].slice(0, 6);
+    localStorage.setItem(recentKey(owner), JSON.stringify(next));
   } catch {
     /* private mode: recents are a convenience */
   }
@@ -143,6 +146,7 @@ export function CommandPalette() {
   }, [togglePalette]);
 
   const role = viewer?.role;
+  const recentOwner = viewer ? `${viewer.tenantId}:${viewer.userId}` : '';
   const canByRole = (permission: Permission): boolean => Boolean(role && canRole(role, permission));
 
   const term = query.trim();
@@ -196,7 +200,7 @@ export function CommandPalette() {
     }
 
     if (!term) {
-      for (const r of readRecents()) {
+      for (const r of readRecents(recentOwner)) {
         out.push({ key: `recent:${r.key}`, group: 'Recent', label: r.label, detail: r.detail, run: () => go(r.to), recent: r });
       }
     }
@@ -231,15 +235,22 @@ export function CommandPalette() {
     return out;
     // `go`, `close` and the action closures read current state through setters only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [role, term, debounced, mode, search.data]);
+  }, [role, recentOwner, term, debounced, mode, search.data]);
 
+  // Results arrive after the debounce and are inserted above the modules: keep
+  // the highlight on the item the person chose, not on its old position, so
+  // Enter never opens something they did not pick.
+  const previousItems = useRef<Item[]>(items);
   useEffect(() => {
-    setActive((i) => (items.length === 0 ? 0 : Math.min(i, items.length - 1)));
-  }, [items.length]);
+    const chosenKey = previousItems.current[active]?.key;
+    previousItems.current = items;
+    const kept = chosenKey ? items.findIndex((it) => it.key === chosenKey) : -1;
+    setActive((i) => (kept >= 0 ? kept : items.length === 0 ? 0 : Math.min(i, items.length - 1)));
+  }, [items, active]);
 
   const pick = (item: Item | undefined): void => {
     if (!item) return;
-    if (item.recent) saveRecent(item.recent);
+    if (item.recent && recentOwner) saveRecent(recentOwner, item.recent);
     item.run();
   };
 

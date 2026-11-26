@@ -15,7 +15,7 @@ vi.mock('../../lib/api', async (importOriginal) => {
   return { ...actual, api: apiMock };
 });
 
-import { useAdmin } from '../../lib/store';
+import { clearPaletteRecents, useAdmin } from '../../lib/store';
 import { CommandPalette } from '../shell';
 
 const viewer = (role: string) =>
@@ -94,6 +94,43 @@ describe('CommandPalette', () => {
     // It is remembered as a recent pick.
     await user.keyboard('{Control>}k{/Control}');
     expect(within(screen.getByRole('listbox')).getByRole('option', { name: /Aman Mehra/ })).toBeInTheDocument();
+  });
+
+  it('keeps recents per person, and forgets them all at sign-out (shared desk PC)', async () => {
+    const user = userEvent.setup();
+    renderPalette();
+    await user.keyboard('{Control>}k{/Control}');
+    await user.type(screen.getByRole('combobox'), 'aman');
+    const option = await screen.findByRole('option', { name: /Aman MehraSF-40219/ });
+    await user.click(option);
+    await user.keyboard('{Control>}k{/Control}');
+    expect(within(screen.getByRole('listbox')).getByRole('option', { name: /Aman Mehra/ })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+
+    // Someone else signs in on the same browser: none of the first person's picks.
+    useAdmin.setState({ viewer: { ...viewer('trainer'), userId: 'usr_2' } as Viewer });
+    await user.keyboard('{Control>}k{/Control}');
+    expect(within(screen.getByRole('listbox')).queryByRole('option', { name: /Aman Mehra/ })).toBeNull();
+    await user.keyboard('{Escape}');
+
+    clearPaletteRecents();
+    expect(Object.keys(localStorage).filter((k) => k.startsWith('shark.admin.palette.recent'))).toEqual([]);
+  });
+
+  it('keeps the highlight on the chosen item when search results arrive above it', async () => {
+    const user = userEvent.setup();
+    renderPalette();
+    await user.keyboard('{Control>}k{/Control}');
+    await user.type(screen.getByRole('combobox'), 'st');
+    // Before the debounced search answers, arrow to a module.
+    const store = screen.getByRole('option', { name: 'Store' });
+    for (let i = 0; i < 5 && store.getAttribute('aria-selected') !== 'true'; i++) await user.keyboard('{ArrowDown}');
+    expect(store).toHaveAttribute('aria-selected', 'true');
+    // Results land above it; Enter still opens what was chosen.
+    await screen.findByRole('option', { name: /Aman MehraSF-40219/ });
+    expect(screen.getByRole('option', { name: 'Store' })).toHaveAttribute('aria-selected', 'true');
+    await user.keyboard('{Enter}');
+    expect(navigateMock).toHaveBeenCalledWith({ to: '/store', search: {} });
   });
 
   it('offers actions by permission: reception records payments but cannot create classes', async () => {
