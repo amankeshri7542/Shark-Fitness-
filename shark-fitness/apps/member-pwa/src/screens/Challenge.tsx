@@ -119,18 +119,25 @@ export default function ChallengeScreen() {
     return (
       <ScreenBody>
         <Stack>
-          <ErrorState
-            title="Could not load this challenge"
-            body="Your score is safe on the server. Try again in a moment."
-            onRetry={() => void refetch()}
-            requestId={error instanceof ApiError ? error.requestId : undefined}
-          />
+          {/* A refusal (another branch's challenge, or one that is not
+              there) says so; trying again would only get the same answer. */}
+          {error instanceof ApiError && (error.status === 403 || error.status === 404) ? (
+            <ErrorState title="Could not open this challenge" body={error.message} requestId={error.requestId} />
+          ) : (
+            <ErrorState
+              title="Could not load this challenge"
+              body="Your score is safe on the server. Try again in a moment."
+              onRetry={() => void refetch()}
+              requestId={error instanceof ApiError ? error.requestId : undefined}
+            />
+          )}
         </Stack>
       </ScreenBody>
     );
   }
 
   const { challenge, board, teams } = data;
+  const actionError = join.error ?? leave.error;
 
   return (
     <ScreenBody>
@@ -181,6 +188,12 @@ export default function ChallengeScreen() {
             Join challenge
           </Button>
         )}
+
+        {actionError ? (
+          <p role="alert" className="text-[12px] leading-relaxed text-chum">
+            {actionError instanceof ApiError ? actionError.message : 'That did not go through. Nothing has changed.'}
+          </p>
+        ) : null}
 
         {/* — Team ————————————————————————————————————————————— */}
 

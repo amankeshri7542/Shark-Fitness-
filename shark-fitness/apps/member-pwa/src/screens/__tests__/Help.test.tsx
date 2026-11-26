@@ -24,7 +24,7 @@ const branch: Branch = {
   capacity: 120,
   opensAt: '05:30',
   closesAt: '23:00',
-  state: 'open',
+  state: 'active',
   amenities: [],
   phone: '+91 80 4000 1234',
 };

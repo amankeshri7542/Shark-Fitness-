@@ -32,7 +32,8 @@ interface Payload {
   exercise: {
     id: string;
     name: string;
-    equipment: string[];
+    /** One kind of kit per exercise (GET /member/training/exercise/:id). */
+    equipment: string;
     difficulty: string;
     primaryLabels: string[];
     secondaryLabels: string[];
@@ -43,17 +44,18 @@ interface Payload {
     defaultRestSec: number;
   };
   media: { url: string | null; available: boolean; fallback: string };
+  /** Today's line for this lift in the plan, as the server sends it. */
   prescription: {
-    sets: number;
-    reps: string;
-    loadKg: number | null;
+    targetLabel: string;
+    sets: Array<{ isWarmup: boolean }>;
+    targetKg: number | null;
     restSec: number;
     tempo: string | null;
   } | null;
   rationale: string | null;
   trainerLocked: boolean;
   lockNote: string | null;
-  alternatives: Array<{ id: string; name: string; reason: string | null }>;
+  alternatives: Array<{ id: string; name: string; reason?: string | null }>;
   canSubstitute: boolean;
   recovery: { label: string; recoveredPct: number; setsLast7d: number; note: string } | null;
   adaptive: { changed: boolean; headline: string; explanation: string } | null;
@@ -117,11 +119,7 @@ export default function ExerciseScreen() {
           </Display>
           <div className="mt-2 flex flex-wrap gap-2">
             <Chip tone="neutral">{exercise.difficulty}</Chip>
-            {exercise.equipment.map((item) => (
-              <Chip key={item} tone="neutral">
-                {item}
-              </Chip>
-            ))}
+            <Chip tone="neutral">{exercise.equipment.replace(/_/g, ' ')}</Chip>
             {exercise.isUnilateral ? <Chip tone="accent">One side at a time</Chip> : null}
           </div>
         </div>
@@ -132,8 +130,8 @@ export default function ExerciseScreen() {
           <Panel tone="accent" className="flex flex-col gap-2 p-4">
             <Label>Today</Label>
             <p className="font-display text-[24px] leading-none">
-              {prescription.sets} × {prescription.reps}
-              {prescription.loadKg !== null ? ` @ ${units.format(prescription.loadKg)}` : ''}
+              {prescription.targetLabel}
+              {prescription.targetKg !== null ? ` · ${units.format(prescription.targetKg)}` : ''}
             </p>
             <p className="font-utility text-[10px] uppercase tracking-[0.12em] text-foam-45">
               Rest {prescription.restSec}s{prescription.tempo ? ` · tempo ${prescription.tempo}` : ''}
@@ -255,6 +253,13 @@ export default function ExerciseScreen() {
                   </Button>
                 </div>
               ))}
+              {substitute.error ? (
+                <p role="alert" className="text-[12px] leading-relaxed text-chum">
+                  {substitute.error instanceof ApiError
+                    ? substitute.error.message
+                    : 'The swap did not go through. Your plan is unchanged.'}
+                </p>
+              ) : null}
             </Panel>
           </>
         ) : null}

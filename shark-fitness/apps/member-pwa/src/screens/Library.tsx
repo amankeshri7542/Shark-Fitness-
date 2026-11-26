@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, api } from '../lib/api';
 import { ScreenBody, Stack } from '../ui/shell';
 import {
@@ -74,6 +74,10 @@ export default function LibraryScreen() {
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['library', category, level, favouritesOnly, search.trim()],
     queryFn: () => api<Payload>(`/member/media?${params.toString()}`),
+    // Each keystroke and filter is a new key. Without the previous list held
+    // on screen, the skeleton replaced the whole screen, search box included,
+    // so typing lost focus and every letter after the first.
+    placeholderData: keepPreviousData,
   });
 
   const favourite = useMutation({

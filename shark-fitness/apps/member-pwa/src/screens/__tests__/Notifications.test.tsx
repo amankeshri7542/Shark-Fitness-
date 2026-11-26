@@ -112,7 +112,7 @@ describe('Notifications', () => {
   });
 
   it('error: says nothing was missed and retries', async () => {
-    api.mockRejectedValueOnce(new ApiError(503, { error: { code: 'UNAVAILABLE', message: 'down', requestId: 'req_ntf' } }));
+    api.mockRejectedValueOnce(new ApiError(503, { error: { code: 'INTERNAL', message: 'down', requestId: 'req_ntf' } }));
     renderScreen();
     expect(await screen.findByRole('heading', { name: 'Could not load notifications' })).toBeInTheDocument();
     expect(screen.getByText('Ref req_ntf')).toBeInTheDocument();
