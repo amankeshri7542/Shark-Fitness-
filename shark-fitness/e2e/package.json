@@ -6,8 +6,10 @@
   "scripts": {
     "e2e": "node run.mjs",
     "e2e:ui": "playwright test --ui",
-    "typecheck": "tsc --noEmit",
-    "store-screenshots": "playwright test --config playwright.capture.config.ts"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p audit",
+    "store-screenshots": "playwright test --config playwright.capture.config.ts",
+    "test": "node --test audit/test/",
+    "audit": "node audit/run.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.10.2",
