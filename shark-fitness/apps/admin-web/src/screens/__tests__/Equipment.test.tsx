@@ -154,7 +154,7 @@ describe('Equipment', () => {
   it('says the facility could not be read, with the server reason, and retries', async () => {
     const user = userEvent.setup();
     apiMock.mockImplementationOnce(() =>
-      refuse(new ApiError(503, { error: { code: 'UNAVAILABLE', message: 'Facility records are being migrated.', requestId: 'req_1' } })),
+      refuse(new ApiError(500, { error: { code: 'INTERNAL', message: 'Facility records are being migrated.', requestId: 'req_1' } })),
     );
     renderScreen('/equipment', screens);
     expect(await screen.findByRole('heading', { name: 'Could not load facility operations' })).toBeInTheDocument();

@@ -135,7 +135,7 @@ describe('Templates', () => {
 
     apiMock.mockImplementation((path: string, options?: { method?: string }) => {
       if (options?.method === 'POST') {
-        return refuse(new ApiError(422, { error: { code: 'VALIDATION', message: 'That code is already used by a WhatsApp message.', requestId: 'req_2' } }));
+        return refuse(new ApiError(409, { error: { code: 'CONFLICT', message: 'That code is already used by a WhatsApp message.', requestId: 'req_2' } }));
       }
       return Promise.resolve(path === '/admin/automations' ? triggers : { items: [] });
     });
