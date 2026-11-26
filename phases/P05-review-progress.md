@@ -11,3 +11,5 @@ TODO:
 - then: full gates, build, e2e, db:backup:verify, write P05-review.md + PR section
 - DONE 6323c4d share needs current consent; 97ccd6f pass wake lock/sweep tests
 - investigating scheduler-observability timeout (run excluding P05 tests in bg -> /tmp/p05rev/noP05.log)
+- review draft written to phases/P05-review.md; full gates running (/tmp/p05rev/status2.log); then e2e ports 18520/18521, smoke 18530
+- aed39cb scheduler test timeout; final run: /tmp/p05rev/final-*.log
