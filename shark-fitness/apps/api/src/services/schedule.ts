@@ -12,6 +12,7 @@ import { MINUTE, isoDate, localTime, now } from '../lib/time.js';
 import { LIVE_BOOKING_STATES, LIVE_WAITLIST_STATES, claimSeat, claimSeatOverride, runClaim, sessionById } from './booking.js';
 import { loadMemberInScope } from './members.js';
 import { branchTimeZone } from '../lib/branch-time.js';
+import { notifyUser } from './notifications.js';
 
 /**
  * Class operations from the console (PF-SCH, UX-A09).
@@ -205,24 +206,21 @@ function notifyBookedMembers(
   let sent = 0;
   for (const row of recipients) {
     if (!row.userId) continue;
-    db.insert(schema.notifications)
-      .values({
-        id: id('ntf'),
+    // In the inbox always; on the phone too when the member has push on.
+    notifyUser(
+      {
         tenantId: ctx.tenantId,
         userId: row.userId,
-        channel: 'in_app',
+        branchId: session.branchId,
         kind: message.kind,
         title: message.title,
         body: message.body,
         link: '/book',
         templateCode: message.templateCode,
-        state: 'sent',
-        attempts: 1,
-        lastError: null,
-        createdAt: atMs,
-        readAt: null,
-      })
-      .run();
+        push: { category: 'booking', dedupeKey: `${message.templateCode}:${session.id}:${atMs}` },
+      },
+      atMs,
+    );
     sent += 1;
   }
   return sent;
@@ -923,24 +921,21 @@ export function promoteFromWaitlist(
     .get();
 
   if (member?.userId) {
-    db.insert(schema.notifications)
-      .values({
-        id: id('ntf'),
+    notifyUser(
+      {
         tenantId: ctx.tenantId,
         userId: member.userId,
-        channel: 'in_app',
+        branchId: session.branchId,
         kind: 'waitlist_offer',
         title: 'A seat opened up',
         body: `The seat is held for you for ${plan.offerWindowMin} minutes, then it goes to the next person.`,
         link: '/book',
         templateCode: 'waitlist.offered',
-        state: 'sent',
-        attempts: 1,
-        lastError: null,
-        createdAt: atMs,
-        readAt: null,
-      })
-      .run();
+        // Pointless once the hold has lapsed, quiet hours or not.
+        push: { category: 'booking', dedupeKey: `waitlist_offer:${plan.offer.id}:${atMs}`, expiresAt: offerExpiresAt },
+      },
+      atMs,
+    );
   }
 
   emit({

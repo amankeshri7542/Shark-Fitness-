@@ -111,6 +111,14 @@ export async function flush(): Promise<void> {
           break;
         }
 
+        // The session ended, not the write. Keep it exactly as it was so it
+        // goes out once the same person signs in again (lib/session.ts).
+        if (error instanceof ApiError && error.status === 401) {
+          await db.put(STORE, { ...entry, status: 'queued' satisfies OutboxStatus });
+          notify();
+          break;
+        }
+
         if (error instanceof ApiError) {
           const permanent = error.status >= 400 && error.status < 500 && error.code !== 'CONFLICT';
           await db.put(STORE, {
@@ -156,6 +164,52 @@ export async function retryAll(): Promise<void> {
   }
   notify();
   await flush();
+}
+
+/** Unsynced entries for one person, whether or not their outbox is running
+ *  (sign-out asks before it deletes them). */
+export async function pendingFor(ownerKey: string): Promise<OutboxEntry[]> {
+  const db = await database();
+  const all = (await db.getAllFromIndex(STORE, 'ownerKey', ownerKey)) as OutboxEntry[];
+  return all.filter((entry) => entry.status !== 'synced');
+}
+
+/** Deletes every entry this person queued on this device. Sign-out only. */
+export async function discardAllFor(ownerKey: string): Promise<void> {
+  const db = await database();
+  const keys = await db.getAllKeysFromIndex(STORE, 'ownerKey', ownerKey);
+  const tx = db.transaction(STORE, 'readwrite');
+  await Promise.all([...keys.map((key) => tx.store.delete(key)), tx.done]);
+  notify();
+}
+
+const KIND_LABEL: Record<string, [one: string, many: string]> = {
+  'workout-set': ['workout set', 'workout sets'],
+  'workout-finish': ['finished workout', 'finished workouts'],
+  'message-send': ['message', 'messages'],
+  'habit-log': ['habit check-in', 'habit check-ins'],
+  'habit-metrics': ['habit check-in', 'habit check-ins'],
+};
+
+/**
+ * "3 workout sets haven't synced yet" — what sign-out would lose, in words.
+ * Null when nothing is waiting.
+ */
+export function describeUnsynced(entries: Array<Pick<OutboxEntry, 'kind'>>): string | null {
+  if (entries.length === 0) return null;
+  const counts = new Map<string, number>();
+  for (const entry of entries) {
+    const label = KIND_LABEL[entry.kind] ?? ['change', 'changes'];
+    const key = label.join('|');
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const parts = [...counts.entries()].map(([key, n]) => {
+    const [one, many] = key.split('|') as [string, string];
+    return `${n} ${n === 1 ? one : many}`;
+  });
+  const list = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0]!;
+  const total = entries.length;
+  return `${list} ${total === 1 ? "hasn't" : "haven't"} synced yet`;
 }
 
 export function startOutbox(ownerKey: string): () => void {

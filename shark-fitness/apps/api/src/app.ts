@@ -12,6 +12,8 @@ import { webhookRoutes } from './routes/webhooks.js';
 import { authRoutes } from './routes/auth.js';
 import { authStabilizationRoutes } from './routes/auth-stabilization.js';
 import { meRoutes } from './routes/me.js';
+import { pushSubscriptionRoutes } from './routes/push-subscriptions.js';
+import { assetLinksRoutes } from './routes/asset-links.js';
 import { doorRoutes } from './routes/door.js';
 import { publicRoutes } from './routes/public.js';
 
@@ -115,6 +117,8 @@ app.get('/ready', (c) => {
 });
 
 app.route('/metrics', metricsRoutes);
+// Digital Asset Links for the Android Trusted Web Activity (ADR-002).
+app.route('/.well-known/assetlinks.json', assetLinksRoutes);
 app.route('/v1/client-errors', clientErrorRoutes);
 app.use('/v1/webhooks/*', webhookIpLimit);
 app.route('/v1/webhooks', webhookRoutes);
@@ -127,6 +131,7 @@ app.route('/v1/door', doorRoutes);
 app.route('/v1/public/:tenantSlug', publicRoutes);
 
 app.use('/v1/me/*', protectedApiIpLimit, authenticate, authenticatedTenantLimit, authenticatedApiLimit);
+app.route('/v1/me/push-subscriptions', pushSubscriptionRoutes);
 app.route('/v1/me', meRoutes);
 
 app.use('/v1/member/*', protectedApiIpLimit, authenticate, authenticatedTenantLimit, authenticatedApiLimit, memberOnly);

@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../support/fixtures';
 import { signInToMemberApp } from '../support/demo';
 
 /** JSON log lines the server wrote during this run (global setup captures them). */

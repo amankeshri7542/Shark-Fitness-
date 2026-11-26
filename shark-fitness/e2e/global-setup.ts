@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { API_ROOT, STATE_FILE, WORKSPACE_ROOT, type RunState } from './support/paths';
 import { startFakeRazorpay, type FakeRazorpay } from '../apps/api/src/testing/razorpay-fake';
+import { startFakePushService, vapidKeys } from './support/fake-push';
+import { E2E_ANDROID } from './support/demo';
 
 /**
  * Starts the real product the way production runs it: one Node process
@@ -33,6 +35,9 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     const port = await chosenPort();
     const baseURL = `http://127.0.0.1:${port}`;
     const serverLog = join(tempDir, 'server.log');
+    // Push goes to a local fake push service only (support/fake-push.ts).
+    const push = await startFakePushService();
+    const vapid = vapidKeys();
     // Only what the server needs: nothing inherited from the developer's shell
     // can point it at another database or loosen production checks.
     const env = {
@@ -47,6 +52,10 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       // Test-only secret, new every run.
       SHARK_PASS_SECRET: randomBytes(48).toString('base64'),
       SHARK_DISABLE_JOBS: 'true',
+      // Each test presents its own client address (support/fixtures.ts), so
+      // the per-IP sign-in limit protects production without throttling a
+      // suite that signs in a hundred times a minute from one machine.
+      SHARK_TRUST_PROXY_HOPS: '1',
       SHARK_RELEASE: 'e2e',
       // Error reports go to the server log, where the client-error spec reads them.
       SHARK_ERROR_REPORTER: 'console',
@@ -56,6 +65,12 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       SHARK_RAZORPAY_KEY_SECRET: razorpay.keySecret,
       SHARK_RAZORPAY_WEBHOOK_SECRET: razorpay.webhookSecret,
       SHARK_RAZORPAY_API_BASE: razorpay.baseUrl,
+      SHARK_VAPID_PUBLIC_KEY: vapid.publicKey,
+      SHARK_VAPID_PRIVATE_KEY: vapid.privateKey,
+      SHARK_VAPID_SUBJECT: 'mailto:e2e@sharkfitness.example',
+      SHARK_PUSH_EXTRA_ENDPOINT_ORIGINS: push.origin,
+      SHARK_ANDROID_PACKAGE: E2E_ANDROID.packageName,
+      SHARK_ANDROID_CERT_SHA256: E2E_ANDROID.fingerprint,
     };
 
     for (const script of ['src/db/migrate.ts', 'src/db/seed.ts']) {
@@ -82,6 +97,8 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
 
     process.env.SHARK_E2E_BASE_URL = baseURL;
     process.env.SHARK_E2E_SERVER_LOG = serverLog;
+    process.env.SHARK_E2E_PUSH_ORIGIN = push.origin;
+    process.env.SHARK_E2E_VAPID_PUBLIC_KEY = vapid.publicKey;
     // For the payment specs (support/razorpay.ts), which run in worker processes.
     process.env.SHARK_E2E_RAZORPAY_API_BASE = razorpay.baseUrl;
     process.env.SHARK_E2E_RAZORPAY_KEY_SECRET = razorpay.keySecret;
@@ -93,6 +110,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
         console.warn(`Fake Razorpay saw requests it does not serve: ${fake.unexpected.map((r) => `${r.method} ${r.path}`).join(', ')}`);
       }
       await fake.close();
+      push.server.close();
     };
   } catch (error) {
     await razorpay?.close();

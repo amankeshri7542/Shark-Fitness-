@@ -7,6 +7,7 @@ import { audit } from '../lib/audit.js';
 import { emit } from '../lib/events.js';
 import { invalid, notFound } from '../lib/errors.js';
 import { id } from '../lib/ids.js';
+import { notifyNewMessage } from './notifications.js';
 import { isoDate, now } from '../lib/time.js';
 
 /**
@@ -303,6 +304,10 @@ export function bulkMessage(ctx: RequestContext, input: { memberIds: string[]; b
           safetyFlagged: false,
         })
         .run();
+      notifyNewMessage(
+        { tenantId: ctx.tenantId, memberId: m.id, branchId: m.homeBranchId, conversationId, messageId, senderName: ctx.name },
+        at,
+      );
       sent.push({ memberId: m.id, conversationId, messageId, branchId: m.homeBranchId });
     }
 

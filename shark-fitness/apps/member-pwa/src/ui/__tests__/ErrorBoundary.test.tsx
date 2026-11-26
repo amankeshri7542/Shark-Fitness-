@@ -103,3 +103,20 @@ describe('global error listeners', () => {
     expect(report).toHaveBeenNthCalledWith(2, rejected, 'unhandledrejection');
   });
 });
+
+describe('offline', () => {
+  it('explains that an unvisited screen needs a connection and reports nothing', async () => {
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    const send = vi.fn(async () => undefined);
+    const reporter = createClientErrorReporter({ source: 'member', endpoint: '/v1/client-errors', storage: memoryStorage(), send });
+    render(
+      <AppErrorBoundary reporter={reporter}>
+        <Bomb message="Failed to fetch dynamically imported module: /app/assets/Pack-x.js" />
+      </AppErrorBoundary>,
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent("You're offline");
+    expect(screen.getByRole('link', { name: 'Go to Home' })).toHaveAttribute('href', '/app/');
+    await new Promise((done) => setTimeout(done, 20));
+    expect(send).not.toHaveBeenCalled();
+  });
+});

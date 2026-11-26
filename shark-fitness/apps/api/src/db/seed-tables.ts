@@ -24,6 +24,7 @@ export const SEED_WIPE_TABLES = [
   'commission_lines', 'commission_rates', 'staff_unavailability', 'shifts', 'staff', 'lead_consents', 'lead_activities', 'leads',
   'credits', 'membership_events', 'memberships', 'products',
   'member_branches', 'members',
+  'push_deliveries', 'push_subscriptions',
   'automation_runs', 'automation_deliveries', 'metric_rollups', 'automations', 'message_templates', 'notifications',
   'privacy_artifacts', 'privacy_requests', 'legal_holds',
   'job_runs', 'idempotency_keys', 'outbox_events', 'audit_log', 'consents', 'otp_challenges', 'sessions', 'users',

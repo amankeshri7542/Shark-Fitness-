@@ -155,11 +155,12 @@ jobs:
           assert_asset "/admin/assets/$(basename "$admin_js")" 'javascript'
           assert_asset "/_astro/$(basename "$site_js")" 'javascript'
           assert_asset "/_astro/$(basename "$site_font")" 'font/woff2'
-          assert_asset '/app/registerSW.js' 'javascript'
+          assert_asset '/app/sw.js' 'javascript'
+          assert_asset '/admin/sw.js' 'javascript'
           assert_asset '/sw.js' 'javascript'
 
           curl -fsS http://127.0.0.1:8787/app/manifest.webmanifest \
-            | node -e "let s='';process.stdin.on('data',c=>s+=c);process.stdin.on('end',()=>{const m=JSON.parse(s);if(m.scope!=='/app/'||m.start_url!=='/app/')process.exit(1)})"
+            | node -e "let s='';process.stdin.on('data',c=>s+=c);process.stdin.on('end',()=>{const m=JSON.parse(s);if(m.scope!=='/app/'||m.id!=='/app/'||!String(m.start_url).startsWith('/app/'))process.exit(1)})"
           curl -fsS -H 'accept-encoding: br, gzip' --compressed http://127.0.0.1:8787/ | grep -q '<h1>'
           curl -fsS http://127.0.0.1:8787/plans | grep -q 'application/ld+json'
           curl -fsS http://127.0.0.1:8787/app/ | grep -q '/app/assets/'

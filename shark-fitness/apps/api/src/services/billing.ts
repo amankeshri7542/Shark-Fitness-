@@ -8,6 +8,7 @@ import { audit } from '../lib/audit.js';
 import { conflict, invalid, notFound, precondition } from '../lib/errors.js';
 import { emit } from '../lib/events.js';
 import { id } from '../lib/ids.js';
+import { notifyPaymentOutcome } from './notifications.js';
 import { addDays, isoDate, now } from '../lib/time.js';
 import { branchScope, requirePermission, type RequestContext } from '../lib/context.js';
 import { branchTimeZone } from '../lib/branch-time.js';
@@ -249,6 +250,23 @@ export function settleInvoicePayment(input: SettleInvoicePaymentInput): ApplyPay
   const recipient = db.select().from(schema.members).where(and(eq(schema.members.id, invoice.memberId), eq(schema.members.tenantId, ctx.tenantId))).get()!;
   db.insert(schema.paymentReceipts).values({ paymentId, tenantId: ctx.tenantId, issuerName: issuer.legalName,
     memberName: `${recipient.firstName} ${recipient.lastName}`, memberNo: recipient.memberNo, createdAt: now() }).run();
+
+  // The member hears that the money landed: in the app, and on their phone
+  // when they have push on. Every settlement comes through here, whether the
+  // desk recorded it or a payment provider confirmed it.
+  if (recipient.userId) {
+    notifyPaymentOutcome({
+      tenantId: ctx.tenantId,
+      userId: recipient.userId,
+      branchId: invoice.branchId,
+      invoiceId,
+      invoiceNumber: invoice.number,
+      amountMinor,
+      currency: invoice.currency,
+      outcome: 'succeeded',
+      attemptRef: paymentId,
+    });
+  }
 
   // Money arrived: stop chasing it. Without this a member who settles at the
   // desk still gets next week's reminder, because the dunning worker only

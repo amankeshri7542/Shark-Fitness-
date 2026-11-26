@@ -253,6 +253,26 @@ Pass tokens are HMAC-signed with `SHARK_PASS_SECRET`, single-use
 (`used_access_windows` with a unique constraint), and rotate on a window. That
 part is sound.
 
+### The member app offline (P04)
+
+The member app at `/app/` opens without a network: its service worker serves
+the precached shell (≤ 700 KiB budget, enforced in `vite.config.ts`), and a
+per-person snapshot of Home, the training plan, the class list and consents
+(IndexedDB, 24 h, deleted on sign-out, never the pass or billing) fills the
+screens, with a banner saying when it was saved. Writes queue in the outbox
+as before. The API itself is never cached by a worker. New builds wait until
+no workout is running before they take over. The staff console's worker
+caches its shell only and shows an offline page instead of stale data.
+
+### Push notifications (P04)
+
+Off unless `SHARK_VAPID_PUBLIC_KEY`, `SHARK_VAPID_PRIVATE_KEY` and
+`SHARK_VAPID_SUBJECT` are all set; validated at boot. Sends are durable
+(`push_deliveries`), honour consent, quiet hours (branch timezone) and dedupe,
+and only reach push-service hosts (Google, Mozilla, Apple, Microsoft). The
+`deliver-push-queue` job sweeps every minute. Nothing has been sent to a real
+device from this repository; the tests use a local fake push service.
+
 ---
 
 ## 9. Logging and observability

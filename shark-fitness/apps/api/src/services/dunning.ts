@@ -11,6 +11,7 @@ import { DAY, addDays, isoDate, localClockOnDay, localMinutes, now } from '../li
 import { branchTimeZone } from '../lib/branch-time.js';
 import { branchPolicy } from '../lib/policy.js';
 import { NO_PROVIDER, NO_STORED_MANDATE, resolvePaymentProvider, submitRetry } from '../lib/payment-provider.js';
+import { notifyUser } from './notifications.js';
 
 /**
  * Dunning (PF-BILL-005) — the internal state machine.
@@ -390,26 +391,21 @@ function notifyMember(
       ? `Invoice ${invoice.number} still has ${amount} outstanding. We cannot collect it automatically, so please settle it at reception — the team has been asked to get in touch.`
       : `Invoice ${invoice.number} has ${amount} outstanding. We cannot collect it automatically, so please settle it at reception or in the app.`;
 
-  const notificationId = id('ntf');
-  db.insert(schema.notifications)
-    .values({
-      id: notificationId,
+  // Quiet hours were already honoured above, in the same branch timezone.
+  return notifyUser(
+    {
       tenantId: invoice.tenantId,
       userId: member.userId,
-      channel: 'in_app',
+      branchId: invoice.branchId,
       kind: 'payment_due',
       title: isFinal ? 'Your membership payment is overdue' : 'A payment is outstanding',
       body,
       link: '/billing',
       templateCode: `dunning.attempt_${step.attempt}`,
-      state: 'sent',
-      attempts: 1,
-      lastError: null,
-      createdAt: atMs,
-      readAt: null,
-    })
-    .run();
-  return notificationId;
+      push: { category: 'payment', dedupeKey: `dunning:${invoice.id}:${step.attempt}` },
+    },
+    atMs,
+  );
 }
 
 function closeStep(step: DunningAttempt, atMs: number, reason: string): void {

@@ -1,63 +1,84 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
 import { fileURLToPath } from 'node:url';
+import { MEMBER_MANIFEST } from './manifest.config';
+
+/** Route chunks left out of the precache. Home, Train, Workout, Summary,
+ *  Exercise, Book, Profile, Pass, Help and Sign-in stay in: they work offline
+ *  from the saved snapshot or local state. */
+const ONLINE_ONLY_SCREENS = ['Pack', 'Challenge', 'Library', 'Billing', 'Progress', 'Notifications', 'Messages', 'Conversation', 'Habits'];
+
+/** Ports stay overridable for machines that run several copies at once. */
+const DEV_PORT = Number(process.env.SHARK_MEMBER_DEV_PORT ?? 5173);
+const API_DEV_ORIGIN = process.env.SHARK_API_DEV_ORIGIN ?? 'http://localhost:8787';
 
 /**
- * The member app lives at /app/ on the single origin: the public website owns
- * / (apps/website) and the staff console /admin/. Base path, router basepath,
- * manifest scope and service-worker scope all follow from this one value.
+ * Self-hosted fonts are content-hashed by Vite, so index.html cannot name
+ * them by hand. Preload the woff2 files the build emitted: they are needed for
+ * the first paint of every screen, and `font-display: swap` alone would show
+ * the fallback face first on a slow phone.
  */
-export const MEMBER_BASE = '/app/';
+function preloadFonts(): Plugin {
+  return {
+    name: 'shark:preload-fonts',
+    apply: 'build',
+    transformIndexHtml: {
+      order: 'post',
+      handler(_html, ctx) {
+        const fonts = Object.keys(ctx.bundle ?? {}).filter((file) => file.endsWith('.woff2'));
+        return fonts.map((file) => ({
+          tag: 'link',
+          attrs: { rel: 'preload', href: `/app/${file}`, as: 'font', type: 'font/woff2', crossorigin: '' },
+          injectTo: 'head',
+        }));
+      },
+    },
+  };
+}
 
 export default defineConfig({
-  base: MEMBER_BASE,
+  // The member app lives under /app/ (PHASE-PLAN decision 4): the public
+  // website owns /, the console owns /admin/.
+  base: '/app/',
   plugins: [
     react(),
     tailwind(),
+    preloadFonts(),
     VitePWA({
-      registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg'],
-      manifest: {
-        name: 'Shark Fitness',
-        short_name: 'Shark',
-        description: 'Your membership, your training, your gym.',
-        theme_color: '#04080b',
-        background_color: '#04080b',
-        display: 'standalone',
-        orientation: 'portrait',
-        // Under /app/: an install made from the website's origin must open the
-        // app, never the marketing site, and must not claim /admin/.
-        id: MEMBER_BASE,
-        scope: MEMBER_BASE,
-        start_url: MEMBER_BASE,
-        icons: [
-          { src: 'favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' },
+      // Our own worker (src/sw/sw.ts): push handlers and an offline page need
+      // more than generateSW offers. The page registers it (lib/sw-update.ts)
+      // so it can hold an update back while a workout is running.
+      strategies: 'injectManifest',
+      srcDir: 'src/sw',
+      filename: 'sw.ts',
+      registerType: 'prompt',
+      injectRegister: false,
+      scope: '/app/',
+      manifestFilename: 'manifest.webmanifest',
+      includeAssets: [],
+      // Manifest and shortcut icons are fetched by the OS when it installs
+      // the app; precaching them would only spend the offline budget.
+      includeManifestIcons: false,
+      manifest: MEMBER_MANIFEST,
+      injectManifest: {
+        // The shell, fonts and the icons a notification or offline page
+        // needs. Store screenshots and large icons are fetched on demand.
+        globPatterns: [
+          '**/*.{js,css,html,woff2}',
+          'favicon.svg',
+          'icons/icon-192.png',
+          'icons/monochrome-96.png',
         ],
-      },
-      workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
-        // The app shell is cached so a workout screen opens with no network.
-        // API responses are never cached here — the outbox owns offline writes
-        // and stale reads during a workout would be worse than none.
-        // The worker is scoped to /app/ (it is served from there), so it can
-        // only ever see member navigations. The fallback is the precached
-        // shell at /app/index.html; the allow-list restates the scope, and the
-        // deny-list stays as a second guard should the scope ever widen: the
-        // website at /, the console at /admin/, the API and health checks must
-        // never be answered with the member shell.
-        navigateFallback: `${MEMBER_BASE}index.html`,
-        navigateFallbackAllowlist: [/^\/app(?:\/|$)/],
-        navigateFallbackDenylist: [/^\/admin(?:\/|$)/, /^\/v1(?:\/|$)/, /^\/health\/?$/],
-        cleanupOutdatedCaches: true,
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/fonts\.(googleapis|gstatic)\.com\//,
-            handler: 'CacheFirst',
-            options: { cacheName: 'fonts', expiration: { maxEntries: 20, maxAgeSeconds: 60 * 60 * 24 * 365 } },
-          },
-        ],
+        // Screens whose data is never saved for offline use (it would only
+        // show "could not load" without a connection) are cached the first
+        // time they are opened instead (see src/sw/sw.ts), which keeps the
+        // install-time download inside budget.
+        globIgnores: ['**/screenshots/**', ...ONLINE_ONLY_SCREENS.map((name) => `assets/${name}-*.js`)],
+        // Budget guard (PHASE-PLAN P04 criterion 11): the precache must stay
+        // under 700 KiB. A single file above this would be a mistake anyway.
+        maximumFileSizeToCacheInBytes: 250 * 1024,
       },
       devOptions: { enabled: false },
     }),
@@ -91,9 +112,11 @@ export default defineConfig({
     // resolve through the workspace link and the package's own exports map.
     dedupe: ['react', 'react-dom'],
   },
+  preview: { port: DEV_PORT },
   server: {
+    port: DEV_PORT,
     proxy: {
-      '/v1': { target: 'http://localhost:8787', changeOrigin: true, ws: true },
+      '/v1': { target: API_DEV_ORIGIN, changeOrigin: true, ws: true },
     },
   },
 });

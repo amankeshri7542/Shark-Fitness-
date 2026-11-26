@@ -11,6 +11,7 @@ import type { RequestContext } from '../../lib/context.js';
 import { audit } from '../../lib/audit.js';
 import { emit } from '../../lib/events.js';
 import { id } from '../../lib/ids.js';
+import { notifyUser } from '../../services/notifications.js';
 import { DAY, MINUTE, isoDate, localTime, now } from '../../lib/time.js';
 import { AppError, conflict, entitlementMissing, notFound, precondition } from '../../lib/errors.js';
 import {
@@ -663,24 +664,20 @@ function promoteWaitlist(
     .get();
 
   if (promotedMember?.userId) {
-    db.insert(schema.notifications)
-      .values({
-        id: id('ntf'),
+    notifyUser(
+      {
         tenantId: ctx.tenantId,
         userId: promotedMember.userId,
-        channel: 'in_app',
+        branchId: session.branchId,
         kind: 'waitlist_offer',
         title: `A seat opened in ${session.name}`,
         body: `${localTime(session.startsAt, tz)} today. The seat is held for you for ${plan.offerWindowMin} minutes, then it goes to the next person.`,
         link: '/book',
         templateCode: 'waitlist.offered',
-        state: 'sent',
-        attempts: 1,
-        lastError: null,
-        createdAt: atMs,
-        readAt: null,
-      })
-      .run();
+        push: { category: 'booking', dedupeKey: `waitlist_offer:${plan.offer.id}:${atMs}`, expiresAt: offerExpiresAt },
+      },
+      atMs,
+    );
   }
 
   emit({

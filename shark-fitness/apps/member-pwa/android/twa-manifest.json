@@ -1,0 +1,61 @@
+{
+  "packageId": "in.sharkfitness.member",
+  "host": "app.sharkfitness.example",
+  "name": "Shark Fitness",
+  "launcherName": "Shark",
+  "display": "standalone",
+  "orientation": "portrait",
+  "themeColor": "#04080B",
+  "themeColorDark": "#04080B",
+  "navigationColor": "#050B10",
+  "navigationColorDark": "#050B10",
+  "navigationDividerColor": "#050B10",
+  "navigationDividerColorDark": "#050B10",
+  "backgroundColor": "#04080B",
+  "enableNotifications": true,
+  "startUrl": "/app/?source=twa",
+  "iconUrl": "https://app.sharkfitness.example/app/icons/icon-512.png",
+  "maskableIconUrl": "https://app.sharkfitness.example/app/icons/maskable-512.png",
+  "monochromeIconUrl": "https://app.sharkfitness.example/app/icons/monochrome-96.png",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "./android.keystore",
+    "alias": "shark-upload"
+  },
+  "appVersionName": "1.0.0",
+  "appVersionCode": 1,
+  "shortcuts": [
+    {
+      "name": "Pass",
+      "shortName": "Pass",
+      "url": "https://app.sharkfitness.example/app/pass?source=shortcut",
+      "chosenIconUrl": "https://app.sharkfitness.example/app/icons/shortcut-pass-96.png"
+    },
+    {
+      "name": "Today's workout",
+      "shortName": "Workout",
+      "url": "https://app.sharkfitness.example/app/train?source=shortcut",
+      "chosenIconUrl": "https://app.sharkfitness.example/app/icons/shortcut-train-96.png"
+    },
+    {
+      "name": "Book a class",
+      "shortName": "Book",
+      "url": "https://app.sharkfitness.example/app/book?source=shortcut",
+      "chosenIconUrl": "https://app.sharkfitness.example/app/icons/shortcut-book-96.png"
+    }
+  ],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://app.sharkfitness.example/app/manifest.webmanifest",
+  "fallbackType": "customtabs",
+  "features": {},
+  "alphaDependencies": { "enabled": false },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "https://app.sharkfitness.example/app/",
+  "minSdkVersion": 21,
+  "fingerprints": [],
+  "additionalTrustedOrigins": [],
+  "retainedBundles": [],
+  "appVersion": "1.0.0"
+}

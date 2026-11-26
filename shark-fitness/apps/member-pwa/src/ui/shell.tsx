@@ -1,9 +1,13 @@
 import { Link, useRouterState } from '@tanstack/react-router';
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '../lib/api';
+import { QK } from '../lib/query-keys';
 import { LiveDot, Scanlines, cx } from './primitives';
 import { useCopy, useViewer } from '../lib/store';
 import { useConnection } from '../lib/realtime';
 import { useOutboxCount } from '../lib/outbox';
+import { appPath } from '../lib/paths';
 
 /* The five nav marks from the prototype, kept as clip-paths so they stay
    crisp at any density and tint with a single colour. */
@@ -23,13 +27,14 @@ const NAV = [
 
 export function BottomNav() {
   const copy = useCopy();
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const pathname = appPath(useRouterState({ select: (s) => s.location.pathname }));
 
   return (
     <nav
       aria-label="Main"
-      className="sf-safe-bottom relative flex flex-none border-t border-line bg-hull"
+      className="sf-safe-bottom sf-inset-x relative flex-none border-t border-line bg-hull"
     >
+      <div className="sf-column flex">
       {NAV.map((item) => {
         const active = item.to === '/' ? pathname === '/' : pathname.startsWith(item.to);
         const colour = active ? 'var(--sf-sonar)' : 'var(--sf-foam-45)';
@@ -71,6 +76,7 @@ export function BottomNav() {
           </Link>
         );
       })}
+      </div>
     </nav>
   );
 }
@@ -90,7 +96,8 @@ export function AppHeader({ branchName }: { branchName: string }) {
           : { tone: 'warn' as const, label: 'Offline' };
 
   return (
-    <header className="sf-safe-top relative flex flex-none items-center gap-2.5 border-b border-line px-4 pb-2.5 pt-3">
+    <header className="sf-safe-top sf-safe-x relative flex-none border-b border-line">
+      <div className="sf-column flex items-center gap-2.5 pb-2 pt-2.5">
       <span className="font-display text-[22px] uppercase leading-none tracking-[0.06em]">Shark</span>
       <span
         aria-hidden="true"
@@ -106,21 +113,70 @@ export function AppHeader({ branchName }: { branchName: string }) {
         <LiveDot tone={status.tone} />
         {status.label}
       </span>
+      <NotificationBell />
       <Link
         to="/profile"
         aria-label="Your profile and settings"
-        className="grid h-8 w-8 place-items-center border border-line-strong font-utility text-[12px] font-semibold tracking-[0.04em] hover:border-sonar hover:text-sonar"
+        className="grid h-11 w-11 flex-none place-items-center border border-line-strong font-utility text-[12px] font-semibold tracking-[0.04em] hover:border-sonar hover:text-sonar"
       >
         {viewer?.initials ?? '··'}
       </Link>
+      </div>
     </header>
+  );
+}
+
+/**
+ * The bell: one tap to Notifications from every tabbed screen, with the
+ * unread count. The same count goes on the installed app's icon where the
+ * platform supports badges (Android, desktop, iOS 16.4+ home-screen apps).
+ */
+function NotificationBell() {
+  const { data } = useQuery({
+    queryKey: QK.notifications,
+    queryFn: () => api<{ unread: number }>('/me/notifications'),
+    staleTime: 60_000,
+  });
+  const unread = data?.unread ?? 0;
+
+  useEffect(() => {
+    const nav = navigator as Navigator & { setAppBadge?: (n?: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
+    if (unread > 0) void nav.setAppBadge?.(unread).catch(() => undefined);
+    else void nav.clearAppBadge?.().catch(() => undefined);
+  }, [unread]);
+
+  const label = unread > 0 ? `Notifications, ${unread} unread` : 'Notifications';
+  return (
+    <Link
+      to="/notifications"
+      aria-label={label}
+      className="relative grid h-11 w-11 flex-none place-items-center border border-line-strong text-foam hover:border-sonar hover:text-sonar"
+    >
+      <span
+        aria-hidden="true"
+        className="h-[15px] w-[14px] bg-current"
+        style={{
+          // A bell in the nav marks' clip-path idiom: dome, rim, clapper.
+          clipPath:
+            'polygon(50% 0, 62% 8%, 80% 22%, 86% 70%, 100% 82%, 100% 88%, 0 88%, 0 82%, 14% 70%, 20% 22%, 38% 8%, 50% 0, 50% 0, 40% 92%, 60% 92%, 56% 100%, 44% 100%, 40% 92%)',
+        }}
+      />
+      {unread > 0 ? (
+        <span
+          data-testid="unread-badge"
+          className="absolute -right-px -top-px min-w-[18px] bg-sonar px-1 text-center font-utility text-[10px] font-semibold leading-[18px] text-on-accent"
+        >
+          {unread > 99 ? '99+' : unread}
+        </span>
+      ) : null}
+    </Link>
   );
 }
 
 /** The scrolling body of a screen, with the prototype's top vignette. */
 export function ScreenBody({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <main className={cx('relative flex-1 overflow-y-auto overflow-x-hidden', className)}>
+    <main className={cx('sf-inset-x relative flex-1 overflow-y-auto overflow-x-hidden', className)}>
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 opacity-50"
@@ -128,7 +184,7 @@ export function ScreenBody({ children, className }: { children: ReactNode; class
           background: 'radial-gradient(120% 60% at 50% -10%, var(--sf-shelf-top) 0%, transparent 62%)',
         }}
       />
-      <div className="relative">{children}</div>
+      <div className="sf-column relative">{children}</div>
     </main>
   );
 }

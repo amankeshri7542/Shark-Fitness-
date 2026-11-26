@@ -7,6 +7,8 @@ import {
   redirect,
 } from '@tanstack/react-router';
 import { AppHeader, BottomNav } from './ui/shell';
+import { OfflineBanner } from './ui/OfflineBanner';
+import { UpdateBar } from './ui/UpdateBar';
 import { useActiveBranch, useSession } from './lib/store';
 
 // Sign-in stays in the entry chunk. It is the first screen an unauthenticated
@@ -17,6 +19,7 @@ import { useActiveBranch, useSession } from './lib/store';
 // or touched, so navigation still feels immediate.
 import SignInScreen from './screens/SignIn';
 import { RecoveryScreen } from './ui/ErrorBoundary';
+import { APP_BASE } from './lib/paths';
 
 const HomeScreen = lazyRouteComponent(() => import('./screens/Home'));
 const PassScreen = lazyRouteComponent(() => import('./screens/Pass'));
@@ -35,6 +38,7 @@ const BillingScreen = lazyRouteComponent(() => import('./screens/Billing'));
 const LibraryScreen = lazyRouteComponent(() => import('./screens/Library'));
 const ProfileScreen = lazyRouteComponent(() => import('./screens/Profile'));
 const NotificationsScreen = lazyRouteComponent(() => import('./screens/Notifications'));
+const HelpScreen = lazyRouteComponent(() => import('./screens/Help'));
 
 /** Shown while a route chunk is in flight. Mirrors the boot splash so a slow
  *  network looks like the app loading, not the app breaking. */
@@ -59,6 +63,8 @@ function TabLayout() {
   return (
     <>
       <AppHeader branchName={branch?.name ?? 'Shark Fitness'} />
+      <OfflineBanner />
+      <UpdateBar />
       <Outlet />
       <BottomNav />
     </>
@@ -135,6 +141,8 @@ const notificationsRoute = createRoute({
   component: NotificationsScreen,
 });
 
+const helpRoute = createRoute({ getParentRoute: () => tabsRoute, path: '/help', component: HelpScreen });
+
 const passRoute = createRoute({ getParentRoute: () => bareRoute, path: '/pass', component: PassScreen });
 const workoutRoute = createRoute({ getParentRoute: () => bareRoute, path: '/workout', component: WorkoutScreen });
 const summaryRoute = createRoute({
@@ -160,15 +168,16 @@ const routeTree = rootRoute.addChildren([
     libraryRoute,
     profileRoute,
     notificationsRoute,
+    helpRoute,
   ]),
   bareRoute.addChildren([passRoute, workoutRoute, summaryRoute]),
 ]);
 
 export const router = createRouter({
   routeTree,
-  // Served under /app/ (vite.config.ts MEMBER_BASE). Route paths stay '/',
-  // '/book', …; links and the address bar carry the prefix.
-  basepath: '/app',
+  // Served under /app/ (lib/paths.ts APP_BASE, vite.config.ts base). Route
+  // paths stay '/', '/book', …; links and the address bar carry the prefix.
+  basepath: APP_BASE,
   defaultPreload: 'intent',
   defaultPendingComponent: RoutePending,
   // A screen that throws while rendering or loading shows the recovery panel

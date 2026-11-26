@@ -179,7 +179,7 @@ await checkActivationNavigation();
 console.log('[browser-smoke] phone member activation fragment navigation OK (no password submitted)');
 await cdp('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 
-// Reproduce a returning member browser: install the root-scoped member worker,
+// Reproduce a returning member browser: install the /app/-scoped member worker,
 // wait until it is fully activated, then start another same-origin navigation so
 // the active worker becomes the controller before Admin is opened.
 const memberWorker = await retry(

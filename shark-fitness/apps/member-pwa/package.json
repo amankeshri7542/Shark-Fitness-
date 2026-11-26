@@ -4,11 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --port 5173",
-    "build": "tsc --noEmit && vite build",
-    "preview": "vite preview --port 5173",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "dev": "vite",
+    "build": "tsc --noEmit && tsc --noEmit -p tsconfig.sw.json && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.sw.json",
+    "test": "vitest run",
+    "icons": "node scripts/generate-icons.mjs"
   },
   "dependencies": {
     "@shark/contracts": "workspace:*",
@@ -23,6 +24,7 @@
     "zustand": "5.0.3"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "2.6.2",
     "@tailwindcss/vite": "4.3.3",
     "@testing-library/jest-dom": "7.0.1",
     "@testing-library/react": "16.3.2",
@@ -30,11 +32,15 @@
     "@types/react": "19.0.7",
     "@types/react-dom": "19.0.3",
     "@vitejs/plugin-react": "4.3.4",
+    "fake-indexeddb": "6.2.5",
     "jsdom": "30.0.1",
     "tailwindcss": "4.3.3",
     "typescript": "5.7.3",
     "vite": "6.0.11",
     "vite-plugin-pwa": "0.21.1",
-    "vitest": "3.0.5"
+    "vitest": "3.0.5",
+    "workbox-core": "7.4.1",
+    "workbox-precaching": "7.4.1",
+    "workbox-routing": "7.4.1"
   }
 }

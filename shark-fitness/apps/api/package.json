@@ -14,7 +14,8 @@
     "build": "tsc --noEmit",
     "bootstrap": "tsx src/db/bootstrap.ts",
     "db:check-drift": "node scripts/check-migration-drift.mjs",
-    "razorpay:webhook": "tsx scripts/razorpay-webhook.ts"
+    "razorpay:webhook": "tsx scripts/razorpay-webhook.ts",
+    "vapid:keys": "tsx scripts/vapid-keys.ts"
   },
   "dependencies": {
     "@hono/node-server": "1.13.8",
@@ -25,12 +26,14 @@
     "drizzle-orm": "0.38.4",
     "hono": "4.6.20",
     "tsx": "4.19.2",
+    "web-push": "3.6.7",
     "ws": "8.18.0",
     "zod": "3.24.1"
   },
   "devDependencies": {
     "@types/better-sqlite3": "7.6.12",
     "@types/node": "22.10.7",
+    "@types/web-push": "3.6.4",
     "@types/ws": "8.5.14",
     "drizzle-kit": "0.30.2",
     "typescript": "5.7.3",

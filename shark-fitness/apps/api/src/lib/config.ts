@@ -165,6 +165,73 @@ const RazorpayApiBase = HttpEndpoint.transform((value, ctx) => {
 
 /** Test mode only for this release (PHASE-PLAN decision 5). */
 export const RAZORPAY_TEST_KEY_PATTERN = /^rzp_test_[A-Za-z0-9]+$/;
+/* — Web Push (VAPID) and Android app links ————————————————— */
+
+function base64UrlBytes(value: string): Buffer | null {
+  if (!/^[A-Za-z0-9_-]+={0,2}$/.test(value)) return null;
+  return Buffer.from(value.replace(/=+$/, ''), 'base64url');
+}
+
+/** Uncompressed P-256 public key: 65 bytes, first byte 0x04. */
+const VapidPublicKey = z.preprocess(
+  blankAsUnset,
+  z
+    .string()
+    .trim()
+    .refine((value) => {
+      const bytes = base64UrlBytes(value);
+      return bytes !== null && bytes.length === 65 && bytes[0] === 4;
+    }, 'SHARK_VAPID_PUBLIC_KEY must be a URL-safe base64 uncompressed P-256 public key (65 bytes). Generate one with `pnpm -F @shark/api vapid:keys`.')
+    .optional(),
+);
+const VapidPrivateKey = z.preprocess(
+  blankAsUnset,
+  z
+    .string()
+    .trim()
+    .refine((value) => base64UrlBytes(value)?.length === 32, 'SHARK_VAPID_PRIVATE_KEY must be a URL-safe base64 P-256 private key (32 bytes).')
+    .optional(),
+);
+const VapidSubject = z.preprocess(
+  blankAsUnset,
+  z
+    .string()
+    .trim()
+    .refine(
+      (value) => /^mailto:[^@\s]+@[^@\s]+$/.test(value) || /^https:\/\/[^\s]+$/.test(value),
+      'SHARK_VAPID_SUBJECT must be a mailto: address or an https: URL push services can contact.',
+    )
+    .optional(),
+);
+
+/** Reverse-DNS Android application id, e.g. in.sharkfitness.member. */
+const AndroidPackage = z.preprocess(
+  blankAsUnset,
+  z
+    .string()
+    .trim()
+    .regex(/^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$/, 'SHARK_ANDROID_PACKAGE must be an Android application id such as in.sharkfitness.member.')
+    .optional(),
+);
+/** Comma-separated SHA-256 signing-certificate fingerprints, AA:BB:… (32 pairs). */
+const AndroidCertFingerprints = z.preprocess(
+  blankAsUnset,
+  z
+    .string()
+    .transform((value, ctx) => {
+      const items = value.split(',').map((item) => item.trim().toUpperCase()).filter(Boolean);
+      const bad = items.filter((item) => !/^([0-9A-F]{2}:){31}[0-9A-F]{2}$/.test(item));
+      if (items.length === 0 || bad.length > 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'SHARK_ANDROID_CERT_SHA256 must be one or more SHA-256 fingerprints like 14:6D:E9:…:B4 (32 colon-separated hex pairs), comma-separated.',
+        });
+        return z.NEVER;
+      }
+      return [...new Set(items)];
+    })
+    .optional(),
+);
 
 const Reader = z.object({
   key: z.string().min(16),
@@ -240,6 +307,12 @@ const RuntimeEnvironmentShape = z.object({
     SHARK_PRUNE_BATCH_SIZE: boundedInteger('SHARK_PRUNE_BATCH_SIZE', 1, 1_000).optional(),
     SHARK_PRUNE_MAX_BATCHES: boundedInteger('SHARK_PRUNE_MAX_BATCHES', 1, 10).optional(),
     SHARK_RELEASE: z.string().trim().min(1).max(200).optional(),
+    SHARK_VAPID_PUBLIC_KEY: VapidPublicKey,
+    SHARK_VAPID_PRIVATE_KEY: VapidPrivateKey,
+    SHARK_VAPID_SUBJECT: VapidSubject,
+    SHARK_PUSH_EXTRA_ENDPOINT_ORIGINS: OriginList,
+    SHARK_ANDROID_PACKAGE: AndroidPackage,
+    SHARK_ANDROID_CERT_SHA256: AndroidCertFingerprints,
     RENDER_EXTERNAL_URL: OptionalOrigin,
     RENDER_GIT_COMMIT: z.string().trim().optional(),
     GITHUB_SHA: z.string().trim().optional(),
@@ -299,6 +372,24 @@ const RuntimeEnvironment = RuntimeEnvironmentShape.superRefine((environment, ctx
           });
         }
       }
+    }
+    const vapid = ['SHARK_VAPID_PUBLIC_KEY', 'SHARK_VAPID_PRIVATE_KEY', 'SHARK_VAPID_SUBJECT'] as const;
+    const vapidSet = vapid.filter((key) => environment[key] !== undefined);
+    if (vapidSet.length > 0 && vapidSet.length < vapid.length) {
+      for (const key of vapid.filter((key) => environment[key] === undefined)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `Web Push needs all of ${vapid.join(', ')}; ${key} is missing. Leave all three unset to switch push off.`,
+        });
+      }
+    }
+    if (Boolean(environment.SHARK_ANDROID_PACKAGE) !== Boolean(environment.SHARK_ANDROID_CERT_SHA256)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [environment.SHARK_ANDROID_PACKAGE ? 'SHARK_ANDROID_CERT_SHA256' : 'SHARK_ANDROID_PACKAGE'],
+        message: 'Android app links need both SHARK_ANDROID_PACKAGE and SHARK_ANDROID_CERT_SHA256 (or neither).',
+      });
     }
     if (environment.SHARK_ERROR_REPORTER === 'sentry' && !environment.SHARK_ERROR_DSN) {
       ctx.addIssue({
@@ -443,6 +534,15 @@ export interface RuntimeConfig {
   otp: OtpConfig;
   /** Null unless SHARK_PAYMENT_PROVIDER=razorpay with every credential set. */
   payments: { provider: 'razorpay'; razorpay: RazorpayConfig } | null;
+  /** Web Push. `vapid` null means push is off: no push UI, nothing queued. */
+  push: {
+    vapid: { publicKey: string; privateKey: string; subject: string } | null;
+    /** Push endpoints outside the known browser push services that may be
+     *  used anyway: local fake push services in tests. Empty in production. */
+    extraEndpointOrigins: string[];
+  };
+  /** Digital Asset Links for the Android TWA. Null serves 404. */
+  androidAppLinks: { packageName: string; sha256CertFingerprints: string[] } | null;
   release: string;
   retention: {
     idempotencyKeysMs: number;
@@ -549,6 +649,21 @@ export function parseRuntimeConfig(environment: Record<string, string | undefine
               apiBase: parsed.SHARK_RAZORPAY_API_BASE ?? RAZORPAY_API_BASE,
             },
           }
+        : null,
+    push: {
+      vapid:
+        parsed.SHARK_VAPID_PUBLIC_KEY && parsed.SHARK_VAPID_PRIVATE_KEY && parsed.SHARK_VAPID_SUBJECT
+          ? {
+              publicKey: parsed.SHARK_VAPID_PUBLIC_KEY.replace(/=+$/, ''),
+              privateKey: parsed.SHARK_VAPID_PRIVATE_KEY.replace(/=+$/, ''),
+              subject: parsed.SHARK_VAPID_SUBJECT,
+            }
+          : null,
+      extraEndpointOrigins: parsed.SHARK_PUSH_EXTRA_ENDPOINT_ORIGINS,
+    },
+    androidAppLinks:
+      parsed.SHARK_ANDROID_PACKAGE && parsed.SHARK_ANDROID_CERT_SHA256
+        ? { packageName: parsed.SHARK_ANDROID_PACKAGE, sha256CertFingerprints: parsed.SHARK_ANDROID_CERT_SHA256 }
         : null,
     release: parsed.SHARK_RELEASE || parsed.RENDER_GIT_COMMIT || parsed.GITHUB_SHA || 'local',
     retention: {

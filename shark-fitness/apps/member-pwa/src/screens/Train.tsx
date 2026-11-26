@@ -2,6 +2,8 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useCopy } from '../lib/store';
+import { useUnits } from '../lib/preferences';
+import { QK } from '../lib/query-keys';
 import { ScreenBody, Stack, Surface } from '../ui/shell';
 import {
   Bar,
@@ -94,11 +96,12 @@ interface PlanPayload {
 
 export default function TrainScreen() {
   const copy = useCopy();
+  const units = useUnits();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['plan'],
+    queryKey: QK.plan,
     queryFn: () => api<PlanPayload>('/member/training/plan'),
   });
 
@@ -109,7 +112,7 @@ export default function TrainScreen() {
         body: { decision: input.decision },
       }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['plan'] });
+      void queryClient.invalidateQueries({ queryKey: QK.plan });
       void queryClient.invalidateQueries({ queryKey: ['home'] });
     },
   });
@@ -180,8 +183,8 @@ export default function TrainScreen() {
           {explanation ? (
             <Panel tone="accent" className="p-3.5">
               <Eyebrow>Why this week changed</Eyebrow>
-              <p className="mt-2 font-utility text-[15px] font-semibold leading-snug">{explanation.headline}</p>
-              <p className="mt-1.5 text-[13px] leading-relaxed text-pretty text-foam-80">{explanation.body}</p>
+              <p className="mt-2 font-utility text-[15px] font-semibold leading-snug">{units.text(explanation.headline)}</p>
+              <p className="mt-1.5 text-[13px] leading-relaxed text-pretty text-foam-80">{units.text(explanation.body)}</p>
 
               {explanation.changes.length > 0 ? (
                 <div className="mt-3 border-t border-line pt-2.5">
@@ -189,11 +192,11 @@ export default function TrainScreen() {
                     <div key={i} className="flex items-baseline gap-2 text-[12px]">
                       <span className="text-foam-50">{change.exerciseName}</span>
                       <span className="flex-1" />
-                      <span className="text-foam-45 line-through">{change.from}</span>
+                      <span className="text-foam-45 line-through">{units.text(change.from)}</span>
                       <span aria-hidden="true" className="text-foam-35">
                         →
                       </span>
-                      <span className="font-display text-[15px] text-sonar">{change.to}</span>
+                      <span className="font-display text-[15px] text-sonar">{units.text(change.to)}</span>
                     </div>
                   ))}
                 </div>
@@ -352,7 +355,7 @@ export default function TrainScreen() {
                           </div>
                           <div className="mt-1 text-[12px] text-foam-50">
                             {item.targetLabel}
-                            {item.targetKg ? ` · ${item.targetKg} kg` : ''}
+                            {item.targetKg ? ` · ${units.format(item.targetKg)}` : ''}
                           </div>
                           {item.muscleLabels.length > 0 ? (
                             <div className="mt-1 font-utility text-[10px] uppercase tracking-[0.1em] text-foam-35">

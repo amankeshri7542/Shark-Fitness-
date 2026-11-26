@@ -168,8 +168,9 @@ export default function PassScreen() {
 
 function FullScreen({ onClose, title, children }: { onClose: () => void; title: string; children: ReactNode }) {
   return (
-    <div className="min-h-full bg-abyss">
-      <header className="sticky top-0 z-20 flex min-h-14 items-center border-b border-line bg-hull/95 px-3 backdrop-blur">
+    <div className="sf-inset-x sf-safe-bottom min-h-0 flex-1 overflow-y-auto bg-abyss">
+      {/* Clear of the notch and the status bar in an installed app. */}
+      <header className="sf-safe-top sticky top-0 z-20 flex min-h-14 items-center border-b border-line bg-hull/95 px-3 backdrop-blur">
         <button
           type="button"
           onClick={onClose}
@@ -181,7 +182,7 @@ function FullScreen({ onClose, title, children }: { onClose: () => void; title: 
         <span className="flex-1 text-center font-utility text-[11px] font-semibold uppercase tracking-[0.18em]">{title}</span>
         <span className="h-11 w-11" aria-hidden="true" />
       </header>
-      {children}
+      <div className="sf-column">{children}</div>
     </div>
   );
 }
