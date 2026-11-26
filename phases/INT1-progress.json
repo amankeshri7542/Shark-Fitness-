@@ -23,8 +23,8 @@
     {
       "id": 4,
       "text": "Merge phase/P06-staff-security",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "Merge commit 7f7dd36. 21 conflicted files resolved. 0018_staff_security -> 0021 (drizzle-kit SQL identical; when bumped to stay increasing). P02/P03 API tests moved onto P06's MFA sign-in helper (not weakened). frozen install ok; typecheck ok; lint ok; drift none; pnpm test: contracts 28, domain 276, website 16 (+9 pre-build skips), member-pwa 91, admin-web 345, api 1138 \u2014 all pass."
     },
     {
       "id": 5,
