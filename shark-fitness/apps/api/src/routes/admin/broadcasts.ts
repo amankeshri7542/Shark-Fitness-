@@ -11,6 +11,7 @@ import {
   cancelBroadcast,
   createBroadcast,
   dryRunBroadcast,
+  holdForApproval,
   listBroadcasts,
   previewDraft,
   sendBroadcast,
@@ -59,6 +60,8 @@ broadcastRoutes.post('/:broadcastId/approve', broadcastLimit, (c) => c.json(appr
 broadcastRoutes.post('/:broadcastId/send', broadcastLimit, (c) => {
   const ctx = ctxOf(c);
   const broadcastId = c.req.param('broadcastId');
+  // Outside the idempotent transaction, so a refusal keeps "awaiting approval".
+  holdForApproval(ctx, broadcastId);
   return c.json(runIdempotently(ctx, `/admin/broadcasts/${broadcastId}/send`, c.req.header('idempotency-key'), {}, () => sendBroadcast(ctx, broadcastId)));
 });
 broadcastRoutes.post('/:broadcastId/cancel', broadcastLimit, (c) => c.json(cancelBroadcast(ctxOf(c), c.req.param('broadcastId'))));

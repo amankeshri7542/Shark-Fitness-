@@ -304,7 +304,12 @@ export function dryRunBroadcast(ctx: RequestContext, broadcastId: string) {
   const preview = previewFor(ctx, row, atMs);
   transact(() => {
     db.update(schema.broadcasts)
-      .set({ lastDryRunAt: atMs, recipientCount: preview.chosen.recipients, estimatedCostMinor: preview.chosen.estimatedCostMinor, approvalRequired: preview.approvalRequired, updatedAt: atMs })
+      .set(
+        row.approvedAt === null
+          ? { lastDryRunAt: atMs, recipientCount: preview.chosen.recipients, estimatedCostMinor: preview.chosen.estimatedCostMinor, approvalRequired: preview.approvalRequired, updatedAt: atMs }
+          : // Once approved, recipientCount is what the owner approved; a dry run does not move it.
+            { lastDryRunAt: atMs, updatedAt: atMs },
+      )
       .where(eq(schema.broadcasts.id, row.id))
       .run();
     audit(ctx, {
@@ -325,32 +330,89 @@ export function approveBroadcast(ctx: RequestContext, broadcastId: string) {
   // Releasing a large send is a high-risk action: a fresh password (and code).
   requireFreshAuth(ctx, 'broadcast.approve');
   const atMs = now();
+  // The approval covers the audience as it is now, and no more: a send that
+  // has since grown past it needs approving again (see holdForApproval).
+  const preview = previewFor(ctx, row, atMs);
   transact(() => {
     db.update(schema.broadcasts)
-      .set({ state: 'approved', approvedByUserId: ctx.userId, approvedAt: atMs, updatedAt: atMs })
+      .set({
+        state: 'approved',
+        approvedByUserId: ctx.userId,
+        approvedAt: atMs,
+        recipientCount: preview.chosen.recipients,
+        estimatedCostMinor: preview.chosen.estimatedCostMinor,
+        updatedAt: atMs,
+      })
       .where(eq(schema.broadcasts.id, row.id))
       .run();
-    audit(ctx, { action: 'broadcast.approved', entityType: 'broadcast', entityId: row.id, entityLabel: row.name, after: { recipients: row.recipientCount } });
+    audit(ctx, {
+      action: 'broadcast.approved',
+      entityType: 'broadcast',
+      entityId: row.id,
+      entityLabel: row.name,
+      after: { recipients: preview.chosen.recipients, estimatedCostMinor: preview.chosen.estimatedCostMinor },
+    });
   });
   return { broadcast: serialise(db.select().from(schema.broadcasts).where(eq(schema.broadcasts.id, row.id)).get()!) };
+}
+
+/**
+ * Recounts the audience and, when it needs an owner's approval it does not
+ * have, records the broadcast as waiting for one and refuses the send. An
+ * approval covers the audience the owner saw: one that has grown past it
+ * needs approving again.
+ *
+ * The route calls this *before* its idempotent transaction, so the
+ * "awaiting approval" state is kept even though the send itself is refused
+ * (inside that transaction the refusal rolled the state back).
+ */
+export function holdForApproval(ctx: RequestContext, broadcastId: string): void {
+  const row = loadBroadcast(ctx, broadcastId);
+  if (row.state === 'sent' || row.state === 'cancelled') return;
+  const atMs = now();
+  const preview = previewFor(ctx, row, atMs);
+  if (!preview.approvalRequired) return;
+  const recipients = preview.chosen.recipients;
+  const approvedFor = row.approvedAt === null ? null : row.recipientCount;
+  if (approvedFor !== null && recipients <= approvedFor) return;
+  transact(() => {
+    db.update(schema.broadcasts)
+      .set({
+        state: 'awaiting_approval',
+        approvalRequired: true,
+        approvedAt: null,
+        approvedByUserId: null,
+        recipientCount: recipients,
+        estimatedCostMinor: preview.chosen.estimatedCostMinor,
+        updatedAt: atMs,
+      })
+      .where(eq(schema.broadcasts.id, row.id))
+      .run();
+    audit(ctx, {
+      action: 'broadcast.approval_requested',
+      entityType: 'broadcast',
+      entityId: row.id,
+      entityLabel: row.name,
+      before: { approvedFor },
+      after: { recipients, estimatedCostMinor: preview.chosen.estimatedCostMinor },
+    });
+  });
+  throw precondition(
+    approvedFor === null
+      ? `This reaches ${recipients} people, more than the ${preview.approvalThreshold} the gym allows without an owner's approval. It is waiting for an owner to approve it.`
+      : `This now reaches ${recipients} people, more than the ${approvedFor} an owner approved. It is waiting for an owner to approve it again.`,
+  );
 }
 
 export function sendBroadcast(ctx: RequestContext, broadcastId: string) {
   const row = loadBroadcast(ctx, broadcastId);
   if (row.state === 'sent') throw conflict('That broadcast was already sent.');
   if (row.state === 'cancelled') throw conflict('That broadcast was cancelled.');
+  // Recount at send time: the audience may have grown past the threshold or
+  // past what was approved.
+  holdForApproval(ctx, broadcastId);
   const atMs = now();
-  // Recount at send time: the audience may have grown past the threshold.
   const preview = previewFor(ctx, row, atMs);
-  if (preview.approvalRequired && row.approvedAt === null) {
-    db.update(schema.broadcasts)
-      .set({ state: 'awaiting_approval', approvalRequired: true, recipientCount: preview.chosen.recipients, estimatedCostMinor: preview.chosen.estimatedCostMinor, updatedAt: atMs })
-      .where(eq(schema.broadcasts.id, row.id))
-      .run();
-    throw precondition(
-      `This reaches ${preview.chosen.recipients} people, more than the ${preview.approvalThreshold} the gym allows without an owner's approval. It is waiting for an owner to approve it.`,
-    );
-  }
   const audience = segmentMembers(ctx.tenantId, row.segment as Segment, row.branchIds, atMs);
   let queued = 0;
   let suppressed = 0;

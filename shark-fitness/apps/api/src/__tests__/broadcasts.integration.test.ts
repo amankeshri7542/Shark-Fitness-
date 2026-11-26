@@ -165,6 +165,43 @@ describe('owner approval above the threshold', () => {
     await setEngagement({ broadcastApprovalThreshold: 100_000 });
   });
 
+  it('keeps "awaiting approval" when the console sends with an idempotency key, and re-holds a send that outgrew its approval', async () => {
+    await setEngagement({ broadcastApprovalThreshold: 2 });
+    try {
+      const { broadcast, preview } = await create(manager, 'in_app');
+      const held = await call(manager, 'POST', `/v1/admin/broadcasts/${broadcast.id}/send`, undefined, { 'idempotency-key': `idem-${broadcast.id}-1` });
+      expect(held.status).toBe(412);
+      const waiting = db.select().from(schema.broadcasts).where(eq(schema.broadcasts.id, broadcast.id)).get()!;
+      expect(waiting.state).toBe('awaiting_approval');
+      expect(waiting.approvalRequired).toBe(true);
+
+      const ownerId = userIdFor('owner@sharkfitness.in');
+      expect((await call(owner, 'POST', '/v1/auth/step-up', { password: 'shark1234', code: testTotp(ownerId) })).status).toBe(200);
+      expect((await call(owner, 'POST', `/v1/admin/broadcasts/${broadcast.id}/approve`)).status).toBe(200);
+      const approved = db.select().from(schema.broadcasts).where(eq(schema.broadcasts.id, broadcast.id)).get()!;
+      expect(approved.recipientCount).toBe(preview.chosen.recipients);
+
+      // The owner approved fewer people than the audience now holds (it grew
+      // since): the approval does not stretch to cover them.
+      db.update(schema.broadcasts).set({ recipientCount: preview.chosen.recipients - 1 }).where(eq(schema.broadcasts.id, broadcast.id)).run();
+      const regrown = await call(manager, 'POST', `/v1/admin/broadcasts/${broadcast.id}/send`, undefined, { 'idempotency-key': `idem-${broadcast.id}-2` });
+      expect(regrown.status).toBe(412);
+      expect((await json<{ error: { message: string } }>(regrown)).error.message).toMatch(/more than the \d+ an owner approved/);
+      const rehold = db.select().from(schema.broadcasts).where(eq(schema.broadcasts.id, broadcast.id)).get()!;
+      expect(rehold.state).toBe('awaiting_approval');
+      expect(rehold.approvedAt).toBeNull();
+      expect(deliveries(broadcast.id)).toHaveLength(0);
+
+      // Approved again for the audience as it is, the send goes.
+      expect((await call(owner, 'POST', `/v1/admin/broadcasts/${broadcast.id}/approve`)).status).toBe(200);
+      const sent = await call(manager, 'POST', `/v1/admin/broadcasts/${broadcast.id}/send`, undefined, { 'idempotency-key': `idem-${broadcast.id}-3` });
+      expect(sent.status).toBe(200);
+      expect(deliveries(broadcast.id)).toHaveLength(preview.chosen.recipients);
+    } finally {
+      await setEngagement({ broadcastApprovalThreshold: 100_000 });
+    }
+  });
+
   it('refuses a second send and keeps reception out', async () => {
     const { broadcast } = await create(manager, 'in_app');
     expect((await call(manager, 'POST', `/v1/admin/broadcasts/${broadcast.id}/send`)).status).toBe(200);
