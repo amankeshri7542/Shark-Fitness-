@@ -95,7 +95,7 @@
       }
     },
     "P10": {
-      "state": "pending",
+      "state": "implementing",
       "base": "integration/features",
       "base_sha": "4fa023bf9"
     },

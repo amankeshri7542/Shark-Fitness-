@@ -20,7 +20,7 @@ Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "ph
 | INT1 | Integrate feature phases P01-P07 | done | `integration/features` | `phase/P01-prod-readiness` | https://github.com/amankeshri7542/Shark-Fitness-/pull/35 | typecheck:pass lint:pass test:pass build:pass e2e:pass |  |
 | P08 | Full test pass: route coverage, critical scenarios, Playwright E2E for every app | implementing | `phase/P08-test-suite` | `integration/features` |  |  |  |
 | P09 | Code review and fixes: security, correctness, performance, consistency | implementing | `phase/P09-code-review` | `integration/features` |  |  |  |
-| P10 | UI/UX and accessibility audit of every app (findings report) | pending | `phase/P10-ux-audit` | `integration/features` |  |  |  |
+| P10 | UI/UX and accessibility audit of every app (findings report) | implementing | `phase/P10-ux-audit` | `integration/features` |  |  |  |
 | INT2 | Integrate test, review and audit phases P08-P10 | pending | `integration/qa` | `` |  |  |  |
 | P11 | Implement the UI/UX audit fixes and gate accessibility in CI | pending | `phase/P11-ux-fixes` | `` |  |  |  |
 | P12 | Release candidate verification and client handover | pending | `phase/P12-release-handover` | `` |  |  |  |
