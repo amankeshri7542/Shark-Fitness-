@@ -173,8 +173,15 @@ function loadOwnPhoto(ctx: RequestContext, photoId: string): PhotoRow {
 
 export function setPhotoVisibility(ctx: RequestContext, photoId: string, visibility: PhotoVisibility) {
   const photo = loadOwnPhoto(ctx, photoId);
-  if (visibility === 'coach' && !photoConsent(ctx.tenantId, ctx.userId).granted) {
-    throw precondition('Photo consent is withdrawn, so photos cannot be shared. Agree to photo storage again first.');
+  // Sharing needs the consent the member agreed to be the current one, as an
+  // upload does: an outdated version is not agreement to the current terms.
+  const consent = photoConsent(ctx.tenantId, ctx.userId);
+  if (visibility === 'coach' && !consent.current) {
+    throw precondition(
+      consent.granted
+        ? 'The photo consent has been updated. Read it and agree again before sharing a photo.'
+        : 'Photo consent is withdrawn, so photos cannot be shared. Agree to photo storage again first.',
+    );
   }
   transact(() => {
     db.update(schema.progressPhotos).set({ visibility }).where(eq(schema.progressPhotos.id, photo.id)).run();

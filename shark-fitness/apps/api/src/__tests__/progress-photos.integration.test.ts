@@ -276,6 +276,15 @@ describe('coach access', () => {
     expect(tombstone.sha256).toBe(media.sha256);
   });
 
+  it('sharing a photo with the coach needs the current consent version', async () => {
+    const member = await memberWithConsent('Outdated');
+    const photo = await uploaded(member.session);
+    db.update(schema.consents).set({ version: '1.0' }).where(and(eq(schema.consents.userId, member.userId!), eq(schema.consents.purpose, 'progress_photos'))).run();
+    const shared = await send(member.session, 'PATCH', `/v1/member/progress/photos/${photo.id}`, { visibility: 'coach' });
+    expect(shared.status).toBe(412);
+    expect(((await shared.json()) as { error: { message: string } }).error.message).toContain('agree again');
+  });
+
   it('consenting again before the retention period ends cancels the deletion', async () => {
     const member = await memberWithConsent('Regrant');
     const photo = await uploaded(member.session, 'coach');
