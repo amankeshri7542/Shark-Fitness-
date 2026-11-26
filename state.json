@@ -82,12 +82,7 @@
       "state": "implementing",
       "base": "integration/features",
       "base_sha": "4fa023bf9",
-      "running": {
-        "tag": "P09-impl",
-        "pid": 991231,
-        "started": "2026-11-26 08:41 IST",
-        "activity": "2026-11-26 08:41 IST"
-      }
+      "running": null
     },
     "P10": {
       "state": "implementing",
@@ -120,7 +115,8 @@
     "phase/P07-engagement-ops-modules": "05bd3d6 at 2026-11-26 06:44 IST",
     "integration/features": "4fa023b at 2026-11-26 08:17 IST",
     "phase/P08-test-suite": "4fa023b at 2026-11-26 08:42 IST",
-    "phase/P09-code-review": "4fa023b at 2026-11-26 08:42 IST"
+    "phase/P09-code-review": "4fa023b at 2026-11-26 08:42 IST",
+    "phase/P10-ux-audit": "4fa023b at 2026-11-26 08:42 IST"
   },
   "blockers": [
     "Claude usage limit hit (latest during P08-impl); new sessions paused, retrying every 30 min"
