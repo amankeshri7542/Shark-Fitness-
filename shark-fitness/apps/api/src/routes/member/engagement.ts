@@ -632,7 +632,10 @@ function serialisePost(
     relativeTime: relativeTime(post.createdAt),
     kudos: post.kudosCount,
     kudosByMe: kudosByMe.has(post.id),
-    commentCount: post.commentCount,
+    // What this person can see: the stored counter also counts comments by
+    // people they blocked or muted (and hidden ones), and a count larger than
+    // the list tells them a blocked member is still commenting.
+    commentCount: postComments.length,
     comments: postComments,
     canReport: !removed && !mine && post.authorKind === 'member',
     canBlock: !mine && post.authorKind === 'member' && post.memberId !== null,

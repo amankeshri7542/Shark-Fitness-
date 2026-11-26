@@ -35,6 +35,7 @@ interface FeedPost {
   authorId: string | null;
   moderationNote: string | null;
   comments: Array<{ id: string; body: string; removed: boolean }>;
+  commentCount: number;
 }
 
 async function feed(session: TestSession): Promise<FeedPost[]> {
@@ -223,6 +224,10 @@ describe('block, mute and shared groups', () => {
     await call(aman, 'POST', `/v1/member/engagement/block/${rohitId}`);
     const seenByAman = (await feed(aman)).find((p) => p.id === neutral.id)!;
     expect(seenByAman.comments.some((c) => c.body === 'Rohit comment')).toBe(false);
+    // The count does not give the blocked commenter away either; Rohit still sees his own.
+    expect(seenByAman.commentCount).toBe(seenByAman.comments.length);
+    const seenByRohit = (await feed(rohit)).find((p) => p.id === neutral.id);
+    expect(seenByRohit).toBeUndefined();
     await call(aman, 'DELETE', `/v1/member/engagement/block/${rohitId}`);
   });
 
@@ -274,6 +279,9 @@ describe('rate limits, approval mode, bans and minors', () => {
 
       const rejected = await post(aman, 'Another one to reject');
       expect((await call(manager, 'POST', `/v1/admin/community/approvals/${rejected.id}`, { decision: 'reject', reason: 'Off topic for the feed.' })).status).toBe(200);
+      expect((await feed(rohit)).some((p) => p.id === rejected.id)).toBe(false);
+      // Restore is for hidden or removed content; it does not publish around the queue.
+      expect((await call(manager, 'POST', `/v1/admin/community/content/post/${rejected.id}`, { action: 'restore', reason: 'Trying a shortcut' })).status).toBe(409);
       expect((await feed(rohit)).some((p) => p.id === rejected.id)).toBe(false);
     } finally {
       await call(owner, 'PATCH', '/v1/admin/settings/engagement', { communityApprovalMode: false });

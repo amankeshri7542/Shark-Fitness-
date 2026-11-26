@@ -180,6 +180,11 @@ export function moderate(ctx: RequestContext, type: TargetType, targetId: string
   const at = now();
 
   if (action === 'restore' && content.state === 'visible') throw conflict('That is already visible.');
+  // Restore undoes a hide or a removal. A post waiting for approval (or one
+  // that was not approved) goes through the approval queue, not around it.
+  if (action === 'restore' && (content.state === 'pending' || content.state === 'rejected')) {
+    throw conflict('That post is in the approval queue. Approve it there.');
+  }
 
   transact(() => {
     if (action !== 'dismiss') {
