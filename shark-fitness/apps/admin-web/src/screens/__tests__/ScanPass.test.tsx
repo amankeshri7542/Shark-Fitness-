@@ -34,7 +34,7 @@ function result(overrides: Partial<ScanResult> = {}): ScanResult {
 
 function renderScan(props: Partial<Parameters<typeof ScanPass>[0]> = {}) {
   const onDone = vi.fn();
-  render(
+  const view = render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { mutations: { retry: false } } })}>
       <ScanPass
         branches={[
@@ -49,7 +49,7 @@ function renderScan(props: Partial<Parameters<typeof ScanPass>[0]> = {}) {
       />
     </QueryClientProvider>,
   );
-  return { onDone };
+  return { onDone, unmount: view.unmount };
 }
 
 const originalMediaDevices = Object.getOwnPropertyDescriptor(navigator, 'mediaDevices');
@@ -146,6 +146,47 @@ describe('ScanPass', () => {
     expect(await screen.findByText(/Camera access is blocked for this console/)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByLabelText('Pass code')).toHaveFocus());
     expect(getUserMedia).toHaveBeenCalledWith({ video: { facingMode: 'environment' }, audio: false });
+  });
+
+  /** A camera whose permission prompt is still open until the test answers it. */
+  function pendingCamera() {
+    const stop = vi.fn();
+    let grant: () => void = () => undefined;
+    const getUserMedia = vi.fn(
+      () =>
+        new Promise<MediaStream>((resolve) => {
+          grant = () => resolve({ getTracks: () => [{ stop }] } as unknown as MediaStream);
+        }),
+    );
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia } });
+    return { stop, grant: () => grant() };
+  }
+
+  it('leaving the screen while the camera is starting turns the camera off when it arrives', async () => {
+    const camera = pendingCamera();
+    const { unmount } = renderScan();
+    await userEvent.click(screen.getByRole('button', { name: 'Scan with camera' }));
+    expect(await screen.findByText('Starting the camera…')).toBeInTheDocument();
+    // The receptionist leaves the Floor before allowing the camera.
+    unmount();
+    camera.grant();
+    await waitFor(() => expect(camera.stop).toHaveBeenCalled());
+  });
+
+  it('Stop camera while it is starting releases the camera once it arrives', async () => {
+    const camera = pendingCamera();
+    renderScan();
+    await userEvent.click(screen.getByRole('button', { name: 'Scan with camera' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Stop camera' }));
+    expect(screen.getByRole('button', { name: 'Scan with camera' })).toBeInTheDocument();
+    camera.grant();
+    await waitFor(() => expect(camera.stop).toHaveBeenCalled());
+    // Nothing comes back to life behind the stop: no preview, no error.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.queryByText('Starting the camera…')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Hold the member/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No camera is available/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Scan with camera' })).toBeInTheDocument();
   });
 
   it('no camera on the machine: says so and keeps the code box', async () => {

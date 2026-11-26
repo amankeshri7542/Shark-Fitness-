@@ -110,6 +110,10 @@ export function ScanPass({
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const loopRef = useRef<number | null>(null);
+  // Bumped by every stop (button, unmount, a found code). A camera start that
+  // resolves after a stop sees a newer generation and lets go of its stream,
+  // so the camera never stays on behind a closed panel.
+  const generationRef = useRef(0);
   const resultId = useId();
 
   // The branch list can arrive after first render; never scan "nowhere".
@@ -156,7 +160,12 @@ export function ScanPass({
     [effectiveBranch, scan],
   );
 
+  // The detection loop outlives renders; it must submit with today's branch.
+  const submitRef = useRef(submit);
+  submitRef.current = submit;
+
   const stopCamera = useCallback(() => {
+    generationRef.current += 1;
     if (loopRef.current !== null) cancelAnimationFrame(loopRef.current);
     loopRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -173,29 +182,42 @@ export function ScanPass({
       return;
     }
     setCamera('starting');
+    const generation = ++generationRef.current;
+    const cancelled = () => generation !== generationRef.current;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+      if (cancelled()) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       streamRef.current = stream;
       const video = videoRef.current;
-      if (!video) return;
+      if (!video) {
+        stopCamera();
+        setCamera('off');
+        return;
+      }
       video.srcObject = stream;
       await video.play().catch(() => undefined);
       const detector = (await nativeDetector()) ?? (await jsDetector());
+      if (cancelled()) return;
       setCamera('scanning');
       const tick = async () => {
-        if (!streamRef.current) return;
+        if (cancelled() || !streamRef.current) return;
         const found = await detector.detect(video).catch(() => []);
+        if (cancelled()) return;
         const value = found[0]?.rawValue;
         if (value) {
           stopCamera();
           setCamera('off');
-          submit(value);
+          submitRef.current(value);
           return;
         }
         loopRef.current = requestAnimationFrame(() => void tick());
       };
       void tick();
     } catch (err) {
+      if (cancelled()) return;
       stopCamera();
       const name = err instanceof DOMException ? err.name : '';
       setCamera(name === 'NotAllowedError' || name === 'SecurityError' ? 'denied' : 'unavailable');
