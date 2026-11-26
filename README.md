@@ -133,23 +133,28 @@ All four run in CI on every push and pull request.
 
 ### Production single-origin check
 
-One process serves both built apps. First migrate and bootstrap a disposable database using the QA guide; then:
+One process serves the three built front ends and the API. First migrate and bootstrap a disposable database using the QA guide; then:
 
 ```bash
 cd shark-fitness
 pnpm build
 NODE_ENV=production SHARK_SERVE_STATIC=true PORT=8787 \
   SHARK_PASS_SECRET="$(openssl rand -hex 32)" \
+  SHARK_MFA_ENCRYPTION_KEY="$(openssl rand -base64 32)" \
   SHARK_ALLOWED_ORIGINS=http://localhost:8787,http://127.0.0.1:8787 \
   pnpm -F @shark/api start
 ```
 
-- Member PWA: http://localhost:8787/
+- Public website: http://localhost:8787/
+- Member app: http://localhost:8787/app/
 - Admin console: http://localhost:8787/admin/
 
-The member service worker is scoped to `/` and explicitly denies `/admin/*`,
-`/v1/*` and `/health`, so the admin console is never answered with the member
-app shell.
+Production refuses to boot without `SHARK_MFA_ENCRYPTION_KEY` (32 random bytes,
+base64; it encrypts two-step sign-in secrets). The member service worker is
+scoped to `/app/` and the console's to `/admin/`, so neither app is ever
+answered with the other's shell; the website's `/sw.js` only retires the
+worker older releases installed at `/`. Old member links (`/sign-in#…`,
+`/book`) forward to `/app/`.
 
 ---
 
