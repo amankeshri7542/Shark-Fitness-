@@ -80,3 +80,18 @@ P03 and P04 both moved the member app to `/app/`; P04 also added a placeholder `
 - contracts (`SIGNATURE_INVALID` + `STEP_UP_REQUIRED`/`MFA_REQUIRED`, public-site + security schemas), `config.ts`, `app.ts`, schema barrel, drizzle config, READMEs: both sides kept.
 - Migration `0018_staff_security` → `0021_staff_security` (SQL unchanged). Journal `when` raised from 1795580545454 to 1795581853249 so it stays after 0020, because drizzle's migrator applies entries newer than the last applied `created_at`. Snapshot regenerated.
 - **Tests adapted (not weakened):** P06 requires MFA for owners. P02's `support/razorpay-harness.ts signIn` and P03's `website-leads-admin` sign-in now use `helpers/mfa.ts signInRequest`, the helper P06 used for its own 51 call sites. P02's `razorpay-config.test.ts` production fixture now includes `SHARK_MFA_ENCRYPTION_KEY`, which P06 makes mandatory in production. Assertions are unchanged.
+
+### 5. P05 member core (merge e1bac67)
+- **Waitlist (decision).** P05 replaced both old promotion paths with one engine, `services/waitlist.ts`. Its `routes/member/schedule.ts#promoteWaitlist` and `services/schedule.ts#promoteFromWaitlist` are gone. P04 had added push to those old paths and P06 had added `class.waitlist_promoted`, so both were ported:
+  - `notifyMember()` now calls P04's `notifyUser` (in-app + push, category `booking`, dedupe `template:entry:time`) for offered, skipped, offer expired and offer withdrawn. An offer's push expires with the hold.
+  - `offerFreedSeats` emits `class.waitlist_promoted`.
+  - This covers P05's integration note "P04 push".
+- `services/access.ts`: a granted signed-pass scan emits P05's member-channel event and also P06's integration event, with `method` `desk_scan` (reception scan, new in P05) or `door`.
+- `routes/member/pass.ts`: P05's `memberPass` service, plus P06's `attendance.checked_out` integration event on check-out.
+- **Member offline boot (decision).** P04 (per-person IndexedDB snapshot, `offlineStart`, online re-check in `main.tsx`) and P05 (D19: last confirmed session in localStorage `shark.member.session`) both fixed "an offline reload signs the member out". Kept one mechanism, P04's. It also covers pushes, the banner and the wipe on sign-out. Closed the gap P05's approach covered: the snapshot is now saved as soon as a session is confirmed, not only after a screen's data loads, and it is deleted when the server refuses the session. P05's sign-out wipes are kept (`forgetPassCards`, offline exercise library). P05's five store tests keep their names and the behaviour they prove (resume offline, signed out with nothing saved, a refused session is forgotten, never another person's session, sign-out forgets the library); they now read the snapshot store instead of the localStorage key.
+- Screens Home/Progress/Summary/Train/Workout/shell: P05's `useCopy(surface)` (plain register per surface) + P04's `useUnits()` / `appPath()`. Book: P05's waitlist dialog on the shared `Sheet`.
+- `lib/security.ts`: kept P06's `permissionsPolicyFor(surface)`, which already sends `camera=(self)` on `/admin/*` only, the same rule P05 wrote inline.
+- e2e: `@mobile` (P05) joins `@payments` on `mobile-chromium`; global setup passes `SHARK_MEDIA_DIR` (P05) and push/Android vars (P04); `chosenPort()`.
+- `scripts/verify-backup-restore.mjs`: P06's `staffSession` (MFA-aware) + P05's media checks.
+- Migration `0019_p05_member_core` → `0022_p05_member_core` (SQL unchanged; drizzle-kit regenerated identical SQL; snapshot regenerated). P05's `0018_razorpay_payments` is P02's own file (P05 is built on P02).
+- Tests adapted (not weakened): P05's `support/fixtures.ts` sign-in goes through P06's `signInRequest` (MFA).

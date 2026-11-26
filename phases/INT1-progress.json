@@ -29,8 +29,8 @@
     {
       "id": 5,
       "text": "Merge phase/P05-member-core-gaps",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "Merge commit e1bac67. 25 conflicted files resolved. 0019_p05_member_core -> 0022 (drizzle-kit SQL identical). P04 push + P06 integration event ported into P05's waitlist engine. frozen install ok; typecheck ok; lint ok; drift none; pnpm test: contracts 28, domain 289, website 16 (+9 pre-build skips), member-pwa 170, admin-web 368, api 1224 \u2014 all pass."
     },
     {
       "id": 6,
