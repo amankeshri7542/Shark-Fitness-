@@ -114,6 +114,7 @@
     "phase/P10-ux-audit": "4fa023b at 2026-11-26 08:42 IST"
   },
   "blockers": [
-    "Claude usage limit hit (latest during P09-impl); new sessions paused, retrying every 30 min"
+    "Claude usage limit hit (latest during P09-impl); new sessions paused, retrying every 30 min",
+    "Claude usage limit hit (latest during P10-impl); new sessions paused, retrying every 30 min"
   ]
 }
