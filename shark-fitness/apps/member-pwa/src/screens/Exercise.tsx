@@ -1,5 +1,7 @@
 import { useParams } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useUnits } from '../lib/preferences';
+import { QK } from '../lib/query-keys';
 import { ApiError, api } from '../lib/api';
 import { ScreenBody, Stack } from '../ui/shell';
 import {
@@ -58,6 +60,7 @@ interface Payload {
 }
 
 export default function ExerciseScreen() {
+  const units = useUnits();
   const { exerciseId } = useParams({ from: '/tabs/train/exercise/$exerciseId' });
   const queryClient = useQueryClient();
 
@@ -71,7 +74,7 @@ export default function ExerciseScreen() {
       api('/member/training/substitute', { method: 'POST', body: { exerciseId, toExerciseId } }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['exercise', exerciseId] });
-      void queryClient.invalidateQueries({ queryKey: ['train'] });
+      void queryClient.invalidateQueries({ queryKey: QK.plan });
     },
   });
 
@@ -130,7 +133,7 @@ export default function ExerciseScreen() {
             <Label>Today</Label>
             <p className="font-display text-[24px] leading-none">
               {prescription.sets} × {prescription.reps}
-              {prescription.loadKg !== null ? ` @ ${prescription.loadKg} kg` : ''}
+              {prescription.loadKg !== null ? ` @ ${units.format(prescription.loadKg)}` : ''}
             </p>
             <p className="font-utility text-[10px] uppercase tracking-[0.12em] text-foam-45">
               Rest {prescription.restSec}s{prescription.tempo ? ` · tempo ${prescription.tempo}` : ''}

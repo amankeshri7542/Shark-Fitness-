@@ -88,6 +88,13 @@ export const products = sqliteTable(
       .notNull(),
     branchIds: text('branch_ids', { mode: 'json' }).$type<string[]>().notNull(),
     status: text('status').notNull().default('active'),
+    /**
+     * Listed on the public website (`GET /v1/public/:tenant/site`). Opt-in:
+     * a new or migrated product stays off the website until an owner ticks
+     * "Show on website", so an internal or corporate plan is never published
+     * by accident. Only `active` products are ever shown, whatever this says.
+     */
+    isPublic: integer('is_public', { mode: 'boolean' }).notNull().default(false),
     createdAt: integer('created_at').notNull(),
     updatedAt: integer('updated_at').notNull(),
   },
@@ -158,8 +165,17 @@ export const credits = sqliteTable(
     refId: text('ref_id'),
     expiresOn: text('expires_on'),
     createdAt: integer('created_at').notNull(),
+    /** The grant (lot) this row draws on or returns to. Null on a grant row
+     *  itself, and on legacy rows written before lots existed (P05). */
+    lotId: text('lot_id'),
+    /** The credit pack a grant came from. */
+    packId: text('pack_id'),
   },
-  (t) => ({ byMember: index('credits_member_idx').on(t.memberId, t.kind) }),
+  (t) => ({
+    byMember: index('credits_member_idx').on(t.memberId, t.kind),
+    byLot: index('credits_lot_idx').on(t.lotId),
+    byRef: index('credits_ref_idx').on(t.refType, t.refId),
+  }),
 );
 
 export const leads = sqliteTable(
@@ -185,11 +201,34 @@ export const leads = sqliteTable(
     convertedMemberId: text('converted_member_id'),
     duplicateOfId: text('duplicate_of_id'),
     tags: text('tags', { mode: 'json' }).$type<string[]>().notNull(),
+    /* — What the person told us (PRD 01 §4.3 "Lead record") ———————— */
+    goal: text('goal'),
+    preferredTime: text('preferred_time'),
+    interestedProductId: text('interested_product_id'),
+    /* — Attribution (PF-CRM-005). First touch: set when the lead is
+       created and never overwritten by a later submission. ——————— */
+    utm: text('utm', { mode: 'json' }).$type<{
+      source: string | null;
+      medium: string | null;
+      campaign: string | null;
+      term: string | null;
+      content: string | null;
+    } | null>(),
+    referralCode: text('referral_code'),
+    /* — Trial request from the website. Requested by the visitor, confirmed
+       by staff: nothing is booked and no capacity is held until then. ——— */
+    trialRequestedAt: integer('trial_requested_at'),
+    trialSessionId: text('trial_session_id'),
+    trialPreferredTime: text('trial_preferred_time'),
+    trialConfirmedSessionId: text('trial_confirmed_session_id'),
+    trialConfirmedAt: integer('trial_confirmed_at'),
     createdAt: integer('created_at').notNull(),
     updatedAt: integer('updated_at').notNull(),
   },
   (t) => ({
     byStage: index('leads_stage_idx').on(t.tenantId, t.stage),
+    bySource: index('leads_source_idx').on(t.tenantId, t.source),
+    byEmail: index('leads_email_idx').on(t.tenantId, t.emailNormalized),
     byPhone: index('leads_phone_idx').on(t.tenantId, t.phoneNormalized),
     byOwner: index('leads_owner_idx').on(t.ownerId),
   }),
@@ -210,6 +249,33 @@ export const leadActivities = sqliteTable(
     at: integer('at').notNull(),
   },
   (t) => ({ byLead: index('lead_activities_idx').on(t.leadId, t.at) }),
+);
+
+/**
+ * Consent a lead gave on a public form (ENT-PRIV-002/003). Append-only: every
+ * submission adds its own rows, so the record shows what was agreed, under
+ * which notice version, when and through which form — and a later "no" to
+ * marketing never erases an earlier "yes", it supersedes it. The current
+ * state of a purpose is its latest row. Leads have no user account, which is
+ * why this is not the `consents` table (keyed by user).
+ */
+export const leadConsents = sqliteTable(
+  'lead_consents',
+  {
+    id: text('id').primaryKey(),
+    tenantId: text('tenant_id').notNull(),
+    leadId: text('lead_id').notNull(),
+    /** `processing` (required to handle the enquiry) or `marketing` (optional). */
+    purpose: text('purpose').notNull(),
+    granted: integer('granted', { mode: 'boolean' }).notNull(),
+    noticeVersion: text('notice_version').notNull(),
+    /** The form it came through, e.g. `website:trial`. */
+    source: text('source').notNull(),
+    /** Ties the row to the request log line, without storing the IP here. */
+    requestId: text('request_id').notNull(),
+    capturedAt: integer('captured_at').notNull(),
+  },
+  (t) => ({ byLead: index('lead_consents_lead_idx').on(t.leadId, t.purpose, t.capturedAt) }),
 );
 
 export const staff = sqliteTable(

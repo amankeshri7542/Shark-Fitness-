@@ -1,4 +1,6 @@
 import { Hono } from 'hono';
+import { requirePermission } from '../../lib/context.js';
+import { requireFreshAuth } from '../../lib/step-up.js';
 import { z } from 'zod';
 import { ReportKind } from '@shark/contracts';
 import { ctxOf, rateLimit } from '../../middleware/index.js';
@@ -71,6 +73,10 @@ reportsRoutes.get('/retention', validate('query', RangeQuery), (c) =>
  * saving, and surface a permission refusal in the interface instead of a
  * browser error page.
  */
-reportsRoutes.post('/export', rateLimit(20, 60_000, { identity: 'actor', bucket: 'report-export' }), validate('json', ExportBody), (c) =>
-  c.json(exportReport(ctxOf(c), c.req.valid('json'))),
-);
+reportsRoutes.post('/export', rateLimit(20, 60_000, { identity: 'actor', bucket: 'report-export' }), validate('json', ExportBody), (c) => {
+  const ctx = ctxOf(c);
+  requirePermission(ctx, 'report.view');
+  requirePermission(ctx, 'report.export');
+  requireFreshAuth(ctx, 'report.export');
+  return c.json(exportReport(ctx, c.req.valid('json')));
+});

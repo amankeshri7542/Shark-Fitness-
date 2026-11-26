@@ -145,6 +145,13 @@ export const sessions = sqliteTable(
     /** Set while a support agent is acting as this user. Drives the banner. */
     impersonatorId: text('impersonator_id'),
     impersonationExpiresAt: integer('impersonation_expires_at'),
+    /** none | verified | challenge | enrol — see `MfaState` in @shark/contracts. */
+    mfaState: text('mfa_state').notNull().default('none'),
+    /** Last time the person proved their password (sign-in or step-up). */
+    reauthenticatedAt: integer('reauthenticated_at'),
+    /** Last *user* activity, which drives the staff idle timeout. Background
+     *  reads do not move it; `lastSeenAt` above records any use at all. */
+    lastActiveAt: integer('last_active_at'),
   },
   (t) => ({
     byUser: index('sessions_user_idx').on(t.userId),

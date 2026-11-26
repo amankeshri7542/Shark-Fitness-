@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { and, desc, eq, inArray, like, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, like, lt, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { validate, queryFlag } from '../../middleware/validate.js';
 import { channels, LeadStage } from '@shark/contracts';
@@ -10,8 +10,10 @@ import { audit } from '../../lib/audit.js';
 import { emit } from '../../lib/events.js';
 import { AppError, conflict } from '../../lib/errors.js';
 import { id, normalizeEmail, normalizePhone } from '../../lib/ids.js';
-import { now } from '../../lib/time.js';
+import { HOUR, isoDate, localTime, now } from '../../lib/time.js';
+import { sessionQuery } from '../../services/booking.js';
 import { enrollMember } from '../../services/member-enrollment.js';
+import { goalLabel, preferredTimeLabel } from '../../services/public-site.js';
 import {
   LEAD_STAGE_TRANSITIONS,
   assertValidOwner,
@@ -21,6 +23,7 @@ import {
   leadSlaBreached,
   loadLeadInScope,
 } from '../../services/leads.js';
+import { emitIntegrationEvent } from '../../services/integration-events.js';
 
 export const leadsRoutes = new Hono();
 
@@ -29,6 +32,8 @@ const ListQuery = z.object({
   stage: LeadStage.optional(),
   ownerId: z.string().optional(),
   slaBreached: queryFlag.optional(),
+  /** `website` narrows to leads from the public website (forms and QR campaign links). */
+  source: z.enum(['walk_in', 'web_form', 'website', 'referral', 'campaign', 'import', 'trial', 'api', 'call']).optional(),
   limit: z.coerce.number().int().min(1).max(500).default(200),
   offset: z.coerce.number().int().min(0).default(0),
 });
@@ -50,6 +55,7 @@ leadsRoutes.get('/', validate('query', ListQuery), (c) => {
   const filters = [eq(schema.leads.tenantId, ctx.tenantId), inArray(schema.leads.branchId, scope)];
   if (q.stage) filters.push(eq(schema.leads.stage, q.stage));
   if (q.ownerId) filters.push(eq(schema.leads.ownerId, q.ownerId));
+  if (q.source) filters.push(eq(schema.leads.source, q.source));
   if (q.q) {
     const term = `%${q.q.trim().toLowerCase()}%`;
     const digits = q.q.replace(/\D/g, '');
@@ -85,6 +91,7 @@ leadsRoutes.get('/', validate('query', ListQuery), (c) => {
       )
     : new Map<string, string>();
 
+  const sessionLabels = trialSessionLabels(rows);
   const nowMs = now();
   const allItems = rows.map((r) => ({
     id: r.id,
@@ -108,6 +115,8 @@ leadsRoutes.get('/', validate('query', ListQuery), (c) => {
     slaBreached: leadSlaBreached(r as { stage: LeadStage; nextActionAt: number | null; lastTouchedAt: number | null; createdAt: number }, nowMs),
     duplicateOfId: r.duplicateOfId,
     tags: r.tags,
+    ...attributionOf(r),
+    trial: trialOf(r, sessionLabels),
   }));
 
   const byStage: Record<string, number> = {};
@@ -209,6 +218,15 @@ leadsRoutes.get('/:leadId', (c) => {
       slaBreached: leadSlaBreached(lead as { stage: LeadStage; nextActionAt: number | null; lastTouchedAt: number | null; createdAt: number }, now()),
       duplicateOfId: lead.duplicateOfId,
       tags: lead.tags,
+      ...attributionOf(lead),
+      trial: trialOf(lead, trialSessionLabels([lead])),
+      goal: goalLabel(lead.goal),
+      preferredTime: preferredTimeLabel(lead.preferredTime),
+      interestedPlan: lead.interestedProductId
+        ? (db.select({ id: schema.products.id, name: schema.products.name }).from(schema.products).where(and(eq(schema.products.id, lead.interestedProductId), eq(schema.products.tenantId, ctx.tenantId))).get() ?? null)
+        : null,
+      referralCode: lead.referralCode,
+      consents: latestConsents(lead.id),
     },
     activities: activities.map((a) => ({
       id: a.id,
@@ -225,6 +243,179 @@ leadsRoutes.get('/:leadId', (c) => {
     ownerUnavailable: owner ? owner.accountState !== 'active' : false,
     existingMember: existingMember ? { id: existingMember.id, name: existingMember.name } : null,
   });
+});
+
+/* — Website attribution and trial requests ————————————————————— */
+
+type LeadRow = typeof schema.leads.$inferSelect;
+
+/** PF-CRM-005: where the lead came from. UTM is first touch and never rewritten. */
+function attributionOf(lead: LeadRow) {
+  return { utm: lead.utm ?? null, referralCode: lead.referralCode };
+}
+
+/** "Spin Sprint · 2026-11-26 18:30" for each trial session the rows mention, in the branch's zone. */
+function trialSessionLabels(rows: LeadRow[]): Map<string, { label: string; startsAt: string }> {
+  const ids = [...new Set(rows.flatMap((r) => [r.trialSessionId, r.trialConfirmedSessionId]).filter((x): x is string => Boolean(x)))];
+  if (ids.length === 0) return new Map();
+  const sessions = sessionQuery()
+    .where(inArray(schema.classSessions.id, ids))
+    .all();
+  const zones = new Map(db.select({ id: schema.branches.id, tz: schema.branches.timezone }).from(schema.branches).all().map((b) => [b.id, b.tz]));
+  return new Map(
+    sessions.map((session) => {
+      const tz = zones.get(session.branchId) ?? 'Asia/Kolkata';
+      return [session.id, { label: `${session.name} · ${isoDate(session.startsAt, tz)} ${localTime(session.startsAt, tz)}`, startsAt: new Date(session.startsAt).toISOString() }];
+    }),
+  );
+}
+
+function trialOf(lead: LeadRow, labels: Map<string, { label: string; startsAt: string }>) {
+  if (!lead.trialRequestedAt && !lead.trialConfirmedAt) return null;
+  const requested = lead.trialSessionId ? labels.get(lead.trialSessionId) : undefined;
+  const confirmed = lead.trialConfirmedSessionId ? labels.get(lead.trialConfirmedSessionId) : undefined;
+  return {
+    requestedAt: lead.trialRequestedAt ? new Date(lead.trialRequestedAt).toISOString() : null,
+    sessionId: lead.trialSessionId,
+    sessionLabel: requested?.label ?? null,
+    preferredTime: preferredTimeLabel(lead.trialPreferredTime),
+    confirmedSessionId: lead.trialConfirmedSessionId,
+    confirmedSessionLabel: confirmed?.label ?? null,
+    confirmedAt: lead.trialConfirmedAt ? new Date(lead.trialConfirmedAt).toISOString() : null,
+  };
+}
+
+/** The consent in force for each purpose: its latest record (ENT-PRIV-003). */
+function latestConsents(leadId: string) {
+  const rows = db
+    .select()
+    .from(schema.leadConsents)
+    .where(eq(schema.leadConsents.leadId, leadId))
+    .orderBy(desc(schema.leadConsents.capturedAt), desc(schema.leadConsents.id))
+    .all();
+  const latest = new Map<string, (typeof rows)[number]>();
+  for (const row of rows) if (!latest.has(row.purpose)) latest.set(row.purpose, row);
+  return [...latest.values()].map((row) => ({
+    purpose: row.purpose,
+    granted: row.granted,
+    noticeVersion: row.noticeVersion,
+    source: row.source,
+    capturedAt: new Date(row.capturedAt).toISOString(),
+  }));
+}
+
+/** Upcoming classes at the lead's branch, for the "Confirm trial" picker. */
+leadsRoutes.get('/:leadId/trial/options', (c) => {
+  const ctx = ctxOf(c);
+  requirePermission(ctx, 'lead.view');
+  const lead = loadLeadInScope(ctx, c.req.param('leadId'));
+  const tz = db.select({ tz: schema.branches.timezone }).from(schema.branches).where(eq(schema.branches.id, lead.branchId)).get()?.tz ?? 'Asia/Kolkata';
+  const at = now();
+  const sessions = sessionQuery()
+    .where(
+      and(
+        eq(schema.classSessions.tenantId, ctx.tenantId),
+        eq(schema.classSessions.branchId, lead.branchId),
+        eq(schema.classSessions.state, 'scheduled'),
+        gte(schema.classSessions.startsAt, at),
+        lt(schema.classSessions.startsAt, at + TRIAL_WINDOW_MS),
+      ),
+    )
+    .orderBy(schema.classSessions.startsAt)
+    .all();
+  return c.json({
+    items: sessions.map((s) => ({
+      id: s.id,
+      label: `${s.name} · ${isoDate(s.startsAt, tz)} ${localTime(s.startsAt, tz)}`,
+      startsAt: new Date(s.startsAt).toISOString(),
+      trainerName: s.trainerName,
+      openSpots: Math.max(0, s.capacity - s.booked),
+      requested: s.id === lead.trialSessionId,
+    })),
+  });
+});
+
+const TRIAL_WINDOW_MS = 14 * 24 * HOUR;
+const TRIAL_CONFIRMABLE = new Set<string>(['new', 'contacted', 'qualified', 'trial_booked', 'nurture', 'reopened']);
+const ConfirmTrialBody = z.object({ sessionId: z.string().min(1), note: z.string().max(500).optional() });
+
+/**
+ * Staff have spoken to the person and agreed a class: the lead moves to
+ * `trial_booked` with that session recorded. This is the one way into
+ * `trial_booked` from an earlier stage than `qualified` — the call that
+ * confirms a trial is also the contact and the qualification. Nothing is
+ * booked: a lead is not a member and holds no seat. The class's next action
+ * becomes the trial itself, so an unattended trial shows as overdue.
+ */
+leadsRoutes.post('/:leadId/trial/confirm', validate('json', ConfirmTrialBody), (c) => {
+  const ctx = ctxOf(c);
+  requirePermission(ctx, 'lead.manage');
+  const leadId = c.req.param('leadId');
+  const body = c.req.valid('json');
+  const lead = loadLeadInScope(ctx, leadId);
+  if (!TRIAL_CONFIRMABLE.has(lead.stage)) {
+    throw conflict(`This lead is ${lead.stage.replace(/_/g, ' ')}. Reopen it before confirming a trial.`);
+  }
+
+  const session = sessionQuery().where(and(eq(schema.classSessions.tenantId, ctx.tenantId), eq(schema.classSessions.id, body.sessionId))).get();
+  if (!session || session.branchId !== lead.branchId || session.state !== 'scheduled' || session.startsAt <= now()) {
+    throw new AppError('VALIDATION_FAILED', 'Choose an upcoming class at this lead’s branch.', {
+      fields: [{ path: 'sessionId', code: 'custom', message: 'Choose an upcoming class at this lead’s branch.' }],
+    });
+  }
+  const tz = db.select({ tz: schema.branches.timezone }).from(schema.branches).where(eq(schema.branches.id, lead.branchId)).get()?.tz ?? 'Asia/Kolkata';
+  const label = `${session.name} · ${isoDate(session.startsAt, tz)} ${localTime(session.startsAt, tz)}`;
+  const at = now();
+
+  transact(() => {
+    db.update(schema.leads)
+      .set({
+        stage: 'trial_booked',
+        trialConfirmedSessionId: session.id,
+        trialConfirmedAt: at,
+        nextActionAt: session.endsAt,
+        nextActionLabel: `Free trial: ${label}`,
+        lastTouchedAt: at,
+        updatedAt: at,
+      })
+      .where(eq(schema.leads.id, leadId))
+      .run();
+
+    db.insert(schema.leadActivities)
+      .values({
+        id: id('lac'),
+        tenantId: ctx.tenantId,
+        leadId,
+        kind: 'trial',
+        body: `Free trial confirmed: ${label}.${body.note?.trim() ? ` ${body.note.trim()}` : ''}`,
+        actorId: ctx.userId,
+        actorName: ctx.name,
+        fromStage: lead.stage,
+        toStage: 'trial_booked',
+        at,
+      })
+      .run();
+
+    audit(ctx, {
+      action: 'lead.trial_confirmed',
+      entityType: 'lead',
+      entityId: leadId,
+      entityLabel: lead.name,
+      branchId: lead.branchId,
+      before: { stage: lead.stage, trialConfirmedSessionId: lead.trialConfirmedSessionId },
+      after: { stage: 'trial_booked', trialConfirmedSessionId: session.id },
+    });
+  });
+
+  emit({
+    tenantId: ctx.tenantId,
+    branchId: lead.branchId,
+    channel: channels.branch(lead.branchId),
+    topic: 'lead.stage_changed',
+    payload: { leadId, from: lead.stage, to: 'trial_booked' },
+  });
+
+  return c.json({ ok: true, stage: 'trial_booked', sessionLabel: label });
 });
 
 /* — Mutations ——————————————————————————————————————————————— */
@@ -302,6 +493,12 @@ leadsRoutes.post('/', validate('json', CreateBody), (c) => {
       .run();
 
     audit(ctx, { action: 'lead.created', entityType: 'lead', entityId: leadId, entityLabel: body.name, branchId: body.branchId });
+    emitIntegrationEvent({
+      tenantId: ctx.tenantId,
+      branchId: body.branchId,
+      type: 'lead.created',
+      data: { leadId, branchId: body.branchId, source: body.source, stage: 'new', duplicateOfId: duplicate?.id ?? null },
+    });
   });
 
   return c.json({ id: leadId, duplicateOfId: duplicate?.id ?? null }, 201);
@@ -534,6 +731,7 @@ leadsRoutes.post('/:leadId/convert', (c) => {
       entityLabel: lead.name,
       after: { convertedMemberId: memberId, memberNo },
     });
+    emitIntegrationEvent({ tenantId: ctx.tenantId, branchId: lead.branchId, type: 'lead.converted', data: { leadId, memberId, memberNo } });
     return { memberId, memberNo };
   });
   const { memberId, memberNo } = result;

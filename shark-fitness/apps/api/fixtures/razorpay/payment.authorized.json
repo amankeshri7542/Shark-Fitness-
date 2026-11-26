@@ -1,0 +1,51 @@
+{
+  "entity": "event",
+  "account_id": "acc_FixtureAccount",
+  "event": "payment.authorized",
+  "contains": [
+    "payment"
+  ],
+  "payload": {
+    "payment": {
+      "entity": {
+        "id": "pay_FixturePay0001",
+        "entity": "payment",
+        "amount": 29500,
+        "currency": "INR",
+        "status": "authorized",
+        "order_id": "order_FixtureOrd001",
+        "invoice_id": null,
+        "international": false,
+        "method": "upi",
+        "amount_refunded": 0,
+        "refund_status": null,
+        "captured": false,
+        "description": "Invoice SF-2026-00001",
+        "card_id": null,
+        "bank": null,
+        "wallet": null,
+        "vpa": "success@razorpay",
+        "email": "member@example.com",
+        "contact": "+919000090000",
+        "notes": {
+          "tenant_id": "ten_fixture",
+          "intent_id": "pi_fixture",
+          "invoice_id": "inv_fixture"
+        },
+        "fee": null,
+        "tax": null,
+        "error_code": null,
+        "error_description": null,
+        "error_source": null,
+        "error_step": null,
+        "error_reason": null,
+        "acquirer_data": {
+          "rrn": "000000000001",
+          "upi_transaction_id": "FIXTURE0001"
+        },
+        "created_at": 1795000000
+      }
+    }
+  },
+  "created_at": 1795000001
+}

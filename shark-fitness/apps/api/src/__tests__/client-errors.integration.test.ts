@@ -6,6 +6,7 @@ import { errorHandler, rateLimit, resetRateLimitsForTest } from '../middleware/i
 import { CLIENT_ERROR_MAX_BYTES } from '@shark/contracts';
 import { normalizeClientRoute } from '../routes/client-errors.js';
 import { SENSITIVE, SENSITIVE_SENTENCE, SENSITIVE_VALUES } from './fixtures/redaction.js';
+import { signInRequest } from './helpers/mfa.js';
 
 const ORIGIN = 'http://localhost:5173';
 const captures: Array<{ error: { name: string; message: string; stack: string }; context: ErrorReportContext }> = [];
@@ -50,7 +51,7 @@ function post(body: unknown, headers: Record<string, string> = {}) {
 }
 
 async function signInCookie(email: string): Promise<string> {
-  const response = await app.request('/v1/auth/password', {
+  const response = await signInRequest( {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin: ORIGIN },
     body: JSON.stringify({ tenantSlug: 'shark', email, password: 'shark1234' }),

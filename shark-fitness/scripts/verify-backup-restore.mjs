@@ -6,7 +6,9 @@ import { appendFileSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSyn
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { createBackup, restoreBackup } from './sqlite-backup.mjs';
+import { staffSession } from './lib/console-session.mjs';
+import { createBackup, mediaDirectoryFor, restoreBackup } from './sqlite-backup.mjs';
+import { mediaFingerprint } from './media-archive.mjs';
 
 const repository = process.cwd();
 const root = mkdtempSync(join(tmpdir(), 'shark-recovery-proof-'));
@@ -17,6 +19,10 @@ const archive = mkdtempSync(join(tmpdir(), 'shark-retained-backup-'));
 const recovery = mkdtempSync(join(tmpdir(), 'shark-restored-app-'));
 const backup = join(archive, 'backup.db');
 const restored = join(recovery, 'restored.db');
+// Private media lives beside each database, as the API defaults outside
+// production and as SHARK_MEDIA_DIR is set on a host (P05).
+const sourceMedia = join(root, 'media');
+const restoredMedia = join(recovery, 'media');
 const requireFromApi = createRequire(resolve(repository, 'apps/api/package.json'));
 const Database = requireFromApi('better-sqlite3');
 const proofSuffix = randomUUID().replaceAll('-', '');
@@ -27,6 +33,8 @@ let accountRecoveryProof;
 const baseEnvironment = {
   ...process.env,
   SHARK_PASS_SECRET: 'recovery-proof-pass-secret-with-at-least-48-bytes-long',
+  // Test-only, fixed for the run so the restored copy can read the source's MFA secrets.
+  SHARK_MFA_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'),
   SHARK_DEMO_READER_KEY: 'recovery-proof-reader-secret',
   SHARK_RELEASE: `recovery-proof-${proofSuffix}`,
   SHARK_ECHO_OTP: 'false',
@@ -94,6 +102,48 @@ function writeRecoveryEvidence(databasePath) {
         .run(ledgerId, tenant.id, branch.id, product.id, auditId, at);
     })();
     database.pragma('wal_checkpoint(PASSIVE)');
+  } finally {
+    database.close();
+  }
+}
+
+/** Two private files and their rows, as an upload would leave them. */
+function writeMediaEvidence(databasePath) {
+  const database = new Database(databasePath);
+  try {
+    const tenant = database.prepare("select id from tenants where slug = 'shark'").get();
+    const member = database.prepare('select id from members where tenant_id = ? order by id limit 1').get(tenant.id);
+    const at = Date.now();
+    for (const [index, bytes] of [
+      Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0xff, 0xd9]),
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44]),
+    ].entries()) {
+      const mediaId = `med_recovery${index}${proofSuffix.slice(0, 12)}`;
+      const key = `${tenant.id}/2026/${mediaId}.${index === 0 ? 'jpg' : 'png'}`;
+      mkdirSync(join(sourceMedia, tenant.id, '2026'), { recursive: true });
+      writeFileSync(join(sourceMedia, key), bytes, { mode: 0o600 });
+      database.prepare(`insert into media_objects
+        (id, tenant_id, owner_member_id, purpose, storage_key, content_type, byte_size, width, height, sha256, created_at, deleted_at, deleted_reason)
+        values (?, ?, ?, 'progress_photo', ?, ?, ?, 1, 1, ?, ?, null, null)`)
+        .run(mediaId, tenant.id, member.id, key, index === 0 ? 'image/jpeg' : 'image/png', bytes.length, createHash('sha256').update(bytes).digest('hex'), at);
+    }
+  } finally {
+    database.close();
+  }
+}
+
+/** Every live media row has its file, and the file is the one recorded. */
+function verifyMedia(databasePath, mediaRoot) {
+  const database = new Database(databasePath, { readonly: true, fileMustExist: true });
+  try {
+    const rows = database.prepare('select storage_key, sha256 from media_objects where deleted_at is null').all();
+    assert.ok(rows.length >= 2, 'Representative media rows are missing.');
+    for (const row of rows) {
+      const file = join(mediaRoot, row.storage_key);
+      assert.ok(existsSync(file), `Media file missing after restore: ${row.storage_key}`);
+      assert.equal(createHash('sha256').update(readFileSync(file)).digest('hex'), row.sha256, `Media checksum differs: ${row.storage_key}`);
+    }
+    return rows.length;
   } finally {
     database.close();
   }
@@ -176,15 +226,10 @@ async function proveBootAndRead(databasePath, label, apiDirectory = resolve(repo
     if (child.exitCode !== null || !ready.ok || ready.schema !== 'ready' || ready.release !== release) {
       throw new Error(`Restored API was not ready or belonged to another process: ${JSON.stringify(ready)}`);
     }
-    const signIn = await fetch(`${origin}/v1/auth/password`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', origin },
-      body: JSON.stringify({ tenantSlug: 'shark', email: 'owner@sharkfitness.in', password: 'shark1234' }),
-    });
-    if (!signIn.ok) throw new Error(`Restored API sign-in failed with ${signIn.status}.`);
-    const session = signIn.headers.get('set-cookie')?.match(/shark_session=([^;,]+)/)?.[1];
-    if (!session) throw new Error('Restored API sign-in did not issue a session.');
-    const { csrfToken } = await signIn.json();
+    // Owners use two-step sign-in: enrolled on the source, answered from the
+    // same secret on the restored copy — which also proves the encrypted
+    // factor survives a backup and restore under the same key.
+    const { session, csrfToken } = await staffSession(origin, { tenantSlug: 'shark', email: 'owner@sharkfitness.in', password: 'shark1234' }, requireFromApi);
     const headers = { cookie: `shark_session=${session}; shark_csrf=${csrfToken}`, origin, 'x-csrf-token': csrfToken, 'content-type': 'application/json' };
     const request = async (path, body, idempotencyKey) => {
       const response = await fetch(`${origin}${path}`, {
@@ -257,6 +302,7 @@ runPnpm(['-F', '@shark/api', 'migrate'], { SHARK_DB: source, NODE_ENV: 'test' })
 runPnpm(['-F', '@shark/api', 'seed'], { SHARK_DB: source, NODE_ENV: 'test' });
 const initialProof = await proveBootAndRead(source, 'initial', undefined, true);
 writeRecoveryEvidence(source);
+writeMediaEvidence(source);
 const expectedState = snapshot(source);
 const restartProof = await proveBootAndRead(source, 'restart');
 verifyState(source, expectedState);
@@ -272,7 +318,10 @@ copyFileSync(resolve(repository, 'tsconfig.base.json'), join(root, 'replacement'
 symlinkSync(resolve(repository, 'apps/api/node_modules'), join(replacementApi, 'node_modules'), 'dir');
 const replacementProof = await proveBootAndRead(source, 'replacement', replacementApi);
 verifyState(source, expectedState);
-const backupResult = await createBackup(source, backup);
+const mediaAtBackup = mediaFingerprint(sourceMedia);
+const backupResult = await createBackup(source, backup, { mediaDir: sourceMedia });
+assert.equal(backupResult.metadata.media.fileCount, mediaAtBackup.length, 'The backup did not archive every media file.');
+assert.equal(statSync(`${backup}.media.tar`).mode & 0o777, 0o600, 'Media archives must be owner-only.');
 assert.equal(statSync(backup).mode & 0o777, 0o600, 'Backup records must be owner-only.');
 
 // Guard proofs run before the real restore so a destructive regression cannot
@@ -305,6 +354,23 @@ await expectRestoreRefusal(
   'A corrupt backup with unchanged size',
 );
 if (existsSync(corruptTarget)) throw new Error('A checksum mismatch created a restore target.');
+
+// A media archive altered after the backup is refused before anything moves.
+const mediaCorruptDirectory = join(root, 'corrupt-media');
+const mediaCorruptBackup = join(mediaCorruptDirectory, 'backup.db');
+const mediaCorruptTarget = join(root, 'corrupt-media-restored.db');
+mkdirSync(mediaCorruptDirectory);
+copyFileSync(backup, mediaCorruptBackup);
+copyFileSync(`${backup}.manifest.json`, `${mediaCorruptBackup}.manifest.json`);
+const tamperedArchive = readFileSync(`${backup}.media.tar`);
+tamperedArchive[600] ^= 1;
+writeFileSync(`${mediaCorruptBackup}.media.tar`, tamperedArchive);
+await expectRestoreRefusal(
+  () => restoreBackup(mediaCorruptBackup, mediaCorruptTarget, { mediaTarget: join(root, 'corrupt-media-restored') }),
+  /media archive checksum does not match/i,
+  'A media archive altered after the backup',
+);
+if (existsSync(mediaCorruptTarget) || existsSync(join(root, 'corrupt-media-restored'))) throw new Error('A corrupt media archive restored something.');
 
 const occupiedTarget = join(root, 'occupied.db');
 const occupied = new Database(occupiedTarget);
@@ -340,10 +406,38 @@ try {
   live.close();
 }
 
-await restoreBackup(backup, restored);
+// A file written after the snapshot must not come back.
+writeFileSync(join(sourceMedia, 'after-backup.jpg'), Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+// The CLI's choice of media directory: SHARK_MEDIA_DIR belongs to SHARK_DB
+// only, so a restore into a scratch path never lands on (or, with --replace,
+// wipes) the live photos.
+{
+  const saved = { db: process.env.SHARK_DB, media: process.env.SHARK_MEDIA_DIR };
+  process.env.SHARK_DB = source;
+  process.env.SHARK_MEDIA_DIR = sourceMedia;
+  try {
+    const scratch = join(root, 'scratch', 'shark.db');
+    assert.equal(mediaDirectoryFor(scratch, { forRestore: true }), join(root, 'scratch', 'media'), 'A scratch restore must not use the live media directory.');
+    assert.equal(mediaDirectoryFor(source, { forRestore: true }), resolve(sourceMedia), 'Restoring the live database restores its media directory.');
+    assert.equal(mediaDirectoryFor(source), resolve(sourceMedia), 'Backing up the live database archives its media directory.');
+    delete process.env.SHARK_DB;
+    assert.equal(mediaDirectoryFor(scratch, { forRestore: true }), join(root, 'scratch', 'media'), 'Without SHARK_DB a restore stays beside its target.');
+  } finally {
+    for (const [key, value] of [['SHARK_DB', saved.db], ['SHARK_MEDIA_DIR', saved.media]]) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+const restoreResult = await restoreBackup(backup, restored, { mediaTarget: restoredMedia });
 assert.equal(statSync(restored).mode & 0o777, 0o600, 'Restored records must be owner-only.');
-// Recovery must remain possible after the original synthetic database is gone.
+assert.deepEqual(restoreResult.media.fingerprint, mediaAtBackup, 'Restored media differs from the media at backup time.');
 for (const suffix of ['', '-wal', '-shm']) rmSync(`${source}${suffix}`, { force: true });
+rmSync(sourceMedia, { recursive: true, force: true });
+const mediaFilesVerified = verifyMedia(restored, restoredMedia);
+// Recovery must remain possible after the original synthetic database (and
+// its media) are gone — both were removed above.
 runPnpm(['-F', '@shark/api', 'migrate'], { SHARK_DB: restored, NODE_ENV: 'test' });
 const restoredState = verifyState(restored, expectedState);
 const runtimeProof = await proveBootAndRead(restored, 'recovery', replacementApi);
@@ -351,12 +445,20 @@ verifyState(restored, expectedState);
 
 const evidence = {
   recoveryProof: 'passed',
-  restoreGuards: ['source-target-separation', 'manifest-size-and-checksum', 'explicit-overwrite-confirmation', 'owner-only-artifacts'],
+  restoreGuards: ['source-target-separation', 'manifest-size-and-checksum', 'media-archive-and-per-file-checksums', 'explicit-overwrite-confirmation', 'owner-only-artifacts'],
   artifactDirectory: root,
   retainedArchiveDirectory: archive,
   recoveryDirectory: recovery,
   evidenceScope: 'Local production API processes; synthetic seeded fixtures; shared installed dependencies; no container, hosted, or off-instance-storage credit.',
-  manifest: backupResult.metadata,
+  manifest: { ...backupResult.metadata, media: { ...backupResult.metadata.media, files: `${backupResult.metadata.media.fileCount} files listed with SHA-256` } },
+  media: {
+    restored: 'passed',
+    directory: restoredMedia,
+    filesVerifiedAgainstManifest: restoreResult.media.fileCount,
+    filesVerifiedAgainstDatabaseRows: mediaFilesVerified,
+    archiveSha256: backupResult.metadata.media.sha256,
+    refusedTamperedArchive: true,
+  },
   rowCounts: Object.fromEntries(Object.entries(restoredState).map(([table, value]) => [table, value.count])),
   recordFingerprints: restoredState,
   manualPaymentAndRefund: paymentProof,

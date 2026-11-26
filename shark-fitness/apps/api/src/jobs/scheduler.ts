@@ -1,3 +1,5 @@
+import { expireWaitlistOffers as expireOffersAndAdvance } from '../services/waitlist.js';
+import { purgeWithdrawnPhotos } from '../services/progress-photos.js';
 import { reconcileMembershipDates } from '../services/membership-dates.js';
 import { and, eq, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import { channels } from '@shark/contracts';
@@ -7,9 +9,15 @@ import { runtimeConfig } from '../lib/config.js';
 import { emit } from '../lib/events.js';
 import { processDueDeliveries, runDueAutomations } from '../services/automations.js';
 import { pruneOperationalData } from '../services/maintenance.js';
+import { runWebhookDispatch } from '../services/webhooks.js';
+import { processNotificationQueue } from '../services/notifications/service.js';
+import { generateTasks } from '../services/tasks.js';
 import { expireChallengeInvitations } from '../services/engagement-admin.js';
 import { extendActiveSeries } from '../services/schedule-series.js';
 import { runDueDunning } from '../services/dunning.js';
+import { reconcilePayments } from '../services/payments/reconciliation.js';
+import { deliverDuePushes } from '../services/notifications.js';
+import { pushConfigured } from '../services/push.js';
 import { rollUpCompletedDays } from '../services/reports.js';
 import { DAY, HOUR, MINUTE, addDays, isoDate, localClockOnDay, localDayIndex, now, startOfLocalDay } from '../lib/time.js';
 import { id } from '../lib/ids.js';
@@ -96,34 +104,10 @@ function closeStaleCheckIns(atMs = now()): JobSummary {
   return { checkInsClosed };
 }
 
-/** A waitlist offer that is not taken up inside its window passes on. */
+/** A waitlist offer that is not taken up inside its window passes on: the
+ *  held seat is released and offered to the next eligible member. */
 function expireWaitlistOffers(): JobSummary {
-  const stale = db
-    .select()
-    .from(schema.waitlistEntries)
-    .where(
-      and(
-        eq(schema.waitlistEntries.state, 'offered'),
-        isNotNull(schema.waitlistEntries.offerExpiresAt),
-        lt(schema.waitlistEntries.offerExpiresAt, now()),
-      ),
-    )
-    .all();
-
-  for (const entry of stale) {
-    db.update(schema.waitlistEntries)
-      .set({ state: 'expired', resolvedAt: now() })
-      .where(eq(schema.waitlistEntries.id, entry.id))
-      .run();
-
-    emit({
-      tenantId: entry.tenantId,
-      channel: channels.session(entry.sessionId),
-      topic: 'waitlist.promoted',
-      payload: { sessionId: entry.sessionId, expiredEntryId: entry.id },
-    });
-  }
-  return { offersExpired: stale.length };
+  return expireOffersAndAdvance();
 }
 
 /** Holds do not occupy a seat once they lapse. */
@@ -195,6 +179,16 @@ function deliverQueuedAutomations(): JobSummary {
   return safeSummary(result);
 }
 
+/** Sends due push notifications (quiet-hours deferrals, retries, anything a
+ *  restart interrupted). New pushes are also sent the moment they are queued.
+ *  Sending is network I/O, so it runs after this tick returns; a failure is
+ *  reported under this job's name. */
+function sweepPushQueue(): { configured: boolean } {
+  if (!pushConfigured()) return { configured: false };
+  void deliverDuePushes().catch((err: unknown) => reportException(err, { job: 'deliver-push-queue', source: 'scheduler' }));
+  return { configured: true };
+}
+
 /** Advance every dunning step that is due.
  *
  *  Re-entrant: each step is claimed by a conditional update before any work
@@ -222,6 +216,12 @@ function extendSeriesHorizon(): JobSummary {
   return safeSummary(result);
 }
 
+/** Ask Razorpay about payments whose webhook never came (P02). A no-op
+ *  summary when no provider is configured. */
+async function reconcileProviderPayments(): Promise<JobSummary> {
+  return safeSummary(await reconcilePayments());
+}
+
 function pruneOperationalRows(): JobSummary {
   const result = pruneOperationalData();
   const removed = Object.values(result).reduce((total, count) => total + count, 0);
@@ -235,8 +235,15 @@ function pruneOperationalRows(): JobSummary {
   return { ...result, challengeInvitationsExpired: expired };
 }
 
+async function deliverNotifications(): Promise<JobSummary> {
+  const result = await processNotificationQueue();
+  if (result.processed > 0) log('info', 'scheduler_notifications_completed', { ...result });
+  return safeSummary(result);
+}
+
 const JOBS: Job[] = [
   { name: 'deliver-automation-queue', everyMs: MINUTE, run: deliverQueuedAutomations },
+  { name: 'deliver-push-queue', everyMs: MINUTE, run: sweepPushQueue },
   { name: 'run-automations', everyMs: HOUR, run: runAutomations },
   { name: 'expire-memberships', everyMs: 6 * HOUR, run: expireMemberships },
   { name: 'roll-up-metrics', everyMs: 6 * HOUR, run: rollUpMetrics },
@@ -246,12 +253,31 @@ const JOBS: Job[] = [
   { name: 'run-dunning', everyMs: 15 * MINUTE, run: advanceDunning },
   { name: 'extend-class-series', everyMs: 6 * HOUR, run: extendSeriesHorizon },
   { name: 'prune-operational-data', everyMs: DAY, run: pruneOperationalRows },
+  { name: 'reconcile-payments', everyMs: 6 * HOUR, run: reconcileProviderPayments },
+  /* Outbound webhooks (PF-INT-003): fan out new integration events, then send
+     what is due. Asynchronous — it waits on receivers — and never overlaps
+     itself; a slow receiver delays the next tick rather than doubling up. */
+  { name: 'deliver-webhooks', everyMs: 30_000, run: () => runWebhookDispatch() },
+  { name: 'purge-withdrawn-photos', everyMs: HOUR, run: () => purgeWithdrawnPhotos() },
+  /* Member notifications on push, email, SMS and WhatsApp (P07). Consent and
+     quiet hours are checked again at send time inside the service. */
+  { name: 'deliver-notifications', everyMs: MINUTE, run: deliverNotifications },
+  /* Turn operational alerts into named tasks (P07). Idempotent through the
+     unique generation key, so overlapping ticks cannot duplicate one. */
+  { name: 'generate-tasks', everyMs: 15 * MINUTE, run: () => safeSummary(generateTasks()) },
 ];
 
 /** The fixed job names: the only values the `job` metric label takes. */
 export const SCHEDULED_JOB_NAMES: readonly string[] = JOBS.map((job) => job.name);
 
-export function executeJob(job: Job, clock: () => number = now): void {
+/**
+ * Runs one job and records it in `job_runs`. Synchronous jobs finish before
+ * this returns, as they always have. A job may return a promise (one that
+ * talks to a provider, like `reconcile-payments`, or the webhook dispatcher
+ * waiting on receivers); the run is then recorded when it settles, and the
+ * returned promise rejects if the job did.
+ */
+export function executeJob(job: Job, clock: () => number = now): void | Promise<void> {
   const runId = id('jobr');
   const startedAt = clock();
   db.insert(schema.jobRuns)
@@ -268,8 +294,9 @@ export function executeJob(job: Job, clock: () => number = now): void {
       buildId: runtimeConfig.release,
     })
     .run();
-  try {
-    const summary = safeSummary(job.run());
+
+  const succeed = (value: unknown): void => {
+    const summary = safeSummary(value);
     const finishedAt = clock();
     db.update(schema.jobRuns)
       .set({
@@ -290,7 +317,9 @@ export function executeJob(job: Job, clock: () => number = now): void {
       durationMs: Math.max(0, finishedAt - startedAt),
       summary,
     });
-  } catch (error) {
+  };
+
+  const fail = (error: unknown): never => {
     const finishedAt = clock();
     const errorCategory = categoryFor(error);
     const errorMessage = safeErrorMessage(error);
@@ -315,7 +344,28 @@ export function executeJob(job: Job, clock: () => number = now): void {
       errorMessage,
     });
     throw error;
+  };
+
+  // Recording success can itself fail (a full disk, a constraint); that is a
+  // failed run too, and must land in job_runs as one.
+  const settle = (value: unknown): void => {
+    try {
+      succeed(value);
+    } catch (error) {
+      fail(error);
+    }
+  };
+
+  let result: unknown;
+  try {
+    result = job.run();
+  } catch (error) {
+    fail(error);
   }
+  if (result && typeof (result as Promise<unknown>).then === 'function') {
+    return (result as Promise<unknown>).then(settle, fail);
+  }
+  settle(result);
 }
 
 function safeSummary(value: unknown): JobSummary {
@@ -341,9 +391,19 @@ function safeErrorMessage(error: unknown): string {
 
 /** One scheduled tick: run the job, and report a failure once, tagged with
  *  the job's name. executeJob has already recorded it in job_runs. */
+const inFlight = new Set<string>();
+
 export function runScheduledJob(job: Job, clock: () => number = now): void {
+  // An async job still running from the previous tick is left to finish.
+  if (inFlight.has(job.name)) return;
   try {
-    executeJob(job, clock);
+    const pending = executeJob(job, clock);
+    if (pending) {
+      inFlight.add(job.name);
+      pending
+        .catch((err: unknown) => reportException(err, { job: job.name, source: 'scheduler' }))
+        .finally(() => inFlight.delete(job.name));
+    }
   } catch (err) {
     reportException(err, { job: job.name, source: 'scheduler' });
   }
@@ -450,9 +510,9 @@ export const jobsForTest = {
   releaseExpiredHolds,
   deliverQueuedAutomations,
   pruneOperationalRows,
-  execute: (name: string, clock?: () => number): void => {
+  execute: (name: string, clock?: () => number): void | Promise<void> => {
     const job = JOBS.find((candidate) => candidate.name === name);
     if (!job) throw new Error(`Unknown scheduled job: ${name}`);
-    executeJob(job, clock);
+    return executeJob(job, clock);
   },
 };

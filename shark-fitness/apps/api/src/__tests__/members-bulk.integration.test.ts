@@ -5,6 +5,7 @@ import { db, schema } from '../db/client.js';
 import { id } from '../lib/ids.js';
 import { now } from '../lib/time.js';
 import { csvCell, normalizeTag } from '../services/member-bulk.js';
+import { signInRequest } from './helpers/mfa.js';
 
 interface BrowserSession {
   cookie: string;
@@ -17,7 +18,7 @@ const sessionCache = new Map<string, BrowserSession>();
 async function signIn(email: string): Promise<BrowserSession> {
   const cached = sessionCache.get(email);
   if (cached) return cached;
-  const response = await app.request('/v1/auth/password', {
+  const response = await signInRequest( {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin: 'http://localhost:5173' },
     body: JSON.stringify({ tenantSlug: 'shark', email, password: 'shark1234' }),
@@ -250,6 +251,18 @@ describe('members bulk: message', () => {
       .all();
     expect(opened).toHaveLength(1);
     expect(db.select().from(schema.messages).where(eq(schema.messages.conversationId, opened[0]!.id)).all()).toHaveLength(1);
+  });
+
+  it('leaves out members under 18 while staff-minor messages are off (P07 decision 16)', async () => {
+    const adult = makeMember();
+    const minor = makeMember({ dob: '2012-06-01' });
+    const res = await post(await reception(), '/bulk/message', { memberIds: [adult, minor], body: 'Holiday hours this week.' });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { sent: number; skippedMinors: number; message: string };
+    expect(body).toMatchObject({ sent: 1, skippedMinors: 1 });
+    expect(body.message).toMatch(/under 18 was left out/);
+    const minorThreads = db.select().from(schema.conversations).where(eq(schema.conversations.memberId, minor)).all();
+    expect(minorThreads).toHaveLength(0);
   });
 
   it('rejects an empty message', async () => {

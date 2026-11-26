@@ -4,7 +4,9 @@ const chromeDebugUrl = process.env.CHROME_DEBUG_URL ?? 'http://127.0.0.1:9222';
 const baseUrl = process.env.SHARK_BASE_URL ?? 'http://localhost:8787';
 const credentials = process.env.SHARK_BROWSER_CREDENTIALS_FILE
   ? JSON.parse(readFileSync(process.env.SHARK_BROWSER_CREDENTIALS_FILE, 'utf8'))
-  : { tenantSlug: 'shark', email: 'owner@sharkfitness.in', password: 'shark1234' };
+  // The branch manager, not the owner: owners must use two-step sign-in, which
+  // this CDP smoke does not drive (the Playwright suite covers it).
+  : { tenantSlug: 'shark', email: 'manager@sharkfitness.in', password: 'shark1234' };
 for (const field of ['tenantSlug', 'email', 'password']) {
   if (typeof credentials[field] !== 'string' || !credentials[field]) throw new Error(`Missing browser credential field: ${field}`);
 }
@@ -146,10 +148,11 @@ await cdp('Network.enable');
 // A brand-new browser has no member-session hint. It must reach sign-in without
 // depending on /v1/me. This is important for the hosted demo because the PWA
 // shell can be cached while a free backend is asleep.
-await navigate(`${baseUrl}/`);
+// The member app lives at /app/; the website owns /.
+await navigate(`${baseUrl}/app/`);
 try {
   await retry(
-    () => evaluate(`location.pathname === '/sign-in' && [...document.querySelectorAll('label')].some((node) => node.textContent?.trim() === 'Gym code') && Boolean(document.querySelector('input[autocomplete="username"]'))`),
+    () => evaluate(`location.pathname === '/app/sign-in' && [...document.querySelectorAll('label')].some((node) => node.textContent?.trim() === 'Gym code') && Boolean(document.querySelector('input[autocomplete="username"]'))`),
     'fresh member sign-in screen',
     5_000,
   );
@@ -178,7 +181,7 @@ await checkActivationNavigation();
 console.log('[browser-smoke] phone member activation fragment navigation OK (no password submitted)');
 await cdp('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 
-// Reproduce a returning member browser: install the root-scoped member worker,
+// Reproduce a returning member browser: install the /app/-scoped member worker,
 // wait until it is fully activated, then start another same-origin navigation so
 // the active worker becomes the controller before Admin is opened.
 const memberWorker = await retry(

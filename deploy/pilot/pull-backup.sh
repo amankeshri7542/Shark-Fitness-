@@ -25,10 +25,25 @@ scp -q ${ssh_opts[@]+"${ssh_opts[@]}"} "$host:$backup" "$host:$backup.manifest.j
 file=$dest/$(basename "$backup")
 chmod 600 "$file" "$file.manifest.json"
 
-expected=$(sed -n 's/.*"sha256": "\([a-f0-9]\{64\}\)".*/\1/p' "$file.manifest.json")
-if command -v shasum >/dev/null; then actual=$(shasum -a 256 "$file"); else actual=$(sha256sum "$file"); fi
+sha() { if command -v shasum >/dev/null; then shasum -a 256 "$1"; else sha256sum "$1"; fi; }
+
+# The database's checksum is the top-level one (two-space indent).
+expected=$(sed -n 's/^  "sha256": "\([a-f0-9]\{64\}\)".*/\1/p' "$file.manifest.json")
+actual=$(sha "$file")
 actual=${actual%% *}
 [ -n "$expected" ] && [ "$expected" = "$actual" ] || { echo "The copy of $file does not match its manifest." >&2; exit 1; }
+
+# Private media, when the copy has any: the archive's checksum is the media
+# section's own (four-space indent). Per-file checks happen on restore.
+if grep -q '"archiveFile": "' "$file.manifest.json"; then
+  scp -q ${ssh_opts[@]+"${ssh_opts[@]}"} "$host:$backup.media.tar" "$dest/"
+  chmod 600 "$file.media.tar"
+  media_expected=$(sed -n 's/^    "sha256": "\([a-f0-9]\{64\}\)".*/\1/p' "$file.manifest.json" | head -n 1)
+  media_actual=$(sha "$file.media.tar")
+  media_actual=${media_actual%% *}
+  [ -n "$media_expected" ] && [ "$media_expected" = "$media_actual" ] || { echo "The copy of $file.media.tar does not match its manifest." >&2; exit 1; }
+  echo "media=$file.media.tar"
+fi
 
 echo "copied=$file"
 echo "sha256=$actual"

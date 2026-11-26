@@ -127,6 +127,48 @@
       "when": 1790100002000,
       "tag": "0017_invoice_tax_documents",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1795580752609,
+      "tag": "0018_razorpay_payments",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1795581414503,
+      "tag": "0019_public_website_leads",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1795581852249,
+      "tag": "0020_push_notifications",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1795581853249,
+      "tag": "0021_staff_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1795635646347,
+      "tag": "0022_p05_member_core",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1795635974839,
+      "tag": "0023_engagement_ops",
+      "breakpoints": true
     }
   ]
 }

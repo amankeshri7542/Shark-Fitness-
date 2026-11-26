@@ -1,10 +1,11 @@
 import { Hono } from 'hono';
+import { PHOTO_CONSENT_PURPOSE, PHOTO_CONSENT_TEXT, PHOTO_CONSENT_VERSION, onPhotoConsentChanged } from '../services/progress-photos.js';
 import { and, desc, eq, isNull, ne, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
-import { db, schema } from '../db/client.js';
+import { db, schema, transact } from '../db/client.js';
 import { ctxOf } from '../middleware/index.js';
-import { listSessions, revokeSession, viewerFor } from '../services/auth.js';
+import { deviceLabel, listSessions, revokeOtherSessions, revokeSession, viewerFor } from '../services/auth.js';
 import { audit } from '../lib/audit.js';
 import { id } from '../lib/ids.js';
 import { now, relativeTime } from '../lib/time.js';
@@ -81,15 +82,25 @@ meRoutes.patch('/preferences', validate('json', PreferencesInput), (c) => {
   return c.json({ viewer: viewerFor(ctx.userId) });
 });
 
+/** The consent text a member agrees to has a version; most are 1.0. */
+function currentVersion(purpose: string): string {
+  return purpose === PHOTO_CONSENT_PURPOSE ? PHOTO_CONSENT_VERSION : '1.0';
+}
+
 const CONSENT_CATALOGUE = [
   { purpose: 'terms', required: true, description: 'Terms of membership' },
   { purpose: 'privacy', required: true, description: 'How your data is handled' },
   { purpose: 'marketing_email', required: false, description: 'Offers and news by email' },
   { purpose: 'marketing_sms', required: false, description: 'Offers and news by SMS' },
   { purpose: 'marketing_whatsapp', required: false, description: 'Offers and news on WhatsApp' },
-  { purpose: 'progress_photos', required: false, description: 'Store progress photos for you' },
+  { purpose: 'progress_photos', required: false, description: PHOTO_CONSENT_TEXT },
   { purpose: 'health_data', required: false, description: 'Import steps and sleep from your phone' },
   { purpose: 'community_visibility', required: false, description: 'Show your name on gym leaderboards' },
+  { purpose: 'push_notifications', required: false, description: 'Notifications on your phone about classes, bookings, messages and payments' },
+  // On unless switched off (P07). Receipts and payment problems are part of the
+  // membership and are not switchable; offers above need a yes per channel.
+  { purpose: 'notifications_operational', required: false, defaultGranted: true, description: 'Class changes, booking updates and replies from the desk' },
+  { purpose: 'notifications_coaching', required: false, defaultGranted: true, description: 'Check-in feedback and nudges from your coach' },
 ] as const;
 
 meRoutes.get('/consents', (c) => {
@@ -104,8 +115,9 @@ meRoutes.get('/consents', (c) => {
     const row = stored.find((s) => s.purpose === entry.purpose);
     return {
       purpose: entry.purpose,
-      granted: row?.granted ?? false,
-      version: row?.version ?? '1.0',
+      granted: row?.granted ?? ('defaultGranted' in entry ? entry.defaultGranted : false),
+      version: row?.version ?? currentVersion(entry.purpose),
+      currentVersion: currentVersion(entry.purpose),
       updatedAt: new Date(row?.updatedAt ?? Date.now()).toISOString(),
       required: entry.required,
       description: entry.description,
@@ -122,47 +134,55 @@ const ConsentInput = z.object({
 meRoutes.put('/consents', validate('json', ConsentInput), (c) => {
   const ctx = ctxOf(c);
   const { purpose, granted } = c.req.valid('json');
-  const existing = db
-    .select()
-    .from(schema.consents)
-    .where(
-      and(
-        eq(schema.consents.tenantId, ctx.tenantId),
-        eq(schema.consents.userId, ctx.userId),
-        eq(schema.consents.purpose, purpose),
-      ),
-    )
-    .get();
+  return transact(() => {
+    const existing = db
+      .select()
+      .from(schema.consents)
+      .where(
+        and(
+          eq(schema.consents.tenantId, ctx.tenantId),
+          eq(schema.consents.userId, ctx.userId),
+          eq(schema.consents.purpose, purpose),
+        ),
+      )
+      .get();
 
-  if (existing) {
-    db.update(schema.consents)
-      .set({ granted, updatedAt: now(), ip: ctx.ip })
-      .where(eq(schema.consents.id, existing.id))
-      .run();
-  } else {
-    db.insert(schema.consents)
-      .values({
-        id: id('con'),
-        tenantId: ctx.tenantId,
-        userId: ctx.userId,
-        purpose,
-        granted,
-        version: '1.0',
-        updatedAt: now(),
-        ip: ctx.ip,
-      })
-      .run();
-  }
+    // Agreeing records the version agreed to; withdrawing keeps the version
+    // that was withdrawn.
+    const version = granted ? currentVersion(purpose) : (existing?.version ?? currentVersion(purpose));
+    if (existing) {
+      db.update(schema.consents)
+        .set({ granted, version, updatedAt: now(), ip: ctx.ip })
+        .where(eq(schema.consents.id, existing.id))
+        .run();
+    } else {
+      db.insert(schema.consents)
+        .values({
+          id: id('con'),
+          tenantId: ctx.tenantId,
+          userId: ctx.userId,
+          purpose,
+          granted,
+          version,
+          updatedAt: now(),
+          ip: ctx.ip,
+        })
+        .run();
+    }
 
-  audit(ctx, {
-    action: granted ? 'consent.granted' : 'consent.withdrawn',
-    entityType: 'consent',
-    entityId: `${ctx.userId}:${purpose}`,
-    entityLabel: purpose,
-    before: { granted: existing?.granted ?? false },
-    after: { granted },
+    // Photo consent changes what coaches can see at once, and when photos go.
+    const photos = purpose === PHOTO_CONSENT_PURPOSE ? onPhotoConsentChanged(ctx, granted) : null;
+
+    audit(ctx, {
+      action: granted ? 'consent.granted' : 'consent.withdrawn',
+      entityType: 'consent',
+      entityId: `${ctx.userId}:${purpose}`,
+      entityLabel: purpose,
+      before: { granted: existing?.granted ?? false, version: existing?.version ?? null },
+      after: { granted, version },
+    });
+    return c.json({ ok: true, version, ...(photos ? { photos } : {}) });
   });
-  return c.json({ ok: true });
 });
 
 meRoutes.get('/sessions', (c) => {
@@ -172,6 +192,8 @@ meRoutes.get('/sessions', (c) => {
 
 meRoutes.delete('/sessions/:id', (c) => {
   const ctx = ctxOf(c);
+  // Same rule as "sign out everywhere else": the devices belong to the account holder.
+  if (ctx.impersonatorId) throw forbidden('A support session cannot sign the account holder out of their devices.');
   const sessionId = c.req.param('id');
   const session = db.select().from(schema.sessions).where(eq(schema.sessions.id, sessionId)).get();
   if (!session || session.userId !== ctx.userId || session.tenantId !== ctx.tenantId) throw notFound('That session');
@@ -181,9 +203,24 @@ meRoutes.delete('/sessions/:id', (c) => {
     action: 'session.revoked',
     entityType: 'session',
     entityId: sessionId,
-    entityLabel: session.userAgent,
+    entityLabel: deviceLabel(session.userAgent),
   });
   return c.json({ ok: true });
+});
+
+/** "Sign out everywhere else": ends every other session, keeps this one. */
+meRoutes.post('/sessions/sign-out-others', (c) => {
+  const ctx = ctxOf(c);
+  if (ctx.impersonatorId) throw forbidden('A support session cannot sign the account holder out of their devices.');
+  const revoked = revokeOtherSessions(ctx.userId, ctx.tenantId, ctx.sessionId);
+  audit(ctx, {
+    action: 'session.revoked_all_others',
+    entityType: 'user',
+    entityId: ctx.userId,
+    entityLabel: ctx.name,
+    after: { sessionsEnded: revoked },
+  });
+  return c.json({ ok: true, revoked });
 });
 
 meRoutes.get('/notifications', (c) => {

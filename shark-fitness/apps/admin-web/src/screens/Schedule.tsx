@@ -73,7 +73,7 @@ interface DayPayload {
 }
 
 interface DetailPayload {
-  session: SessionRow & { notes: string | null; seriesId: string | null; waitlistEnabled: boolean };
+  session: SessionRow & { notes: string | null; seriesId: string | null; waitlistEnabled: boolean; timezone?: string };
   counts: { live: number; attended: number; noShow: number; cancelled: number; waitlisted: number };
   roster: Array<{
     bookingId: string;
@@ -840,18 +840,18 @@ function SessionDetail({
         <div>
           <Label>Waiting · in order</Label>
           <ul className="mt-2 flex flex-col border border-line">
-            {waitlist.map((row) => (
+            {waitlist.map((row, index) => (
               <li key={row.waitlistId} className="flex items-center gap-3 border-b border-line-10 px-3 py-2 last:border-b-0">
-                <span className="w-6 flex-none font-display text-[14px] tabular-nums text-foam-45">{row.position}</span>
+                <span className="w-6 flex-none font-display text-[14px] tabular-nums text-foam-45">{index + 1}</span>
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[13px]">{row.name}</div>
                   <div className="font-utility text-[10px] uppercase tracking-[0.12em] text-foam-35">{row.memberNo}</div>
                 </div>
                 {row.state === 'offered' ? (
                   <Chip tone="warn">
-                    Offered
+                    Seat held
                     {row.offerExpiresAt
-                      ? ` · expires ${new Date(row.offerExpiresAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`
+                      ? ` · until ${new Date(row.offerExpiresAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: session.timezone ?? undefined })}`
                       : ''}
                   </Chip>
                 ) : (
@@ -861,8 +861,9 @@ function SessionDetail({
             ))}
           </ul>
           <p className="mt-2 max-w-[68ch] text-[11px] leading-relaxed text-foam-35">
-            Releasing a seat offers it to the top of this list automatically. Eligibility is re-checked at that moment,
-            so anyone whose membership has lapsed is skipped rather than promoted into a booking that cannot work.
+            A freed seat is offered to the top of this list and held for them, so nobody else can book it meanwhile. If
+            they do not take it in time it passes to the next person. Eligibility is re-checked at each offer, so anyone
+            whose membership has lapsed is skipped rather than offered a seat they cannot use.
           </p>
         </div>
       ) : null}

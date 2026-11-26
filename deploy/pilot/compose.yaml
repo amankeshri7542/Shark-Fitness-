@@ -12,6 +12,12 @@ services:
   app:
     build:
       context: ../..
+      # The public website at / bakes its canonical URLs and indexing switch in
+      # at build time (shark-fitness/docs/WEBSITE.md). Indexing stays off until
+      # the owner sets SITE_INDEXABLE=true in shark.env for the real domain.
+      args:
+        SITE_URL: https://${SHARK_DOMAIN:?Set SHARK_DOMAIN in shark.env}
+        SITE_INDEXABLE: ${SITE_INDEXABLE:-false}
     image: shark-fitness:pilot
     restart: unless-stopped
     env_file:
@@ -26,6 +32,9 @@ services:
       PORT: "8787"
       SHARK_SERVE_STATIC: "true"
       SHARK_DB: /var/lib/shark-fitness/shark.db
+      # Private uploads (progress photos): on the same persistent volume, never
+      # under the static web root, and archived with every backup.
+      SHARK_MEDIA_DIR: /var/lib/shark-fitness/media
       SHARK_SEED_DEMO: "false"
       SHARK_ECHO_OTP: "false"
       SHARK_ALLOW_BEARER_AUTH: "false"

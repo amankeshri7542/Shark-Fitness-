@@ -3,6 +3,7 @@ import { app } from '../app.js';
 import { runtimeConfig } from '../lib/config.js';
 import { DURATION_BUCKETS_SECONDS, recordHttpRequest, renderMetrics, resetMetricsForTest } from '../lib/metrics.js';
 import { resetRateLimitsForTest } from '../middleware/index.js';
+import { signInRequest } from './helpers/mfa.js';
 
 const TOKEN = 'metrics-test-token-0123456789abcdef-long-enough';
 const ORIGIN = 'http://localhost:5173';
@@ -36,7 +37,7 @@ function samples(text: string): Array<{ name: string; labels: Record<string, str
 }
 
 async function signIn(email: string): Promise<{ cookie: string; csrf: string }> {
-  const response = await app.request('/v1/auth/password', {
+  const response = await signInRequest( {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin: ORIGIN },
     body: JSON.stringify({ tenantSlug: 'shark', email, password: 'shark1234' }),

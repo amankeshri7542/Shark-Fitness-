@@ -4,6 +4,7 @@ import { channels, type EventTopic, type Viewer } from '@shark/contracts';
 import { API_ORIGIN, api } from './api';
 import { useSession } from './store';
 import { startOutbox, stopOutbox } from './outbox';
+import { haptic } from './preferences';
 
 export type Connection = 'connecting' | 'open' | 'closed';
 
@@ -49,7 +50,7 @@ const INVALIDATES: Partial<Record<EventTopic, string[][]>> = {
   'payment.succeeded': [['billing'], ['home'], ['pass']],
   'payment.failed': [['billing'], ['notifications']],
   'invoice.updated': [['billing']],
-  'workout.synced': [['progress'], ['home']],
+  'workout.synced': [['progress'], ['home'], ['training', 'plan']],
   'pr.achieved': [['progress'], ['pack']],
   'message.created': [['messages'], ['notifications']],
   'notification.created': [['notifications']],
@@ -93,6 +94,9 @@ async function open(): Promise<void> {
       nextSocket.send(JSON.stringify({ type: 'subscribe', channels: subscribedChannels, since: lastSeq }));
     });
 
+    // The server replays missed events first and then confirms the
+    // subscription; anything before that confirmation is catch-up, not news.
+    let caughtUp = false;
     nextSocket.addEventListener('message', (message) => {
       let data: RealtimeEvent | { type: string };
       try {
@@ -100,10 +104,21 @@ async function open(): Promise<void> {
       } catch {
         return;
       }
+      if (data.type === 'subscribed') caughtUp = true;
       if (data.type !== 'event') return;
 
       const event = data as RealtimeEvent;
       lastSeq = Math.max(lastSeq, event.seq);
+      if (
+        event.topic === 'attendance.checked_in' &&
+        (event.payload as { memberId?: string } | null)?.memberId === useSession.getState().viewer?.memberId &&
+        caughtUp
+      ) {
+        // The reception desk let this member in: the phone in their pocket
+        // says so. Only for a check-in happening now, never for one replayed
+        // when the connection catches up on missed events.
+        haptic('check-in');
+      }
       if (event.topic === 'member.profile_updated') {
         const prior = useSession.getState().viewer;
         void api<{ viewer: Viewer }>('/me').then(({ viewer }) => {

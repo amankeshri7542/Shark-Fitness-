@@ -20,6 +20,7 @@ import {
   Skeleton,
   cx,
 } from '../ui/primitives';
+import { WeeklyCheckIn } from './habits/WeeklyCheckIn';
 
 /**
  * Habits and daily metrics.
@@ -77,7 +78,7 @@ interface Payload {
 const GLASS_ML = 250;
 
 export default function HabitsScreen() {
-  const copy = useCopy();
+  const copy = useCopy('habits');
   const queryClient = useQueryClient();
   const [pending, setPending] = useState<Record<string, number>>({});
 
@@ -317,6 +318,9 @@ export default function HabitsScreen() {
             </Panel>
           </>
         ) : null}
+
+        {/* — Weekly check-in (PF-NUTR-003), read by the coach —————— */}
+        <WeeklyCheckIn />
       </Stack>
     </ScreenBody>
   );

@@ -4,6 +4,7 @@ import { app } from '../app.js';
 import { db, schema } from '../db/client.js';
 import { id } from '../lib/ids.js';
 import { now } from '../lib/time.js';
+import { signInRequest } from './helpers/mfa.js';
 
 /* ============================================================================
    Phase 12 — Automations (PF-COMM-003…006).
@@ -28,7 +29,7 @@ const cache = new Map<string, Session>();
 async function signIn(email: string): Promise<Session> {
   const cached = cache.get(email);
   if (cached) return cached;
-  const response = await app.request('/v1/auth/password', {
+  const response = await signInRequest( {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin: 'http://localhost:5173' },
     body: JSON.stringify({ tenantSlug: 'shark', email, password: 'shark1234' }),
@@ -487,7 +488,7 @@ describe('PF-COMM-003 — templates are versioned, never edited in place', () =>
 describe('PF-COMM — automations never cross a tenant boundary', () => {
   it('keeps one gym’s automations invisible to another', async () => {
     const reef = await (async () => {
-      const r = await app.request('/v1/auth/password', {
+      const r = await signInRequest( {
         method: 'POST', headers: { 'content-type': 'application/json', origin: 'http://localhost:5173' },
         body: JSON.stringify({ tenantSlug: 'reef', email: 'owner@reefathletic.in', password: 'shark1234' }),
       });

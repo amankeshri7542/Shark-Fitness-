@@ -3,12 +3,15 @@ import { expect, it } from 'vitest';
 import { app } from '../app.js';
 import { bootstrapGym } from '../db/bootstrap.js';
 import { db, schema, sqlite } from '../db/client.js';
+import { signInRequest } from './helpers/mfa.js';
 
 type Session = Record<string, string>;
 const origin = 'http://localhost:5173';
 async function request(path: string, session: Session = {}, body?: unknown, method = body ? 'POST' : 'GET') {
-  return app.request(`/v1${path}`, { method, headers: { origin, 'content-type': 'application/json', ...session },
-    ...(body ? { body: JSON.stringify(body) } : {}) });
+  const init = { method, headers: { origin, 'content-type': 'application/json', ...session },
+    ...(body ? { body: JSON.stringify(body) } : {}) };
+  // Owners must use MFA: a sign-in completes the enrolment or challenge (helpers/mfa.ts).
+  return path === '/auth/password' ? signInRequest(init) : app.request(`/v1${path}`, init);
 }
 async function sessionFrom(response: Response): Promise<Session> {
   expect(response.status, await response.clone().text()).toBe(200);

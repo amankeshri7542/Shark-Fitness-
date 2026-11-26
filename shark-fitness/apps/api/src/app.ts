@@ -7,11 +7,17 @@ import { allowedOrigins, csrfProtection, securityHeaders } from './lib/security.
 
 import { accountRecoveryRoutes } from './routes/account-recovery.js';
 import { clientErrorRoutes } from './routes/client-errors.js';
+import { cspReportRoutes } from './routes/csp-reports.js';
 import { metricsRoutes } from './routes/metrics.js';
+import { webhookRoutes } from './routes/webhooks.js';
 import { authRoutes } from './routes/auth.js';
 import { authStabilizationRoutes } from './routes/auth-stabilization.js';
+import { mfaRoutes } from './routes/mfa.js';
 import { meRoutes } from './routes/me.js';
+import { pushSubscriptionRoutes } from './routes/push-subscriptions.js';
+import { assetLinksRoutes } from './routes/asset-links.js';
 import { doorRoutes } from './routes/door.js';
+import { publicRoutes } from './routes/public.js';
 
 import { homeRoutes } from './routes/member/home.js';
 import { passRoutes } from './routes/member/pass.js';
@@ -26,13 +32,18 @@ import { privacyRoutes } from './routes/admin/privacy.js';
 import { messagesRoutes } from './routes/member/messages.js';
 import { billingRoutes as memberBillingRoutes } from './routes/member/billing.js';
 import { mediaRoutes } from './routes/member/media.js';
+import { photoRoutes, uploadRoutes } from './routes/member/photos.js';
+import { fileRoutes } from './routes/files.js';
+import { memberPhotoRoutes } from './routes/admin/member-photos.js';
 
 import { dashboardRoutes } from './routes/admin/dashboard.js';
 import { memberOperationsRoutes } from './routes/admin/member-operations.js';
 import { membersRoutes } from './routes/admin/members.js';
 import { leadsRoutes } from './routes/admin/leads.js';
 import { billingStabilizationRoutes } from './routes/admin/billing-stabilization.js';
+import { paymentAdminRoutes } from './routes/admin/payments.js';
 import { billingRoutes as adminBillingRoutes } from './routes/admin/billing.js';
+import { productWebsiteRoutes } from './routes/admin/product-website.js';
 import { attendanceRoutes } from './routes/admin/attendance.js';
 import { scheduleRoutes as adminScheduleRoutes } from './routes/admin/schedule.js';
 import { trainingRoutes as adminTrainingRoutes } from './routes/admin/training.js';
@@ -44,6 +55,16 @@ import { settingsRoutes } from './routes/admin/settings.js';
 import { automationRoutes } from './routes/admin/automations.js';
 import { platformRoutes } from './routes/platform.js';
 import { supportRoutes } from './routes/admin/support.js';
+import { securityRoutes } from './routes/admin/security.js';
+import { integrationRoutes } from './routes/admin/integrations.js';
+import { attachmentRoutes } from './routes/attachments.js';
+import { inboxRoutes } from './routes/admin/inbox.js';
+import { communityRoutes } from './routes/admin/community.js';
+import { taskRoutes } from './routes/admin/tasks.js';
+import { coachingRoutes } from './routes/admin/coaching.js';
+import { broadcastRoutes } from './routes/admin/broadcasts.js';
+import { searchRoutes } from './routes/admin/search.js';
+import { quickAddRoutes } from './routes/admin/quick-add.js';
 
 export const app = new Hono();
 export const PROTECTED_API_IP_MAX = 2_000;
@@ -55,6 +76,8 @@ const authenticatedTenantLimit = rateLimit(5_000, 60_000, {
   identity: 'tenant',
   bucket: 'authenticated-tenant-api',
 });
+/** Razorpay retries with backoff; a burst far above that is not Razorpay. */
+const webhookIpLimit = rateLimit(300, 60_000, { identity: 'ip', bucket: 'provider-webhooks' });
 const authenticatedApiLimit = rateLimit(600, 60_000, {
   identity: 'actor',
   bucket: 'authenticated-api',
@@ -63,8 +86,11 @@ const authenticatedApiLimit = rateLimit(600, 60_000, {
 app.use('*', requestId);
 app.use('*', logger);
 app.use('*', securityHeaders);
+// CORS is an API concern. Applied to static files it replaced their
+// `Vary: Accept-Encoding` with `Vary: Origin` and, on precompressed responses,
+// dropped the Content-Type, so a browser showed the website's HTML as text.
 app.use(
-  '*',
+  '/v1/*',
   cors({
     origin: (origin) => (allowedOrigins().has(origin.replace(/\/$/, '')) ? origin : undefined),
     credentials: true,
@@ -106,34 +132,53 @@ app.get('/ready', (c) => {
 });
 
 app.route('/metrics', metricsRoutes);
+// Digital Asset Links for the Android Trusted Web Activity (ADR-002).
+app.route('/.well-known/assetlinks.json', assetLinksRoutes);
 app.route('/v1/client-errors', clientErrorRoutes);
+app.use('/v1/webhooks/*', webhookIpLimit);
+app.route('/v1/webhooks', webhookRoutes);
+app.route('/v1/csp-reports', cspReportRoutes);
 
+app.route('/v1/auth/mfa', mfaRoutes);
 app.route('/v1/auth', authStabilizationRoutes);
 app.route('/v1/auth', accountRecoveryRoutes);
 app.route('/v1/auth', authRoutes);
 app.route('/v1/door', doorRoutes);
+// The public website (PF-CRM-001). No session; see routes/public.ts.
+app.route('/v1/public/:tenantSlug', publicRoutes);
 
 app.use('/v1/me/*', protectedApiIpLimit, authenticate, authenticatedTenantLimit, authenticatedApiLimit);
+app.route('/v1/me/push-subscriptions', pushSubscriptionRoutes);
 app.route('/v1/me', meRoutes);
+
+/* Message attachments: members and staff, each re-checked per file (P07). */
+app.use('/v1/attachments/*', protectedApiIpLimit, authenticate, authenticatedTenantLimit, authenticatedApiLimit);
+app.route('/v1/attachments', attachmentRoutes);
 
 app.use('/v1/member/*', protectedApiIpLimit, authenticate, authenticatedTenantLimit, authenticatedApiLimit, memberOnly);
 app.route('/v1/member/home', homeRoutes);
 app.route('/v1/member/pass', passRoutes);
 app.route('/v1/member/schedule', memberScheduleRoutes);
 app.route('/v1/member/training', memberTrainingRoutes);
+app.route('/v1/member/progress/photos', photoRoutes);
 app.route('/v1/member/progress', progressRoutes);
 app.route('/v1/member/habits', habitsRoutes);
 app.route('/v1/member/engagement', engagementRoutes);
 app.route('/v1/member/messages', messagesRoutes);
 app.route('/v1/member/billing', memberBillingRoutes);
+app.route('/v1/member/media/uploads', uploadRoutes);
 app.route('/v1/member/media', mediaRoutes);
 
 app.use('/v1/admin/*', protectedApiIpLimit, authenticate, authenticatedTenantLimit, authenticatedApiLimit, staffOnly);
 app.route('/v1/admin/dashboard', dashboardRoutes);
+app.route('/v1/admin/members/quick-add', quickAddRoutes);
 app.route('/v1/admin/members', memberOperationsRoutes);
 app.route('/v1/admin/members', membersRoutes);
+app.route('/v1/admin/members', memberPhotoRoutes);
 app.route('/v1/admin/leads', leadsRoutes);
+app.route('/v1/admin/billing/products', productWebsiteRoutes);
 app.route('/v1/admin/billing', billingStabilizationRoutes);
+app.route('/v1/admin/billing', paymentAdminRoutes);
 app.route('/v1/admin/billing', adminBillingRoutes);
 app.route('/v1/admin/attendance', attendanceRoutes);
 app.route('/v1/admin/schedule', adminScheduleRoutes);
@@ -151,10 +196,22 @@ app.route('/v1/admin/support', supportRoutes);
 app.route('/v1/admin/automations', automationRoutes);
 app.route('/v1/admin/engagement', adminEngagementRoutes);
 app.route('/v1/admin/privacy', privacyRoutes);
+app.route('/v1/admin/security', securityRoutes);
+app.route('/v1/admin/integrations', integrationRoutes);
+app.route('/v1/admin/inbox', inboxRoutes);
+app.route('/v1/admin/community', communityRoutes);
+app.route('/v1/admin/tasks', taskRoutes);
+app.route('/v1/admin/coaching', coachingRoutes);
+app.route('/v1/admin/broadcasts', broadcastRoutes);
+app.route('/v1/admin/search', searchRoutes);
 
 /* Platform administration (PF-PLAT). `staffOnly` is not enough here and is not
    used: each route carries `platformOnly`, which refuses an impersonated
    session before it refuses a wrong role. This is the only mount in the app
    whose handlers read across tenants. */
+/* Private files (P05): signed, short-lived, re-authorised per request. */
+app.use('/v1/files/*', protectedApiIpLimit, authenticate, authenticatedTenantLimit, authenticatedApiLimit);
+app.route('/v1/files', fileRoutes);
+
 app.use('/v1/platform/*', protectedApiIpLimit, authenticate, authenticatedTenantLimit, authenticatedApiLimit);
 app.route('/v1/platform', platformRoutes);

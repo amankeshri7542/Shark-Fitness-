@@ -19,8 +19,10 @@ Nothing here recommends architecture for a scale this product does not have.
 | Area | State | Blocking? |
 |---|---|---|
 | Business logic and authorisation | Strong. More than 1,200 automated tests, including tenant and branch isolation from the outside | No |
-| Persistence | SQLite on one disk. Nightly backups, optional age-encrypted off-site copies and restore drills are scripted (`deploy/pilot/`); no server, bucket or key exists yet | **Yes** until off-site copies are configured and drilled |
-| Payments | No real provider. Cash and card are recorded, not taken | **Yes** for card |
+| Persistence | SQLite on one disk, private uploads in `SHARK_MEDIA_DIR` beside it. Nightly backups (database plus a checksummed media archive), optional age-encrypted off-site copies and restore drills are scripted (`deploy/pilot/`); no server, bucket or key exists yet | **Yes** until off-site copies are configured and drilled |
+| Entry and classes | Rotating single-use QR pass on the member's phone, scanned at reception (camera, USB scanner or typed code) through the same decision as the door; waitlists whose offers hold the seat; sellable credit packs with a refund policy | No |
+| Private media | Progress photos on the API host's disk behind a storage port; five-minute signed links re-checked per request; metadata stripped; no object storage adapter yet | No, at one server |
+| Payments | Razorpay in **test mode** (checkout, plan purchase, payment links, provider refunds, signed webhooks, reconciliation); live keys refused by config. Desk payments are still recorded, not taken | **Yes** until Razorpay KYC and a reviewed live-mode change |
 | Scaling | Single instance only, by design and by constraint | No, at this size |
 | Realtime | In-process WebSocket fan-out, lost on restart | No |
 | Scheduler | In-process timers, one set per instance | **Yes** if ever scaled |
@@ -29,7 +31,7 @@ Nothing here recommends architecture for a scale this product does not have.
 | Rate limiting | In-memory, endpoint-sensitive IP/actor/tenant budgets | Partially |
 | Migrations | Forward-only, additive, tested; CI fails on schema drift | No |
 
-**External blockers.** A payment provider where cards are accepted; a
+**External blockers.** Razorpay KYC and live keys (the integration runs in test mode); a
 configured error-reporting and alerting destination; and an off-site backup
 bucket with an age key whose private half the owner keeps. The code and scripts
 for all three are in the repository (November 2026); none has been connected to
@@ -60,6 +62,21 @@ rewrite. The deviation is noted in `db/client.ts`.
   audit/ledger writes → backup → restore → migrate, checks immutable rows and
   counts, boots the restored API, signs in, and completes an authenticated
   read.
+- **Private media is part of every backup (P05).** `pnpm db:backup` archives
+  `SHARK_MEDIA_DIR` (else `media/` beside the database) as
+  `<copy>.media.tar` and lists every file's SHA-256 in the manifest (version
+  2). `pnpm db:restore` checks the archive and each file before anything
+  moves, restores media into `SHARK_MEDIA_DIR` only when the target is
+  `SHARK_DB` (any other target, such as a scratch or drill copy, gets `media/`
+  beside it, so the live photos are never touched), and refuses to overwrite a non-empty media directory
+  without both destructive flags. `pnpm db:backup:verify` restores media too,
+  compares it with the snapshot and with the `media_objects` checksums, and
+  proves a tampered archive is refused. A photo uploaded between the database
+  snapshot and the archive restores as an orphan file, which is harmless. A
+  photo deleted (by the member, the retention purge or an erasure) in that
+  same window restores as a live row without its file; the restore drill
+  reports it as a missing media file. Re-run the backup if a drill fails that
+  way.
 - **No point-in-time recovery.** WAL gives crash consistency, not history. A
   bad migration or a wrong `DELETE` is permanent.
 - **The file must be on a real disk.** On a platform with an ephemeral
@@ -89,8 +106,9 @@ Run `pnpm db:backup:verify` after dependency or SQLite upgrades. To restore a
 real backup, first use a separate target and validate it; replacing an existing
 file requires both `--replace` and `--yes-replace`.
 
-Both the `.db` artifact and its `.manifest.json` sidecar go off-site, each
-encrypted to the owner's age public key, so the storage provider holds only
+The `.db` artifact, its `.manifest.json` sidecar and (when the gym has
+uploads) its `.media.tar` archive go off-site, each encrypted to the owner's
+age public key, so the storage provider holds only
 ciphertext and a stolen server credential cannot read old copies. A checksum
 detects corruption or accidental replacement; it is not an authenticity
 signature and does not replace storage access controls, object lock or
@@ -163,7 +181,7 @@ sequence high-water row, so a restart cannot reuse a cursor.
 
 ## 6. Scheduler behaviour
 
-Ten jobs on `setInterval`, unref'd, started in `server.ts`:
+Twelve jobs on `setInterval`, unref'd, started in `server.ts`:
 
 | Job | Every |
 |---|---|
@@ -172,11 +190,13 @@ Ten jobs on `setInterval`, unref'd, started in `server.ts`:
 | `expire-memberships` | 6 hours |
 | `roll-up-metrics` | 6 hours |
 | `close-stale-check-ins` | 30 min |
-| `expire-waitlist-offers` | 1 min |
+| `expire-waitlist-offers` | 1 min (a lapsed offer releases its held seat and offers it to the next eligible member) |
 | `release-expired-holds` | 1 min |
 | `run-dunning` | 15 min |
 | `extend-class-series` | 6 hours |
 | `prune-operational-data` | 24 hours |
+| `reconcile-payments` | 6 hours |
+| `purge-withdrawn-photos` | 1 hour (destroys progress photos whose consent was withdrawn longer ago than the retention setting) |
 
 **Every job runs on every instance.** There is no lock and no leader election.
 With one instance that is correct and simple. `SHARK_DISABLE_JOBS=true` turns
@@ -200,32 +220,40 @@ longer means the scheduler is healthy forever.
 
 ## 7. Payment integration
 
-**There is no payment provider.** This is the second blocker.
+**Razorpay is integrated in test mode** (November 2026, phase P02;
+docs/PAYMENTS-RAZORPAY.md, ADR-003). It is a blocker only until the gym goes
+live: config refuses any key id that does not start `rzp_test_`.
 
-- Payments are **recorded**, not taken. `POST /billing/invoices/:id/payments`
-  writes a row saying cash or card was received. Nothing is charged.
-- `POST /billing/webhooks/demo` is a **simulator**, explicitly named so in the
-  source. It exists to exercise dunning and provider-event handling.
-- `payments.provider` is null everywhere. `provider_events` has the right shape
-  for real webhooks and has never seen one.
-- No stored cards, no mandates, no auto-renewal collection. A membership that
-  says `autoRenew: true` renews the *record*, not the charge.
+- **Members** pay open invoices and buy or renew plans in the app through
+  Razorpay Checkout (loaded on demand from `checkout.razorpay.com`). The
+  browser's success callback is verified (HMAC on our order id) and the payment
+  is then fetched server-to-server; only a captured payment settles.
+- **Webhooks** (`POST /v1/webhooks/razorpay`) are verified over the raw body,
+  stored in `provider_events` before processing, idempotent per event id, and
+  safe in any delivery order. Unknown events are stored and acknowledged.
+- **Settlement** uses the single existing path (receipt, dunning stop,
+  membership activation, audit as `system:razorpay`, realtime) at most once per
+  Razorpay payment (unique index). Amount or currency mismatches and payments for
+  already-settled invoices never settle; they become reconciliation exceptions.
+- **Refunds** of online payments go through Razorpay with an idempotency key and
+  stay pending until `refund.processed`; desk payments keep the manual path.
+- **Payment links** for open invoices are created with Razorpay notifications
+  off; staff copy and share them.
+- **Reconciliation**: the `reconcile-payments` job (every 6 h, `job_runs`) settles
+  what webhooks missed and records mismatches; staff resolve them with a reason
+  in Billing → Reconciliation.
+- No provider call ever runs inside a database transaction (enforced and tested).
+- Without the Razorpay variables the system behaves exactly as before: payments
+  are recorded, member checkout answers 412.
+- **Still not built:** stored cards, mandates (UPI Autopay / eMandate) and
+  automatic renewal collection. Dunning reports `no_stored_mandate` with a
+  provider and `no_payment_provider_configured` without one, and the console
+  never offers a retry that cannot happen. Drop-in class fees are still
+  collected at reception.
 
-**What is genuinely built** and would survive a real integration: the invoice
-and refund model, per-line tax, mixed tender, idempotency on the write path,
-the dunning state machine, and a grace period the door reads. Adding a provider
-is an adapter and a webhook verifier, not a redesign — but until it exists,
-this system cannot take money.
-
-**The provider boundary now has a shape.** `lib/payment-provider.ts` is the one
-seam a real integration plugs into; `resolvePaymentProvider()` returns null and
-there is no branch in it that can report a charge that did not happen. The
-dunning worker asks it on every attempt and writes the answer — today always
-`no_payment_provider_configured` — onto the attempt row, and the console read
-returns `automaticCollection: { available: false, reason, message }` so a UI
-cannot render a retry button over a capability that does not exist. The member's
-reminder says what is owed and where to settle it, and never says a charge was
-attempted or will be retried.
+**To go live:** see the checklist in docs/PAYMENTS-RAZORPAY.md (KYC, live keys
+in the secret store, a reviewed code change to allow them, a live webhook, one
+real low-value payment and refund, accountant sign-off, alerts, CSP).
 
 ---
 
@@ -244,6 +272,48 @@ list and a reconciliation queue, which does not exist.
 Pass tokens are HMAC-signed with `SHARK_PASS_SECRET`, single-use
 (`used_access_windows` with a unique constraint), and rotate on a window. That
 part is sound.
+
+### The member app offline (P04)
+
+The member app at `/app/` opens without a network: its service worker serves
+the precached shell (≤ 700 KiB budget, enforced in `vite.config.ts`), and a
+per-person snapshot of Home, the training plan, the class list and consents
+(IndexedDB, 24 h, deleted on sign-out, never the pass or billing) fills the
+screens, with a banner saying when it was saved. Writes queue in the outbox
+as before. The API itself is never cached by a worker. New builds wait until
+no workout is running before they take over. The staff console's worker
+caches its shell only and shows an offline page instead of stale data.
+
+### Push notifications (P04)
+
+Off unless `SHARK_VAPID_PUBLIC_KEY`, `SHARK_VAPID_PRIVATE_KEY` and
+`SHARK_VAPID_SUBJECT` are all set; validated at boot. Sends are durable
+(`push_deliveries`), honour consent, quiet hours (branch timezone) and dedupe,
+and only reach push-service hosts (Google, Mozilla, Apple, Microsoft). The
+`deliver-push-queue` job sweeps every minute. Nothing has been sent to a real
+device from this repository; the tests use a local fake push service.
+
+**Reception scanning (P05).** The member app shows the token as a real QR code
+(ECC M, quiet zone, dark on light in both themes) that rotates every 30
+seconds, a little before each window ends, read through the server's clock.
+`POST /v1/admin/attendance/scan` runs the door's own decision for a member of
+staff: signature, single-use window, tenant (`denied_wrong_tenant`), expiry
+(`denied_token_expired`), branch entitlement, hours, capacity,
+anti-passback and outstanding balance; a member already inside reads
+"Already checked in" with no second visit. Every scan is audited, idempotent
+and updates occupancy. The console uses the camera (BarcodeDetector, else
+`jsqr` loaded on demand), a USB keyboard-wedge scanner or a typed code;
+`Permissions-Policy: camera=(self)` is sent only for `/admin/` documents.
+Offline, the member's pass shows their member number for reception to type.
+The same online-only caveat as the door applies: with the API unreachable,
+nobody is admitted by scan.
+
+**Waitlists (P05, decision 12).** An offer holds the seat: it counts in
+`class_sessions.booked` and in the database triggers that refuse more live
+bookings plus live offers than capacity. The offer lasts until the earlier of
+`waitlistOfferMinutes` (30) and `waitlistOfferCutoffMinutes` (60) before class,
+both branch-overridable. A capacity cut below the people booked cancels nobody
+and raises an `overbooked_class` dashboard alert until someone moves people.
 
 ---
 
@@ -356,7 +426,8 @@ its credentials, an unknown provider or reporter name, a non-numeric OTP limit
 or a malformed DSN is refused in every environment.
 
 Production additionally requires an explicit database path, a pass secret of
-at least 48 bytes and at least one configured public/allowed/platform origin,
+at least 48 bytes, a 32-byte `SHARK_MFA_ENCRYPTION_KEY` (TOTP and webhook
+secrets at rest; keep it with the backup key, docs/SECURITY.md "Key custody") and at least one configured public/allowed/platform origin,
 an HTTPS error DSN, and a metrics token of at least 32 characters when one is
 set.
 Origins and the optional error collector must use HTTPS except for explicit
@@ -435,7 +506,8 @@ Worth saying plainly, because the list above is all caveats:
   their lists.
 - **Impersonation containment**: borrowed authority that cannot re-enter
   platform tooling, cannot chain, and expires on a clock it cannot extend.
-- **Append-only ledgers** enforced by triggers that do not check who is asking.
+- **Append-only ledgers** enforced by triggers that do not check who is asking
+  (audit, XP, stock, ticket events and, since P05, class credits).
 - **Money**: integer minor units, per-line tax, currency stored per invoice,
   refunds as compensating entries, never summed across currencies.
 - **The audit trail**: every write, with actor, role, branch, request id and a
@@ -452,8 +524,9 @@ Worth saying plainly, because the list above is all caveats:
 2. **Connect an error destination and the alert accounts**
    (docs/OPERATIONS-ALERTS.md) and test each channel. The reporting, metrics
    and rules exist; nobody is alerted until operations connects them.
-3. **Add a payment provider**, if the gym takes card. Recorded card payments
-   are not charges.
+3. **Take Razorpay live** when the gym is ready (KYC, live keys, the reviewed
+   config change; docs/PAYMENTS-RAZORPAY.md). Test mode is integrated and
+   tested; recorded desk card payments are still not charges.
 4. **Run the performance harness on the intended persistent disk** and retain
    results before onboarding each materially larger gym.
 5. **Add scheduler leadership and a shared database only before a second

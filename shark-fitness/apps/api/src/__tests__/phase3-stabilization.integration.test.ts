@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { app } from '../app.js';
 import { db, schema } from '../db/client.js';
+import { randomUUID } from 'node:crypto';
 import { hashToken, hashPassword } from '../lib/crypto.js';
 import { id } from '../lib/ids.js';
 import { now, isoDate, addDays } from '../lib/time.js';
 import { reconcileMembershipDates } from '../services/membership-dates.js';
 import { membershipStanding } from '../services/booking.js';
+import { signInRequest } from './helpers/mfa.js';
 
 it('downloads a scoped payment receipt and refuses unverified UPI references', async () => {
   const owner = await signIn('owner@sharkfitness.in');
@@ -46,7 +48,7 @@ function sharkTenantId(): string {
 async function signIn(email: string): Promise<Session> {
   const cached = cache.get(email);
   if (cached) return cached;
-  const response = await app.request('/v1/auth/password', {
+  const response = await signInRequest( {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin: 'http://localhost:5173' },
     body: JSON.stringify({ tenantSlug: 'shark', email, password: 'shark1234' }),
@@ -101,7 +103,9 @@ function makeMember(branchId = 'br_kor', invited = true, dob: string | null = nu
     tenantId,
     userId,
     homeBranchId: branchId,
-    memberNo: `SF-${Math.floor(50000 + Math.random() * 40000)}`,
+    // Not numeric after the prefix: enrollment numbers new members max+1 in
+    // the SF-5xxxx band, so a random number there collided now and then.
+    memberNo: `SF-T${randomUUID().slice(0, 8)}`,
     firstName: 'Phase',
     lastName: 'Member',
     initials: 'PM',

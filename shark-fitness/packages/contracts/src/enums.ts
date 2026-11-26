@@ -137,7 +137,7 @@ export const BookingState = z.enum([
 ]);
 export type BookingState = z.infer<typeof BookingState>;
 
-export const WaitlistState = z.enum(['waiting', 'offered', 'confirmed', 'expired', 'declined']);
+export const WaitlistState = z.enum(['waiting', 'offered', 'confirmed', 'expired', 'declined', 'skipped']);
 export type WaitlistState = z.infer<typeof WaitlistState>;
 
 export const SessionState = z.enum(['scheduled', 'in_progress', 'completed', 'cancelled']);
@@ -174,6 +174,8 @@ export const AccessDecision = z.enum([
   'denied_anti_passback',
   'denied_token_invalid',
   'denied_token_replayed',
+  'denied_token_expired',
+  'denied_wrong_tenant',
 ]);
 export type AccessDecision = z.infer<typeof AccessDecision>;
 

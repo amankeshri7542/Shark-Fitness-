@@ -1,0 +1,10 @@
+---
+/** Depth contours: a bathymetric chart in hairlines. The site's one graphic; decorative. */
+const rings = [60, 104, 150, 198, 248, 300];
+---
+
+<svg class="contours" viewBox="0 0 640 640" aria-hidden="true" focusable="false">
+  {rings.map((r, i) => <ellipse cx="380" cy="300" rx={r * 1.12} ry={r} fill="none" stroke="currentColor" stroke-width="1" transform={`rotate(${-12 + i * 3} 380 300)`} />)}
+  <line x1="380" y1="0" x2="380" y2="640" stroke="currentColor" stroke-width="1" stroke-dasharray="2 6"></line>
+  <line x1="0" y1="300" x2="640" y2="300" stroke="currentColor" stroke-width="1" stroke-dasharray="2 6"></line>
+</svg>

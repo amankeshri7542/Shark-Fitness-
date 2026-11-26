@@ -1,18 +1,68 @@
 import { create } from 'zustand';
 import type { Branch, Viewer } from '@shark/contracts';
-import { PREDATOR_COPY, type CopyKey, type Register, registerFor } from '@shark/design-tokens';
-import { api, auth } from './api';
+import { forgetPassCards } from './pass';
+import { PREDATOR_COPY, type CopyKey, type CopySurface, type Register, registerFor } from '@shark/design-tokens';
+import { ApiError, OfflineError, api, auth, onSessionExpired } from './api';
+import { queryClient } from './query-client';
+import {
+  deleteSnapshot,
+  lastOwner,
+  loadSnapshot,
+  ownerOf,
+  rememberLastOwner,
+  restoreSnapshot,
+  saveSnapshot,
+} from './persisted-cache';
+import { hasMemberSessionHint } from './session-hint';
 
 interface SessionState {
   viewer: Viewer | null;
   branches: Branch[];
   activeBranchId: string | null;
   status: 'loading' | 'signed-in' | 'signed-out';
+  /** Signed in from the saved snapshot because the network was down. */
+  offlineStart: boolean;
+  /** The server ended the session (401): sign-in says so and offers the way back. */
+  sessionEnded: boolean;
+  /** A deliberate sign-out is in progress; a 401 on the way out is expected. */
+  leaving: boolean;
+  /** One message for the sign-in screen after leaving (e.g. a deletion request). */
+  notice: string | null;
   setViewer: (viewer: Viewer | null) => void;
   setBranches: (branches: Branch[], activeBranchId: string | null) => void;
   setActiveBranch: (branchId: string) => void;
   bootstrap: () => Promise<void>;
+  /** Server-side sign-out only. The full wipe lives in lib/session.ts. */
   signOut: () => Promise<void>;
+  /** The session ended under us. Keeps the outbox and any active workout. */
+  expire: () => void;
+  acknowledgeSessionEnded: () => void;
+}
+
+const RETURN_KEY = 'shark.member.return-to';
+
+/** Where the member was when the session ended, so sign-in can put them back. */
+export function rememberReturnRoute(owner: string, path: string): void {
+  try {
+    sessionStorage.setItem(RETURN_KEY, JSON.stringify({ owner, path }));
+  } catch {
+    /* they land on Home instead */
+  }
+}
+
+/** The route to return to after sign-in, only for the same person. Consumed. */
+export function takeReturnRoute(owner: string): string | null {
+  try {
+    const raw = sessionStorage.getItem(RETURN_KEY);
+    sessionStorage.removeItem(RETURN_KEY);
+    if (!raw) return null;
+    const saved = JSON.parse(raw) as { owner?: string; path?: string };
+    return saved.owner === owner && typeof saved.path === 'string' && saved.path.startsWith('/') && !saved.path.startsWith('//')
+      ? saved.path
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 export const useSession = create<SessionState>((set, get) => ({
@@ -20,6 +70,10 @@ export const useSession = create<SessionState>((set, get) => ({
   branches: [],
   activeBranchId: null,
   status: 'loading',
+  offlineStart: false,
+  sessionEnded: false,
+  leaving: false,
+  notice: null,
 
   setViewer: (viewer) => set({ viewer, status: viewer ? 'signed-in' : 'signed-out' }),
 
@@ -43,18 +97,61 @@ export const useSession = create<SessionState>((set, get) => ({
         set({ viewer: null, branches: [], activeBranchId: null, status: 'signed-out' });
         return;
       }
-      set({ viewer, status: 'signed-in' });
+      const owner = ownerOf(viewer);
+      // A session that ended (401) leaves its owner's unfinished workout on
+      // the phone so they can carry on after signing back in. Anyone else
+      // signing in must neither see it nor finish it under their own name.
+      const previous = lastOwner();
+      if (previous && previous !== owner) {
+        useWorkout.getState().reset();
+        clearWorkoutStorage();
+      }
+      rememberLastOwner(owner);
+      // Show the last-seen screens at once while fresh data loads.
+      const snapshot = await loadSnapshot(owner);
+      if (snapshot) restoreSnapshot(queryClient, snapshot);
+      set({ viewer, status: 'signed-in', offlineStart: false, sessionEnded: false });
       const branches = await api<{ items: Branch[]; activeBranchId: string | null }>('/me/branches');
+      const activeBranchId = branches.activeBranchId ?? viewer.homeBranchId ?? branches.items[0]?.id ?? null;
       set({
         branches: branches.items,
         // The member's own gym, not whichever branch the tenant lists first.
         // `activeBranchId` from the server means "a branch this request
         // selected", which for a fresh session is nothing at all.
-        activeBranchId: branches.activeBranchId ?? viewer.homeBranchId ?? branches.items[0]?.id ?? null,
+        activeBranchId,
       });
-    } catch {
+      // Save who is signed in right away, not only once a screen's data has
+      // loaded: an offline reload a moment after signing in must still open
+      // the app (P05 D19, PF-WORK-005). Later saves add the screens' data.
+      void saveSnapshot(queryClient, get()).catch(() => undefined);
+    } catch (error) {
+      // No network: open on the saved snapshot of whoever was signed in last.
+      // The cookie is untouched; the next request online proves the session.
+      if (error instanceof OfflineError) {
+        const owner = lastOwner();
+        const snapshot = owner ? await loadSnapshot(owner) : null;
+        if (snapshot) {
+          restoreSnapshot(queryClient, snapshot);
+          set({
+            viewer: snapshot.viewer,
+            branches: snapshot.branches,
+            activeBranchId: snapshot.activeBranchId,
+            status: 'signed-in',
+            offlineStart: true,
+          });
+          return;
+        }
+      }
       auth.clear();
-      set({ viewer: null, status: 'signed-out' });
+      // A browser that was signed in and is not any more: say so on sign-in.
+      const ended = error instanceof ApiError && error.status === 401 && hasMemberSessionHint();
+      const owner = lastOwner();
+      if (ended && owner) rememberReturnRoute(owner, currentAppRoute());
+      // The server refused the session: its saved screens must not open the
+      // app offline later (P05). The outbox and an active workout stay, as
+      // in expire(), for the same person to send after signing back in.
+      if (owner) await deleteSnapshot(owner);
+      set({ viewer: null, branches: [], activeBranchId: null, status: 'signed-out', sessionEnded: ended });
     }
   },
 
@@ -65,10 +162,50 @@ export const useSession = create<SessionState>((set, get) => ({
       /* signing out locally matters more than the round trip succeeding */
     }
     auth.clear();
-    set({ viewer: null, branches: [], activeBranchId: null, status: 'signed-out' });
-    void get;
+    // Things this member left on the phone outside the query cache: the
+    // reception card behind the pass, and the offline exercise library with
+    // their own last weights and reps (P05).
+    forgetPassCards();
+    forgetExerciseLibrary();
+    set({ viewer: null, branches: [], activeBranchId: null, status: 'signed-out', offlineStart: false, sessionEnded: false });
   },
+
+  expire: () => {
+    const { viewer, status, leaving } = get();
+    if (status !== 'signed-in' || !viewer || leaving) return;
+    const owner = ownerOf(viewer);
+    rememberReturnRoute(owner, currentAppRoute());
+    // The outbox (IndexedDB) and an active workout (localStorage) stay: they
+    // belong to this person and go out after they sign in again. What leaves
+    // is everything the next person at this phone could read.
+    queryClient.clear();
+    void deleteSnapshot(owner);
+    (navigator as Navigator & { clearAppBadge?: () => Promise<void> }).clearAppBadge?.().catch(() => undefined);
+    auth.clear();
+    set({ viewer: null, branches: [], activeBranchId: null, status: 'signed-out', offlineStart: false, sessionEnded: true });
+  },
+
+  acknowledgeSessionEnded: () => set({ sessionEnded: false, notice: null }),
 }));
+
+/** The in-app route (without the /app prefix), with its query string. */
+function currentAppRoute(): string {
+  const { pathname, search } = window.location;
+  const path = pathname === '/app' || pathname === '/app/' ? '/' : pathname.replace(/^\/app(?=\/)/, '');
+  return `${path}${search}`;
+}
+
+onSessionExpired(() => useSession.getState().expire());
+
+/** The offline exercise library (FreestylePicker) carries this member's own
+ *  last weights and reps; the next person on this phone must not see them. */
+function forgetExerciseLibrary(): void {
+  try {
+    localStorage.removeItem('shark.exercise.library');
+  } catch {
+    /* nothing stored */
+  }
+}
 
 export const useViewer = (): Viewer | null => useSession((s) => s.viewer);
 
@@ -83,8 +220,13 @@ export function useActiveBranch(): Branch | null {
  * the plain register is forced regardless of preference. See the note in
  * packages/design-tokens/src/tone.ts.
  */
-export function useCopy(surface?: string): (key: CopyKey) => string {
+export function useCopy(surface: CopySurface): (key: CopyKey) => string {
   const preference = (useSession((s) => s.viewer?.preferences.register) ?? 'predator') as Register;
+  return copyFor(preference, surface);
+}
+
+/** The pure half of `useCopy`, so the plain-only rule is testable without React. */
+export function copyFor(preference: Register, surface: CopySurface): (key: CopyKey) => string {
   const register = registerFor(preference, surface);
   return (key: CopyKey) => PREDATOR_COPY[key][register];
 }
@@ -136,6 +278,23 @@ interface WorkoutState {
 }
 
 const STORAGE_KEY = 'shark.workout';
+
+/** Every `shark.workout*` key: the active session, its plan copy and the
+ *  finished-session snapshots Summary reads. */
+export function clearWorkoutStorage(): void {
+  for (const storage of [localStorage, sessionStorage]) {
+    try {
+      const keys: string[] = [];
+      for (let i = 0; i < storage.length; i += 1) {
+        const key = storage.key(i);
+        if (key?.startsWith('shark.workout')) keys.push(key);
+      }
+      keys.forEach((key) => storage.removeItem(key));
+    } catch {
+      /* storage unavailable */
+    }
+  }
+}
 
 function persist(state: Partial<WorkoutState>): void {
   try {

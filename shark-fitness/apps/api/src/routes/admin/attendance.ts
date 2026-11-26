@@ -10,6 +10,7 @@ import {
   closeAllVisits,
   hourlyArrivals,
   isOverridable,
+  loadBranchInScope,
   manualCheckIn,
   manualCheckOut,
   occupancyByBranch,
@@ -17,6 +18,8 @@ import {
 } from '../../services/attendance.js';
 import { loadMemberInScope, memberScopeCondition } from '../../services/members.js';
 import { branchTimeZone } from '../../lib/branch-time.js';
+import { runIdempotently } from '../../lib/idempotency.js';
+import { scanSignedPass } from '../../services/access.js';
 
 /**
  * Attendance and Live Occupancy — the front desk (UX-A08, PF-ATT).
@@ -363,6 +366,46 @@ attendanceRoutes.post('/check-in', validate('json', CheckInBody), (c) => {
   requirePermission(ctx, 'attendance.checkin');
   return c.json(manualCheckIn(ctx, c.req.valid('json')));
 });
+
+/* ============================================================================
+   POST /scan — reception scans a member's rotating pass (PF-ATT-001/005,
+   UX-A08). The camera, a USB keyboard-wedge scanner and a pasted code all
+   arrive here. The decision is the door's own (services/access.ts): signature,
+   single-use window, tenant, branch entitlement, hours, capacity,
+   anti-passback and the outstanding-balance policy. Idempotent on
+   `Idempotency-Key`, so a retried request replays the first answer.
+   ========================================================================= */
+
+const ScanBody = z.object({
+  token: z.string().trim().min(20).max(4096),
+  branchId: z.string().min(1),
+});
+
+attendanceRoutes.post(
+  '/scan',
+  rateLimit(240, 60_000, { identity: 'actor', bucket: 'attendance-scan-actor' }),
+  validate('json', ScanBody),
+  (c) => {
+    const ctx = ctxOf(c);
+    requirePermission(ctx, 'attendance.checkin');
+    const body = c.req.valid('json');
+    const branch = loadBranchInScope(ctx, body.branchId);
+    const result = runIdempotently(ctx, '/admin/attendance/scan', c.req.header('idempotency-key'), body, () =>
+      scanSignedPass({
+        rawToken: body.token,
+        branchId: branch.id,
+        staff: ctx,
+        actor: {
+          requestId: c.get('requestId') ?? 'unknown',
+          name: ctx.name,
+          ip: ctx.ip,
+          userAgent: ctx.userAgent,
+        },
+      }),
+    );
+    return c.json({ ...result, canOverride: result.overridable && ctx.permissions.includes('attendance.override') });
+  },
+);
 
 const CheckOutBody = z.object({ checkInId: z.string().min(1) });
 

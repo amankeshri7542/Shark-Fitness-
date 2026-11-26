@@ -3,6 +3,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { app } from '../app.js';
 import { db, schema } from '../db/client.js';
 import { now } from '../lib/time.js';
+import { signInRequest } from './helpers/mfa.js';
 
 const origin = 'http://localhost:5173';
 const unique = (scope: string) => `${scope}-${crypto.randomUUID()}`;
@@ -12,7 +13,7 @@ let reception: Session;
 let trainer: Session;
 let memberSession: Session;
 async function login(email: string): Promise<Session> {
-  const res = await app.request('/v1/auth/password', { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify({ tenantSlug: 'shark', email, password: 'shark1234' }) });
+  const res = await signInRequest( { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify({ tenantSlug: 'shark', email, password: 'shark1234' }) });
   expect(res.status).toBe(200);
   const body = await res.json() as { csrfToken: string };
   return { cookie: `shark_session=${res.headers.get('set-cookie')?.match(/shark_session=([^;,]+)/)?.[1]}; shark_csrf=${body.csrfToken}`, csrf: body.csrfToken };
@@ -182,9 +183,12 @@ describe('credit account read model', () => {
     const response = await request(reception, `/admin/billing/members/${memberId}/credits`);
     expect(response.status).toBe(200);
     const account = await response.json() as { saleAvailable: boolean; entries: Array<{ id: string; expired: boolean }>; balances: Array<{ kind: string; signedBalance: number; usableUnits: number | null; warning: string | null }> };
-    expect(account.saleAvailable).toBe(false);
+    // P05 (decision 11) resolved the credit policy: packs are on sale and PT
+    // credits are spendable, so the account now says so. What must not change
+    // is reading the old history honestly — the shortfall stays visible.
+    expect(account.saleAvailable).toBe(true);
     expect(account.balances.find((balance) => balance.kind === 'class')).toMatchObject({ signedBalance: -1, usableUnits: 0, warning: expect.any(String) });
-    expect(account.balances.find((balance) => balance.kind === 'pt')).toMatchObject({ usableUnits: null });
+    expect(account.balances.find((balance) => balance.kind === 'pt')).toMatchObject({ usableUnits: 0 });
     expect(account.entries.find((row) => row.id === rows[0]!.id)?.expired).toBe(true);
     expect(db.select().from(schema.credits).where(eq(schema.credits.memberId, memberId)).all()).toEqual(before);
     expect((await request(owner, `/admin/billing/members/${memberId}/credits`, undefined, undefined, 'br_ind')).status).toBe(404);

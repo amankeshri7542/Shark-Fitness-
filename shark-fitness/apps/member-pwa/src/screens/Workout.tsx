@@ -1,13 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from '@tanstack/react-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import type { MuscleGroup } from '@shark/contracts';
 import { MUSCLE_LABEL, muscleShare, platesPerSide, sessionVolumeKg } from '@shark/domain';
 import { api } from '../lib/api';
 import { enqueue, useOutboxCount } from '../lib/outbox';
 import { useOnline } from '../lib/realtime';
+import { haptic, useUnits } from '../lib/preferences';
+import { QK } from '../lib/query-keys';
 import { type ActiveSet, useCopy, useWorkout } from '../lib/store';
 import { ScreenBody } from '../ui/shell';
+import { FreestylePicker, type LibraryExercise } from './workout/FreestylePicker';
 import {
   Bar,
   Button,
@@ -307,7 +310,8 @@ function clock(totalSec: number): string {
 /* — Screen ————————————————————————————————————————————————— */
 
 export default function WorkoutScreen() {
-  const copy = useCopy();
+  const copy = useCopy('workout');
+  const units = useUnits();
   const navigate = useNavigate();
   const online = useOnline();
   const queued = useOutboxCount();
@@ -321,9 +325,11 @@ export default function WorkoutScreen() {
   const [lastLogged, setLastLogged] = useState<string | null>(null);
 
   const resuming = active.clientId !== null;
+  const search = useSearch({ strict: false }) as { mode?: string };
+  const freestyle = search.mode === 'freestyle';
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['training', 'plan'],
+    queryKey: QK.plan,
     queryFn: () => api<PlanPayload>('/member/training/plan'),
     // A resumed session already has everything it needs cached locally, so a
     // failed plan fetch must never block logging.
@@ -341,7 +347,7 @@ export default function WorkoutScreen() {
   /* Seed a new session from today's plan. Never touches a session already in
      progress — that is what makes the resume path safe. */
   useEffect(() => {
-    if (active.clientId || !data) return;
+    if (active.clientId || !data || freestyle) return;
     const day = todayOf(data);
     if (!day || day.isRest) return;
     const exercises = normaliseExercises(day);
@@ -386,7 +392,55 @@ export default function WorkoutScreen() {
       title: plan.title,
       sets: seedSets(exercises),
     });
-  }, [data, active.clientId]);
+  }, [data, active.clientId, freestyle]);
+
+  /* A session the member builds from the library (PF-WORK-004). It is an
+     ordinary session from here on: same logger, outbox, PRs, XP and summary;
+     it simply has no assignment or programme day behind it. */
+  const startFreestyle = useCallback((picked: LibraryExercise[]) => {
+    const exercises: SessionExercise[] = picked.map((exercise, index) => ({
+      orderIndex: index,
+      exerciseId: exercise.id,
+      exerciseName: exercise.name,
+      equipment: exercise.equipment,
+      usesBarbell: exercise.usesBarbell,
+      primaryMuscles: exercise.primaryMuscles,
+      secondaryMuscles: exercise.secondaryMuscles,
+      targetLabel: 'Your call · 3 sets to start',
+      tempo: null,
+      notes: null,
+      trainerLocked: false,
+      sets: [0, 1, 2].map((setIndex) => ({
+        setIndex,
+        targetWeightKg: exercise.lastPerformance?.weightKg ?? null,
+        repLow: exercise.lastPerformance?.reps ?? 10,
+        repHigh: exercise.lastPerformance?.reps ?? 10,
+        targetRpe: null,
+        restSec: exercise.defaultRestSec,
+        isWarmup: false,
+      })),
+      lastPerformance: exercise.lastPerformance,
+      allowedSubstitutions: [],
+    }));
+    const clientId = crypto.randomUUID();
+    const plan: SessionPlan = {
+      clientId,
+      title: 'Freestyle workout',
+      assignmentId: null,
+      programDayId: null,
+      branchId: null,
+      startedAt: Date.now(),
+      pausedMs: 0,
+      pausedAt: null,
+      exercises,
+      substitutions: [],
+      adaptive: null,
+      adaptiveDecision: 'pending',
+    };
+    writeJson(PLAN_KEY, plan);
+    setSession(plan);
+    useWorkout.getState().start({ clientId, assignmentId: null, programDayId: null, title: plan.title, sets: seedSets(exercises) });
+  }, []);
 
   /* The coach republished mid-session. Say so; change nothing (PF-WORK-003). */
   useEffect(() => {
@@ -493,6 +547,15 @@ export default function WorkoutScreen() {
   const restRemaining = active.restEndsAt ? Math.max(0, (active.restEndsAt - now) / 1000) : 0;
   const resting = restRemaining > 0;
 
+  // One buzz when a rest runs out, once per rest period.
+  const restBuzzed = useRef<number | null>(null);
+  useEffect(() => {
+    if (active.restEndsAt && !resting && restBuzzed.current !== active.restEndsAt) {
+      restBuzzed.current = active.restEndsAt;
+      haptic('timer-done');
+    }
+  }, [active.restEndsAt, resting]);
+
   const plates =
     exercise?.usesBarbell && current ? platesPerSide(current.weightKg) : null;
 
@@ -501,6 +564,7 @@ export default function WorkoutScreen() {
   const logSet = (set: ActiveSet): void => {
     const rest = exercise?.sets.find((s) => s.setIndex === set.setIndex)?.restSec ?? 90;
     useWorkout.getState().logSet(set.clientId, rest);
+    haptic('set-complete');
     setLastLogged(set.clientId);
     queueDraft(set.clientId, false);
 
@@ -668,6 +732,17 @@ export default function WorkoutScreen() {
 
   /* — States ————————————————————————————————————————————— */
 
+  // Building a session needs no plan, and must not wait for one.
+  if (!resuming && !session && freestyle) {
+    return (
+      <Shell>
+        <ScreenBody>
+          <FreestylePicker onStart={startFreestyle} onCancel={() => void navigate({ to: '/train' })} />
+        </ScreenBody>
+      </Shell>
+    );
+  }
+
   if (!resuming && isLoading) return <WorkoutSkeleton />;
 
   if (!resuming && (error || !data)) {
@@ -708,8 +783,8 @@ export default function WorkoutScreen() {
                   : 'No coach has written today. You can still build a session from the exercise library and log it here.'
               }
               action={
-                <Button variant="cta" onClick={() => void navigate({ to: '/train' })}>
-                  Open the plan
+                <Button variant="cta" onClick={() => void navigate({ to: '/workout', search: { mode: 'freestyle' } })}>
+                  Log a workout
                 </Button>
               }
             />
@@ -728,7 +803,7 @@ export default function WorkoutScreen() {
   const targetLine = [
     `Exercise ${exerciseIndex + 1} of ${exercises.length}`,
     exercise.targetLabel,
-    prescribed?.targetWeightKg ? `${prescribed.targetWeightKg} kg` : null,
+    prescribed?.targetWeightKg ? units.format(prescribed.targetWeightKg) : null,
   ]
     .filter(Boolean)
     .join(' · ');
@@ -736,8 +811,8 @@ export default function WorkoutScreen() {
   return (
     <Shell>
       {/* — Sticky chrome. One step darker than the canvas, per the token rule. */}
-      <header className="sf-safe-top relative flex-none border-b border-line bg-hull">
-        <div className="px-4 pb-3 pt-3">
+      <header className="sf-safe-top sf-safe-x relative flex-none border-b border-line bg-hull">
+        <div className="sf-column pb-3 pt-3">
           <div className="flex items-center gap-2.5">
             <button
               type="button"
@@ -834,7 +909,7 @@ export default function WorkoutScreen() {
               <div className="mt-3 flex gap-2.5">
                 {session.adaptive.newLoadKg ? (
                   <Button variant="cta" size="sm" className="flex-1" onClick={applyAdaptive}>
-                    Use {session.adaptive.newLoadKg} kg
+                    Use {units.format(session.adaptive.newLoadKg)}
                   </Button>
                 ) : null}
                 <Button
@@ -912,7 +987,7 @@ export default function WorkoutScreen() {
                   <button
                     type="button"
                     onClick={() => useWorkout.getState().goToExercise(exerciseIndex)}
-                    aria-label={`Set ${set.setIndex + 1}, ${set.weightKg} kilos for ${set.reps} reps`}
+                    aria-label={`Set ${set.setIndex + 1}, ${units.format(set.weightKg)} for ${set.reps} reps`}
                     className="flex min-h-[52px] flex-1 cursor-pointer items-center px-3 text-left"
                   >
                     <span
@@ -924,8 +999,8 @@ export default function WorkoutScreen() {
                       {target?.isWarmup ? 'W' : set.setIndex + 1}
                     </span>
                     <span className="flex-1 font-utility text-[17px] font-semibold tabular-nums">
-                      {set.weightKg}
-                      <span className="ml-1 text-[12px] text-foam-45">kg</span>
+                      {units.value(set.weightKg)}
+                      <span className="ml-1 text-[12px] text-foam-45">{units.unit}</span>
                     </span>
                     <span className="w-14 font-utility text-[17px] font-semibold tabular-nums">{set.reps}</span>
                   </button>
@@ -974,7 +1049,7 @@ export default function WorkoutScreen() {
                 <Label>Set {current.setIndex + 1}</Label>
                 <span className="flex-1" />
                 {exercise.lastPerformance ? (
-                  <span className="text-[11px] text-foam-50">Last time {exercise.lastPerformance.label}</span>
+                  <span className="text-[11px] text-foam-50">Last time {units.text(exercise.lastPerformance.label)}</span>
                 ) : (
                   <span className="text-[11px] text-foam-35">First time on this lift</span>
                 )}
@@ -982,10 +1057,12 @@ export default function WorkoutScreen() {
 
               <Stepper
                 label="Weight"
-                unit="kg"
-                value={current.weightKg}
-                step={2.5}
-                onAdjust={(delta) => useWorkout.getState().adjust(current.clientId, 'weightKg', delta)}
+                unit={units.unit}
+                value={units.value(current.weightKg)}
+                step={units.system === 'imperial' ? 5 : 2.5}
+                onAdjust={(delta) =>
+                  useWorkout.getState().setValue(current.clientId, 'weightKg', units.step(current.weightKg, delta > 0 ? 1 : -1))
+                }
               />
               <Stepper
                 label="Reps"
@@ -1140,12 +1217,17 @@ export default function WorkoutScreen() {
                 </div>
                 <div className="flex-1 px-3 py-2.5">
                   <Metric
-                    value={sessionVolumeKg(
-                      active.sets
-                        .filter((s) => s.done)
-                        .map((s) => ({ weightKg: s.weightKg, reps: s.reps, isWarmup: warmupOf(s) })),
-                    ).toLocaleString('en-IN')}
-                    unit="kg"
+                    value={units
+                      .value(
+                        sessionVolumeKg(
+                          active.sets
+                            .filter((s) => s.done)
+                            .map((s) => ({ weightKg: s.weightKg, reps: s.reps, isWarmup: warmupOf(s) })),
+                        ),
+                        0,
+                      )
+                      .toLocaleString('en-IN')}
+                    unit={units.unit}
                     size="md"
                   />
                   <Label className="mt-0.5 block">Volume</Label>
@@ -1277,7 +1359,7 @@ function Sheet({ title, children, onClose }: {
   return (
     <div className="absolute inset-0 z-20 flex flex-col justify-end bg-scrim" role="dialog" aria-modal="true" aria-label={title}>
       <button type="button" aria-label="Close" className="flex-1 cursor-pointer" onClick={onClose} />
-      <div className="sf-safe-bottom animate-rise border-t border-line-strong bg-overlay">
+      <div className="sf-safe-bottom sf-sheet animate-rise border-t border-line-strong bg-overlay">
         <div className="max-h-[72dvh] overflow-y-auto p-4">
           <div className="flex items-center gap-2.5">
             <Eyebrow>{title}</Eyebrow>

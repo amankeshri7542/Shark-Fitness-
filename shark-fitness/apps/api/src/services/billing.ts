@@ -1,17 +1,20 @@
-import { and, eq, like, sql } from 'drizzle-orm';
+import { and, eq, inArray, like, ne, sql } from 'drizzle-orm';
 import type { Product } from '@shark/contracts';
 import { channels } from '@shark/contracts';
 import { canTransition, invoiceStateFor, totalsFor } from '@shark/domain';
 import { stopDunning } from './dunning.js';
+import { allocatePackForInvoice } from './credit-ledger.js';
 import { db, schema } from '../db/client.js';
 import { audit } from '../lib/audit.js';
 import { conflict, invalid, notFound, precondition } from '../lib/errors.js';
 import { emit } from '../lib/events.js';
 import { id } from '../lib/ids.js';
+import { notifyPaymentOutcome } from './notifications.js';
 import { addDays, isoDate, now } from '../lib/time.js';
 import { branchScope, requirePermission, type RequestContext } from '../lib/context.js';
 import { branchTimeZone } from '../lib/branch-time.js';
 import { FITNESS_SERVICE_CODE, recordTaxDocument } from './tax-invoice.js';
+import { emitIntegrationEvent } from './integration-events.js';
 
 /** Must be called inside the transaction that inserts the invoice it numbers
  *  — this process is single-connection/synchronous (db/client.ts), so nothing
@@ -103,7 +106,7 @@ export function createInvoiceForProduct(input: CreateInvoiceInput): { invoiceId:
       taxRateBp: product.taxRateBp,
       taxMinor: totals.taxMinor,
       totalMinor: totals.totalMinor,
-      productId: refType === 'membership' ? product.id : null,
+      productId: refType === 'membership' || refType === 'credit_pack' ? product.id : null,
     })
     .run();
 
@@ -150,7 +153,9 @@ export function findIdempotentPayment(tenantId: string, idempotencyKey: string) 
 }
 
 /** Shared money boundary: authorized staff record independently received funds.
- * No simulated provider or member confirmation may settle an invoice. */
+ * No simulated provider or member confirmation may settle an invoice. Provider
+ * money arrives through services/payments/settlement.ts, which verifies it
+ * with the provider and then uses the same `settleInvoicePayment` below. */
 export function applyPaymentToInvoice(input: ApplyPaymentInput): ApplyPaymentResult {
   const { ctx, invoiceId, amountMinor, method, provider, providerRef, idempotencyKey, recordedByName, note } = input;
 
@@ -171,6 +176,38 @@ export function applyPaymentToInvoice(input: ApplyPaymentInput): ApplyPaymentRes
   const dueMinor = invoice.totalMinor - invoice.paidMinor;
   if (amountMinor > dueMinor) throw invalid(`That is more than the amount outstanding (${dueMinor}).`);
 
+  return settleInvoicePayment({
+    ctx, invoice, amountMinor, method, provider: null, providerRef, idempotencyKey, recordedByName, note: note ?? null, source: 'staff',
+  });
+}
+
+export interface SettleInvoicePaymentInput {
+  ctx: RequestContext;
+  invoice: typeof schema.invoices.$inferSelect;
+  amountMinor: number;
+  method: string;
+  provider: 'razorpay' | null;
+  providerRef: string | null;
+  idempotencyKey: string;
+  recordedByName: string | null;
+  note: string | null;
+  /** Who vouches for the money: staff who received it, or a provider that
+   *  confirmed it server-to-server. */
+  source: 'staff' | 'provider';
+}
+
+/**
+ * The single settlement path. Records the payment and its receipt, moves the
+ * invoice, stops dunning, activates a membership waiting on this invoice, and
+ * writes the audit row and realtime events — all in the caller's transaction.
+ *
+ * It trusts its caller completely: permission, scope, idempotency, provider
+ * verification and "is this amount still due" are the caller's job, and both
+ * callers (`applyPaymentToInvoice`, `settleProviderPayment`) do them first.
+ */
+export function settleInvoicePayment(input: SettleInvoicePaymentInput): ApplyPaymentResult {
+  const { ctx, invoice, amountMinor, method, provider, providerRef, idempotencyKey, recordedByName, note, source } = input;
+  const invoiceId = invoice.id;
   const paymentId = id('pay');
   const newPaidMinor = invoice.paidMinor + amountMinor;
   const newState = invoiceStateFor({
@@ -203,17 +240,35 @@ export function applyPaymentToInvoice(input: ApplyPaymentInput): ApplyPaymentRes
       recordedById: ctx.userId,
       recordedByName,
       failureReason: null,
-      note: note ?? null,
+      note,
       createdAt: now(),
       settledAt: now(),
     })
     .run();
 
   db.update(schema.invoices).set({ paidMinor: newPaidMinor, state: newState, updatedAt: now() }).where(eq(schema.invoices.id, invoiceId)).run();
+  retireStaleOnlineAttempts(ctx.tenantId, invoiceId, invoice.totalMinor - newPaidMinor);
   const issuer = db.select().from(schema.tenants).where(eq(schema.tenants.id, ctx.tenantId)).get()!;
   const recipient = db.select().from(schema.members).where(and(eq(schema.members.id, invoice.memberId), eq(schema.members.tenantId, ctx.tenantId))).get()!;
   db.insert(schema.paymentReceipts).values({ paymentId, tenantId: ctx.tenantId, issuerName: issuer.legalName,
     memberName: `${recipient.firstName} ${recipient.lastName}`, memberNo: recipient.memberNo, createdAt: now() }).run();
+
+  // The member hears that the money landed: in the app, and on their phone
+  // when they have push on. Every settlement comes through here, whether the
+  // desk recorded it or a payment provider confirmed it.
+  if (recipient.userId) {
+    notifyPaymentOutcome({
+      tenantId: ctx.tenantId,
+      userId: recipient.userId,
+      branchId: invoice.branchId,
+      invoiceId,
+      invoiceNumber: invoice.number,
+      amountMinor,
+      currency: invoice.currency,
+      outcome: 'succeeded',
+      attemptRef: paymentId,
+    });
+  }
 
   // Money arrived: stop chasing it. Without this a member who settles at the
   // desk still gets next week's reminder, because the dunning worker only
@@ -229,11 +284,12 @@ export function applyPaymentToInvoice(input: ApplyPaymentInput): ApplyPaymentRes
       .where(and(eq(schema.memberships.memberId, invoice.memberId), eq(schema.memberships.id, invoice.refId ?? '')))
       .get();
     if (membership && membership.state === 'pending_payment') {
+      const reason = source === 'provider' ? 'Payment received online' : 'Payment received';
       const transition = canTransition({
         from: 'pending_payment',
         to: 'active',
-        reason: 'Payment received',
-        actorRole: 'staff',
+        reason,
+        actorRole: source === 'provider' ? 'provider' : 'staff',
       });
       if (transition.ok) {
         db.update(schema.memberships)
@@ -247,10 +303,10 @@ export function applyPaymentToInvoice(input: ApplyPaymentInput): ApplyPaymentRes
             membershipId: membership.id,
             fromState: 'pending_payment',
             toState: 'active',
-            reason: 'Payment received',
+            reason,
             actorId: ctx.userId,
             actorName: recordedByName ?? ctx.name,
-            source: 'staff',
+            source: source === 'provider' ? 'provider' : 'staff',
             effectiveAt: now(),
           })
           .run();
@@ -263,17 +319,27 @@ export function applyPaymentToInvoice(input: ApplyPaymentInput): ApplyPaymentRes
           topic: 'membership.state_changed',
           payload: { membershipId: membership.id, from: 'pending_payment', to: 'active' },
         });
+        emitIntegrationEvent({
+          tenantId: ctx.tenantId,
+          branchId: invoice.branchId,
+          type: 'membership.activated',
+          data: { membershipId: membership.id, memberId: invoice.memberId, invoiceId },
+        });
       }
     }
   }
 
+  // A credit pack's credits exist from the moment its invoice is paid in full,
+  // and not a moment before (decision 11) — same transaction, either path.
+  const creditsAllocated = newPaidMinor >= invoice.totalMinor ? allocatePackForInvoice(ctx, invoice, now()) : false;
+
   audit(ctx, {
-    action: 'payment.recorded',
+    action: source === 'provider' ? 'payment.settled_by_provider' : 'payment.recorded',
     entityType: 'invoice',
     entityId: invoiceId,
     entityLabel: invoice.number,
     before: { paidMinor: invoice.paidMinor, state: invoice.state },
-    after: { paidMinor: newPaidMinor, state: newState },
+    after: { paidMinor: newPaidMinor, state: newState, ...(provider ? { provider, providerRef } : {}), ...(creditsAllocated ? { creditsAllocated } : {}) },
   });
   emit({
     tenantId: ctx.tenantId,
@@ -281,6 +347,12 @@ export function applyPaymentToInvoice(input: ApplyPaymentInput): ApplyPaymentRes
     channel: channels.member(invoice.memberId),
     topic: 'payment.succeeded',
     payload: { paymentId, invoiceId, amountMinor },
+  });
+  emitIntegrationEvent({
+    tenantId: ctx.tenantId,
+    branchId: invoice.branchId,
+    type: 'payment.succeeded',
+    data: { paymentId, invoiceId, memberId: invoice.memberId, amountMinor, currency: invoice.currency, method, invoiceState: newState },
   });
   emit({
     tenantId: ctx.tenantId,
@@ -300,6 +372,8 @@ export interface ApplyRefundInput {
   reason: string;
   entitlementReversed: boolean;
   actorName: string;
+  /** Set only by the credit-pack refund, which takes the credits back itself. */
+  creditPackRefund?: boolean;
 }
 
 /** Reversing entitlements is a separate decision from refunding money
@@ -317,21 +391,10 @@ export function applyRefund(input: ApplyRefundInput): { refundId: string; invoic
     .get();
   if (!payment) throw notFound('That payment');
   const invoice = loadInvoiceInScope(ctx, payment.invoiceId ?? '');
-  const creditKinds = new Set(['class_pack', 'pt_credits']);
-  const referencedProduct = invoice.refType === 'product' && invoice.refId ? db.select().from(schema.products).where(and(eq(schema.products.id, invoice.refId), eq(schema.products.tenantId, ctx.tenantId))).get() : undefined;
-  const membership = invoice.refType === 'membership' && invoice.refId ? db.select().from(schema.memberships).where(and(eq(schema.memberships.id, invoice.refId), eq(schema.memberships.tenantId, ctx.tenantId))).get() : undefined;
-  const productLines = db.select({ kind: schema.products.kind }).from(schema.invoiceLines).innerJoin(schema.products, eq(schema.products.id, schema.invoiceLines.productId)).where(and(eq(schema.invoiceLines.invoiceId, invoice.id), eq(schema.products.tenantId, ctx.tenantId))).all();
-  if (['credits', 'credit_purchase', 'class_pack', 'pt_credits'].includes(invoice.refType ?? '') || (referencedProduct && creditKinds.has(referencedProduct.kind)) || (membership && creditKinds.has(membership.productSnapshot.kind)) || productLines.some((product) => creditKinds.has(product.kind))) {
-    throw precondition('Credit-product refunds are unavailable until the gym approves allocation, consumed/expired-credit and cancellation rules. No money or credit units were changed.');
-  }
+  assertRefundableProduct(ctx, invoice, input.creditPackRefund === true);
   if (payment.state !== 'succeeded') throw conflict('Only a succeeded payment can be refunded.');
 
-  const priorRefunds = db
-    .select({ total: sql<number>`coalesce(sum(${schema.refunds.amountMinor}), 0)` })
-    .from(schema.refunds)
-    .where(eq(schema.refunds.paymentId, paymentId))
-    .get();
-  const refundableMinor = payment.amountMinor - (priorRefunds?.total ?? 0);
+  const refundableMinor = refundableBalance(payment);
   if (amountMinor > refundableMinor) throw invalid(`That is more than the refundable balance (${refundableMinor}).`);
 
   const refundId = id('ref');
@@ -379,6 +442,59 @@ export function applyRefund(input: ApplyRefundInput): { refundId: string; invoic
   });
 
   return { refundId, invoiceState: newState };
+}
+
+/**
+ * Online attempts (Checkout orders, payment links) made for a balance the
+ * invoice no longer has are retired, so neither the member app nor the
+ * console offers them again: an invoice paid at the desk or voided must not
+ * keep a payable link on screen. Money that still arrives through one is never
+ * settled — settlement re-checks what is owed and opens a reconciliation
+ * exception instead. In the caller's transaction.
+ */
+export function retireStaleOnlineAttempts(tenantId: string, invoiceId: string, stillDueMinor: number): void {
+  db.update(schema.paymentIntents)
+    .set({ state: 'superseded', updatedAt: now() })
+    .where(
+      and(
+        eq(schema.paymentIntents.tenantId, tenantId),
+        eq(schema.paymentIntents.invoiceId, invoiceId),
+        inArray(schema.paymentIntents.state, ['created', 'processing', 'failed']),
+        stillDueMinor > 0 ? ne(schema.paymentIntents.amountMinor, stillDueMinor) : undefined,
+      ),
+    )
+    .run();
+}
+
+/** A credit pack is refunded only through the pack refund
+ *  (services/credit-packs.ts), which applies decision 11 and takes the
+ *  credits back in the same transaction; the generic refund paths refuse it
+ *  so money can never leave without the credits following. Shared by the
+ *  manual and the provider refund paths; the pack refund passes
+ *  `creditPackRefund` to say it has done its part. */
+export function assertRefundableProduct(ctx: { tenantId: string }, invoice: typeof schema.invoices.$inferSelect, creditPackRefund = false): void {
+  if (creditPackRefund && invoice.refType === 'credit_pack') return;
+  const creditKinds = new Set(['class_pack', 'pt_credits']);
+  const referencedProduct = invoice.refType === 'product' && invoice.refId ? db.select().from(schema.products).where(and(eq(schema.products.id, invoice.refId), eq(schema.products.tenantId, ctx.tenantId))).get() : undefined;
+  const membership = invoice.refType === 'membership' && invoice.refId ? db.select().from(schema.memberships).where(and(eq(schema.memberships.id, invoice.refId), eq(schema.memberships.tenantId, ctx.tenantId))).get() : undefined;
+  const productLines = db.select({ kind: schema.products.kind }).from(schema.invoiceLines).innerJoin(schema.products, eq(schema.products.id, schema.invoiceLines.productId)).where(and(eq(schema.invoiceLines.invoiceId, invoice.id), eq(schema.products.tenantId, ctx.tenantId))).all();
+  if (invoice.refType === 'credit_pack') {
+    throw precondition("Refund a credit pack from the member's credits, where the pack refund policy works out what comes back. No money or credits were changed.");
+  }
+  if (['credits', 'credit_purchase', 'class_pack', 'pt_credits'].includes(invoice.refType ?? '') || (referencedProduct && creditKinds.has(referencedProduct.kind)) || (membership && creditKinds.has(membership.productSnapshot.kind)) || productLines.some((product) => creditKinds.has(product.kind))) {
+    throw precondition('This invoice is for credits sold before credit packs had a refund policy. Refund it by agreement and adjust the credits with support. No money or credits were changed.');
+  }
+}
+
+/** Captured minus everything already refunded or still being refunded. A
+ *  failed provider refund gives its amount back. */
+export function refundableBalance(payment: { id: string; amountMinor: number }): number {
+  const prior = db
+    .select({ total: sql<number>`coalesce(sum(${schema.refunds.amountMinor}), 0)` })
+    .from(schema.refunds)
+    .where(and(eq(schema.refunds.paymentId, payment.id), sql`${schema.refunds.state} != 'failed'`))
+    .get();
+  return payment.amountMinor - (prior?.total ?? 0);
 }
 
 /** Same branch-scope-hides-existence pattern as services/leads.ts's

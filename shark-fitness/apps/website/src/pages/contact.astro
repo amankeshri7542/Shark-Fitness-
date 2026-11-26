@@ -1,0 +1,48 @@
+---
+import Layout from '../layouts/Layout.astro';
+import PageHero from '../components/PageHero.astro';
+import LeadForm from '../components/LeadForm.astro';
+import { branches, branchExtra, brand, hoursSummary } from '../content/site';
+import { breadcrumbs } from '../lib/schema';
+
+const crumbs = [{ name: 'Contact', path: '/contact' }];
+---
+
+<Layout
+  title="Contact us"
+  description="Call, email or send Shark Fitness a question. Phone numbers and opening hours for Koramangala, Indiranagar and HSR Layout in Bengaluru."
+  path="/contact"
+  jsonLd={[breadcrumbs([{ name: 'Home', path: '/' }, ...crumbs])]}
+>
+  <PageHero title="Contact us" lede="Ask anything: plans, classes, corporate memberships, a lost locker key. We call you back, usually the same day." crumbs={crumbs} />
+  <section class="section">
+    <div class="wrap form-layout">
+      <div>
+        <h2 class="sr-only">Send us a question</h2>
+        <LeadForm kind="contact" />
+      </div>
+      <aside class="seam" aria-labelledby="reach-us">
+        <div class="cell">
+          <h2 class="u-h28" id="reach-us">Reach a branch</h2>
+          {
+            branches.map((b) => (
+              <div>
+                <p><strong>{branchExtra(b).area}</strong> · {b.name}</p>
+                <p class="muted">{b.addressLine}</p>
+                <p>
+                  <a href={`tel:${(b.phone ?? brand.phone).replace(/\s/g, '')}`}>{b.phone ?? brand.phone}</a>
+                  {b.email ? <> · <a href={`mailto:${b.email}`}>{b.email}</a></> : null}
+                </p>
+                <p class="muted num">{hoursSummary(b).map((r) => `${r.days} ${r.hours}`).join(' · ')}</p>
+              </div>
+            ))
+          }
+        </div>
+        <div class="cell">
+          <p class="label">Members</p>
+          <p>Billing, bookings and your pass are in the <a href="/app/">member app</a>. Privacy requests: <a href={`mailto:${brand.privacyEmail}`}>{brand.privacyEmail}</a>.</p>
+        </div>
+      </aside>
+    </div>
+  </section>
+</Layout>

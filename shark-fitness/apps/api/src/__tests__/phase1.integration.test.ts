@@ -5,6 +5,7 @@ import { app } from '../app.js';
 import { db, schema, sqlite } from '../db/client.js';
 import { consumeRealtimeTicket } from '../lib/realtime-ticket.js';
 import { runtimeConfig } from '../lib/config.js';
+import { signInRequest } from './helpers/mfa.js';
 
 interface BrowserSession {
   cookie: string;
@@ -12,7 +13,7 @@ interface BrowserSession {
 }
 
 async function signIn(email = 'aman@sharkfitness.in'): Promise<BrowserSession> {
-  const response = await app.request('/v1/auth/password', {
+  const response = await signInRequest( {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -98,14 +99,14 @@ describe('Phase 1 production boundaries', () => {
   });
 
   it('requires tenant context and rejects untrusted browser origins', async () => {
-    const missingTenant = await app.request('/v1/auth/password', {
+    const missingTenant = await signInRequest( {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ email: 'aman@sharkfitness.in', password: 'shark1234' }),
     });
     expect(missingTenant.status).toBe(422);
 
-    const untrustedOrigin = await app.request('/v1/auth/password', {
+    const untrustedOrigin = await signInRequest( {
       method: 'POST',
       headers: { 'content-type': 'application/json', origin: 'https://evil.example' },
       body: JSON.stringify({ tenantSlug: 'shark', email: 'aman@sharkfitness.in', password: 'shark1234' }),

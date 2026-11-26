@@ -1,9 +1,11 @@
 import { reconcileMembershipDates } from '../../services/membership-dates.js';
+import { requireFreshAuth } from '../../lib/step-up.js';
 import { receiptHtml, receiptRecord } from '../../services/payment-receipt.js';
 import { taxInvoiceFilename, taxInvoiceHtml, taxInvoiceRecord, taxInvoiceText } from '../../services/tax-invoice.js';
 import { readCreditAccount } from '../../services/credit-account.js';
 import { runIdempotently } from '../../lib/idempotency.js';
 import { Hono } from 'hono';
+import { can } from '@shark/domain';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { RecordPaymentInput } from '@shark/contracts';
@@ -20,6 +22,9 @@ import {
 import { createMembershipPurchase, renewalQuote } from '../../services/billing-membership.js';
 import { loadInvoiceInScope } from '../../services/billing.js';
 import { loadMemberInScope } from '../../services/members.js';
+import { requireIdempotencyKey } from '../../services/payments/checkout.js';
+import { requestProviderRefund } from '../../services/payments/refunds.js';
+import { recordPtSession, refundCreditPack, sellCreditPack } from '../../services/credit-packs.js';
 
 export const billingStabilizationRoutes = new Hono();
 
@@ -28,8 +33,65 @@ billingStabilizationRoutes.get('/members/:memberId/credits', (c) => {
   requirePermission(ctx, 'member.view');
   const member = loadMemberInScope(ctx, c.req.param('memberId'));
   requireAssignedMember(ctx, member.trainerId);
-  return c.json(readCreditAccount(member));
+  const account = readCreditAccount(member, 'staff');
+  // A coach sees how many credits a member has and their history; what packs
+  // cost, their invoices and refund amounts are billing information (P05).
+  if (!can(ctx.role, 'billing.view')) return c.json({ ...account, packs: undefined, offers: undefined, saleAvailable: false });
+  return c.json(account);
 });
+
+/* ——— Credit packs (P05, decision 11) ——————————————————————————— */
+
+billingStabilizationRoutes.post(
+  '/members/:memberId/credit-packs',
+  validate('json', z.object({ productId: z.string().min(1) })),
+  (c) => {
+    const ctx = ctxOf(c);
+    requirePermission(ctx, 'billing.record_payment');
+    const member = loadMemberInScope(ctx, c.req.param('memberId'));
+    const sale = sellCreditPack(ctx, {
+      memberId: member.id,
+      productId: c.req.valid('json').productId,
+      idempotencyKey: `staff:${requireIdempotencyKey(c.req.header('idempotency-key'))}`,
+      soldBy: 'staff',
+    });
+    return c.json({
+      ...sale,
+      message: sale.creditsAllocated
+        ? 'The pack is on the account and its credits are ready to use.'
+        : 'Invoice raised. The credits appear as soon as it is paid in full.',
+    });
+  },
+);
+
+billingStabilizationRoutes.post(
+  '/credit-packs/:packId/refund',
+  validate('json', z.object({ reason: z.string().trim().min(4).max(280) })),
+  async (c) => {
+    const ctx = ctxOf(c);
+    requirePermission(ctx, 'billing.refund');
+    // Money back, like every other refund (P06 step-up, P05 integration note).
+    requireFreshAuth(ctx, 'billing.refund');
+    return c.json(
+      await refundCreditPack(ctx, c.req.param('packId'), {
+        reason: c.req.valid('json').reason,
+        idempotencyKey: `pack:${requireIdempotencyKey(c.req.header('idempotency-key'))}`,
+      }),
+    );
+  },
+);
+
+billingStabilizationRoutes.post(
+  '/members/:memberId/pt-sessions',
+  validate('json', z.object({ note: z.string().trim().max(280).nullable().default(null), trainerId: z.string().min(1).nullable().default(null) })),
+  (c) => {
+    const ctx = ctxOf(c);
+    const key = requireIdempotencyKey(c.req.header('idempotency-key'));
+    if (!/^[A-Za-z0-9:_-]{8,120}$/.test(key)) throw invalid('That request key is not valid.');
+    const body = c.req.valid('json');
+    return c.json(recordPtSession(ctx, c.req.param('memberId'), { idempotencyKey: key.replace(/[^A-Za-z0-9_-]/g, '_'), note: body.note, trainerId: body.trainerId }));
+  },
+);
 
 billingStabilizationRoutes.post(
   '/invoices/:invoiceId/payments',
@@ -92,6 +154,7 @@ billingStabilizationRoutes.post(
   (c) => {
     const ctx = ctxOf(c);
     requirePermission(ctx, 'billing.write_off');
+    requireFreshAuth(ctx, 'billing.write_off');
     return c.json(
       transact(() => voidInvoiceSafely(ctx, c.req.param('invoiceId'), c.req.valid('json').reason)),
     );
@@ -108,9 +171,10 @@ billingStabilizationRoutes.post(
       entitlementReversed: z.boolean().default(false),
     }),
   ),
-  (c) => {
+  async (c) => {
     const ctx = ctxOf(c);
     requirePermission(ctx, 'billing.refund');
+    requireFreshAuth(ctx, 'billing.refund');
     const body = c.req.valid('json');
     const paymentId = c.req.param('paymentId');
     const payment = db.select().from(schema.payments).where(and(
@@ -119,6 +183,13 @@ billingStabilizationRoutes.post(
     if (!payment?.invoiceId) throw notFound('That payment');
     // Recheck branch access even for a cached retry response.
     loadInvoiceInScope(ctx, payment.invoiceId);
+    if (payment.provider === 'razorpay') {
+      // The money has to go back the way it came: through Razorpay, pending
+      // until Razorpay reports it processed (services/payments/refunds.ts).
+      return c.json(await requestProviderRefund({
+        ctx, paymentId, ...body, idempotencyKey: requireIdempotencyKey(c.req.header('idempotency-key')),
+      }));
+    }
     return c.json(runIdempotently(ctx, 'billing.refund', c.req.header('idempotency-key'),
       { paymentId, ...body }, () => transact(() => refundSafely({ ctx, paymentId, ...body })),
     ));

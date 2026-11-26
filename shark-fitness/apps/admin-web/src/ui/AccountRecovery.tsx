@@ -23,7 +23,7 @@ export function AccountRecovery({ memberId, staffId }: { memberId?: string; staf
   };
   const appOrigin = new URL(window.location.origin);
   if (import.meta.env.DEV && !staffId && appOrigin.port === '5174') appOrigin.port = '5173';
-  const link = result ? `${appOrigin.origin}${staffId ? '/admin' : ''}/sign-in#${new URLSearchParams({ recoveryId: result.recoveryId, recoveryToken: result.token, gym: result.tenantSlug })}` : '';
+  const link = result ? `${appOrigin.origin}${staffId ? '/admin' : '/app'}/sign-in#${new URLSearchParams({ recoveryId: result.recoveryId, recoveryToken: result.token, gym: result.tenantSlug })}` : '';
   if (!owner) return null;
   return <Panel title="Existing account recovery" className="border-b border-line">
     <div className="space-y-3 p-3.5">

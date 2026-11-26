@@ -1,5 +1,6 @@
 import { parseRuntimeConfig, runtimeConfig, type OtpConfig, type RuntimeConfig } from '../lib/config.js';
 import { AppError } from '../lib/errors.js';
+import { basicAuth, providerPost } from '../lib/provider-http.js';
 
 /**
  * Delivers sign-in codes. One sender per channel, chosen at startup from the
@@ -31,22 +32,17 @@ export interface OtpSender {
 
 type FetchFn = typeof fetch;
 
-const SEND_TIMEOUT_MS = 8_000;
-
 export const otpText = (m: OtpMessage) =>
   `${m.code} is your ${m.gymName} sign-in code. It expires in ${m.expiresInMin} minutes. Never share it with anyone.`;
 
 async function post(fetchFn: FetchFn, provider: string, url: string, init: RequestInit): Promise<void> {
-  let response: Response;
-  try {
-    response = await fetchFn(url, { ...init, method: 'POST', signal: AbortSignal.timeout(SEND_TIMEOUT_MS) });
-  } catch (error) {
-    console.error(`[otp] ${provider} request failed: ${(error as Error).message}`);
+  const response = await providerPost(fetchFn, url, init);
+  if (response.status === 0) {
+    console.error(`[otp] ${provider} request failed: ${response.text}`);
     throw deliveryFailed();
   }
-  if (!response.ok) {
-    const detail = await response.text().catch(() => '');
-    console.error(`[otp] ${provider} rejected the message (${response.status}): ${detail.slice(0, 300)}`);
+  if (response.status < 200 || response.status >= 300) {
+    console.error(`[otp] ${provider} rejected the message (${response.status}): ${response.text.slice(0, 300)}`);
     throw deliveryFailed();
   }
 }
@@ -107,7 +103,7 @@ export function twilioSender(config: NonNullable<OtpConfig['twilio']>, fetchFn: 
       }
       await post(fetchFn, 'twilio', `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(sid)}/Messages.json`, {
         headers: {
-          authorization: `Basic ${Buffer.from(`${sid}:${authToken}`).toString('base64')}`,
+          authorization: basicAuth(sid, authToken),
           'content-type': 'application/x-www-form-urlencoded',
         },
         body: form.toString(),

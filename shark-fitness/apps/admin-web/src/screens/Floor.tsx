@@ -4,6 +4,7 @@ import { ApiError, api } from '../lib/api';
 import { useBranchScope, useBranchTimeZone, usePermission } from '../lib/store';
 import { useOnline } from '../lib/realtime';
 import { Page } from '../ui/shell';
+import { ScanPass } from './floor/ScanPass';
 import {
   Bar,
   Button,
@@ -119,8 +120,10 @@ const DECISION_LABEL: Record<string, string> = {
   denied_capacity: 'At capacity',
   denied_suspended: 'Suspended',
   denied_anti_passback: 'Just checked in',
-  denied_token_invalid: 'Code expired',
+  denied_token_invalid: 'Not a valid pass',
+  denied_token_expired: 'Code expired',
   denied_token_replayed: 'Code reused',
+  denied_wrong_tenant: 'Pass from another gym',
 };
 
 function timeOf(iso: string): string {
@@ -141,7 +144,8 @@ export default function FloorScreen() {
     const requested = new URLSearchParams(window.location.search).get('filter');
     return requested === 'denied' || requested === 'granted' || requested === 'overridden' ? requested : 'all';
   });
-  const [search, setSearch] = useState('');
+  // The command palette's "Check in member" lands here as /floor?q=<member no>.
+  const [search, setSearch] = useState(() => new URLSearchParams(window.location.search).get('q')?.slice(0, 80) ?? '');
   const [overrideFor, setOverrideFor] = useState<string | null>(null);
   const [overrideReason, setOverrideReason] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
@@ -322,9 +326,25 @@ export default function FloorScreen() {
         </Panel>
       ) : null}
 
-      {/* — 1. Check-in surface ————————————————————————————————— */}
+      {/* — 1. Scan a pass: the normal way in ————————————————————— */}
 
-      <Panel title="Check someone in" className="border-b border-line">
+      <Panel title="Scan pass" className="border-b border-line">
+        {canCheckIn ? (
+          <ScanPass
+            branches={branches.map((b) => ({ branchId: b.branchId, branchName: b.branchName }))}
+            defaultBranchId={branchId ?? (branches.length === 1 ? branches[0]!.branchId : null)}
+            online={online}
+            canOverride={canOverride}
+            onDone={refreshFloor}
+          />
+        ) : (
+          <PermissionState what="Scanning member passes" />
+        )}
+      </Panel>
+
+      {/* — 2. Check-in by name, for a member without their phone ———— */}
+
+      <Panel title="Check in by name or number" className="border-b border-line">
         {canCheckIn ? (
           <div className="flex flex-col gap-3 p-3.5">
             <Field
@@ -332,7 +352,7 @@ export default function FloorScreen() {
               placeholder="Name, member number or phone"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              hint="The door reader handles app passes. This is for members without one."
+              hint="For a member without their phone. Their member number works too."
               className="max-w-[380px]"
             />
 
@@ -381,7 +401,7 @@ export default function FloorScreen() {
         )}
       </Panel>
 
-      {/* — 2. Occupancy ————————————————————————————————————————— */}
+      {/* — 3. Occupancy ————————————————————————————————————————— */}
 
       <Panel
         title="In the building"
@@ -445,7 +465,7 @@ export default function FloorScreen() {
         ) : null}
       </Panel>
 
-      {/* — 3. Who is inside ————————————————————————————————————— */}
+      {/* — 4. Who is inside ————————————————————————————————————— */}
 
       <Panel title={`Inside now · ${inside.length}`} className="border-b border-line">
         {inside.length === 0 ? (
@@ -486,7 +506,7 @@ export default function FloorScreen() {
         )}
       </Panel>
 
-      {/* — 4. The door feed, denials included ——————————————————— */}
+      {/* — 5. The door feed, denials included ——————————————————— */}
 
       <Panel title="Today at the door">
         <Toolbar>

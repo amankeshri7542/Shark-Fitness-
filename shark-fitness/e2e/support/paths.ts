@@ -11,4 +11,6 @@ export interface RunState {
   tempDir: string;
   baseURL: string;
   serverLog: string;
+  database: string;
+  ownerTotpSecret: string;
 }

@@ -129,6 +129,7 @@ export const BRANCH_POLICY_KEYS = [
   'antiPassbackSeconds',
   'holdSeconds',
   'waitlistOfferMinutes',
+  'waitlistOfferCutoffMinutes',
   'allowNegativeStock',
   'quietHoursFrom',
   'quietHoursTo',
@@ -136,7 +137,7 @@ export const BRANCH_POLICY_KEYS = [
 
 export type BranchPolicyKey = (typeof BRANCH_POLICY_KEYS)[number];
 
-export const TENANT_ONLY_POLICY_KEYS = ['graceDays'] as const;
+export const TENANT_ONLY_POLICY_KEYS = ['graceDays', 'photoRetentionDaysAfterWithdrawal'] as const;
 
 /** A resolved setting and where the answer came from. */
 export interface Resolved<T> {

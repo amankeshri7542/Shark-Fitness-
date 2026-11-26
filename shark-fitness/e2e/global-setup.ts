@@ -5,15 +5,19 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { API_ROOT, STATE_FILE, WORKSPACE_ROOT, type RunState } from './support/paths';
+import { startFakeRazorpay, type FakeRazorpay } from '../apps/api/src/testing/razorpay-fake';
+import { startFakePushService, vapidKeys } from './support/fake-push';
+import { E2E_ANDROID } from './support/demo';
 
 /**
  * Starts the real product the way production runs it: one Node process
- * serving the API, the member app at / and the console at /admin/, against a
+ * serving the API, the website at /, the member app at /app/ and the console
+ * at /admin/, against a
  * freshly migrated and seeded SQLite file in a temporary directory. Never
  * apps/api/data/shark.db.
  */
-export default async function globalSetup(): Promise<void> {
-  const missing = ['apps/member-pwa/dist/index.html', 'apps/admin-web/dist/index.html'].filter(
+export default async function globalSetup(): Promise<() => Promise<void>> {
+  const missing = ['apps/website/dist/index.html', 'apps/member-pwa/dist/index.html', 'apps/admin-web/dist/index.html'].filter(
     (file) => !existsSync(resolve(WORKSPACE_ROOT, file)),
   );
   if (missing.length > 0) {
@@ -21,11 +25,19 @@ export default async function globalSetup(): Promise<void> {
   }
 
   const tempDir = mkdtempSync(join(tmpdir(), 'shark-e2e-'));
+  // Razorpay in test mode, played by a local fake in this (the runner's)
+  // process for the whole run: the API talks to it, never to razorpay.com.
+  // Port 0 picks a free one; SHARK_E2E_RAZORPAY_PORT pins it.
+  let razorpay: FakeRazorpay | null = null;
   try {
+    razorpay = await startFakeRazorpay({ port: Number(process.env.SHARK_E2E_RAZORPAY_PORT ?? 0) });
     const database = join(tempDir, 'shark.db');
     const port = await chosenPort();
     const baseURL = `http://127.0.0.1:${port}`;
     const serverLog = join(tempDir, 'server.log');
+    // Push goes to a local fake push service only (support/fake-push.ts).
+    const push = await startFakePushService();
+    const vapid = vapidKeys();
     // Only what the server needs: nothing inherited from the developer's shell
     // can point it at another database or loosen production checks.
     const env = {
@@ -39,14 +51,43 @@ export default async function globalSetup(): Promise<void> {
       SHARK_ALLOWED_ORIGINS: baseURL,
       // Test-only secret, new every run.
       SHARK_PASS_SECRET: randomBytes(48).toString('base64'),
+      SHARK_MFA_ENCRYPTION_KEY: randomBytes(32).toString('base64'),
       SHARK_DISABLE_JOBS: 'true',
+      // Each test presents its own client address (support/fixtures.ts), so
+      // the per-IP sign-in limit protects production without throttling a
+      // suite that signs in a hundred times a minute from one machine.
+      SHARK_TRUST_PROXY_HOPS: '1',
       SHARK_RELEASE: 'e2e',
       // Error reports go to the server log, where the client-error spec reads them.
       SHARK_ERROR_REPORTER: 'console',
+      // Online payment through the fake Razorpay; keys are new every run.
+      SHARK_PAYMENT_PROVIDER: 'razorpay',
+      SHARK_RAZORPAY_KEY_ID: razorpay.keyId,
+      SHARK_RAZORPAY_KEY_SECRET: razorpay.keySecret,
+      SHARK_RAZORPAY_WEBHOOK_SECRET: razorpay.webhookSecret,
+      SHARK_RAZORPAY_API_BASE: razorpay.baseUrl,
+      SHARK_VAPID_PUBLIC_KEY: vapid.publicKey,
+      SHARK_VAPID_PRIVATE_KEY: vapid.privateKey,
+      SHARK_VAPID_SUBJECT: 'mailto:e2e@sharkfitness.example',
+      SHARK_PUSH_EXTRA_ENDPOINT_ORIGINS: push.origin,
+      SHARK_ANDROID_PACKAGE: E2E_ANDROID.packageName,
+      SHARK_ANDROID_CERT_SHA256: E2E_ANDROID.fingerprint,
+      // Private uploads (progress photos) live in this run's directory.
+      SHARK_MEDIA_DIR: join(tempDir, 'media'),
     };
 
-    for (const script of ['src/db/migrate.ts', 'src/db/seed.ts']) {
-      const result = spawnSync(process.execPath, ['--import', 'tsx', script], { cwd: API_ROOT, env, encoding: 'utf8' });
+    // The demo owner must use two-step sign-in. Enrol it with a secret made
+    // for this run, so specs can generate its codes (support/totp.ts). Other
+    // owners stay unenrolled, which is how the enrolment-gate spec meets the
+    // gate. The secret never leaves this machine's temp state.
+    const ownerTotpSecret = base32(randomBytes(20));
+    const scripts: string[][] = [
+      ['src/db/migrate.ts'],
+      ['src/db/seed.ts'],
+      ['src/db/mfa-fixture.ts', '--secret', ownerTotpSecret, '--email', 'owner@sharkfitness.in'],
+    ];
+    for (const [script, ...args] of scripts) {
+      const result = spawnSync(process.execPath, ['--import', 'tsx', script!, ...args], { cwd: API_ROOT, env, encoding: 'utf8' });
       if (result.status !== 0) throw new Error(`${script} failed:\n${result.stdout}\n${result.stderr}`);
     }
 
@@ -59,7 +100,7 @@ export default async function globalSetup(): Promise<void> {
     });
     closeSync(logFd);
     server.unref();
-    const state: RunState = { pid: server.pid!, tempDir, baseURL, serverLog };
+    const state: RunState = { pid: server.pid!, tempDir, baseURL, serverLog, database, ownerTotpSecret };
     mkdirSync(dirname(STATE_FILE), { recursive: true });
     writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
 
@@ -69,7 +110,25 @@ export default async function globalSetup(): Promise<void> {
 
     process.env.SHARK_E2E_BASE_URL = baseURL;
     process.env.SHARK_E2E_SERVER_LOG = serverLog;
+    process.env.SHARK_E2E_DATABASE = database;
+    process.env.SHARK_E2E_OWNER_TOTP_SECRET = ownerTotpSecret;
+    process.env.SHARK_E2E_PUSH_ORIGIN = push.origin;
+    process.env.SHARK_E2E_VAPID_PUBLIC_KEY = vapid.publicKey;
+    // For the payment specs (support/razorpay.ts), which run in worker processes.
+    process.env.SHARK_E2E_RAZORPAY_API_BASE = razorpay.baseUrl;
+    process.env.SHARK_E2E_RAZORPAY_KEY_SECRET = razorpay.keySecret;
+    process.env.SHARK_E2E_RAZORPAY_WEBHOOK_SECRET = razorpay.webhookSecret;
+    const fake = razorpay;
+    // Runs before global-teardown.ts, which stops the API.
+    return async () => {
+      if (fake.unexpected.length > 0) {
+        console.warn(`Fake Razorpay saw requests it does not serve: ${fake.unexpected.map((r) => `${r.method} ${r.path}`).join(', ')}`);
+      }
+      await fake.close();
+      push.server.close();
+    };
   } catch (error) {
+    await razorpay?.close();
     stopRecordedServer();
     rmSync(tempDir, { recursive: true, force: true });
     throw error;
@@ -85,6 +144,23 @@ async function chosenPort(): Promise<number> {
     throw new Error(`SHARK_E2E_PORT must be a port number between 1 and 65535, not "${pinned}".`);
   }
   return port;
+}
+
+function base32(bytes: Buffer): string {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = 0;
+  let value = 0;
+  let out = '';
+  for (const byte of bytes) {
+    value = (value << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      out += alphabet[(value >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+  }
+  if (bits > 0) out += alphabet[(value << (5 - bits)) & 31];
+  return out;
 }
 
 function freePort(): Promise<number> {

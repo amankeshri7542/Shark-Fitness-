@@ -140,7 +140,12 @@ describe('durable scheduler execution history', () => {
       error.mockRestore();
       db.delete(schema.automations).where(eq(schema.automations.id, automationId)).run();
     }
-  });
+    // This runs every active automation over the whole shared test database,
+    // whose size depends on which suites ran first (about 200 expiring-
+    // membership recipients across several copies of that automation once the
+    // P05 suites have added their members): over the 5 s default on a loaded
+    // machine, though the assertions are unchanged.
+  }, 30_000);
 
   it('marks stale execution evidence overdue and reports an intentionally disabled scheduler', () => {
     const atMs = now() + 365 * DAY;

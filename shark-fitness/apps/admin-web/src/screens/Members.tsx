@@ -6,6 +6,7 @@ import { useAdmin, usePermission } from '../lib/store';
 import { Page } from '../ui/shell';
 import { MembersBulkActions } from './members/BulkActions';
 import { RosterImport } from './RosterImport';
+import { QuickAddDialog } from '../ui/QuickAddDialog';
 import {
   Button,
   Chip,
@@ -74,6 +75,8 @@ const STATE_TONE: Record<string, Tone> = {
 
 export default function MembersScreen() {
   const canView = usePermission('member.view');
+  const canAdd = usePermission('member.edit');
+  const [adding, setAdding] = useState(false);
   const branchId = useAdmin((s) => s.activeBranchId);
   const filters = useSearch({ from: '/console/members' });
   const navigate = useNavigate({ from: '/members' });
@@ -152,11 +155,19 @@ export default function MembersScreen() {
       title="Members"
       kicker={data.scopeNote}
       actions={
-        <span className="font-utility text-[10px] uppercase tracking-[0.12em] text-foam-35">
-          {data.total} total{isFetching ? ' · updating' : ''}
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="font-utility text-[10px] uppercase tracking-[0.12em] text-foam-35">
+            {data.total} total{isFetching ? ' · updating' : ''}
+          </span>
+          {canAdd ? (
+            <Button variant="cta" onClick={() => setAdding(true)}>
+              Add member
+            </Button>
+          ) : null}
+        </div>
       }
     >
+      {adding ? <QuickAddDialog open onClose={() => setAdding(false)} /> : null}
       <Seam className="border-b border-line">
         <div className="min-w-[150px] flex-1 px-3.5 py-3">
           <Label>Showing</Label>

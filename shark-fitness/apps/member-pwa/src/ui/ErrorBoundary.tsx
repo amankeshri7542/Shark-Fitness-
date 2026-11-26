@@ -21,9 +21,31 @@ export function RecoveryScreen({
   // then again for the one that finally stuck, and the reference shown must be
   // the one that was reported.
   const reference = useMemo(() => reporter.referenceFor(error), [error, reporter]);
+  // Offline, the usual cause is a screen that was never opened on this phone
+  // (its code is fetched on first use). That is not a bug to report.
+  const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
   useEffect(() => {
-    reporter.report(error, 'boundary');
-  }, [error, reporter]);
+    if (!offline) reporter.report(error, 'boundary');
+  }, [error, reporter, offline]);
+
+  if (offline) {
+    return (
+      <div className={fullPage ? 'grid min-h-dvh place-items-center px-5' : 'flex flex-1 flex-col justify-center px-5 py-10'}>
+        <section role="alert" className="flex w-full flex-col items-start gap-4 border border-line bg-panel p-5">
+          <Display size="md" as="h1">
+            You're offline
+          </Display>
+          <p className="text-[15px] leading-relaxed text-foam-65">
+            This screen needs a connection the first time it opens on this phone. Home, your plan, the class list and
+            your workout still work offline.
+          </p>
+          <a href="/app/" className="sf-cta w-full">
+            Go to Home
+          </a>
+        </section>
+      </div>
+    );
+  }
 
   const card = (
     <section role="alert" className="flex w-full flex-col items-start gap-4 border border-line bg-panel p-5">

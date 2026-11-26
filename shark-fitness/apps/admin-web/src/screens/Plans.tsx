@@ -22,6 +22,8 @@ interface ProductRow {
   cancellation: { noticeDays: number; refundable: boolean; description: string };
   branchIds: string[];
   status: 'draft' | 'active' | 'retired';
+  /** "Show on website". Only active plans are ever listed. */
+  public?: boolean;
 }
 
 const KINDS = ['membership', 'class_pack', 'pt_credits', 'trial', 'day_pass', 'corporate', 'digital', 'addon', 'retail_bundle'] as const;
@@ -44,6 +46,12 @@ export default function PlansScreen() {
 
   const publish = useMutation({
     mutationFn: (p: ProductRow) => api(`/admin/billing/products/${p.id}`, { method: 'PATCH', body: { status: 'active' } }),
+    onSuccess: invalidate,
+  });
+
+  const website = useMutation({
+    mutationFn: ({ product, listed }: { product: ProductRow; listed: boolean }) =>
+      api<{ listed: boolean }>(`/admin/billing/products/${product.id}/website`, { method: 'PUT', body: { public: listed } }),
     onSuccess: invalidate,
   });
 
@@ -110,6 +118,26 @@ export default function PlansScreen() {
                   {p.freeze.allowed ? ` · freeze up to ${p.freeze.maxDaysPerTerm}d` : ' · no freeze'}
                   {p.cancellation.refundable ? ' · refundable' : ''}
                 </div>
+                {p.status !== 'retired' ? (
+                  <Checkbox
+                    label="Show on website"
+                    checked={Boolean(p.public)}
+                    disabled={website.isPending && website.variables?.product.id === p.id}
+                    onChange={(e) => website.mutate({ product: p, listed: e.target.checked })}
+                    hint={
+                      p.public
+                        ? p.status === 'active'
+                          ? 'Listed on Plans & pricing with its price including GST.'
+                          : 'Listed once you publish it.'
+                        : 'Not on the website. Staff can still sell it at the desk.'
+                    }
+                  />
+                ) : null}
+                {website.isError && website.variables?.product.id === p.id ? (
+                  <p role="alert" className="text-[12px] text-chum">
+                    {website.error instanceof ApiError ? website.error.message : 'Could not change the website listing. Try again.'}
+                  </p>
+                ) : null}
                 <div className="mt-1 flex flex-wrap gap-2">
                   {p.status === 'draft' ? (
                     <Button variant="cta" onClick={() => publish.mutate(p)} disabled={publish.isPending}>

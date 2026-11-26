@@ -11,6 +11,7 @@ import {
   rateLimitBucketCountForTest,
   resetRateLimitsForTest,
 } from '../middleware/index.js';
+import { signInRequest } from './helpers/mfa.js';
 
 interface Session {
   cookie: string;
@@ -18,7 +19,7 @@ interface Session {
 }
 
 async function signIn(email: string, tenantSlug = 'shark'): Promise<Session> {
-  const response = await app.request('/v1/auth/password', {
+  const response = await signInRequest( {
     method: 'POST',
     headers: {
       'content-type': 'application/json',

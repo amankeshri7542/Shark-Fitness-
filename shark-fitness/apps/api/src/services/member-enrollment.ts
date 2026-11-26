@@ -6,6 +6,7 @@ import { conflict, notFound } from '../lib/errors.js';
 import { id, initialsOf, normalizeEmail, normalizePhone } from '../lib/ids.js';
 import { isoDate, now } from '../lib/time.js';
 import { branchTimeZone } from '../lib/branch-time.js';
+import { emitIntegrationEvent } from './integration-events.js';
 
 export function enrollmentBranch(ctx: RequestContext, branchId: string): void {
   requirePermission(ctx, 'member.edit');
@@ -39,5 +40,6 @@ export function enrollMember(ctx: RequestContext, input: { branchId: string; nam
   db.insert(schema.members).values({ id: memberId, tenantId: ctx.tenantId, userId, homeBranchId: input.branchId, memberNo, firstName, lastName: rest.join(' '), initials: initialsOf(name), email, phone,
     emailNormalized: email, phoneNormalized: normalizePhone(phone), dob: null, gender: null, addressLine: null, emergencyContact: null, lifecycle: 'trial', tags: [], trainerId: null, guardianId: null, corporateSponsorId: null, memberNotes: null, staffNotes: null,
     riskScore: null, riskReasons: null, joinedOn: isoDate(at, branchTimeZone(ctx.tenantId, input.branchId)), lastVisitAt: null, mergedIntoId: null, version: 1, createdAt: at, updatedAt: at }).run();
+  emitIntegrationEvent({ tenantId: ctx.tenantId, branchId: input.branchId, type: 'member.created', data: { memberId, memberNo, homeBranchId: input.branchId, lifecycle: 'trial' } });
   return { memberId, memberNo, userId };
 }

@@ -22,8 +22,9 @@
 #   1. pnpm db:backup:verify (scripts/verify-backup-restore.mjs) in a scratch
 #      container: the app's full synthetic backup-and-restore proof.
 #   2. pnpm db:restore the backup into $SHARK_HOME/drill/<stamp>/, which checks
-#      it against its manifest, then boot the deployed image on that copy with
-#      no network and scheduled jobs off, so it cannot reach members.
+#      it against its manifest (the database and, when present, every file in
+#      its media archive), then boot the deployed image on that copy with no
+#      network and scheduled jobs off, so it cannot reach members.
 #   3. /ready must report ready. Prints row counts. With --gym and --email,
 #      signs in as the owner and reads the dashboard; the password comes from a
 #      hidden prompt, or from stdin when it is not a terminal.
@@ -86,7 +87,15 @@ if [ -n "$offsite_object" ]; then
     age -d -i "$age_identity" -o "$download/$object_name.manifest.json" "$download/$object_name.manifest.json.age"
   )
   rm -f "$download/$object_name.age" "$download/$object_name.manifest.json.age"
-  expected=$(sed -n 's/.*"sha256": "\([a-f0-9]\{64\}\)".*/\1/p' "$download/$object_name.manifest.json")
+  # A copy with private media names its archive in the manifest; fetch it too.
+  if grep -q '"archiveFile": "' "$download/$object_name.manifest.json"; then
+    rclone copyto "$object.media.tar.age" "$download/$object_name.media.tar.age"
+    ( umask 077; age -d -i "$age_identity" -o "$download/$object_name.media.tar" "$download/$object_name.media.tar.age" )
+    rm -f "$download/$object_name.media.tar.age"
+  fi
+  # The database's own checksum is the top-level one (two-space indent); the
+  # media section's are nested deeper and checked by db:restore.
+  expected=$(sed -n 's/^  "sha256": "\([a-f0-9]\{64\}\)".*/\1/p' "$download/$object_name.manifest.json")
   actual=$(sha256sum "$download/$object_name")
   actual=${actual%% *}
   [ -n "$expected" ] && [ "$expected" = "$actual" ] \
@@ -143,13 +152,23 @@ else
   echo "1/3 Synthetic recovery proof skipped."
 fi
 
+# The live key, so the restored copy can read its own two-step sign-in
+# secrets; a fresh one if the server has none (the drill still boots).
+mfa_key=$(sed -n 's/^SHARK_MFA_ENCRYPTION_KEY=//p' "$SHARK_HOME/shark.env" 2>/dev/null | tail -n 1)
+[ -n "$mfa_key" ] || mfa_key=$(openssl rand -base64 32 | tr -d '\n')
+
 echo "2/3 Restoring $backup"
 install -m 600 -o 1000 -g 1000 -t "$drill/in" "$backup" "$backup.manifest.json"
-docker run --rm --network none -v "$drill:/drill" --entrypoint pnpm "$image" \
+if [ -f "$backup.media.tar" ]; then install -m 600 -o 1000 -g 1000 -t "$drill/in" "$backup.media.tar"; fi
+# Media (if the copy has any) is checked file by file and restored beside the
+# restored database, in /drill/media.
+docker run --rm --network none -v "$drill:/drill" -e SHARK_MEDIA_DIR=/drill/media --entrypoint pnpm "$image" \
   -s run db:restore "/drill/in/$(basename "$backup")" /drill/shark.db
 docker run -d --name "$name" --network none -v "$drill:/drill" \
   -e SHARK_DB=/drill/shark.db \
+  -e SHARK_MEDIA_DIR=/drill/media \
   -e SHARK_PASS_SECRET="$(openssl rand -base64 48 | tr -d '\n')" \
+  -e SHARK_MFA_ENCRYPTION_KEY="$mfa_key" \
   -e SHARK_PUBLIC_ORIGIN=http://127.0.0.1:8787 \
   -e SHARK_DISABLE_JOBS=true \
   -e SHARK_SERVE_STATIC=false \
@@ -184,10 +203,20 @@ echo "ready=$ready"
 docker exec "$name" node -e '
   const Database = require("./apps/api/node_modules/better-sqlite3");
   const db = new Database(process.env.SHARK_DB, { readonly: true });
-  for (const table of ["tenants", "branches", "users", "members", "memberships", "invoices", "payments", "check_ins", "audit_log"]) {
+  for (const table of ["tenants", "branches", "users", "members", "memberships", "invoices", "payments", "check_ins", "audit_log", "media_objects"]) {
     console.log(table + "=" + db.prepare("select count(*) from " + table).pluck().get());
   }
+  // Every live media row has its file, byte for byte.
+  const { createHash } = require("node:crypto");
+  const fs = require("node:fs");
+  const rows = db.prepare("select storage_key, sha256 from media_objects where deleted_at is null").all();
+  const bad = rows.filter((row) => {
+    const file = "/drill/media/" + row.storage_key;
+    return !fs.existsSync(file) || createHash("sha256").update(fs.readFileSync(file)).digest("hex") !== row.sha256;
+  });
+  console.log("media_files_verified=" + (rows.length - bad.length) + "/" + rows.length);
   db.close();
+  if (bad.length > 0) process.exit(1);
 '
 
 if [ -n "$gym" ]; then
@@ -204,8 +233,13 @@ if [ -n "$gym" ]; then
       console.log("owner_sign_in=" + signIn.status);
       if (!signIn.ok) process.exit(1);
       const session = signIn.headers.get("set-cookie")?.match(/shark_session=([^;,]+)/)?.[1];
-      const dashboard = await fetch(origin + "/v1/admin/dashboard", { headers: { cookie: "shark_session=" + session, origin } });
-      console.log("owner_dashboard=" + dashboard.status);
+      const mfa = (await signIn.json()).mfa?.state ?? "none";
+      console.log("owner_mfa=" + mfa);
+      // An owner with two-step sign-in is asked for a code the drill cannot
+      // give; the password check and a live (partial) session are the proof.
+      const probe = mfa === "challenge" || mfa === "enrol" ? "/v1/auth/mfa" : "/v1/admin/dashboard";
+      const dashboard = await fetch(origin + probe, { headers: { cookie: "shark_session=" + session, origin } });
+      console.log("owner_session=" + dashboard.status);
       if (!dashboard.ok) process.exit(1);
     })().catch((error) => { console.error(error.message); process.exit(1); });
   ' "$gym" "$email"

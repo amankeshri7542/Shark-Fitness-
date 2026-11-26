@@ -6,6 +6,7 @@ import { ctxOf } from '../../middleware/index.js';
 import { branchScope, isAllBranches, requirePermission } from '../../lib/context.js';
 import { addDays, DAY, HOUR, isoDate, localDayRange, now, relativeTime, startOfLocalDay } from '../../lib/time.js';
 import { branchTimeZone } from '../../lib/branch-time.js';
+import { disabledEndpointCount } from '../../services/webhooks.js';
 
 export const dashboardRoutes = new Hono();
 
@@ -401,6 +402,37 @@ dashboardRoutes.get('/', (c) => {
     });
   }
 
+  // A class shrunk below the people booked into it. Nobody was cancelled when
+  // that happened (services/waitlist.ts#applyCapacityChange), so somebody has
+  // to move people or raise the capacity again — this stays up until they do.
+  const overbooked = db
+    .select({ id: schema.classSessions.id, startsAt: schema.classSessions.startsAt })
+    .from(schema.classSessions)
+    .where(
+      and(
+        inArray(schema.classSessions.branchId, scope),
+        sql`${schema.classSessions.state} != 'cancelled'`,
+        gte(schema.classSessions.startsAt, now()),
+        sql`(select count(*) from bookings b where b.session_id = ${schema.classSessions.id}
+               and b.state in ('held', 'confirmed', 'attended')) > ${schema.classSessions.capacity}`,
+      ),
+    )
+    .orderBy(schema.classSessions.startsAt)
+    .all();
+
+  if (overbooked.length > 0) {
+    alerts.push({
+      id: 'overbooked_classes',
+      severity: 'warning',
+      kind: 'overbooked_class',
+      title: `${overbooked.length} upcoming class${overbooked.length === 1 ? ' has' : 'es have'} more bookings than seats`,
+      detail: 'The capacity was lowered below the people already booked. Nobody was cancelled. Move someone or raise the capacity.',
+      count: overbooked.length,
+      actionLabel: 'Open schedule',
+      actionTo: `/schedule?session=${overbooked[0]!.id}`,
+    });
+  }
+
   const slaBreaches = db
     .select({ n: sql<number>`count(*)` })
     .from(schema.tickets)
@@ -423,6 +455,22 @@ dashboardRoutes.get('/', (c) => {
       count: slaBreaches?.n ?? 0,
       actionLabel: 'Open support',
       actionTo: '/support',
+    });
+  }
+
+  // A receiver that failed for long enough to be switched off (PF-INT-003).
+  // Only the people who can fix it — the integration lives in Settings.
+  const integrationsDown = ctx.permissions.includes('settings.manage') ? disabledEndpointCount(ctx.tenantId) : 0;
+  if (integrationsDown > 0) {
+    alerts.push({
+      id: 'integration_down',
+      severity: 'warning',
+      kind: 'integration_down',
+      title: `${integrationsDown} webhook endpoint${integrationsDown === 1 ? '' : 's'} turned off`,
+      detail: 'Repeated delivery failures stopped events reaching a connected system. Fix the receiver, then turn it back on.',
+      count: integrationsDown,
+      actionLabel: 'Open integrations',
+      actionTo: '/settings?tab=integrations',
     });
   }
 

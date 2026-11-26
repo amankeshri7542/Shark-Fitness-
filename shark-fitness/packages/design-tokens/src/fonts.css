@@ -1,0 +1,29 @@
+/* Self-hosted Sonar faces (docs/DESIGN.md "Type"). Latin subsets only, served
+   from our own origin: no third-party font request, nothing for a CSP to
+   allow, and the member app's service worker can precache them. Licences in
+   ../fonts/OFL.txt. Glyphs outside the subset (₹, for example) fall back to the
+   system face named in the --sf-font-* stacks. */
+
+@font-face {
+  font-family: Anton;
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/anton-latin-400.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: Archivo;
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('../fonts/archivo-latin-wght.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Archivo Narrow';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('../fonts/archivo-narrow-latin-wght.woff2') format('woff2');
+}

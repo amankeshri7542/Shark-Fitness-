@@ -1,0 +1,53 @@
+---
+import Mark from './Mark.astro';
+import { branches, branchExtra, brand, hoursSummary } from '../content/site';
+---
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="footer-grid">
+      <div class="u-stack-12">
+        <a class="wordmark" href="/" aria-label={`${brand.name} home`}><Mark />{brand.name}</a>
+        <p class="muted">{brand.promise}</p>
+      </div>
+      <div>
+        <h2 class="label u-footer-label">Branches</h2>
+        <ul>
+          {
+            branches.map((b) => (
+              <li>
+                <a href={`/locations/${b.slug}`}>{branchExtra(b).area}</a>
+              </li>
+            ))
+          }
+        </ul>
+        <p class="muted u-mt-8">
+          {branches[0] ? hoursSummary(branches[0]).map((r) => `${r.days} ${r.hours}`).join(' · ') : null}
+        </p>
+      </div>
+      <div>
+        <h2 class="label u-footer-label">Visit</h2>
+        <ul>
+          <li><a href="/free-trial">Free trial</a></li>
+          <li><a href="/plans">Plans and prices</a></li>
+          <li><a href="/classes">Class timetable</a></li>
+          <li><a href="/coaches">Coaches</a></li>
+          <li><a href="/contact">Contact</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2 class="label u-footer-label">Members</h2>
+        <ul>
+          <li><a href="/app/">Member app sign in</a></li>
+          <li><a href="/faq">FAQ</a></li>
+          <li><a href="/privacy">Privacy notice</a></li>
+          <li><a href="/terms">Terms</a></li>
+          <li><a href={`tel:${brand.phone.replace(/\s/g, '')}`}>{brand.phone}</a></li>
+        </ul>
+      </div>
+    </div>
+    <p class="legal">
+      © 2026 {brand.legalName}, {brand.city}. Prices include 18% GST. This site sets no cookies and loads no trackers.
+    </p>
+  </div>
+</footer>

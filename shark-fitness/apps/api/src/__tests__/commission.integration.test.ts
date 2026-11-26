@@ -5,6 +5,7 @@ import { db, schema } from '../db/client.js';
 import { id } from '../lib/ids.js';
 import { isoDate, now } from '../lib/time.js';
 import { commissionAmount, resolveRate } from '../services/commission.js';
+import { signInRequest } from './helpers/mfa.js';
 
 /* ============================================================================
    Staff commission (PF-STAFF).
@@ -31,7 +32,7 @@ const cache = new Map<string, Session>();
 async function signIn(email: string): Promise<Session> {
   const cached = cache.get(email);
   if (cached) return cached;
-  const response = await app.request('/v1/auth/password', {
+  const response = await signInRequest( {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin: 'http://localhost:5173' },
     body: JSON.stringify({ tenantSlug: 'shark', email, password: 'shark1234' }),

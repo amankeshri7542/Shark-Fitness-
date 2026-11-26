@@ -1,5 +1,6 @@
 export * from './membership.js';
 export * from './booking.js';
+export * from './credits.js';
 export * from './access.js';
 export * from './training.js';
 export * from './gamification.js';
@@ -13,3 +14,5 @@ export * from './settings.js';
 export * from './platform.js';
 export * from './automation.js';
 export * from './gst.js';
+export * from './units.js';
+export * from './notifications.js';

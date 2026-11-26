@@ -309,6 +309,12 @@ export const progressPhotos = sqliteTable(
     pending: integer('pending', { mode: 'boolean' }).notNull().default(true),
     createdAt: integer('created_at').notNull(),
     deletedAt: integer('deleted_at'),
+    /** The stored file (P05). Null until an upload lands. */
+    mediaId: text('media_id'),
+    /** The photo-consent version in force when this was uploaded. */
+    consentVersion: text('consent_version'),
+    /** Set when consent is withdrawn: the file is destroyed after this. */
+    deleteAfter: integer('delete_after'),
   },
   (t) => ({ byMember: index('photos_member_idx').on(t.memberId, t.takenOn) }),
 );
@@ -326,6 +332,9 @@ export const habits = sqliteTable(
     unit: text('unit').notNull(),
     active: integer('active', { mode: 'boolean' }).notNull().default(true),
     createdAt: integer('created_at').notNull(),
+    /** Set when a coach assigned it from a template (P07). */
+    templateKey: text('template_key'),
+    assignedByStaffId: text('assigned_by_staff_id'),
   },
   (t) => ({ byMember: index('habits_member_idx').on(t.memberId, t.active) }),
 );
@@ -408,6 +417,7 @@ export const weeklyCheckIns = sqliteTable(
     submittedAt: integer('submitted_at'),
     coachReply: text('coach_reply'),
     coachRepliedAt: integer('coach_replied_at'),
+    coachReplyByName: text('coach_reply_by_name'),
     safetyEscalated: integer('safety_escalated', { mode: 'boolean' }).notNull().default(false),
     safetySignals: text('safety_signals', { mode: 'json' }).$type<string[]>().notNull(),
   },

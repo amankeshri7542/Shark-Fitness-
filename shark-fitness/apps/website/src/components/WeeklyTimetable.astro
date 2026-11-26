@@ -1,0 +1,36 @@
+---
+import { LEVEL_LABEL, branches, branchExtra, clock12, weeklyPattern } from '../content/site';
+
+export interface Props {
+  /** Limit to one branch (branch pages); default all. */
+  branchId?: string;
+  headingLevel?: 'h2' | 'h3';
+}
+const { branchId, headingLevel: Heading = 'h3' } = Astro.props;
+const list = branchId ? branches.filter((b) => b.id === branchId) : branches;
+---
+
+<div class:list={['seam', { 'seam--3': list.length === 3, 'seam--2': list.length === 2 }]}>
+  {
+    list.map((branch) => (
+      <section class="cell" aria-labelledby={`tt-${branch.slug}`}>
+        <Heading id={`tt-${branch.slug}`}>{branchExtra(branch).area}</Heading>
+        <ul class="slots">
+          {weeklyPattern(branch.id).map((row) => (
+            <li class="slot">
+              <time datetime={row.startTime}>{clock12(row.startTime)}</time>
+              <div>
+                <strong>{row.name}</strong>
+                <div class="slot__meta">
+                  {row.days}
+                  {row.coach ? ` · with ${row.coach}` : ''}
+                </div>
+              </div>
+              <span class="label">{LEVEL_LABEL[row.level] ?? row.level}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    ))
+  }
+</div>

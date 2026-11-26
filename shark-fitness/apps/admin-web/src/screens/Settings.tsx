@@ -9,6 +9,8 @@ import Business from './settings/Business';
 import Branches from './settings/Branches';
 import Privacy from './settings/Privacy';
 import Setup from './settings/Setup';
+import Security from './settings/Security';
+import Integrations from './settings/Integrations';
 
 /* ============================================================================
    Settings — tenant, branches and policy (PF-TEN).
@@ -29,6 +31,8 @@ const TABS = [
   { key: 'business', label: 'Business' },
   { key: 'branches', label: 'Locations' },
   { key: 'privacy', label: 'Privacy' },
+  { key: 'security', label: 'Security' },
+  { key: 'integrations', label: 'Integrations' },
   { key: 'setup', label: 'Setup' },
 ] as const;
 
@@ -86,6 +90,8 @@ export default function SettingsScreen() {
       {tab === 'business' ? <Business canManage={canManage} /> : null}
       {tab === 'branches' ? <Branches canManage={canManage} /> : null}
       {tab === 'privacy' ? <Privacy canManage={canManage} /> : null}
+      {tab === 'security' ? <Security canManage={canManage} /> : null}
+      {tab === 'integrations' ? <Integrations canManage={canManage} /> : null}
       {tab === 'setup' ? <Setup canManage={canManage} /> : null}
     </Page>
   );

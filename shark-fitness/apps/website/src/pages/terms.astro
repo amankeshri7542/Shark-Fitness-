@@ -1,0 +1,48 @@
+---
+import Layout from '../layouts/Layout.astro';
+import PageHero from '../components/PageHero.astro';
+import { brand } from '../content/site';
+import { breadcrumbs } from '../lib/schema';
+
+const crumbs = [{ name: 'Terms', path: '/terms' }];
+---
+
+<Layout
+  title="Terms of membership and website use"
+  description="Shark Fitness membership terms in plain words: prices and GST, payment, freezing, cancelling, the free trial, gym safety and using this website."
+  path="/terms"
+  jsonLd={[breadcrumbs([{ name: 'Home', path: '/' }, ...crumbs])]}
+>
+  <PageHero title="Terms" lede="How memberships, trials and this website work, in plain words." crumbs={crumbs} />
+  <section class="section">
+    <div class="wrap prose">
+      <p class="draft-banner"><strong>Draft for legal review.</strong> These terms have not yet been reviewed by counsel. The signed membership agreement you receive at joining takes precedence.</p>
+
+      <h2>Prices and GST</h2>
+      <p>Prices on this website include GST at 18%. Each payment comes with a GST invoice showing the price before tax and the tax separately. Prices can change; a change never applies to a period you have already paid for.</p>
+
+      <h2>Paying</h2>
+      <p>You can pay at reception by UPI, card or cash, or in the member app. Monthly plans renew each month until you give notice. If a payment fails we tell you, and your access continues for a short grace period while you sort it out.</p>
+
+      <h2>Freezing</h2>
+      <p>Elite Annual can be frozen for up to 60 days a year and Depot Monthly for up to 14 days a term; a freeze extends your end date. Off-Peak plans, class packs and passes cannot be frozen.</p>
+
+      <h2>Cancelling</h2>
+      <ul>
+        <li>Monthly plans: 7 days’ notice; access continues to the end of the paid month.</li>
+        <li>Elite Annual: a 12-month commitment; leaving early costs ₹500.</li>
+        <li>Class packs: unused credits are refundable within 14 days of purchase.</li>
+        <li>Personal training: unused sessions are refundable, less sessions already delivered.</li>
+      </ul>
+
+      <h2>The free trial</h2>
+      <p>One free trial per person: seven days of floor access at one branch and one coached class, from the day the team confirms. You must be 16 or older. No payment details are taken.</p>
+
+      <h2>Safety</h2>
+      <p>Tell a coach about any injury or condition before you train, and check with your doctor if you are unsure. Follow coaches’ instructions, re-rack weights and wipe down equipment. We may refuse entry to anyone who puts others at risk.</p>
+
+      <h2>This website</h2>
+      <p>Information here is given in good faith and may change. Class times can change at short notice; the member app shows the current timetable. Questions: <a href={`mailto:${brand.email}`}>{brand.email}</a>.</p>
+    </div>
+  </section>
+</Layout>

@@ -86,11 +86,13 @@ db.insert(schema.tenants)
     branding: { accent: '#46c8dd', wordmark: 'SHARK' },
     policy: {
       graceDays: 7,
+      photoRetentionDaysAfterWithdrawal: 30,
       graceAllowsEntry: false,
       antiPassbackSeconds: 90,
       quietHoursFrom: '21:00',
       quietHoursTo: '08:00',
-      waitlistOfferMinutes: 15,
+      waitlistOfferMinutes: 30,
+      waitlistOfferCutoffMinutes: 60,
       holdSeconds: 120,
       /** PF-POS-004. Off by default: a shop that never decided has not
        *  consented to selling stock it does not have. */
@@ -460,6 +462,10 @@ for (const p of PRODUCTS) {
       eligibility: row.eligibility,
       branchIds: p.access.branchIds,
       status: 'active',
+      // Everything a visitor can actually choose is on the website. The free
+      // trial is not: the website's own trial request replaces it, and staff
+      // assign it after they have spoken to the person.
+      isPublic: p.kind !== 'trial',
       createdAt: NOW - 700 * DAY,
       updatedAt: NOW - 40 * DAY,
     })
@@ -2481,6 +2487,11 @@ db.insert(schema.conversations)
     muted: false,
     lastMessageAt: NOW - 2 * HOUR,
     createdAt: NOW - 300 * DAY,
+    branchId: 'br_kor',
+    topic: 'training',
+    assignedStaffId: coachRehan.staffId,
+    staffReadAt: NOW - 2 * HOUR,
+    startedBy: 'staff',
   })
   .run();
 
@@ -2529,6 +2540,11 @@ db.insert(schema.conversations)
     muted: false,
     lastMessageAt: NOW - 5 * DAY,
     createdAt: NOW - 30 * DAY,
+    branchId: 'br_kor',
+    topic: 'membership',
+    assignedStaffId: reception.staffId,
+    staffReadAt: NOW - 5 * DAY,
+    startedBy: 'member',
   })
   .run();
 

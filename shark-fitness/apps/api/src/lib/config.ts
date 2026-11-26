@@ -1,3 +1,4 @@
+import { dirname, resolve as resolvePath } from 'node:path';
 import { z } from 'zod';
 
 const LOCAL_ORIGINS = [
@@ -5,11 +6,17 @@ const LOCAL_ORIGINS = [
   'http://127.0.0.1:5173',
   'http://localhost:5174',
   'http://127.0.0.1:5174',
+  // The public website's dev server (apps/website).
+  'http://localhost:5175',
+  'http://127.0.0.1:5175',
   'http://localhost:8787',
   'http://127.0.0.1:8787',
 ] as const;
 
 const DEVELOPMENT_PASS_SECRET = 'development-only-pass-secret-change-before-deploying';
+/** 32 bytes, published here on purpose: it protects nothing but local and test
+ * databases. Production refuses to start without its own key. */
+const DEVELOPMENT_MFA_ENCRYPTION_KEY = Buffer.from('shark-development-only-mfa-key!!', 'utf8');
 const DAY_MS = 86_400_000;
 const HOUR_MS = 3_600_000;
 
@@ -146,6 +153,90 @@ const Dsn = z.string().trim().min(1).transform((value, ctx): ErrorDsn => {
   };
 });
 
+/** Razorpay's own API, or a loopback fake (integration tests, the E2E
+ * harness). Never any other host: the key secret travels in every request. */
+const RAZORPAY_API_BASE = 'https://api.razorpay.com/v1';
+const RazorpayApiBase = HttpEndpoint.transform((value, ctx) => {
+  const url = new URL(value);
+  const normalized = value.replace(/\/$/, '');
+  if (normalized === RAZORPAY_API_BASE || isLoopback(url.hostname)) return normalized;
+  ctx.addIssue({
+    code: z.ZodIssueCode.custom,
+    message: `SHARK_RAZORPAY_API_BASE must be ${RAZORPAY_API_BASE} or a loopback URL for a local fake.`,
+  });
+  return z.NEVER;
+});
+
+/** Test mode only for this release (PHASE-PLAN decision 5). */
+export const RAZORPAY_TEST_KEY_PATTERN = /^rzp_test_[A-Za-z0-9]+$/;
+/* — Web Push (VAPID) and Android app links ————————————————— */
+
+function base64UrlBytes(value: string): Buffer | null {
+  if (!/^[A-Za-z0-9_-]+={0,2}$/.test(value)) return null;
+  return Buffer.from(value.replace(/=+$/, ''), 'base64url');
+}
+
+/** Uncompressed P-256 public key: 65 bytes, first byte 0x04. */
+const VapidPublicKey = z.preprocess(
+  blankAsUnset,
+  z
+    .string()
+    .trim()
+    .refine((value) => {
+      const bytes = base64UrlBytes(value);
+      return bytes !== null && bytes.length === 65 && bytes[0] === 4;
+    }, 'SHARK_VAPID_PUBLIC_KEY must be a URL-safe base64 uncompressed P-256 public key (65 bytes). Generate one with `pnpm -F @shark/api vapid:keys`.')
+    .optional(),
+);
+const VapidPrivateKey = z.preprocess(
+  blankAsUnset,
+  z
+    .string()
+    .trim()
+    .refine((value) => base64UrlBytes(value)?.length === 32, 'SHARK_VAPID_PRIVATE_KEY must be a URL-safe base64 P-256 private key (32 bytes).')
+    .optional(),
+);
+const VapidSubject = z.preprocess(
+  blankAsUnset,
+  z
+    .string()
+    .trim()
+    .refine(
+      (value) => /^mailto:[^@\s]+@[^@\s]+$/.test(value) || /^https:\/\/[^\s]+$/.test(value),
+      'SHARK_VAPID_SUBJECT must be a mailto: address or an https: URL push services can contact.',
+    )
+    .optional(),
+);
+
+/** Reverse-DNS Android application id, e.g. in.sharkfitness.member. */
+const AndroidPackage = z.preprocess(
+  blankAsUnset,
+  z
+    .string()
+    .trim()
+    .regex(/^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$/, 'SHARK_ANDROID_PACKAGE must be an Android application id such as in.sharkfitness.member.')
+    .optional(),
+);
+/** Comma-separated SHA-256 signing-certificate fingerprints, AA:BB:… (32 pairs). */
+const AndroidCertFingerprints = z.preprocess(
+  blankAsUnset,
+  z
+    .string()
+    .transform((value, ctx) => {
+      const items = value.split(',').map((item) => item.trim().toUpperCase()).filter(Boolean);
+      const bad = items.filter((item) => !/^([0-9A-F]{2}:){31}[0-9A-F]{2}$/.test(item));
+      if (items.length === 0 || bad.length > 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'SHARK_ANDROID_CERT_SHA256 must be one or more SHA-256 fingerprints like 14:6D:E9:…:B4 (32 colon-separated hex pairs), comma-separated.',
+        });
+        return z.NEVER;
+      }
+      return [...new Set(items)];
+    })
+    .optional(),
+);
+
 const Reader = z.object({
   key: z.string().min(16),
   tenantSlug: z.string().trim().min(1).refine((value) => value !== '*', 'must identify one tenant'),
@@ -180,10 +271,42 @@ const RuntimeEnvironmentShape = z.object({
     SHARK_READER_KEYS_JSON: ReaderKeys,
     SHARK_DEMO_READER_KEY: z.string().min(1).optional(),
     SHARK_MEDIA_BUCKET: z.string().transform((value) => value.trim()).optional(),
+    /** Private media on local disk: progress photos (P05) and message
+     *  attachments (P07). Must sit outside every static root. Optional outside
+     *  production (defaults to a `media` folder beside SHARK_DB); in
+     *  production, uploads stay off until it is set. */
+    SHARK_MEDIA_DIR: z.preprocess(blankAsUnset, z.string().trim().min(1).optional()),
+    SHARK_MEDIA_QUOTA_MB: z.preprocess(blankAsUnset, boundedInteger('SHARK_MEDIA_QUOTA_MB', 1, 1_000_000).optional()),
     SHARK_ERROR_REPORTING_ENDPOINT: HttpEndpoint.optional(),
     SHARK_ERROR_REPORTER: providerName('SHARK_ERROR_REPORTER', ERROR_REPORTERS),
     SHARK_ERROR_DSN: Dsn.optional(),
     SHARK_METRICS_TOKEN: z.string().min(1).optional(),
+    SHARK_PAYMENT_PROVIDER: providerName('SHARK_PAYMENT_PROVIDER', ['none', 'razorpay'] as const),
+    SHARK_RAZORPAY_KEY_ID: OptionalText,
+    SHARK_RAZORPAY_KEY_SECRET: OptionalText,
+    SHARK_RAZORPAY_WEBHOOK_SECRET: OptionalText,
+    SHARK_RAZORPAY_API_BASE: z.preprocess(blankAsUnset, RazorpayApiBase.optional()),
+    /** AES-256-GCM key for TOTP and webhook secrets at rest: 32 bytes, base64. */
+    SHARK_MFA_ENCRYPTION_KEY: z.preprocess(
+      blankAsUnset,
+      z
+        .string()
+        .trim()
+        .transform((value, ctx) => {
+          const key = /^[A-Za-z0-9+/]+={0,2}$/.test(value) ? Buffer.from(value, 'base64') : Buffer.alloc(0);
+          if (key.length !== 32) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: 'SHARK_MFA_ENCRYPTION_KEY must be 32 random bytes, base64-encoded (openssl rand -base64 32).',
+            });
+            return z.NEVER;
+          }
+          return key;
+        })
+        .optional(),
+    ),
+    /** Send the Content-Security-Policy as report-only (rollout and debugging). */
+    SHARK_CSP_REPORT_ONLY: ExactBoolean.optional(),
     SHARK_OTP_SMS_PROVIDER: providerName('SHARK_OTP_SMS_PROVIDER', ['log', 'msg91', 'twilio'] as const),
     SHARK_OTP_EMAIL_PROVIDER: providerName('SHARK_OTP_EMAIL_PROVIDER', ['log', 'resend'] as const),
     SHARK_OTP_DEFAULT_COUNTRY_CODE: z.preprocess(
@@ -205,6 +328,21 @@ const RuntimeEnvironmentShape = z.object({
       boundedInteger('SHARK_OTP_MAX_PER_DESTINATION_PER_DAY', 1, 1_000).optional(),
     ),
     SHARK_OTP_MAX_PER_IP_PER_HOUR: z.preprocess(blankAsUnset, boundedInteger('SHARK_OTP_MAX_PER_IP_PER_HOUR', 1, 10_000).optional()),
+    /* Member notification channels (P07). Every channel defaults to `log`:
+       the attempt is recorded as "logged, not delivered" and nothing leaves
+       the server. Provider credentials are shared with the OTP senders. */
+    SHARK_NOTIFY_EMAIL_DRIVER: providerName('SHARK_NOTIFY_EMAIL_DRIVER', ['log', 'resend'] as const),
+    SHARK_NOTIFY_EMAIL_FROM: OptionalText,
+    SHARK_NOTIFY_SMS_DRIVER: providerName('SHARK_NOTIFY_SMS_DRIVER', ['log', 'msg91', 'twilio'] as const),
+    /** MSG91 Flow (DLT template) used when a message names no template of its own. */
+    SHARK_MSG91_NOTIFY_FLOW_ID: OptionalText,
+    SHARK_NOTIFY_WHATSAPP_DRIVER: providerName('SHARK_NOTIFY_WHATSAPP_DRIVER', ['log', 'cloud'] as const),
+    SHARK_WHATSAPP_ACCESS_TOKEN: OptionalText,
+    SHARK_WHATSAPP_PHONE_NUMBER_ID: OptionalText,
+    SHARK_WHATSAPP_TEMPLATE_LANGUAGE: z.preprocess(
+      blankAsUnset,
+      z.string().regex(/^[a-z]{2}(_[A-Z]{2})?$/, 'SHARK_WHATSAPP_TEMPLATE_LANGUAGE must look like en or en_US.').optional(),
+    ),
     SHARK_IDEMPOTENCY_RETENTION_DAYS: boundedInteger('SHARK_IDEMPOTENCY_RETENTION_DAYS', 7, 365).optional(),
     SHARK_OUTBOX_RETENTION_DAYS: boundedInteger('SHARK_OUTBOX_RETENTION_DAYS', 7, 365).optional(),
     SHARK_SESSION_RETENTION_DAYS: boundedInteger('SHARK_SESSION_RETENTION_DAYS', 1, 365).optional(),
@@ -215,6 +353,12 @@ const RuntimeEnvironmentShape = z.object({
     SHARK_PRUNE_BATCH_SIZE: boundedInteger('SHARK_PRUNE_BATCH_SIZE', 1, 1_000).optional(),
     SHARK_PRUNE_MAX_BATCHES: boundedInteger('SHARK_PRUNE_MAX_BATCHES', 1, 10).optional(),
     SHARK_RELEASE: z.string().trim().min(1).max(200).optional(),
+    SHARK_VAPID_PUBLIC_KEY: VapidPublicKey,
+    SHARK_VAPID_PRIVATE_KEY: VapidPrivateKey,
+    SHARK_VAPID_SUBJECT: VapidSubject,
+    SHARK_PUSH_EXTRA_ENDPOINT_ORIGINS: OriginList,
+    SHARK_ANDROID_PACKAGE: AndroidPackage,
+    SHARK_ANDROID_CERT_SHA256: AndroidCertFingerprints,
     RENDER_EXTERNAL_URL: OptionalOrigin,
     RENDER_GIT_COMMIT: z.string().trim().optional(),
     GITHUB_SHA: z.string().trim().optional(),
@@ -231,7 +375,31 @@ const OTP_CREDENTIALS = {
   resend: ['SHARK_RESEND_API_KEY', 'SHARK_OTP_EMAIL_FROM'],
 } as const;
 
+const NOTIFY_CREDENTIALS = {
+  SHARK_NOTIFY_EMAIL_DRIVER: { resend: ['SHARK_RESEND_API_KEY', 'SHARK_NOTIFY_EMAIL_FROM'] },
+  SHARK_NOTIFY_SMS_DRIVER: {
+    msg91: ['SHARK_MSG91_AUTH_KEY'],
+    twilio: ['SHARK_TWILIO_ACCOUNT_SID', 'SHARK_TWILIO_AUTH_TOKEN', 'SHARK_TWILIO_FROM'],
+  },
+  SHARK_NOTIFY_WHATSAPP_DRIVER: { cloud: ['SHARK_WHATSAPP_ACCESS_TOKEN', 'SHARK_WHATSAPP_PHONE_NUMBER_ID'] },
+} as const;
+
 const RuntimeEnvironment = RuntimeEnvironmentShape.superRefine((environment, ctx) => {
+    for (const [variable, drivers] of Object.entries(NOTIFY_CREDENTIALS) as Array<
+      [keyof typeof NOTIFY_CREDENTIALS, Record<string, readonly (keyof typeof environment)[]>]
+    >) {
+      const driver = environment[variable];
+      if (!driver || driver === 'log') continue;
+      for (const key of drivers[driver] ?? []) {
+        if (!environment[key]) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [key],
+            message: `${String(key)} is required when ${variable}=${driver}.`,
+          });
+        }
+      }
+    }
     if (environment.SHARK_MEDIA_BUCKET) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -253,6 +421,45 @@ const RuntimeEnvironment = RuntimeEnvironmentShape.superRefine((environment, ctx
           });
         }
       }
+    }
+    if (environment.SHARK_RAZORPAY_KEY_ID && !RAZORPAY_TEST_KEY_PATTERN.test(environment.SHARK_RAZORPAY_KEY_ID)) {
+      // Refused in every environment, whatever SHARK_PAYMENT_PROVIDER says:
+      // a live key sitting in an env file is one edit away from charging people.
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['SHARK_RAZORPAY_KEY_ID'],
+        message:
+          'SHARK_RAZORPAY_KEY_ID must be a Razorpay test key (rzp_test_…). Live mode is out of scope for this release; see "Going live" in docs/PAYMENTS-RAZORPAY.md.',
+      });
+    }
+    if (environment.SHARK_PAYMENT_PROVIDER === 'razorpay') {
+      for (const key of ['SHARK_RAZORPAY_KEY_ID', 'SHARK_RAZORPAY_KEY_SECRET', 'SHARK_RAZORPAY_WEBHOOK_SECRET'] as const) {
+        if (!environment[key]) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [key],
+            message: `${key} is required when SHARK_PAYMENT_PROVIDER=razorpay.`,
+          });
+        }
+      }
+    }
+    const vapid = ['SHARK_VAPID_PUBLIC_KEY', 'SHARK_VAPID_PRIVATE_KEY', 'SHARK_VAPID_SUBJECT'] as const;
+    const vapidSet = vapid.filter((key) => environment[key] !== undefined);
+    if (vapidSet.length > 0 && vapidSet.length < vapid.length) {
+      for (const key of vapid.filter((key) => environment[key] === undefined)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `Web Push needs all of ${vapid.join(', ')}; ${key} is missing. Leave all three unset to switch push off.`,
+        });
+      }
+    }
+    if (Boolean(environment.SHARK_ANDROID_PACKAGE) !== Boolean(environment.SHARK_ANDROID_CERT_SHA256)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [environment.SHARK_ANDROID_PACKAGE ? 'SHARK_ANDROID_CERT_SHA256' : 'SHARK_ANDROID_PACKAGE'],
+        message: 'Android app links need both SHARK_ANDROID_PACKAGE and SHARK_ANDROID_CERT_SHA256 (or neither).',
+      });
     }
     if (environment.SHARK_ERROR_REPORTER === 'sentry' && !environment.SHARK_ERROR_DSN) {
       ctx.addIssue({
@@ -308,6 +515,14 @@ const RuntimeEnvironment = RuntimeEnvironmentShape.superRefine((environment, ctx
       }
     }
 
+    if (!environment.SHARK_MFA_ENCRYPTION_KEY) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['SHARK_MFA_ENCRYPTION_KEY'],
+        message: 'SHARK_MFA_ENCRYPTION_KEY is required in production (openssl rand -base64 32).',
+      });
+    }
+
     if (environment.SHARK_ECHO_OTP === true) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -349,6 +564,13 @@ const RuntimeEnvironment = RuntimeEnvironmentShape.superRefine((environment, ctx
         message: 'SHARK_ERROR_DSN must use HTTPS in production.',
       });
     }
+    if (environment.SHARK_PAYMENT_PROVIDER === 'razorpay' && (environment.SHARK_RAZORPAY_WEBHOOK_SECRET?.length ?? 0) < 16) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['SHARK_RAZORPAY_WEBHOOK_SECRET'],
+        message: 'SHARK_RAZORPAY_WEBHOOK_SECRET must be at least 16 characters in production.',
+      });
+    }
     if (environment.SHARK_METRICS_TOKEN !== undefined && environment.SHARK_METRICS_TOKEN.length < 32) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -380,6 +602,11 @@ export interface RuntimeConfig {
   readerKeys: Record<string, ReaderConfig>;
   demoReaderKey: string;
   mediaBucket: string | null;
+  /** Where private uploads (progress photos) live, outside every static root.
+   *  Null in production unless SHARK_MEDIA_DIR is set: uploads are then off. */
+  mediaDir: string | null;
+  /** Fallback per-tenant upload quota when the tenant row has none. */
+  mediaQuotaMb: number;
   errorReportingEndpoint: string | null;
   errorDsn: ErrorDsn | null;
   /** The reporter `auto` resolved to: DSN, then endpoint, then console in
@@ -387,7 +614,22 @@ export interface RuntimeConfig {
   errorReporter: ErrorReporterName;
   /** Bearer token for GET /metrics. Null disables the endpoint (404). */
   metricsToken: string | null;
+  /** 32-byte key for field encryption (TOTP and webhook secrets). */
+  mfaEncryptionKey: Buffer;
+  cspReportOnly: boolean;
   otp: OtpConfig;
+  /** Null unless SHARK_PAYMENT_PROVIDER=razorpay with every credential set. */
+  payments: { provider: 'razorpay'; razorpay: RazorpayConfig } | null;
+  /** Web Push. `vapid` null means push is off: no push UI, nothing queued. */
+  push: {
+    vapid: { publicKey: string; privateKey: string; subject: string } | null;
+    /** Push endpoints outside the known browser push services that may be
+     *  used anyway: local fake push services in tests. Empty in production. */
+    extraEndpointOrigins: string[];
+  };
+  /** Digital Asset Links for the Android TWA. Null serves 404. */
+  androidAppLinks: { packageName: string; sha256CertFingerprints: string[] } | null;
+  notify: NotifyConfig;
   release: string;
   retention: {
     idempotencyKeysMs: number;
@@ -401,6 +643,13 @@ export interface RuntimeConfig {
   pruning: { batchSize: number; maxBatches: number };
 }
 
+export interface RazorpayConfig {
+  keyId: string;
+  keySecret: string;
+  webhookSecret: string;
+  apiBase: string;
+}
+
 export interface OtpConfig {
   smsProvider: 'log' | 'msg91' | 'twilio';
   emailProvider: 'log' | 'resend';
@@ -410,6 +659,38 @@ export interface OtpConfig {
   twilio: { accountSid: string; authToken: string; from: string; channel: 'sms' | 'whatsapp'; contentSid: string | null } | null;
   resend: { apiKey: string; from: string } | null;
   limits: { resendCooldownMs: number; perDestinationPerDay: number; perIpPerHour: number };
+}
+
+/**
+ * Private media directory. Outside development it must be stated: a guess in
+ * production could land photos somewhere a backup, or a static server, does
+ * not expect. In development and tests it sits beside the database.
+ */
+function resolveMediaDir(configured: string | undefined, databasePath: string, production: boolean): string | null {
+  if (configured) {
+    const absolute = resolvePath(configured);
+    const appsRoot = resolvePath(import.meta.dirname, '../../..');
+    for (const staticRoot of ['member-pwa/dist', 'admin-web/dist', 'website/dist']) {
+      const root = resolvePath(appsRoot, staticRoot);
+      if (absolute === root || absolute.startsWith(`${root}/`)) {
+        throw new Error(`SHARK_MEDIA_DIR must not be inside a static web root (${root}). Private photos would be served to anyone.`);
+      }
+    }
+    return absolute;
+  }
+  if (production) return null;
+  return resolvePath(dirname(resolvePath(databasePath)), 'media');
+}
+
+/** Member notification drivers (P07). `log` unless chosen and credentialed. */
+export interface NotifyConfig {
+  emailDriver: 'log' | 'resend';
+  smsDriver: 'log' | 'msg91' | 'twilio';
+  whatsappDriver: 'log' | 'cloud';
+  resend: { apiKey: string; from: string } | null;
+  msg91: { authKey: string; defaultFlowId: string | null } | null;
+  twilio: { accountSid: string; authToken: string; from: string } | null;
+  whatsapp: { accessToken: string; phoneNumberId: string; language: string } | null;
 }
 
 export function parseRuntimeConfig(environment: Record<string, string | undefined>): RuntimeConfig {
@@ -437,6 +718,8 @@ export function parseRuntimeConfig(environment: Record<string, string | undefine
     readerKeys: parsed.SHARK_READER_KEYS_JSON,
     demoReaderKey: parsed.SHARK_DEMO_READER_KEY ?? 'demo-reader-secret-change-me',
     mediaBucket: parsed.SHARK_MEDIA_BUCKET || null,
+    mediaDir: resolveMediaDir(parsed.SHARK_MEDIA_DIR, parsed.SHARK_DB ?? 'data/shark.db', nodeEnv === 'production'),
+    mediaQuotaMb: parsed.SHARK_MEDIA_QUOTA_MB ?? 2_048,
     errorReportingEndpoint: parsed.SHARK_ERROR_REPORTING_ENDPOINT ?? null,
     errorDsn: parsed.SHARK_ERROR_DSN ?? null,
     errorReporter: resolveErrorReporter(parsed.SHARK_ERROR_REPORTER ?? 'auto', {
@@ -445,6 +728,8 @@ export function parseRuntimeConfig(environment: Record<string, string | undefine
       nodeEnv,
     }),
     metricsToken: parsed.SHARK_METRICS_TOKEN ?? null,
+    mfaEncryptionKey: parsed.SHARK_MFA_ENCRYPTION_KEY ?? DEVELOPMENT_MFA_ENCRYPTION_KEY,
+    cspReportOnly: parsed.SHARK_CSP_REPORT_ONLY ?? false,
     otp: {
       smsProvider: parsed.SHARK_OTP_SMS_PROVIDER ?? 'log',
       emailProvider: parsed.SHARK_OTP_EMAIL_PROVIDER ?? 'log',
@@ -472,6 +757,60 @@ export function parseRuntimeConfig(environment: Record<string, string | undefine
         perDestinationPerDay: parsed.SHARK_OTP_MAX_PER_DESTINATION_PER_DAY ?? 10,
         perIpPerHour: parsed.SHARK_OTP_MAX_PER_IP_PER_HOUR ?? 30,
       },
+    },
+    payments:
+      parsed.SHARK_PAYMENT_PROVIDER === 'razorpay' &&
+      parsed.SHARK_RAZORPAY_KEY_ID &&
+      parsed.SHARK_RAZORPAY_KEY_SECRET &&
+      parsed.SHARK_RAZORPAY_WEBHOOK_SECRET
+        ? {
+            provider: 'razorpay',
+            razorpay: {
+              keyId: parsed.SHARK_RAZORPAY_KEY_ID,
+              keySecret: parsed.SHARK_RAZORPAY_KEY_SECRET,
+              webhookSecret: parsed.SHARK_RAZORPAY_WEBHOOK_SECRET,
+              apiBase: parsed.SHARK_RAZORPAY_API_BASE ?? RAZORPAY_API_BASE,
+            },
+          }
+        : null,
+    push: {
+      vapid:
+        parsed.SHARK_VAPID_PUBLIC_KEY && parsed.SHARK_VAPID_PRIVATE_KEY && parsed.SHARK_VAPID_SUBJECT
+          ? {
+              publicKey: parsed.SHARK_VAPID_PUBLIC_KEY.replace(/=+$/, ''),
+              privateKey: parsed.SHARK_VAPID_PRIVATE_KEY.replace(/=+$/, ''),
+              subject: parsed.SHARK_VAPID_SUBJECT,
+            }
+          : null,
+      extraEndpointOrigins: parsed.SHARK_PUSH_EXTRA_ENDPOINT_ORIGINS,
+    },
+    androidAppLinks:
+      parsed.SHARK_ANDROID_PACKAGE && parsed.SHARK_ANDROID_CERT_SHA256
+        ? { packageName: parsed.SHARK_ANDROID_PACKAGE, sha256CertFingerprints: parsed.SHARK_ANDROID_CERT_SHA256 }
+        : null,
+    notify: {
+      emailDriver: parsed.SHARK_NOTIFY_EMAIL_DRIVER ?? 'log',
+      smsDriver: parsed.SHARK_NOTIFY_SMS_DRIVER ?? 'log',
+      whatsappDriver: parsed.SHARK_NOTIFY_WHATSAPP_DRIVER ?? 'log',
+      resend:
+        parsed.SHARK_RESEND_API_KEY && parsed.SHARK_NOTIFY_EMAIL_FROM
+          ? { apiKey: parsed.SHARK_RESEND_API_KEY, from: parsed.SHARK_NOTIFY_EMAIL_FROM }
+          : null,
+      msg91: parsed.SHARK_MSG91_AUTH_KEY
+        ? { authKey: parsed.SHARK_MSG91_AUTH_KEY, defaultFlowId: parsed.SHARK_MSG91_NOTIFY_FLOW_ID ?? null }
+        : null,
+      twilio:
+        parsed.SHARK_TWILIO_ACCOUNT_SID && parsed.SHARK_TWILIO_AUTH_TOKEN && parsed.SHARK_TWILIO_FROM
+          ? { accountSid: parsed.SHARK_TWILIO_ACCOUNT_SID, authToken: parsed.SHARK_TWILIO_AUTH_TOKEN, from: parsed.SHARK_TWILIO_FROM }
+          : null,
+      whatsapp:
+        parsed.SHARK_WHATSAPP_ACCESS_TOKEN && parsed.SHARK_WHATSAPP_PHONE_NUMBER_ID
+          ? {
+              accessToken: parsed.SHARK_WHATSAPP_ACCESS_TOKEN,
+              phoneNumberId: parsed.SHARK_WHATSAPP_PHONE_NUMBER_ID,
+              language: parsed.SHARK_WHATSAPP_TEMPLATE_LANGUAGE ?? 'en',
+            }
+          : null,
     },
     release: parsed.SHARK_RELEASE || parsed.RENDER_GIT_COMMIT || parsed.GITHUB_SHA || 'local',
     retention: {

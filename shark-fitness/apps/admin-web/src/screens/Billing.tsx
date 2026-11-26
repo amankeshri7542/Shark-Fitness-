@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, api, API_ORIGIN } from '../lib/api';
@@ -7,6 +7,8 @@ import { Page } from '../ui/shell';
 import { Button, Checkbox, Chip, EmptyState, ErrorState, Field, Label, Metric, Panel, PermissionState, RowOpen, Seam, SelectField, Skeleton, Table, TableScroll, type Tone } from '../ui/console';
 import { ConfirmDialog, Drawer, Modal } from '../ui/overlay';
 import { useIdempotentAttempt } from '../lib/idempotent-attempt';
+import { PaymentLinkSection, type PaymentLinkView } from './billing/PaymentLinkSection';
+import { RECONCILIATION_KEY, ReconciliationPanel } from './billing/ReconciliationPanel';
 
 interface Summary {
   /** Null for a role without report.financial: withheld, not zero. */
@@ -58,10 +60,43 @@ interface InvoiceDetail {
     document: { kind: 'gst_tax_invoice' | 'invoice'; title: string };
   };
   lines: Array<{ id: string; description: string; quantity: number; unitLabel: string; taxLabel: string; totalLabel: string }>;
-  payments: Array<{ id: string; method: string; state: string; amountLabel: string; provider: string | null; failureReason: string | null; recordedByName: string | null; createdAt: string }>;
-  refunds: Array<{ id: string; paymentId: string; amountLabel: string; reason: string; entitlementReversed: boolean; actorName: string; createdAt: string }>;
+  payments: Array<{
+    id: string; method: string; state: string; amountLabel: string; provider: string | null;
+    /** Razorpay's pay_… id for online payments; the reference staff typed for manual ones. */
+    providerRef?: string | null; refundableMinor?: number; refundableLabel?: string;
+    failureReason: string | null; recordedByName: string | null; createdAt: string;
+  }>;
+  refunds: Array<{
+    id: string; paymentId: string; amountLabel: string; reason: string; entitlementReversed: boolean; actorName: string; createdAt: string;
+    /** succeeded | pending (waiting for Razorpay) | failed */
+    state?: string; provider?: string | null; providerRefundId?: string | null; failureReason?: string | null;
+  }>;
   dunning: Array<{ id: string; attempt: number; channel: string; state: string; scheduledFor: string }>;
+  attempts?: Array<{
+    id: string; channel: string; purpose: string; state: string; amountLabel: string; providerOrderId: string | null; providerPaymentId: string | null;
+    providerLinkId: string | null; failureReason: string | null; createdByName: string; createdAt: string; updatedAt: string; settledAt: string | null;
+  }>;
+  events?: Array<{ id: string; type: string; intentId: string | null; receivedAt: string; processedAt: string | null; note: string | null }>;
+  paymentLinks?: PaymentLinkView[];
+  reconciliation?: Array<{ id: string; kind: string; state: string; detail: string }>;
+  onlinePayment?: { available: boolean };
 }
+
+const REFUND_STATE: Record<string, { label: string; tone: Tone }> = {
+  succeeded: { label: 'refunded', tone: 'good' },
+  pending: { label: 'pending with Razorpay', tone: 'warn' },
+  failed: { label: 'failed', tone: 'bad' },
+};
+
+const ATTEMPT_LABEL: Record<string, string> = {
+  created: 'starting',
+  processing: 'waiting for payment',
+  succeeded: 'paid',
+  failed: 'failed',
+  expired: 'expired',
+  superseded: 'replaced',
+  needs_review: 'needs review',
+};
 
 const STATE_TONE: Record<string, Tone> = {
   open: 'accent',
@@ -81,10 +116,14 @@ export default function BillingScreen() {
   const canRefund = usePermission('billing.refund');
   const canWriteOff = usePermission('billing.write_off');
   const queryClient = useQueryClient();
-  const { state } = useSearch({ from: '/console/billing' });
+  const { state, invoice: linkedInvoice, pay } = useSearch({ from: '/console/billing' });
   const stateFilter = state ?? '';
   const navigate = useNavigate({ from: '/billing' });
-  const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
+  // A link (search result, command palette) can open an invoice directly.
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(linkedInvoice ?? null);
+  useEffect(() => {
+    if (linkedInvoice) setSelectedInvoiceId(linkedInvoice);
+  }, [linkedInvoice]);
 
   const summary = useQuery({ queryKey: ['billing-summary'], queryFn: () => api<Summary>('/admin/billing/summary'), enabled: canView });
   const invoices = useQuery({
@@ -132,6 +171,7 @@ export default function BillingScreen() {
     void queryClient.invalidateQueries({ queryKey: ['invoices'] });
     void queryClient.invalidateQueries({ queryKey: ['billing-summary'] });
     void queryClient.invalidateQueries({ queryKey: ['dunning'] });
+    void queryClient.invalidateQueries({ queryKey: RECONCILIATION_KEY });
     if (selectedInvoiceId) void queryClient.invalidateQueries({ queryKey: ['invoice', selectedInvoiceId] });
   };
 
@@ -184,6 +224,8 @@ export default function BillingScreen() {
           </ul>
         </Panel>
       ) : null}
+
+      <ReconciliationPanel onOpenInvoice={setSelectedInvoiceId} />
 
       <div className="border-b border-line p-3.5">
         <div className="flex flex-col gap-1">
@@ -253,11 +295,16 @@ export default function BillingScreen() {
 
       {selectedInvoiceId ? (
         <InvoiceDetailPanel
+          key={selectedInvoiceId}
           invoiceId={selectedInvoiceId}
           canRecordPayment={canRecordPayment}
           canRefund={canRefund}
           canWriteOff={canWriteOff}
-          onClose={() => setSelectedInvoiceId(null)}
+          initialSheet={pay === 1 && selectedInvoiceId === linkedInvoice && canRecordPayment ? 'payment' : null}
+          onClose={() => {
+            setSelectedInvoiceId(null);
+            if (linkedInvoice) void navigate({ search: (prev) => ({ ...prev, invoice: undefined, pay: undefined }), replace: true });
+          }}
           onChanged={invalidateAll}
         />
       ) : null}
@@ -270,6 +317,7 @@ function InvoiceDetailPanel({
   canRecordPayment,
   canRefund,
   canWriteOff,
+  initialSheet = null,
   onClose,
   onChanged,
 }: {
@@ -277,10 +325,12 @@ function InvoiceDetailPanel({
   canRecordPayment: boolean;
   canRefund: boolean;
   canWriteOff: boolean;
+  /** Open straight onto a sheet (the palette's Record payment). */
+  initialSheet?: 'payment' | null;
   onClose: () => void;
   onChanged: () => void;
 }) {
-  const [sheet, setSheet] = useState<'payment' | 'void' | { refundPaymentId: string } | null>(null);
+  const [sheet, setSheet] = useState<'payment' | 'void' | { refundPaymentId: string; provider: string | null; refundableLabel: string | null } | null>(initialSheet);
   const { data, isLoading, error, refetch } = useQuery({ queryKey: ['invoice', invoiceId], queryFn: () => api<InvoiceDetail>(`/admin/billing/invoices/${invoiceId}`) });
 
   return (
@@ -371,6 +421,11 @@ function InvoiceDetailPanel({
                             {p.method} · <Chip tone={p.state === 'succeeded' ? 'good' : p.state === 'failed' ? 'bad' : 'neutral'}>{p.state}</Chip>
                           </div>
                           <div className="mt-0.5 text-foam-45">{p.recordedByName ?? p.provider ?? '—'}</div>
+                          {p.provider === 'razorpay' && p.providerRef ? (
+                            <div className="mt-0.5 text-foam-65">
+                              Razorpay payment <span className="select-all text-foam">{p.providerRef}</span>
+                            </div>
+                          ) : null}
                           {p.failureReason ? <div className="mt-0.5 text-chum">{p.failureReason}</div> : null}
                         </div>
                         <div className="flex items-center gap-2">
@@ -381,8 +436,8 @@ function InvoiceDetailPanel({
                             </a>
                       <a className="text-sonar underline underline-offset-2" href={`${API_ORIGIN}/v1/admin/billing/payments/${p.id}/receipt?format=html`} target="_blank" rel="noreferrer">Print / PDF</a></>
                           ) : null}
-                          {canRefund && p.state === 'succeeded' ? (
-                            <Button variant="outline" onClick={() => setSheet({ refundPaymentId: p.id })}>
+                          {canRefund && p.state === 'succeeded' && (p.refundableMinor === undefined || p.refundableMinor > 0) ? (
+                            <Button variant="outline" onClick={() => setSheet({ refundPaymentId: p.id, provider: p.provider, refundableLabel: p.refundableLabel ?? null })}>
                               Refund
                             </Button>
                           ) : null}
@@ -398,18 +453,38 @@ function InvoiceDetailPanel({
                   <ul className="divide-y divide-line">
                     {data.refunds.map((r) => (
                       <li key={r.id} className="px-3.5 py-2 text-[12px]">
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between gap-2">
                           <span>{r.reason}</span>
-                          <span className="font-display">{r.amountLabel}</span>
+                          <span className="flex items-center gap-2">
+                            {r.state ? <Chip tone={REFUND_STATE[r.state]?.tone ?? 'neutral'}>{REFUND_STATE[r.state]?.label ?? r.state}</Chip> : null}
+                            <span className="font-display">{r.amountLabel}</span>
+                          </span>
                         </div>
                         <div className="mt-0.5 text-foam-45">
                           {r.actorName} · {r.entitlementReversed ? 'entitlement reversed' : 'entitlement kept'}
+                          {r.providerRefundId ? <> · Razorpay refund <span className="select-all text-foam-65">{r.providerRefundId}</span></> : null}
                         </div>
+                        {r.state === 'pending' ? (
+                          <div className="mt-0.5 text-foam-65">Razorpay is processing this refund. The invoice changes when Razorpay confirms it.</div>
+                        ) : null}
+                        {r.state === 'failed' && r.failureReason ? <div className="mt-0.5 text-chum">{r.failureReason} The amount can be refunded again.</div> : null}
                       </li>
                     ))}
                   </ul>
                 </Panel>
               ) : null}
+
+              {data.onlinePayment?.available || (data.paymentLinks?.length ?? 0) > 0 ? (
+                <PaymentLinkSection
+                  invoiceId={invoiceId}
+                  links={data.paymentLinks ?? []}
+                  canCreate={canRecordPayment}
+                  payable={!data.invoice.voided && data.invoice.dueMinor > 0}
+                  onCreated={() => { onChanged(); void refetch(); }}
+                />
+              ) : null}
+
+              {(data.attempts?.length ?? 0) > 0 ? <OnlineAttempts attempts={data.attempts!} events={data.events ?? []} reconciliation={data.reconciliation ?? []} /> : null}
 
               {data.dunning.length > 0 ? <DunningPanel invoiceId={invoiceId} /> : null}
             </div>
@@ -422,7 +497,7 @@ function InvoiceDetailPanel({
       ) : null}
       {sheet === 'void' ? <VoidSheet invoiceId={invoiceId} onClose={() => setSheet(null)} onDone={() => { setSheet(null); onChanged(); void refetch(); }} /> : null}
       {sheet && typeof sheet === 'object' ? (
-        <RefundSheet paymentId={sheet.refundPaymentId} onClose={() => setSheet(null)} onDone={() => { setSheet(null); onChanged(); void refetch(); }} />
+        <RefundSheet paymentId={sheet.refundPaymentId} provider={sheet.provider} refundableLabel={sheet.refundableLabel} onClose={() => setSheet(null)} onDone={() => { setSheet(null); onChanged(); void refetch(); }} />
       ) : null}
     </Drawer>
   );
@@ -543,7 +618,13 @@ function VoidSheet({ invoiceId, onClose, onDone }: { invoiceId: string; onClose:
   );
 }
 
-function RefundSheet({ paymentId, onClose, onDone }: { paymentId: string; onClose: () => void; onDone: () => void }) {
+function RefundSheet({ paymentId, provider, refundableLabel, onClose, onDone }: {
+  paymentId: string;
+  provider: string | null;
+  refundableLabel: string | null;
+  onClose: () => void;
+  onDone: () => void;
+}) {
   const [amount, setAmount] = useState('');
   const [reason, setReason] = useState('');
   const [entitlementReversed, setEntitlementReversed] = useState(false);
@@ -585,7 +666,12 @@ function RefundSheet({ paymentId, onClose, onDone }: { paymentId: string; onClos
       }
     >
       <div className="flex flex-col gap-3.5 p-4">
-        <Field label="Amount (₹)" type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} />
+        <Field label="Amount (₹)" type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} {...(refundableLabel ? { hint: `Up to ${refundableLabel}` } : {})} />
+        {provider === 'razorpay' ? (
+          <p className="text-[12px] leading-relaxed text-foam-65">
+            This was paid online, so the money goes back through Razorpay to the member's card, UPI or bank. It shows as pending until Razorpay confirms it, usually within a few working days.
+          </p>
+        ) : null}
         <Field label="Reason" value={reason} onChange={(e) => setReason(e.target.value)} hint="Required. Recorded in the audit log." />
         <Checkbox
           checked={entitlementReversed}
@@ -600,6 +686,53 @@ function RefundSheet({ paymentId, onClose, onDone }: { paymentId: string; onClos
         ) : null}
       </div>
     </Modal>
+  );
+}
+
+/** Every online attempt to collect this invoice, with the signed Razorpay
+ *  events routed to it, newest first. */
+function OnlineAttempts({ attempts, events, reconciliation }: {
+  attempts: NonNullable<InvoiceDetail['attempts']>;
+  events: NonNullable<InvoiceDetail['events']>;
+  reconciliation: NonNullable<InvoiceDetail['reconciliation']>;
+}) {
+  const when = (iso: string) => new Date(iso).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+  return (
+    <Panel title="Online payment attempts">
+      <ol className="divide-y divide-line">
+        {attempts.map((attempt) => (
+          <li key={attempt.id} className="px-3.5 py-2 text-[12px]">
+            <div className="flex items-center justify-between gap-2">
+              <span>
+                {attempt.channel === 'payment_link' ? 'Payment link' : 'Member checkout'} · {attempt.amountLabel}
+                <span className="text-foam-45"> · {when(attempt.createdAt)} · {attempt.createdByName}</span>
+              </span>
+              <Chip tone={attempt.state === 'succeeded' ? 'good' : attempt.state === 'failed' ? 'bad' : attempt.state === 'needs_review' ? 'warn' : 'neutral'}>
+                {ATTEMPT_LABEL[attempt.state] ?? attempt.state}
+              </Chip>
+            </div>
+            <div className="mt-0.5 flex flex-wrap gap-x-3 text-foam-45">
+              {attempt.providerOrderId ? <span>Order <span className="select-all text-foam-65">{attempt.providerOrderId}</span></span> : null}
+              {attempt.providerLinkId ? <span>Link <span className="select-all text-foam-65">{attempt.providerLinkId}</span></span> : null}
+              {attempt.providerPaymentId ? <span>Payment <span className="select-all text-foam-65">{attempt.providerPaymentId}</span></span> : null}
+            </div>
+            {attempt.failureReason && attempt.state !== 'succeeded' ? <div className="mt-0.5 text-chum">{attempt.failureReason.replace(/_/g, ' ')}</div> : null}
+            {events.filter((event) => event.intentId === attempt.id).length > 0 ? (
+              <ul className="mt-1 border-l border-line pl-2.5 text-foam-65">
+                {events.filter((event) => event.intentId === attempt.id).map((event) => (
+                  <li key={event.id}>
+                    {event.type} · {when(event.receivedAt)}{event.processedAt ? '' : ' · not processed yet'}{event.note ? ` · ${event.note}` : ''}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </li>
+        ))}
+      </ol>
+      {reconciliation.filter((item) => item.state === 'open').map((item) => (
+        <p key={item.id} className="border-t border-line px-3.5 py-2 text-[12px] text-flare">{item.detail} See Reconciliation.</p>
+      ))}
+    </Panel>
   );
 }
 

@@ -1,0 +1,67 @@
+---
+import Layout from '../layouts/Layout.astro';
+import PageHero from '../components/PageHero.astro';
+import CtaBand from '../components/CtaBand.astro';
+import { branchBySlug, branchExtra, coaches } from '../content/site';
+import { breadcrumbs } from '../lib/schema';
+
+const crumbs = [{ name: 'Coaches', path: '/coaches' }];
+---
+
+<Layout
+  title="Coaches"
+  description="Meet the Shark Fitness coaches in Bengaluru: strength, conditioning, mobility and beginners. Qualifications, specialties and the classes they lead."
+  path="/coaches"
+  jsonLd={[breadcrumbs([{ name: 'Home', path: '/' }, ...crumbs])]}
+>
+  <PageHero
+    title="Coaches"
+    lede="Qualified, insured and on the floor, not behind a desk. Every member gets a coach for their first session and can ask any of them for help."
+    crumbs={crumbs}
+  />
+
+  <section class="section" aria-label="Coaching team">
+    <div class="wrap">
+      <div class="seam seam--3">
+        {
+          coaches.map((coach) => (
+            <article class="cell" aria-labelledby={`coach-${coach.name}`}>
+              <p class="label label--accent">{coach.role}</p>
+              <h2 class="u-h-fluid" id={`coach-${coach.name}`}>
+                {coach.name} {coach.surname}
+              </h2>
+              <p>{coach.bio}</p>
+              <div>
+                <p class="label">Specialties</p>
+                <p>{coach.specialties.join(', ')}</p>
+              </div>
+              <div>
+                <p class="label">Qualifications</p>
+                <ul class="ticks">
+                  {coach.credentials.map((c) => (
+                    <li>{c}</li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <p class="label">Classes</p>
+                <p>{coach.classes.join(', ')}</p>
+              </div>
+              <p class="muted">
+                Coaches at{' '}
+                {coach.branches
+                  .map((slug) => branchBySlug(slug))
+                  .filter((b) => b !== undefined)
+                  .map((b) => branchExtra(b).area)
+                  .join(' and ')}
+              </p>
+            </article>
+          ))
+        }
+      </div>
+      <p class="muted u-mt-20">Personal training is booked directly with a coach. Ask at reception or on your trial call.</p>
+    </div>
+  </section>
+
+  <CtaBand />
+</Layout>

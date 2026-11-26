@@ -65,6 +65,23 @@ export interface RequestOptions {
   branchId?: string;
   idempotencyKey?: string;
   signal?: AbortSignal;
+  /** Multipart upload (P05 photos). Sent as-is; the browser sets the boundary. */
+  form?: FormData;
+}
+
+/**
+ * Called when a signed-in request comes back 401: the session ended on the
+ * server (expired, revoked from another device, account locked). Sign-in and
+ * session-probe paths are excluded; they report 401 to their own caller.
+ */
+let sessionExpiredHandler: (() => void) | null = null;
+export function onSessionExpired(handler: (() => void) | null): void {
+  sessionExpiredHandler = handler;
+}
+const SESSION_PROBES = new Set(['/me', '/auth/sign-out', '/auth/csrf']);
+function reportExpiry(path: string): void {
+  if (path.startsWith('/auth/') || SESSION_PROBES.has(path)) return;
+  sessionExpiredHandler?.();
 }
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -98,7 +115,7 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
 
 async function send<T>(path: string, options: RequestOptions, method: string): Promise<T> {
   const headers: Record<string, string> = { accept: 'application/json' };
-  if (options.body !== undefined) headers['content-type'] = 'application/json';
+  if (options.body !== undefined && !options.form) headers['content-type'] = 'application/json';
   if (options.branchId) headers['x-branch-id'] = options.branchId;
   if (options.idempotencyKey) headers['idempotency-key'] = options.idempotencyKey;
   const csrfToken = csrf.get();
@@ -110,7 +127,7 @@ async function send<T>(path: string, options: RequestOptions, method: string): P
       method,
       headers,
       credentials: 'include',
-      ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
+      ...(options.form ? { body: options.form } : options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
       ...(options.signal ? { signal: options.signal } : {}),
     });
   } catch {
@@ -122,7 +139,10 @@ async function send<T>(path: string, options: RequestOptions, method: string): P
   const payload = text ? (JSON.parse(text) as unknown) : null;
 
   if (!response.ok) {
-    if (response.status === 401) csrf.clear();
+    if (response.status === 401) {
+      csrf.clear();
+      reportExpiry(path);
+    }
     throw new ApiError(response.status, payload as ErrorEnvelope);
   }
 
@@ -155,3 +175,31 @@ async function refreshCsrf(): Promise<void> {
 export function idempotencyKey(scope: string, ...parts: (string | number)[]): string {
   return `${scope}:${parts.join(':')}:${crypto.randomUUID().slice(0, 8)}`;
 }
+
+/**
+ * Multipart upload of one file as field `file` (message attachments). Online
+ * only: a photo of an injury is not something to queue silently for later.
+ */
+export async function uploadFile<T>(path: string, file: File): Promise<T> {
+  if (!csrf.get()) await refreshCsrf();
+  const form = new FormData();
+  form.append('file', file);
+  let response: Response;
+  try {
+    response = await fetch(`${API_ORIGIN}/v1${path}`, {
+      method: 'POST',
+      headers: { accept: 'application/json', 'x-csrf-token': csrf.get() ?? '' },
+      credentials: 'include',
+      body: form,
+    });
+  } catch {
+    throw new OfflineError();
+  }
+  const text = await response.text();
+  const payload = text ? (JSON.parse(text) as unknown) : null;
+  if (!response.ok) throw new ApiError(response.status, payload as ErrorEnvelope);
+  return payload as T;
+}
+
+/** A signed `/v1/...` media path as a URL the browser can load. */
+export const mediaUrl = (signedPath: string): string => `${API_ORIGIN}${signedPath}`;

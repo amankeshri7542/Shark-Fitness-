@@ -1,0 +1,132 @@
+---
+import type { GetStaticPaths } from 'astro';
+import type { PublicBranch } from '@shark/contracts';
+import Layout from '../../layouts/Layout.astro';
+import PageHero from '../../components/PageHero.astro';
+import PlanCard from '../../components/PlanCard.astro';
+import WeeklyTimetable from '../../components/WeeklyTimetable.astro';
+import CtaBand from '../../components/CtaBand.astro';
+import { branches, branchExtra, dayLabel, hoursSummary, plansAt, WEEKDAY_LABEL, WEEKDAYS, clock12 } from '../../content/site';
+import { breadcrumbs, exerciseGym } from '../../lib/schema';
+
+export const getStaticPaths = (() => branches.map((branch) => ({ params: { slug: branch.slug }, props: { branch } }))) satisfies GetStaticPaths;
+
+const { branch } = Astro.props as { branch: PublicBranch };
+const extra = branchExtra(branch);
+const crumbs = [
+  { name: 'Locations', path: '/locations' },
+  { name: extra.area, path: `/locations/${branch.slug}` },
+];
+const mapUrl = `https://www.openstreetmap.org/?mlat=${extra.geo.lat}&mlon=${extra.geo.lng}#map=17/${extra.geo.lat}/${extra.geo.lng}`;
+const phoneHref = branch.phone ? `tel:${branch.phone.replace(/\s/g, '')}` : null;
+const branchPlans = plansAt(branch.id).filter((p) => p.kind === 'membership');
+---
+
+<Layout
+  title={`Gym in ${extra.area}, Bengaluru`}
+  description={`Shark Fitness ${extra.area} (${branch.name}), ${branch.addressLine}. ${hoursSummary(branch).map((r) => `${r.days} ${r.hours}`).join(', ')}. Classes daily, free trial week.`}
+  path={`/locations/${branch.slug}`}
+  jsonLd={[exerciseGym(branch), breadcrumbs([{ name: 'Home', path: '/' }, ...crumbs])]}
+>
+  <PageHero title={`${extra.area}`} lede={extra.summary} crumbs={crumbs}>
+    <p class="label label--accent">{branch.name}</p>
+    <div class="actions">
+      <a class="btn btn--primary" href={`/free-trial?branch=${branch.slug}`}>Book a free trial here</a>
+      {phoneHref ? <a class="btn" href={phoneHref}>Call {branch.phone}</a> : null}
+    </div>
+  </PageHero>
+
+  {branch.state === 'temporarily_closed' ? <div class="wrap u-py-20"><p class="notice notice--bad">This branch is temporarily closed. Call us before you visit.</p></div> : null}
+
+  <section class="section" aria-labelledby="visit">
+    <div class="wrap">
+      <div class="seam seam--3">
+        <div class="cell">
+          <h2 class="u-h32" id="visit">Address</h2>
+          <address class="u-not-italic">
+            {branch.name}<br />
+            {branch.addressLine}<br />
+            {branch.city} {extra.postalCode}, {extra.region}
+          </address>
+          <p class="muted">{extra.landmark}</p>
+          <p><a href={mapUrl} rel="noopener">Open in OpenStreetMap</a></p>
+          {branch.email ? <p><a href={`mailto:${branch.email}`}>{branch.email}</a></p> : null}
+        </div>
+        <div class="cell">
+          <h2 class="u-h32">Opening hours</h2>
+          <table class="u-table">
+            <caption class="sr-only">Opening hours by day</caption>
+            <tbody>
+              {
+                WEEKDAYS.map((day) => {
+                  const h = branch.hours[day];
+                  return (
+                    <tr class="u-row-rule">
+                      <th class="u-th-day" scope="row">{WEEKDAY_LABEL[day]}</th>
+                      <td class="num u-td-hours">{h.closed ? 'Closed' : `${clock12(h.opens)}–${clock12(h.closes)}`}</td>
+                    </tr>
+                  );
+                })
+              }
+            </tbody>
+          </table>
+          {
+            branch.holidays.length > 0 ? (
+              <p class="muted">Closed on {branch.holidays.map(dayLabel).join(', ')}.</p>
+            ) : null
+          }
+        </div>
+        <div class="cell">
+          <h2 class="u-h32">Getting there</h2>
+          <ul class="ticks">
+            {extra.gettingThere.map((line) => <li>{line}</li>)}
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="floor">
+    <div class="wrap">
+      <div class="section-head"><h2 id="floor">On the floor</h2></div>
+      <div class="seam seam--2">
+        <div class="cell">
+          <ul class="ticks">{extra.floor.map((line) => <li>{line}</li>)}</ul>
+        </div>
+        <div class="cell">
+          <p class="label">Facilities</p>
+          <p>{branch.amenities.join(' · ')}</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="timetable">
+    <div class="wrap">
+      <div class="section-head">
+        <h2 id="timetable">Weekly classes</h2>
+        <p class="muted"><a href="/classes">See this week’s dates and spaces</a></p>
+      </div>
+      <WeeklyTimetable branchId={branch.id} />
+    </div>
+  </section>
+
+  {
+    branchPlans.length > 0 ? (
+      <section class="section" aria-labelledby="branch-plans">
+        <div class="wrap">
+          <div class="section-head">
+            <h2 id="branch-plans">Memberships here</h2>
+          </div>
+          <div class="seam seam--3">
+            {branchPlans.map((plan) => (
+              <PlanCard plan={plan} featured={plan.id === 'prd_elite_annual'} />
+            ))}
+          </div>
+        </div>
+      </section>
+    ) : null
+  }
+
+  <CtaBand title={`Try ${extra.area} free`} />
+</Layout>

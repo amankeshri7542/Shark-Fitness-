@@ -8,10 +8,24 @@ import { db, schema, transact } from '../../db/client.js';
 import { ctxOf, rateLimit } from '../../middleware/index.js';
 import { audit } from '../../lib/audit.js';
 import { emit } from '../../lib/events.js';
-import { conflict, invalid, notFound, precondition } from '../../lib/errors.js';
+import { AppError, conflict, invalid, notFound, precondition } from '../../lib/errors.js';
 import { id, initialsOf } from '../../lib/ids.js';
 import { MINUTE, isoDate, localMinutes, now, relativeTime } from '../../lib/time.js';
 import { RESPONSE_MINUTES, promisedMinutes, responseDeadline } from '../../services/support.js';
+import {
+  MINOR_THREAD_REFUSAL,
+  assertMinorRule,
+  attachmentPolicy,
+  attachmentsByMessage,
+  claimAttachments,
+  memberIsMinor,
+  storeAttachment,
+  type AttachmentView,
+} from '../../services/messaging.js';
+import { engagementSettings } from '../../services/engagement-settings.js';
+import { queueNotification } from '../../services/notifications/service.js';
+import { bodyLimit } from 'hono/body-limit';
+import { ATTACHMENT_MAX_BYTES } from '../../lib/media-storage.js';
 
 export const messagesRoutes = new Hono();
 const messageWriteTenantLimit = rateLimit(300, 60_000, { identity: 'tenant', bucket: 'member-message-write-tenant' });
@@ -107,21 +121,9 @@ function hoursFor(kind: ConversationKind, branch: Branchish, at: number): HoursV
    Attachments
    ========================================================================= */
 
-/**
- * There is no object store wired up in this deployment, so the app cannot put a
- * file anywhere a coach could open it. The policy is reported rather than
- * hidden, and a send that carries files is refused with an explanation instead
- * of silently dropping them (UX-M12 "failed attachment").
- */
-function attachmentPolicy(): { enabled: boolean; maxSizeMb: number; accept: string[]; reason: string | null } {
-  return {
-    enabled: false,
-    maxSizeMb: 0,
-    accept: [],
-    reason:
-      'Photos and files cannot be sent from the app yet. Show it at reception, or describe it here and someone will come and look.',
-  };
-}
+/* Attachment policy and storage live in services/messaging.ts (P07): files go
+   through the MediaStorage port and are only served through signed URLs that
+   re-check who is asking. */
 
 /* ============================================================================
    Shared reads
@@ -729,8 +731,208 @@ messagesRoutes.get('/', (c) => {
     branch: { id: member.homeBranchId, name: branch.name, timezone: branch.timezone },
     desk: hoursFor('reception', branch, at),
     attachments: attachmentPolicy(),
+    start: startOptions(member, branch, at),
   });
 });
+
+/* ============================================================================
+   Starting a conversation (PF-COMM-001, UX-M12)
+   ========================================================================= */
+
+export const MESSAGE_TOPICS = [
+  { key: 'training', label: 'Training and my plan' },
+  { key: 'nutrition', label: 'Food and habits' },
+  { key: 'booking', label: 'Classes and bookings' },
+  { key: 'membership', label: 'My membership' },
+  { key: 'billing', label: 'Payments and invoices' },
+  { key: 'facilities', label: 'The gym and equipment' },
+  { key: 'other', label: 'Something else' },
+] as const;
+type TopicKey = (typeof MESSAGE_TOPICS)[number]['key'];
+
+function startOptions(member: typeof schema.members.$inferSelect, branch: Branchish, at: number) {
+  const minor = memberIsMinor(member, at);
+  const blockedForMinor = minor && !engagementSettings(member.tenantId).allowStaffMinorMessaging;
+  const coach = member.trainerId ? counterpartFor(member.trainerId, 'Your coach', 'Coach') : null;
+  const coachHours = hoursFor('coach', branch, at);
+  const deskHours = hoursFor('reception', branch, at);
+  return {
+    topics: MESSAGE_TOPICS,
+    /** Under-18s cannot start a direct thread with staff unless the gym allows it. */
+    blocked: blockedForMinor,
+    blockedReason: blockedForMinor ? MINOR_THREAD_REFUSAL : null,
+    coach: coach
+      ? {
+          available: !blockedForMinor,
+          name: coach.name,
+          initials: coach.initials,
+          responseWindow: coachHours.responseWindow,
+          outsideHours: coachHours.outsideHours,
+          outsideNote: coachHours.outsideNote,
+        }
+      : null,
+    coachMissingNote: coach ? null : 'You do not have a coach assigned yet. The front desk can help, or ask them to pair you with one.',
+    desk: {
+      available: !blockedForMinor,
+      name: `${branch.name} front desk`,
+      responseWindow: deskHours.responseWindow,
+      outsideHours: deskHours.outsideHours,
+      outsideNote: deskHours.outsideNote,
+    },
+  };
+}
+
+const StartInput = z.object({
+  to: z.enum(['coach', 'desk']),
+  topic: z.enum(MESSAGE_TOPICS.map((t) => t.key) as [TopicKey, ...TopicKey[]]),
+  body: z.string().trim().min(1).max(4000),
+  /** Generated on the device; a retried start returns the same thread. */
+  clientId: z.string().min(8).max(64),
+});
+
+messagesRoutes.post('/start', messageWriteTenantLimit, messageWriteActorLimit, validate('json', StartInput), (c) => {
+  const ctx = ctxOf(c);
+  const memberId = ctx.memberId!;
+  const input = c.req.valid('json');
+  const at = now();
+  const { member, branch } = memberAndBranch(memberId);
+
+  // A retried start (dropped connection) answers with the thread it made.
+  const replay = db
+    .select({ conversationId: schema.messages.conversationId })
+    .from(schema.messages)
+    .innerJoin(schema.conversations, eq(schema.conversations.id, schema.messages.conversationId))
+    .where(
+      and(
+        eq(schema.conversations.memberId, memberId),
+        eq(schema.messages.clientId, input.clientId),
+        eq(schema.messages.senderUserId, ctx.userId),
+      ),
+    )
+    .get();
+  if (replay) return c.json({ conversationId: replay.conversationId, duplicate: true });
+
+  assertMinorRule(member);
+  if (input.to === 'coach' && !member.trainerId) {
+    throw precondition('You do not have a coach assigned yet. Message the front desk instead.');
+  }
+
+  const kind: ConversationKind = input.to === 'coach' ? 'coach' : 'reception';
+  const counterpart =
+    kind === 'coach' ? counterpartFor(member.trainerId, 'Your coach', 'Coach') : null;
+  const topic = MESSAGE_TOPICS.find((t) => t.key === input.topic)!;
+  const title = kind === 'coach' ? `${counterpart?.name ?? 'Your coach'} · ${topic.label}` : `Front desk · ${topic.label}`;
+  const signals = scanForSafety(input.body);
+  const conversationId = id('cnv');
+  const messageId = id('msg');
+
+  transact(() => {
+    db.insert(schema.conversations)
+      .values({
+        id: conversationId,
+        tenantId: ctx.tenantId,
+        kind,
+        title,
+        memberId,
+        staffId: kind === 'coach' ? member.trainerId : null,
+        ticketId: null,
+        state: 'open',
+        muted: false,
+        lastMessageAt: at,
+        createdAt: at,
+        branchId: member.homeBranchId,
+        topic: input.topic,
+        assignedStaffId: kind === 'coach' ? member.trainerId : null,
+        staffReadAt: null,
+        startedBy: 'member',
+      })
+      .run();
+    db.insert(schema.messages)
+      .values({
+        id: messageId,
+        tenantId: ctx.tenantId,
+        conversationId,
+        senderUserId: ctx.userId,
+        senderName: ctx.name,
+        senderRole: 'member',
+        body: input.body,
+        attachments: [],
+        state: 'sent',
+        clientId: input.clientId,
+        createdAt: at,
+        readAt: null,
+        safetyFlagged: signals.length > 0,
+      })
+      .run();
+    notifyStaffOfMemberMessage(ctx, { id: conversationId, kind, assignedStaffId: kind === 'coach' ? member.trainerId : null }, member, messageId, signals.length > 0, at);
+    audit(ctx, {
+      action: 'conversation.started',
+      entityType: 'conversation',
+      entityId: conversationId,
+      entityLabel: title,
+      branchId: member.homeBranchId,
+      after: { kind, topic: input.topic, safety: signals.map((s) => s.category) },
+    });
+  });
+
+  const hours = hoursFor(kind, branch, at);
+  return c.json(
+    {
+      conversationId,
+      duplicate: false,
+      responseWindow: hours.responseWindow,
+      outsideHours: hours.outsideHours,
+      outsideNote: hours.outsideNote,
+      safety: safetyNotice(signals),
+    },
+    201,
+  );
+});
+
+/**
+ * Tell the people who answer. Desk threads land on the branch's live channel
+ * (the Inbox refreshes); a coach or assigned staff member also gets an in-app
+ * notification. The body is not copied into the notification.
+ */
+function notifyStaffOfMemberMessage(
+  ctx: { tenantId: string },
+  conversation: { id: string; kind: string; assignedStaffId: string | null },
+  member: typeof schema.members.$inferSelect,
+  messageId: string,
+  flagged: boolean,
+  at: number,
+): void {
+  emit({
+    tenantId: ctx.tenantId,
+    branchId: member.homeBranchId,
+    channel: channels.branch(member.homeBranchId),
+    topic: 'message.created',
+    payload: { conversationId: conversation.id, messageId, kind: conversation.kind, inbox: true },
+  });
+  const staffId = conversation.assignedStaffId;
+  if (!staffId) return;
+  const staffUserId = db.select({ userId: schema.staff.userId }).from(schema.staff).where(eq(schema.staff.id, staffId)).get()?.userId;
+  if (!staffUserId) return;
+  queueNotification(
+    {
+      tenantId: ctx.tenantId,
+      userId: staffUserId,
+      branchId: member.homeBranchId,
+      channel: 'in_app',
+      purpose: 'operational',
+      source: 'message',
+      sourceId: conversation.id,
+      dedupeKey: `inbox:${messageId}`,
+      kind: flagged ? 'safety' : 'message',
+      title: flagged ? 'A message needs a person' : `New message from ${member.firstName}`,
+      body: flagged
+        ? `${member.firstName} ${member.lastName} wrote something that needs a person to read it.`
+        : `${member.firstName} ${member.lastName} is waiting for a reply.`,
+      link: `/inbox?conversation=${conversation.id}`,
+    },
+    at,
+  );
+}
 
 /* ============================================================================
    GET /:conversationId — the thread
@@ -789,6 +991,7 @@ messagesRoutes.get('/:conversationId', validate('query', ThreadQuery), (c) => {
     ? db.select().from(schema.tickets).where(eq(schema.tickets.id, conversation.ticketId)).get()
     : null;
 
+  const files = attachmentsByMessage(ordered.map((m) => m.id), at);
   const items = ordered.map((m) => ({
     id: m.id,
     conversationId: m.conversationId,
@@ -802,7 +1005,10 @@ messagesRoutes.get('/:conversationId', validate('query', ThreadQuery), (c) => {
     state: m.senderUserId === ctx.userId ? (m.readAt ? 'read' : 'sent') : m.state,
     // An attachment with no url never made it to storage. The thread says so
     // rather than rendering a dead link (UX-M12 "failed attachment").
-    attachments: m.attachments.map((a) => ({ ...a, failed: !a.url })),
+    attachments: [
+      ...m.attachments.map((a) => ({ ...a, failed: !a.url })),
+      ...(files.get(m.id) ?? []),
+    ] as Array<Partial<AttachmentView> & { name: string; failed: boolean }>,
     clientId: m.clientId,
     safetyFlagged: m.safetyFlagged,
   }));
@@ -842,9 +1048,17 @@ messagesRoutes.get('/:conversationId', validate('query', ThreadQuery), (c) => {
     nextCursor: hasMore && window.length > 0 ? String(window[window.length - 1]!.createdAt) : null,
     total,
     unread: unreadCount(conversation.id, ctx.userId),
-    attachments: attachmentPolicy(),
+    attachments: attachmentPolicyFor(conversation.kind),
   });
 });
+
+/** Files go to the coach or the desk, who can open them. In other threads
+ *  (support tickets) nobody on the staff side could, so none are taken. */
+function attachmentPolicyFor(kind: string) {
+  if (kind === 'coach' || kind === 'reception') return attachmentPolicy();
+  return { enabled: false, maxSizeMb: 0, accept: [] as string[], reason: NO_FILES_HERE };
+}
+const NO_FILES_HERE = 'Photos and files can be sent in a conversation with your coach or the front desk.';
 
 /* ============================================================================
    POST /:conversationId — send
@@ -855,11 +1069,14 @@ const SendInput = z.object({
    *  key, so an outbox replay is a no-op (unique on conversation + clientId). */
   clientId: z.string().min(8).max(64),
   body: z.string().trim().min(1).max(4000),
+  /** Legacy: links supplied by the client are never accepted (see attachmentIds). */
   attachments: z
     .array(z.object({ name: z.string().min(1).max(200), url: z.string().max(1000), sizeBytes: z.number().int().min(0) }))
     .max(5)
     .optional()
     .default([]),
+  /** Files uploaded to this thread with POST /:conversationId/attachments. */
+  attachmentIds: z.array(z.string().min(1).max(64)).max(5).optional().default([]),
 });
 
 messagesRoutes.post('/:conversationId', messageWriteTenantLimit, messageWriteActorLimit, validate('json', SendInput), (c) => {
@@ -888,9 +1105,13 @@ messagesRoutes.post('/:conversationId', messageWriteTenantLimit, messageWriteAct
   }
 
   const policy = attachmentPolicy();
-  if (input.attachments.length > 0 && !policy.enabled) {
+  if (input.attachments.length > 0) {
+    throw invalid(policy.enabled ? 'Attach files with the paperclip; links cannot be sent as attachments.' : (policy.reason ?? 'Attachments are not available.'));
+  }
+  if (input.attachmentIds.length > 0 && !policy.enabled) {
     throw invalid(policy.reason ?? 'Attachments are not available.');
   }
+  if (conversation.kind === 'coach' || conversation.kind === 'reception') assertMinorRule(member);
 
   // Idempotent on clientId. The outbox replays the same entry after a dropped
   // connection; the member must not see their message twice.
@@ -916,7 +1137,10 @@ messagesRoutes.post('/:conversationId', messageWriteTenantLimit, messageWriteAct
         createdAt: new Date(existing.createdAt).toISOString(),
         relativeTime: relativeTime(existing.createdAt),
         state: existing.readAt ? 'read' : 'sent',
-        attachments: existing.attachments.map((a) => ({ ...a, failed: !a.url })),
+        attachments: [
+          ...existing.attachments.map((a) => ({ ...a, failed: !a.url })),
+          ...(attachmentsByMessage([existing.id], at).get(existing.id) ?? []),
+        ],
         clientId: existing.clientId,
         safetyFlagged: existing.safetyFlagged,
       },
@@ -950,11 +1174,15 @@ messagesRoutes.post('/:conversationId', messageWriteTenantLimit, messageWriteAct
         safetyFlagged: signals.length > 0,
       })
       .run();
+    claimAttachments(ctx, conversationId, messageId, input.attachmentIds);
 
     db.update(schema.conversations)
       .set({ lastMessageAt: at, state: 'open' })
       .where(eq(schema.conversations.id, conversationId))
       .run();
+    if (signals.length === 0 && (conversation.kind === 'coach' || conversation.kind === 'reception')) {
+      notifyStaffOfMemberMessage(ctx, conversation, member, messageId, false, at);
+    }
 
     if (conversation.ticketId) {
       db.update(schema.tickets)
@@ -1046,7 +1274,7 @@ messagesRoutes.post('/:conversationId', messageWriteTenantLimit, messageWriteAct
         createdAt: new Date(at).toISOString(),
         relativeTime: relativeTime(at),
         state: 'sent',
-        attachments: input.attachments.map((a) => ({ ...a, failed: !a.url })),
+        attachments: attachmentsByMessage([messageId], at).get(messageId) ?? [],
         clientId: input.clientId,
         safetyFlagged: signals.length > 0,
       },
@@ -1059,6 +1287,48 @@ messagesRoutes.post('/:conversationId', messageWriteTenantLimit, messageWriteAct
     201,
   );
 });
+
+/* ============================================================================
+   POST /:conversationId/attachments — upload one file (multipart "file")
+   ========================================================================= */
+
+messagesRoutes.post(
+  '/:conversationId/attachments',
+  messageWriteActorLimit,
+  bodyLimit({
+    maxSize: ATTACHMENT_MAX_BYTES + 64 * 1024,
+    onError: () => {
+      throw new AppError('PAYLOAD_TOO_LARGE', 'That file is over 10 MB. Send a smaller photo or a PDF under 10 MB.');
+    },
+  }),
+  async (c) => {
+    const ctx = ctxOf(c);
+    const memberId = ctx.memberId!;
+    const conversationId = c.req.param('conversationId');
+    const conversation = db
+      .select()
+      .from(schema.conversations)
+      .where(
+        and(
+          eq(schema.conversations.id, conversationId),
+          eq(schema.conversations.tenantId, ctx.tenantId),
+          eq(schema.conversations.memberId, memberId),
+        ),
+      )
+      .get();
+    if (!conversation) throw notFound('That conversation');
+    if (conversation.state === 'closed') throw precondition('This conversation is closed.');
+    if (conversation.kind !== 'coach' && conversation.kind !== 'reception') throw invalid(NO_FILES_HERE);
+    const { member } = memberAndBranch(memberId);
+    assertMinorRule(member);
+
+    const form = await c.req.parseBody().catch(() => null);
+    const file = form?.file;
+    if (!(file instanceof File)) throw invalid('Choose a photo or PDF to attach.');
+    const attachment = storeAttachment(ctx, conversationId, { name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
+    return c.json({ attachment }, 201);
+  },
+);
 
 /* ============================================================================
    POST /:conversationId/read

@@ -1,28 +1,21 @@
 import { StrictMode, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
 import { router } from './router';
 import { useSession } from './lib/store';
 import { useMemberConnection } from './lib/realtime';
-import { API_ORIGIN, ApiError } from './lib/api';
+import { API_ORIGIN } from './lib/api';
+import { queryClient } from './lib/query-client';
+import { ownerOf, purgeExpiredSnapshots, startPersisting } from './lib/persisted-cache';
+import { refreshPushRegistration } from './lib/push';
 import { hasMemberSessionHint, setMemberSessionHint } from './lib/session-hint';
 import { installGlobalErrorListeners } from './lib/error-reporting';
 import { AppErrorBoundary } from './ui/ErrorBoundary';
+import { registerServiceWorker } from './lib/sw-update';
+import { useAppearance } from './lib/preferences';
+import { captureInstallPrompt, countVisit } from './lib/install';
 import './styles.css';
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 30_000,
-      refetchOnWindowFocus: false,
-      retry: (failureCount, error) => {
-        if (error instanceof ApiError && error.status < 500) return false;
-        return failureCount < 2;
-      },
-    },
-  },
-});
 
 const SESSION_RESTORE_TIMEOUT_MS = 12_000;
 
@@ -76,6 +69,36 @@ function Boot() {
   }, [status]);
 
   useMemberConnection(viewer, queryClient);
+  useAppearance();
+
+  // Keep a per-person snapshot of the screens that must work offline.
+  const owner = viewer ? ownerOf(viewer) : null;
+  useEffect(() => {
+    if (!owner) return;
+    return startPersisting(queryClient, () => useSession.getState());
+  }, [owner]);
+
+  // Re-attach this phone's push subscription to the current session.
+  useEffect(() => {
+    if (owner && !useSession.getState().offlineStart) void refreshPushRegistration(owner);
+  }, [owner]);
+
+  // The server ended the session: go to sign-in, which explains and returns
+  // the member to where they were.
+  const sessionEnded = useSession((s) => s.sessionEnded);
+  useEffect(() => {
+    if (sessionEnded && status === 'signed-out') void router.navigate({ to: '/sign-in' });
+  }, [sessionEnded, status]);
+
+  // Opened offline from the snapshot: once the network is back, prove the
+  // session with the server (a 401 there ends it properly).
+  const offlineStart = useSession((s) => s.offlineStart);
+  useEffect(() => {
+    if (!offlineStart) return;
+    const recheck = (): void => void bootstrap();
+    window.addEventListener('online', recheck);
+    return () => window.removeEventListener('online', recheck);
+  }, [offlineStart, bootstrap]);
 
   if (status === 'loading') {
     return (
@@ -97,6 +120,10 @@ function Boot() {
 }
 
 installGlobalErrorListeners();
+captureInstallPrompt();
+countVisit();
+registerServiceWorker();
+void purgeExpiredSnapshots();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

@@ -1,0 +1,156 @@
+---
+import { GOALS, PREFERRED_TIMES, PRIVACY_NOTICE_VERSION, branches, branchExtra, brand } from '../content/site';
+
+export interface Props {
+  kind: 'trial' | 'contact';
+}
+const { kind } = Astro.props;
+const trial = kind === 'trial';
+const submitLabel = trial ? 'Request my free trial' : 'Send my question';
+---
+
+<div class="lead-form" data-lead-form={kind} data-notice-version={PRIVACY_NOTICE_VERSION}>
+  <form class="form" novalidate aria-describedby="form-intro">
+    <p id="form-intro" class="muted">
+      Fields marked <span aria-hidden="true">*</span><span class="sr-only">required</span> are required. We use these details only to call you back{
+        trial ? ' about your trial' : ''
+      }.
+    </p>
+    <div id="form-status" class="notice notice--bad" aria-live="assertive" aria-atomic="true" tabindex="-1"></div>
+
+    <div class="two-up">
+      <div class="field">
+        <label for="name">Your name <span aria-hidden="true">*</span></label>
+        <input class="input" id="name" name="name" type="text" autocomplete="name" required maxlength="80" aria-describedby="name-error" />
+        <p class="error" id="name-error" data-error-for="name"></p>
+      </div>
+      <div class="field">
+        <label for="phone">Mobile number <span aria-hidden="true">*</span></label>
+        <input
+          class="input"
+          id="phone"
+          name="phone"
+          type="tel"
+          inputmode="tel"
+          autocomplete="tel"
+          required
+          maxlength="32"
+          aria-describedby="phone-hint phone-error"
+        />
+        <p class="hint" id="phone-hint">We call from {brand.phone}. Indian numbers need no country code.</p>
+        <p class="error" id="phone-error" data-error-for="phone"></p>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="email">Email <span class="muted">(optional)</span></label>
+      <input class="input" id="email" name="email" type="email" autocomplete="email" maxlength="160" aria-describedby="email-error" />
+      <p class="error" id="email-error" data-error-for="email"></p>
+    </div>
+
+    <div class="two-up">
+      <div class="field">
+        <label for="branchId">Branch <span aria-hidden="true">*</span></label>
+        <select class="select" id="branchId" name="branchId" required aria-describedby="branchId-error">
+          <option value="">Choose a branch</option>
+          {
+            branches.map((b) => (
+              <option value={b.id} data-slug={b.slug}>
+                {branchExtra(b).area} ({b.name})
+              </option>
+            ))
+          }
+        </select>
+        <p class="error" id="branchId-error" data-error-for="branchId"></p>
+      </div>
+      <div class="field">
+        <label for="goal">What are you after? <span class="muted">(optional)</span></label>
+        <select class="select" id="goal" name="goal">
+          <option value="">Choose one</option>
+          {GOALS.map((g) => <option value={g.value}>{g.label}</option>)}
+        </select>
+      </div>
+    </div>
+
+    {
+      trial ? (
+        <fieldset class="field" aria-describedby="class-status classSessionId-error">
+          <legend>
+            Pick a class for your trial <span class="muted">(optional)</span>
+          </legend>
+          <p class="hint" id="class-status" data-class-status aria-live="polite">
+            Choose a branch to see its classes for the next seven days.
+          </p>
+          <div class="choices" data-class-list />
+          <p class="error" id="classSessionId-error" data-error-for="classSessionId" />
+        </fieldset>
+      ) : null
+    }
+
+    <div class="field">
+      <label for="preferredTime">{trial ? 'Or a time that suits you' : 'Best time to call'} <span class="muted">{trial ? '(if no class)' : '(optional)'}</span></label>
+      <select class="select" id="preferredTime" name="preferredTime" aria-describedby="preferredTime-error">
+        <option value="">{trial ? 'Choose a time' : 'Any time'}</option>
+        {PREFERRED_TIMES.map((t) => <option value={t.value}>{t.label}</option>)}
+      </select>
+      <p class="error" id="preferredTime-error" data-error-for="preferredTime"></p>
+    </div>
+
+    <div class="field">
+      <label for="message">{trial ? 'Anything we should know?' : 'Your question'} <span class="muted">{trial ? '(optional)' : ''}</span></label>
+      <textarea
+        class="textarea"
+        id="message"
+        name="message"
+        maxlength="1000"
+        aria-describedby="message-hint message-error"
+        required={!trial}></textarea>
+      <p class="hint" id="message-hint">
+        {trial ? 'An injury, a goal, a time you cannot do. Please do not include medical records.' : 'Up to 1,000 characters.'}
+      </p>
+      <p class="error" id="message-error" data-error-for="message"></p>
+    </div>
+
+    <div class="hp" aria-hidden="true">
+      <label for="website">Leave this empty</label>
+      <input id="website" name="website" type="text" tabindex="-1" autocomplete="off" />
+    </div>
+
+    <fieldset class="field">
+      <legend class="sr-only">Permissions</legend>
+      <label class="check" for="consentProcessing">
+        <input id="consentProcessing" name="consentProcessing" type="checkbox" required aria-describedby="consentProcessing-error" />
+        <span>
+          I agree that {brand.name} may use these details to contact me about this {trial ? 'trial' : 'enquiry'}, as described in the
+          <a href="/privacy">privacy notice</a>. <span aria-hidden="true">*</span>
+        </span>
+      </label>
+      <p class="error" id="consentProcessing-error" data-error-for="consent.processing"></p>
+      <label class="check" for="consentMarketing">
+        <input id="consentMarketing" name="consentMarketing" type="checkbox" />
+        <span>Send me occasional offers and news. You can stop them at any time. (Optional)</span>
+      </label>
+    </fieldset>
+
+    <div>
+      <button class="btn btn--primary" type="submit">{submitLabel}</button>
+    </div>
+    <noscript>
+      <p class="notice">This form needs JavaScript. Call us on <a href={`tel:${brand.phone.replace(/\s/g, '')}`}>{brand.phone}</a> instead and we will set it up.</p>
+    </noscript>
+  </form>
+
+  <div class="notice notice--good" data-form-done hidden tabindex="-1" aria-labelledby="done-title">
+    <h2 class="u-h32-mb12" id="done-title">{trial ? 'Request received' : 'Message received'}</h2>
+    <p data-done-message>Thanks. Someone from the team will call you, usually within a few hours of opening.</p>
+    <p class="muted u-mt-12">
+      We do not send automatic texts or emails. If you need us sooner, call <a href={`tel:${brand.phone.replace(/\s/g, '')}`}>{brand.phone}</a>.
+    </p>
+  </div>
+</div>
+
+<script>
+  import { mountLeadForm } from '../scripts/lead-form';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-lead-form]')) mountLeadForm(root);
+</script>

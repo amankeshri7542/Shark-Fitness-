@@ -7,6 +7,8 @@ import {
   redirect,
 } from '@tanstack/react-router';
 import { AppHeader, BottomNav } from './ui/shell';
+import { OfflineBanner } from './ui/OfflineBanner';
+import { UpdateBar } from './ui/UpdateBar';
 import { useActiveBranch, useSession } from './lib/store';
 
 // Sign-in stays in the entry chunk. It is the first screen an unauthenticated
@@ -17,6 +19,7 @@ import { useActiveBranch, useSession } from './lib/store';
 // or touched, so navigation still feels immediate.
 import SignInScreen from './screens/SignIn';
 import { RecoveryScreen } from './ui/ErrorBoundary';
+import { APP_BASE } from './lib/paths';
 
 const HomeScreen = lazyRouteComponent(() => import('./screens/Home'));
 const PassScreen = lazyRouteComponent(() => import('./screens/Pass'));
@@ -31,10 +34,12 @@ const PackScreen = lazyRouteComponent(() => import('./screens/Pack'));
 const ChallengeScreen = lazyRouteComponent(() => import('./screens/Challenge'));
 const MessagesScreen = lazyRouteComponent(() => import('./screens/Messages'));
 const ConversationScreen = lazyRouteComponent(() => import('./screens/Conversation'));
+const NewMessageScreen = lazyRouteComponent(() => import('./screens/NewMessage'));
 const BillingScreen = lazyRouteComponent(() => import('./screens/Billing'));
 const LibraryScreen = lazyRouteComponent(() => import('./screens/Library'));
 const ProfileScreen = lazyRouteComponent(() => import('./screens/Profile'));
 const NotificationsScreen = lazyRouteComponent(() => import('./screens/Notifications'));
+const HelpScreen = lazyRouteComponent(() => import('./screens/Help'));
 
 /** Shown while a route chunk is in flight. Mirrors the boot splash so a slow
  *  network looks like the app loading, not the app breaking. */
@@ -59,6 +64,8 @@ function TabLayout() {
   return (
     <>
       <AppHeader branchName={branch?.name ?? 'Shark Fitness'} />
+      <OfflineBanner />
+      <UpdateBar />
       <Outlet />
       <BottomNav />
     </>
@@ -76,7 +83,11 @@ const rootRoute = createRootRoute({
 /** Everything below this gate needs a session. */
 function requireSession(): void {
   if (useSession.getState().status === 'signed-out') {
-    throw redirect({ to: '/sign-in' });
+    // Keep an activation or recovery fragment: a link to /app/#activationId=…
+    // (or one forwarded from the website's /) must reach the sign-in screen
+    // with its one-time token intact.
+    const hash = window.location.hash.slice(1);
+    throw redirect({ to: '/sign-in', ...(/(?:^|&)(?:activationId|recoveryId)=/.test(hash) ? { hash } : {}) });
   }
 }
 
@@ -117,12 +128,21 @@ const challengeRoute = createRoute({
 const bookRoute = createRoute({ getParentRoute: () => tabsRoute, path: '/book', component: BookScreen });
 const habitsRoute = createRoute({ getParentRoute: () => tabsRoute, path: '/habits', component: HabitsScreen });
 const messagesRoute = createRoute({ getParentRoute: () => tabsRoute, path: '/messages', component: MessagesScreen });
+const newMessageRoute = createRoute({ getParentRoute: () => tabsRoute, path: '/messages/new', component: NewMessageScreen });
 const conversationRoute = createRoute({
   getParentRoute: () => tabsRoute,
   path: '/messages/$conversationId',
   component: ConversationScreen,
 });
-const billingRoute = createRoute({ getParentRoute: () => tabsRoute, path: '/billing', component: BillingScreen });
+const billingRoute = createRoute({
+  getParentRoute: () => tabsRoute,
+  path: '/billing',
+  component: BillingScreen,
+  // `plan=<productId>`: the public website's "Buy or renew in the app" link
+  // (P03) opens the plan sheet with that plan chosen (P02's purchase flow).
+  validateSearch: (search: Record<string, unknown>): { plan?: string } =>
+    typeof search.plan === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(search.plan) ? { plan: search.plan } : {},
+});
 const libraryRoute = createRoute({ getParentRoute: () => tabsRoute, path: '/library', component: LibraryScreen });
 const profileRoute = createRoute({ getParentRoute: () => tabsRoute, path: '/profile', component: ProfileScreen });
 const notificationsRoute = createRoute({
@@ -131,8 +151,16 @@ const notificationsRoute = createRoute({
   component: NotificationsScreen,
 });
 
+const helpRoute = createRoute({ getParentRoute: () => tabsRoute, path: '/help', component: HelpScreen });
+
 const passRoute = createRoute({ getParentRoute: () => bareRoute, path: '/pass', component: PassScreen });
-const workoutRoute = createRoute({ getParentRoute: () => bareRoute, path: '/workout', component: WorkoutScreen });
+const workoutRoute = createRoute({
+  getParentRoute: () => bareRoute,
+  path: '/workout',
+  component: WorkoutScreen,
+  // `mode=freestyle`: build a session from the library instead of today's plan (P05).
+  validateSearch: (search: Record<string, unknown>): { mode?: 'freestyle' } => (search.mode === 'freestyle' ? { mode: 'freestyle' } : {}),
+});
 const summaryRoute = createRoute({
   getParentRoute: () => bareRoute,
   path: '/workout/summary/$workoutId',
@@ -151,17 +179,22 @@ const routeTree = rootRoute.addChildren([
     bookRoute,
     habitsRoute,
     messagesRoute,
+    newMessageRoute,
     conversationRoute,
     billingRoute,
     libraryRoute,
     profileRoute,
     notificationsRoute,
+    helpRoute,
   ]),
   bareRoute.addChildren([passRoute, workoutRoute, summaryRoute]),
 ]);
 
 export const router = createRouter({
   routeTree,
+  // Served under /app/ (lib/paths.ts APP_BASE, vite.config.ts base). Route
+  // paths stay '/', '/book', …; links and the address bar carry the prefix.
+  basepath: APP_BASE,
   defaultPreload: 'intent',
   defaultPendingComponent: RoutePending,
   // A screen that throws while rendering or loading shows the recovery panel

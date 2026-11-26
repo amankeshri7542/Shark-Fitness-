@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "../../../packages/design-tokens/src/fonts.css";
 @import "../../../packages/design-tokens/src/sonar.css";
 @import "../../../packages/design-tokens/src/theme.css";
 

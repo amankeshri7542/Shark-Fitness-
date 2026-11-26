@@ -81,6 +81,12 @@ export const payments = sqliteTable(
     idemUq: uniqueIndex('payments_idem_uq').on(t.tenantId, t.idempotencyKey),
     byInvoice: index('payments_invoice_idx').on(t.invoiceId),
     byMember: index('payments_member_idx').on(t.memberId, t.createdAt),
+    /** A Razorpay payment settles at most once, whichever of confirm, webhook
+     *  or reconciliation gets there first (P02). Historical demo rows are not
+     *  covered: they share synthetic references by design. */
+    providerRefUq: uniqueIndex('payments_provider_ref_uq')
+      .on(t.provider, t.providerRef)
+      .where(sql`${t.provider} = 'razorpay'`),
   }),
 );
 
@@ -97,8 +103,21 @@ export const refunds = sqliteTable(
     entitlementReversed: integer('entitlement_reversed', { mode: 'boolean' }).notNull().default(false),
     actorName: text('actor_name').notNull(),
     createdAt: integer('created_at').notNull(),
+    /** P02 provider refunds. A Razorpay refund is `pending` until the
+     *  provider reports it processed (`succeeded`) or failed (`failed`); only a
+     *  succeeded refund moves the invoice's refunded total. Manual refunds
+     *  leave these null and are `succeeded` at once, as before. */
+    provider: text('provider'),
+    providerRefundId: text('provider_refund_id'),
+    idempotencyKey: text('idempotency_key'),
+    failureReason: text('failure_reason'),
+    updatedAt: integer('updated_at'),
   },
-  (t) => ({ byPayment: index('refunds_payment_idx').on(t.paymentId) }),
+  (t) => ({
+    byPayment: index('refunds_payment_idx').on(t.paymentId),
+    providerUq: uniqueIndex('refunds_provider_uq').on(t.provider, t.providerRefundId),
+    idemUq: uniqueIndex('refunds_idem_uq').on(t.tenantId, t.idempotencyKey),
+  }),
 );
 
 /** Provider events are immutable inputs. Derived payment state is recomputed
@@ -116,8 +135,14 @@ export const providerEvents = sqliteTable(
     receivedAt: integer('received_at').notNull(),
     processedAt: integer('processed_at'),
     processingError: text('processing_error'),
+    /** The payment intent the event was routed to (P02), for the invoice
+     *  timeline. Null for events that match nothing here. */
+    intentId: text('intent_id'),
   },
-  (t) => ({ eventUq: uniqueIndex('provider_events_uq').on(t.provider, t.providerEventId) }),
+  (t) => ({
+    eventUq: uniqueIndex('provider_events_uq').on(t.provider, t.providerEventId),
+    byIntent: index('provider_events_intent_idx').on(t.intentId),
+  }),
 );
 
 /**

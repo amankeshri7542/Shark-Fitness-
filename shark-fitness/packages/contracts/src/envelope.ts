@@ -23,6 +23,13 @@ export const ERROR_CODES = [
   'LEGAL_HOLD',
   'STALE_VERSION',
   'PAYLOAD_TOO_LARGE',
+  /** A provider signature (payment confirmation, webhook) did not verify. */
+  'SIGNATURE_INVALID',
+  /** A high-risk action needs a recent password (and TOTP) re-check. 401 so
+   *  the client knows it is about credentials, not permission. */
+  'STEP_UP_REQUIRED',
+  /** The session is waiting for a TOTP code or for MFA enrolment. */
+  'MFA_REQUIRED',
   'INTERNAL',
 ] as const;
 
@@ -70,6 +77,9 @@ export const HTTP_STATUS_FOR: Record<ErrorCode, number> = {
   LEGAL_HOLD: 423,
   STALE_VERSION: 409,
   PAYLOAD_TOO_LARGE: 413,
+  SIGNATURE_INVALID: 400,
+  STEP_UP_REQUIRED: 401,
+  MFA_REQUIRED: 401,
   INTERNAL: 500,
 };
 
@@ -125,6 +135,8 @@ export const EVENT_TOPICS = [
   'post.created',
   'challenge.score_changed',
   'lead.stage_changed',
+  /** A website enquiry or trial request reached the pipeline (new or existing lead). */
+  'lead.captured',
   'alert.raised',
   /* Store — PF-POS. Branch-channel topics: a till, a stockroom and a manager's
      console are all looking at the same shelf.
@@ -155,6 +167,10 @@ export const EVENT_TOPICS = [
      conversation model exists to prevent. Staff consoles learn about it from
      `ticket.updated`, which they need anyway because the SLA clock stopped. */
   'ticket.updated',
+  /* Outbound integrations (PF-INT-003). Written to the outbox on a channel no
+     socket can subscribe to; the webhook dispatcher reads it from there. The
+     business event type travels in the payload. */
+  'integration.event',
 ] as const;
 
 export const EventTopic = z.enum(EVENT_TOPICS);

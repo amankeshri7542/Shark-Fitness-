@@ -1,5 +1,28 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" fill="#04080b"/>
-  <path d="M4 20 L16 6 L28 20 L16 15 Z" fill="#46c8dd"/>
-  <rect x="4" y="24" width="24" height="2" fill="#46c8dd" opacity="0.5"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="32" height="32" viewBox="0 0 32 32"><defs>
+    <!-- The fin: the prototype's nav mark, with the sonar bar beneath it. -->
+    <symbol id="mark" viewBox="0 0 100 100">
+      <path d="M8 62 L50 12 L92 62 L50 46 Z" fill="currentColor"/>
+      <rect x="8" y="76" width="84" height="7" fill="currentColor" opacity="0.55"/>
+    </symbol>
+    <!-- Shortcut: entry pass (the barcode strip from the bottom nav). -->
+    <symbol id="pass" viewBox="0 0 100 100">
+      <rect x="14" y="18" width="10" height="64" fill="currentColor"/>
+      <rect x="30" y="18" width="5" height="64" fill="currentColor"/>
+      <rect x="41" y="18" width="12" height="64" fill="currentColor"/>
+      <rect x="59" y="18" width="5" height="64" fill="currentColor"/>
+      <rect x="70" y="18" width="8" height="64" fill="currentColor"/>
+      <rect x="83" y="18" width="4" height="64" fill="currentColor"/>
+    </symbol>
+    <!-- Shortcut: today's workout (the Train chevron). -->
+    <symbol id="train" viewBox="0 0 100 100">
+      <path d="M14 14 L54 14 L90 50 L54 86 L14 86 L50 50 Z" fill="currentColor"/>
+    </symbol>
+    <!-- Shortcut: book a class (a schedule grid with one slot taken). -->
+    <symbol id="book" viewBox="0 0 100 100">
+      <path d="M12 20 H88 V86 H12 Z M18 36 V80 H82 V36 Z" fill="currentColor" fill-rule="evenodd"/>
+      <rect x="12" y="20" width="76" height="10" fill="currentColor"/>
+      <rect x="26" y="12" width="7" height="16" fill="currentColor"/>
+      <rect x="67" y="12" width="7" height="16" fill="currentColor"/>
+      <rect x="54" y="52" width="20" height="18" fill="currentColor"/>
+    </symbol>
+  </defs><rect width="32" height="32" fill="#04080b"/><use href="#mark" xlink:href="#mark" x="3.1999999999999993" y="3.1999999999999993" width="25.6" height="25.6" style="color:#46c8dd"/></svg>

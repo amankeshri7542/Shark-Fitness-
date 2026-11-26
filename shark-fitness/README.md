@@ -1,15 +1,39 @@
 # Shark Fitness
 
-**Current acceptance scope (23 September 2026):** one staffed gym; manual verified settlement and reception attendance. Online checkout and demo provider callbacks are disabled. See [current evidence and gates](docs/STABILIZATION-2026-09-20.md), [local recovery/hosted blockers](docs/deployment-stabilization.md), and [the presentation guide](docs/PILOT-TEST-AND-DEMO.md). Historical module descriptions and test counts below do not establish complete PRD delivery or pilot readiness.
+**Current acceptance scope (23 September 2026):** one staffed gym; manual verified settlement and reception attendance. Online payment runs through Razorpay **in test mode only** when `SHARK_PAYMENT_PROVIDER=razorpay` is configured (see [docs/PAYMENTS-RAZORPAY.md](docs/PAYMENTS-RAZORPAY.md)); without it members pay at reception. Demo provider callbacks stay disabled. See [current evidence and gates](docs/STABILIZATION-2026-09-20.md), [local recovery/hosted blockers](docs/deployment-stabilization.md), and [the presentation guide](docs/PILOT-TEST-AND-DEMO.md). Historical module descriptions and test counts below do not establish complete PRD delivery or pilot readiness.
 
-A multi-tenant gym operating system: a member PWA and a staff operations console,
-built to the four PRDs in the parent directory.
+A multi-tenant gym operating system: a public website, a member PWA and a staff
+operations console, built to the four PRDs in the parent directory. One origin serves
+all three: the website at `/`, the member app at `/app/`, the console at `/admin/`,
+the API at `/v1/`.
+
+**Member core (P05, November 2026), all on by default:**
+
+- **Entry pass.** A rotating, single-use QR code on the member's phone (with a
+  member-number fallback offline), scanned at reception from the console's
+  camera, a USB scanner or a typed code, through the same decision as the door.
+- **Waitlists.** Join a full class; a freed seat is offered to the first
+  eligible member and held for them (30 minutes, or until an hour before
+  class), then passes on. Nobody else can take a held seat.
+- **Credit packs.** Class and PT packs sold at the desk or bought in the app
+  (Razorpay test mode, or pay at reception). Credits appear when the invoice is
+  paid in full, are used earliest expiry first, come back with their original
+  expiry on a timely cancellation, and are refunded by a stated rule (unused:
+  in full; part used: unused credits at the pack's unit price; expired: not
+  refundable).
+- **Progress photos.** Stored privately (metadata stripped, five-minute signed
+  links), only with consent, shared with the assigned coach only if the member
+  chooses, compared side by side, and deleted after consent is withdrawn.
+- **Log a workout of your own** from the exercise library, offline included,
+  with the same PRs, XP and summary as a coached session.
 
 ```
 apps/
   api/            Hono + SQLite (D1-compatible) + Drizzle. 94 tables, migrations, seed.
-  member-pwa/     React + Vite PWA, mobile-first, offline-capable.
-  admin-web/      React + Vite operations console, desktop-first.
+  member-pwa/     React + Vite PWA at /app/: installable, offline-capable, Web Push,
+                  Android TWA definition (android/). See docs/MOBILE-APP.md.
+  admin-web/      React + Vite operations console at /admin/, installable on tablets.
+  website/        Astro static public website at /, with lead and free-trial forms (docs/WEBSITE.md).
 packages/
   contracts/      Zod schemas, enums, error + event envelopes. One source of truth.
   domain/         Pure business rules. 252 tests. No I/O, no framework.
@@ -21,8 +45,13 @@ docs/
   DESIGN.md       The visual direction and why each decision was made.
   BUILD-PLAN.md   Conventions every contributor builds against.
   ADR-001-runtime.md  Why this deviates from the PRD's Cloudflare/Expo stack.
+  ADR-002-member-mobile-app.md  The mobile app: PWA + Android TWA, Expo deferred.
+  MOBILE-APP.md   Install, push, Play Console, asset links, iOS, Data safety draft.
+  ADR-004-mfa-totp.md TOTP two-step sign-in now, passkeys later.
+  SECURITY.md         Sessions, MFA, step-up, CSP, webhooks (with a verification snippet).
   PILOT-HOSTING.md    One-server pilot: deploy, backups (encrypted off-site), drills.
   OPERATIONS-ALERTS.md  Error reporting, /metrics and the alert rules.
+  WEBSITE.md      The public website: content, forms and leads, SEO switches, budgets.
 ```
 
 ## Running it
@@ -31,8 +60,17 @@ docs/
 pnpm install
 pnpm db:reset      # migrate + seed. Deterministic — same gym every time.
 pnpm db:backup:verify # isolated backup → mutate → restore proof
-pnpm dev           # api :8787 · member :5173 · admin :5174
+pnpm dev           # api :8787 · member :5173/app/ · admin :5174/admin/ · website :5175
 ```
+
+In production one process serves the public website at `/`, the member app at
+`/app/`, the console at `/admin/` and the API at `/v1`. Old member links
+(`/#activationId=…`, `/sign-in#…`, `/book`) forward to `/app/` with their
+fragment kept. Dev ports can be moved with
+`SHARK_MEMBER_DEV_PORT`, `SHARK_ADMIN_DEV_PORT` and `SHARK_API_DEV_ORIGIN`.
+
+Push notifications are off until `SHARK_VAPID_*` is set
+(`pnpm -F @shark/api vapid:keys`); see `docs/MOBILE-APP.md`.
 
 The seed builds one tenant (Shark Fitness, Bengaluru) with three branches, 39 members,
 550 class sessions across 21 days, a six-week training programme, twelve weeks of
@@ -54,6 +92,15 @@ SLA, an overdue safety work order.
 
 Password for all: `shark1234`. Members can also sign in by OTP; in a dev build the
 code is echoed to the API log and prefilled.
+
+Owners (and regional managers and platform staff) must use **two-step sign-in**.
+On a fresh database `owner@sharkfitness.in` is asked to set it up after the
+password: scan the QR code with any authenticator app (Google Authenticator,
+Microsoft Authenticator, 1Password…), enter the code, keep the recovery codes.
+The other demo staff accounts are not asked unless the gym turns on
+Settings → Security → "Require two-step sign-in for all staff". Lost the
+authenticator on a dev database? `pnpm db:reset` starts over. Details in
+`docs/SECURITY.md`.
 
 The console changes shape per role — that is the point, not a detail. Sign in as
 reception and then as owner to see it.
@@ -160,6 +207,15 @@ through an IndexedDB outbox with a client-generated id that doubles as the idemp
 key. Losing signal mid-workout costs a retry and nothing else. Bookings deliberately do
 *not* queue — a last-seat claim has to wait for the server.
 
+**Messages are recorded, not assumed.** Every channel (in-app, push, email,
+SMS, WhatsApp) goes through one NotificationService that checks purpose
+consent at queue time and again at send time, defers quiet hours in branch
+time and writes each attempt to `notification_deliveries`. Off in-app, every
+channel defaults to a `log` driver that says "logged, not delivered". Member
+messaging, the staff Inbox, community moderation, tasks, the coach view,
+broadcasts, quick add and the command palette are described in
+`docs/ENGAGEMENT.md`.
+
 **Status is never colour alone.** Every `Chip` pairs its colour with a glyph, per WCAG
 2.2 and the design PRD.
 
@@ -172,6 +228,7 @@ so a caller cannot reach for the aggressive voice on a failed payment.
 
 Recorded properly in `docs/ADR-001-runtime.md`. In short: this runs on Node + SQLite +
 a WebSocket hub rather than Cloudflare Workers + D1 + Durable Objects, and the member
-app is a PWA rather than Expo. The SQL dialect, migrations, query shapes and realtime
+app is a PWA (shipped to Android as a Trusted Web Activity) rather than Expo,
+recorded in `docs/ADR-002-member-mobile-app.md`. The SQL dialect, migrations, query shapes and realtime
 contract are all the ones the PRD specifies, so the port is mechanical rather than a
 rewrite.

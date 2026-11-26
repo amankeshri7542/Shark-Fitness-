@@ -7,6 +7,7 @@ import { id, initialsOf } from '../lib/ids.js';
 import { issuePassBatch } from '../lib/pass-token.js';
 import { runtimeConfig } from '../lib/config.js';
 import { DAY, now } from '../lib/time.js';
+import { signInRequest } from './helpers/mfa.js';
 
 const ORIGIN = 'http://localhost:5173';
 const TENANT_ID = 'ten_shark';
@@ -18,7 +19,7 @@ interface Session {
 }
 
 async function signIn(email: string, password = 'shark1234'): Promise<Session> {
-  const response = await app.request('/v1/auth/password', {
+  const response = await signInRequest( {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin: ORIGIN },
     body: JSON.stringify({ tenantSlug: 'shark', email, password }),

@@ -2,6 +2,9 @@ import type Database from 'better-sqlite3';
 
 /** All application tables, ordered child-first for a deterministic reseed. */
 export const SEED_WIPE_TABLES = [
+  'notification_deliveries', 'broadcasts', 'tasks', 'conversation_notes', 'message_attachments',
+  'community_mutes', 'community_bans',
+  'webhook_attempts', 'webhook_deliveries', 'webhook_endpoints', 'mfa_recovery_codes', 'user_mfa',
   'account_recoveries', 'payment_receipts', 'invoice_tax_documents',
   'media_progress', 'media_assets', 'live_sessions', 'usage_meters',
   'ticket_events', 'interventions', 'feedback',
@@ -10,7 +13,7 @@ export const SEED_WIPE_TABLES = [
   'challenge_invitations', 'challenge_participants', 'challenges', 'referrals', 'member_achievements', 'achievements',
   'streaks', 'xp_ledger',
   'weekly_check_ins', 'nutrition_targets', 'daily_metrics', 'habit_logs', 'habits',
-  'progress_photos', 'assessments', 'goals', 'measurements',
+  'media_objects', 'progress_photos', 'assessments', 'goals', 'measurements',
   'adaptive_decisions', 'personal_records', 'workout_sets', 'workouts',
   'assignment_overrides', 'assignments', 'program_items', 'program_days', 'programs', 'exercises',
   'facility_tasks', 'work_orders', 'equipment',
@@ -19,10 +22,12 @@ export const SEED_WIPE_TABLES = [
   'stock_ledger', 'retail_products', 'retail_product_groups', 'suppliers',
   'appointments', 'waitlist_entries', 'bookings', 'class_sessions', 'class_series', 'rooms', 'class_types',
   'used_access_windows', 'check_ins', 'access_tokens',
+  'payment_reconciliation_exceptions', 'payment_intents',
   'dunning_attempts', 'provider_events', 'refunds', 'payments', 'invoice_lines', 'invoices',
-  'commission_lines', 'commission_rates', 'staff_unavailability', 'shifts', 'staff', 'lead_activities', 'leads',
-  'credits', 'membership_events', 'memberships', 'products',
+  'commission_lines', 'commission_rates', 'staff_unavailability', 'shifts', 'staff', 'lead_consents', 'lead_activities', 'leads',
+  'credit_packs', 'credits', 'membership_events', 'memberships', 'products',
   'member_branches', 'members',
+  'push_deliveries', 'push_subscriptions',
   'automation_runs', 'automation_deliveries', 'metric_rollups', 'automations', 'message_templates', 'notifications',
   'privacy_artifacts', 'privacy_requests', 'legal_holds',
   'job_runs', 'idempotency_keys', 'outbox_events', 'audit_log', 'consents', 'otp_challenges', 'sessions', 'users',

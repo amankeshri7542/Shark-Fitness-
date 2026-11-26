@@ -4,6 +4,7 @@ import { app } from '../app.js';
 import { db, schema } from '../db/client.js';
 import { id } from '../lib/ids.js';
 import { localMinutes, now } from '../lib/time.js';
+import { signInRequest } from './helpers/mfa.js';
 
 interface Session {
   cookie: string;
@@ -16,7 +17,7 @@ async function signIn(email: string): Promise<Session> {
   const cached = cache.get(email);
   if (cached) return cached;
 
-  const response = await app.request('/v1/auth/password', {
+  const response = await signInRequest( {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin: 'http://localhost:5173' },
     body: JSON.stringify({ tenantSlug: 'shark', email, password: 'shark1234' }),
@@ -114,6 +115,10 @@ function idleEntitledMember(branchId: string): { id: string; memberNo: string } 
             and recent.decision = 'granted'
             and recent.entered_at > ${antiPassbackCutoff}
         )`,
+        // Only a member of this branch alone: other suites' fixtures (P05's
+        // scan tests) leave members here with extra branch grants, and the
+        // file order decides whether they exist yet.
+        sql`not exists (select 1 from member_branches mb where mb.member_id = ${schema.members.id})`,
       ),
     )
     .all();

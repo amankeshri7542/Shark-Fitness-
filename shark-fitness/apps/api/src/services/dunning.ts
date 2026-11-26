@@ -1,5 +1,7 @@
 import { and, asc, eq, inArray, isNull, lte, or } from 'drizzle-orm';
 import { channels } from '@shark/contracts';
+import type { NotificationChannel } from '@shark/domain';
+import { queueNotification } from './notifications/service.js';
 import { DUNNING_OFFSETS_DAYS, dunningPlan, formatMoney, insideQuietHours } from '@shark/domain';
 import { db, schema, transact } from '../db/client.js';
 import { branchScope, requirePermission, type RequestContext } from '../lib/context.js';
@@ -10,7 +12,8 @@ import { id } from '../lib/ids.js';
 import { DAY, addDays, isoDate, localClockOnDay, localMinutes, now } from '../lib/time.js';
 import { branchTimeZone } from '../lib/branch-time.js';
 import { branchPolicy } from '../lib/policy.js';
-import { NO_PROVIDER, submitRetry } from '../lib/payment-provider.js';
+import { NO_PROVIDER, NO_STORED_MANDATE, resolvePaymentProvider, submitRetry } from '../lib/payment-provider.js';
+import { notifyUser } from './notifications.js';
 
 /**
  * Dunning (PF-BILL-005) — the internal state machine.
@@ -390,26 +393,53 @@ function notifyMember(
       ? `Invoice ${invoice.number} still has ${amount} outstanding. We cannot collect it automatically, so please settle it at reception — the team has been asked to get in touch.`
       : `Invoice ${invoice.number} has ${amount} outstanding. We cannot collect it automatically, so please settle it at reception or in the app.`;
 
-  const notificationId = id('ntf');
-  db.insert(schema.notifications)
-    .values({
-      id: notificationId,
+  const title = isFinal ? 'Your membership payment is overdue' : 'A payment is outstanding';
+  const common = {
+    tenantId: invoice.tenantId,
+    userId: member.userId,
+    memberId: invoice.memberId,
+    branchId: invoice.branchId,
+    // About money the member owes: part of the contract, never marketing.
+    purpose: 'transactional' as const,
+    source: 'dunning',
+    sourceId: invoice.id,
+    kind: 'payment_due',
+    templateCode: `dunning.attempt_${step.attempt}`,
+    title,
+    body,
+    link: '/billing',
+  };
+  // The app inbox always hears about it; the step's own channel (email, SMS,
+  // WhatsApp) goes through the NotificationService, which records whether a
+  // provider actually delivered it or only logged it.
+  const inApp = queueNotification(
+    { ...common, channel: 'in_app', dedupeKey: `dunning:${invoice.id}:${step.attempt}:in_app` },
+    atMs,
+  );
+  if (step.channel !== 'in_app') {
+    queueNotification(
+      { ...common, channel: step.channel as NotificationChannel, dedupeKey: `dunning:${invoice.id}:${step.attempt}:${step.channel}` },
+      atMs,
+    );
+  }
+  // And the member's phone, when they have push on (P04). Quiet hours were
+  // already honoured above, in the same branch timezone.
+  notifyUser(
+    {
       tenantId: invoice.tenantId,
       userId: member.userId,
-      channel: 'in_app',
+      branchId: invoice.branchId,
       kind: 'payment_due',
-      title: isFinal ? 'Your membership payment is overdue' : 'A payment is outstanding',
+      title,
       body,
       link: '/billing',
       templateCode: `dunning.attempt_${step.attempt}`,
-      state: 'sent',
-      attempts: 1,
-      lastError: null,
-      createdAt: atMs,
-      readAt: null,
-    })
-    .run();
-  return notificationId;
+      inApp: false,
+      push: { category: 'payment', dedupeKey: `dunning:${invoice.id}:${step.attempt}` },
+    },
+    atMs,
+  );
+  return inApp.notificationId;
 }
 
 function closeStep(step: DunningAttempt, atMs: number, reason: string): void {
@@ -529,11 +559,18 @@ export function dunningForInvoice(ctx: RequestContext, invoiceId: string) {
      * Stated on every read, because the console must not imply a retry that
      * cannot happen. This is the string a UI shows next to "retry payment".
      */
-    automaticCollection: {
-      available: false,
-      reason: NO_PROVIDER,
-      message:
-        'No payment provider is connected, so this charge cannot be retried automatically. The member has been asked to settle it at reception or in the app.',
-    },
+    automaticCollection: resolvePaymentProvider()
+      ? {
+          available: false,
+          reason: NO_STORED_MANDATE,
+          message:
+            'Online payment is connected, but no saved payment method or mandate is held, so this charge cannot be retried automatically. The member can pay with Pay now in the app, or you can send them a payment link.',
+        }
+      : {
+          available: false,
+          reason: NO_PROVIDER,
+          message:
+            'No payment provider is connected, so this charge cannot be retried automatically. The member has been asked to settle it at reception or in the app.',
+        },
   };
 }
