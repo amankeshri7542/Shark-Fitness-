@@ -88,12 +88,7 @@
       "state": "implementing",
       "base": "integration/features",
       "base_sha": "4fa023bf9",
-      "running": {
-        "tag": "P10-impl",
-        "pid": 1088608,
-        "started": "2026-11-26 11:18 IST",
-        "activity": "2026-11-26 11:39 IST"
-      }
+      "running": null
     },
     "INT2": {
       "state": "pending"
@@ -119,6 +114,7 @@
     "phase/P10-ux-audit": "1420717 at 2026-11-26 11:35 IST"
   },
   "blockers": [
-    "Claude usage limit hit (latest during P09-impl); new sessions paused, retrying every 30 min"
+    "Claude usage limit hit (latest during P09-impl); new sessions paused, retrying every 30 min",
+    "Claude usage limit hit (latest during P08-impl); new sessions paused, retrying every 30 min"
   ]
 }
