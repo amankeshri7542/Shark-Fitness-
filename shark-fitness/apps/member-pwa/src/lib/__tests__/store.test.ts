@@ -86,4 +86,20 @@ describe('member session bootstrap', () => {
     expect(useSession.getState().status).toBe('signed-out');
     expect(localStorage.getItem('shark.member.session')).toBeNull();
   });
+
+  it("never resumes another person's remembered session when /me named someone else", async () => {
+    localStorage.setItem('shark.member.session', JSON.stringify({ viewer: MEMBER_VIEWER, branches: BRANCHES, activeBranchId: 'br_kor' }));
+    const other = { ...MEMBER_VIEWER, userId: 'usr_riya', name: 'Riya' } as Viewer;
+    doubles.api.mockResolvedValueOnce({ viewer: other }).mockRejectedValueOnce(new offline('No connection'));
+    await useSession.getState().bootstrap();
+    expect(useSession.getState().viewer?.userId).not.toBe('usr_aman');
+    expect(localStorage.getItem('shark.member.session')).toBeNull();
+  });
+
+  it("signing out forgets the member's offline exercise library (their last weights)", async () => {
+    localStorage.setItem('shark.exercise.library', JSON.stringify([{ id: 'ex_squat', lastPerformance: '100 kg × 5' }]));
+    doubles.api.mockResolvedValue({});
+    await useSession.getState().signOut();
+    expect(localStorage.getItem('shark.exercise.library')).toBeNull();
+  });
 });

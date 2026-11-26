@@ -34,8 +34,12 @@ export const useSession = create<SessionState>((set, get) => ({
       set({ status: 'signed-out' });
       return;
     }
+    // Who the server said this cookie belongs to, if it answered before the
+    // connection dropped. A remembered session is only used for that person.
+    let confirmed: Viewer | null = null;
     try {
       const { viewer } = await api<{ viewer: Viewer }>('/me');
+      confirmed = viewer;
       if (viewer.role !== 'member') {
         // A staff cookie is valid for the admin console, not the member app.
         // Refuse it before member-only queries render misleading network-error
@@ -60,7 +64,8 @@ export const useSession = create<SessionState>((set, get) => ({
       // reloads the app and must land back in their session, logging into
       // the outbox (PF-WORK-005). The cookie decides once the server answers:
       // the check runs again as soon as the phone is back online.
-      const remembered = error instanceof OfflineError ? rememberedSession() : null;
+      const stored = error instanceof OfflineError ? rememberedSession() : null;
+      const remembered = stored && (!confirmed || (stored.viewer.userId === confirmed.userId && stored.viewer.tenantId === confirmed.tenantId)) ? stored : null;
       if (remembered) {
         set({ viewer: remembered.viewer, branches: remembered.branches, activeBranchId: remembered.activeBranchId, status: 'signed-in' });
         window.addEventListener('online', () => void get().bootstrap(), { once: true });
@@ -118,6 +123,9 @@ function rememberedSession(): RememberedSession | null {
 function forgetSession(): void {
   try {
     localStorage.removeItem(SESSION_KEY);
+    // The offline exercise library carries this member's own last weights and
+    // reps (FreestylePicker); the next person on this phone must not see them.
+    localStorage.removeItem('shark.exercise.library');
   } catch {
     /* nothing stored */
   }

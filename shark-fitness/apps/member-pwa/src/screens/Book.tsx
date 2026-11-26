@@ -596,7 +596,9 @@ function OfferCard({ offer, clockOffset, busy, onAnswer, onLapsed }: {
   }, [left === 0]);
 
   return (
-    <Panel tone="accent" className="p-3.5" aria-live="polite">
+    // Not a live region: the countdown changes every second and a screen
+    // reader would read it out every second.
+    <Panel tone="accent" className="p-3.5">
       <Label className="text-sonar">A seat is held for you</Label>
       <p className="mt-1.5 text-[14px] leading-relaxed text-foam">
         {offer.name} · {offer.dateLabel} · {offer.localTime}

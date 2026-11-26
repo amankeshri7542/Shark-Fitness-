@@ -317,11 +317,16 @@ export default function TrainScreen() {
                 title="Rest day"
                 body="Nothing scheduled. Recovery is when the work you already did turns into progress — come in for mobility if you want to move."
                 action={
-                  <Link to="/habits">
-                    <Button variant="outline" size="sm">
-                      Log today's habits
+                  <div className="flex flex-wrap gap-2">
+                    <Link to="/habits">
+                      <Button variant="outline" size="sm">
+                        Log today's habits
+                      </Button>
+                    </Link>
+                    <Button variant="outline" size="sm" onClick={() => void navigate({ to: '/workout', search: { mode: 'freestyle' } })}>
+                      Log a workout
                     </Button>
-                  </Link>
+                  </div>
                 }
               />
             ) : (
