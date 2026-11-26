@@ -55,12 +55,13 @@
       "pr": "https://github.com/amankeshri7542/Shark-Fitness-/pull/33"
     },
     "P07": {
-      "state": "pr",
+      "state": "done",
       "base": "phase/P06-staff-security",
       "base_sha": "d9e656c7d",
       "running": null,
       "note": "",
-      "checks": "typecheck:pass lint:pass test:pass build:pass e2e:pass"
+      "checks": "typecheck:pass lint:pass test:pass build:pass e2e:pass",
+      "pr": "https://github.com/amankeshri7542/Shark-Fitness-/pull/34"
     },
     "INT1": {
       "state": "pending"
