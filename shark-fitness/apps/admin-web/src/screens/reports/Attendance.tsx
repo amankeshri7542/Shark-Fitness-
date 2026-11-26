@@ -41,9 +41,12 @@ export default function Attendance({ data, timeZone }: { data: AttendanceReport;
       <div className="grid grid-cols-1 gap-px bg-line xl:grid-cols-2">
         <Panel title={`Busiest hours · ${meta.timeZone}`}>
           <Trend
-            label={`Peak ${String(peakHour.hour).padStart(2, '0')}:00`}
+            // The API always sends 24 hours, so an empty range would otherwise
+            // name midnight as its peak.
+            label={peakHour.visits > 0 ? `Peak ${String(peakHour.hour).padStart(2, '0')}:00` : 'No visits in range'}
             points={data.byHour.map((h) => ({ date: `${String(h.hour).padStart(2, '0')}:00`, value: h.visits }))}
             format={(v) => count(v)}
+            unit="hours"
           />
           <TableScroll className="max-h-64">
             <Table>

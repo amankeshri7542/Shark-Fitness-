@@ -147,10 +147,13 @@ export function Trend({
   points,
   label,
   format,
+  unit = 'days',
 }: {
   points: Array<{ date: string; value: number }>;
   label: string;
   format: (value: number) => string;
+  /** What one column is, for the accessible name. */
+  unit?: string;
 }) {
   const peak = Math.max(1, ...points.map((p) => p.value));
   return (
@@ -161,7 +164,7 @@ export function Trend({
           peak {format(peak)}
         </span>
       </figcaption>
-      <div className="mt-2 flex h-24 items-end gap-px overflow-x-auto" role="img" aria-label={`${label}: ${points.length} days`}>
+      <div className="mt-2 flex h-24 items-end gap-px overflow-x-auto" role="img" aria-label={`${label}: ${points.length} ${unit}`}>
         {points.map((p) => (
           <div
             key={p.date}
