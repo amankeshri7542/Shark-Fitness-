@@ -785,6 +785,11 @@ habitsRoutes.post('/check-in', validate('json', CheckInBody), (c) => {
   if (existing?.coachReply) {
     throw conflict('Your coach has already replied to this week. Send them a message instead.');
   }
+  // A check-in flagged for a person stays as written: overwriting it would
+  // clear the coach's flag and lose the words they were asked to read.
+  if (existing?.safetyEscalated) {
+    throw conflict('Your coach has been asked to read this week’s check-in. Send them a message if you want to add something.');
+  }
 
   /* The scan happens before anything is written and before any response text
      is chosen. Nothing downstream may answer a signal with coaching. */

@@ -115,6 +115,13 @@ describe('weekly check-ins', () => {
     expect(coachNote?.title).toBe('A check-in needs you to read it');
     expect(coachNote?.body).not.toContain('skipping');
 
+    // Re-sending the week with gentler words cannot clear the flag or the words.
+    const resent = await call(aman, 'POST', '/v1/member/habits/check-in', {
+      weekStart: WEEK, adherence: 4, energy: 4, hunger: 3, sleep: 4, soreness: 2, mood: 4, note: 'All fine actually',
+    });
+    expect(resent.status).toBe(409);
+    expect((await roster(rehan)).items.find((i) => i.memberId === amanId)).toMatchObject({ flagged: true });
+
     // No analytics: nothing reaches the integrations (webhook) stream, and no
     // event anywhere carries the member's words.
     const newEvents = db.select().from(schema.outboxEvents).all().slice(outboxBefore);
