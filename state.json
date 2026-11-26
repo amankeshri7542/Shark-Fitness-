@@ -64,7 +64,7 @@
       "pr": "https://github.com/amankeshri7542/Shark-Fitness-/pull/34"
     },
     "INT1": {
-      "state": "pending",
+      "state": "integrating",
       "base": "phase/P01-prod-readiness",
       "base_sha": "2c15353fd"
     },
