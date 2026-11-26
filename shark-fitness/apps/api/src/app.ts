@@ -54,6 +54,8 @@ import { communityRoutes } from './routes/admin/community.js';
 import { taskRoutes } from './routes/admin/tasks.js';
 import { coachingRoutes } from './routes/admin/coaching.js';
 import { broadcastRoutes } from './routes/admin/broadcasts.js';
+import { searchRoutes } from './routes/admin/search.js';
+import { quickAddRoutes } from './routes/admin/quick-add.js';
 
 export const app = new Hono();
 export const PROTECTED_API_IP_MAX = 2_000;
@@ -146,6 +148,7 @@ app.route('/v1/member/media', mediaRoutes);
 
 app.use('/v1/admin/*', protectedApiIpLimit, authenticate, authenticatedTenantLimit, authenticatedApiLimit, staffOnly);
 app.route('/v1/admin/dashboard', dashboardRoutes);
+app.route('/v1/admin/members/quick-add', quickAddRoutes);
 app.route('/v1/admin/members', memberOperationsRoutes);
 app.route('/v1/admin/members', membersRoutes);
 app.route('/v1/admin/leads', leadsRoutes);
@@ -174,6 +177,7 @@ app.route('/v1/admin/community', communityRoutes);
 app.route('/v1/admin/tasks', taskRoutes);
 app.route('/v1/admin/coaching', coachingRoutes);
 app.route('/v1/admin/broadcasts', broadcastRoutes);
+app.route('/v1/admin/search', searchRoutes);
 
 /* Platform administration (PF-PLAT). `staffOnly` is not enough here and is not
    used: each route carries `platformOnly`, which refuses an impersonated
