@@ -1,5 +1,6 @@
 import { expect, request, type APIRequestContext } from '@playwright/test';
 import { DEMO } from './demo';
+import { completeApiTwoStep } from './totp';
 
 /**
  * A signed-in API session for setting a scene, separate from the browser
@@ -16,7 +17,7 @@ export async function apiSession(baseURL: string, email: string, password = 'sha
   const context = await request.newContext({ baseURL, extraHTTPHeaders: { origin: baseURL } });
   const signIn = await context.post('/v1/auth/password', { data: { tenantSlug: DEMO.gym, email, password } });
   expect(signIn.status(), `sign-in for ${email}`).toBe(200);
-  const { csrfToken } = (await signIn.json()) as { csrfToken: string };
+  const csrfToken = await completeApiTwoStep(context, (await signIn.json()) as { csrfToken: string; mfa?: { state?: string } });
   return {
     context,
     async get<T>(path: string) {

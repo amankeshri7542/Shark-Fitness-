@@ -20,8 +20,16 @@ test('offline, a reload opens Home from the saved snapshot with the offline bann
   await waitForMemberWorker(page);
   const owner = await ownerKey(page);
   await expect(page.getByRole('main').getByRole('heading', { level: 1 })).toBeVisible();
-  // The snapshot is written shortly after Home's data lands.
-  await expect.poll(async () => (await idbAll<{ owner: string }>(page, 'shark-query-cache', 'snapshots')).map((s) => s.owner)).toContain(owner);
+  // The snapshot is written shortly after Home's data lands. (Since the P04/P05
+  // integration a first snapshot, the session alone, is saved at sign-in, so
+  // wait for the one that carries Home.)
+  await expect
+    .poll(async () =>
+      (await idbAll<{ owner: string; queries: { queries: Array<{ queryKey: unknown[] }> } }>(page, 'shark-query-cache', 'snapshots'))
+        .filter((s) => s.owner === owner)
+        .some((s) => s.queries.queries.some((q) => q.queryKey[0] === 'home')),
+    )
+    .toBe(true);
   const heading = (await page.getByRole('main').getByRole('heading', { level: 1 }).textContent()) ?? '';
 
   await context.setOffline(true);

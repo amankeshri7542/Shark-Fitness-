@@ -30,7 +30,9 @@
       </svg>
       <h1>You're offline</h1>
       <p>You're offline. The console needs a connection to show live data. Check the reception Wi-Fi or mobile data, then try again. Members can still be checked in by hand and entered once you're back online.</p>
-      <button type="button" onclick="location.reload()">Try again</button>
+      <!-- A plain form, not an onclick handler: the Content-Security-Policy allows
+           no inline event handlers. Submitting it loads this address again. -->
+      <form method="get"><button type="submit">Try again</button></form>
     </main>
   </body>
 </html>

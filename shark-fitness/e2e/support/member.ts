@@ -1,5 +1,6 @@
 import { expect, request, type APIRequestContext, type Page } from '@playwright/test';
 import { DEMO } from './demo';
+import { completeApiTwoStep } from './totp';
 
 /** A signed-in API client in its own cookie jar (a second device, or staff). */
 export async function apiAs(email: string, password = 'shark1234'): Promise<{ api: APIRequestContext; csrf: string }> {
@@ -9,7 +10,8 @@ export async function apiAs(email: string, password = 'shark1234'): Promise<{ ap
   const api = await request.newContext({ baseURL, extraHTTPHeaders: { origin: baseURL, 'x-forwarded-for': address } });
   const response = await api.post('/v1/auth/password', { data: { tenantSlug: DEMO.gym, email, password } });
   expect(response.status()).toBe(200);
-  const { csrfToken } = (await response.json()) as { csrfToken: string };
+  // The owner owes a TOTP code since P06; members and desk staff do not.
+  const csrfToken = await completeApiTwoStep(api, (await response.json()) as { csrfToken: string; mfa?: { state?: string } });
   return { api, csrf: csrfToken };
 }
 

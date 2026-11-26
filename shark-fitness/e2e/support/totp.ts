@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { expect, test, type APIRequestContext } from '@playwright/test';
 import { Secret, TOTP } from 'otpauth';
 import { E2E_ROOT } from './paths';
 
@@ -34,4 +35,27 @@ export async function nextOwnerCode(secret = process.env.SHARK_E2E_OWNER_TOTP_SE
   const used = Math.floor(Date.now() / 30_000);
   writeFileSync(USED, JSON.stringify({ step: used }));
   return totpFor(secret);
+}
+
+/**
+ * Completes the two-step sign-in an API sign-in may owe (P06: owners must use
+ * it). Only the seeded owner has a known secret in a run. Returns the CSRF
+ * token of the full session. The wait for a fresh code is added to the
+ * running test's timeout, as the browser helpers do for the rate limit.
+ */
+export async function completeApiTwoStep(
+  context: APIRequestContext,
+  signIn: { csrfToken: string; mfa?: { state?: string } },
+): Promise<string> {
+  if (signIn.mfa?.state !== 'challenge') return signIn.csrfToken;
+  const started = Date.now();
+  const code = await nextOwnerCode();
+  try {
+    test.info().setTimeout(test.info().timeout + (Date.now() - started));
+  } catch {
+    /* outside a test (global setup): nothing to extend */
+  }
+  const verified = await context.post('/v1/auth/mfa/verify', { data: { code }, headers: { 'x-csrf-token': signIn.csrfToken } });
+  expect(verified.status(), await verified.text()).toBe(200);
+  return ((await verified.json()) as { csrfToken: string }).csrfToken;
 }
