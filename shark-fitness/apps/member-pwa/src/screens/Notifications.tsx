@@ -144,7 +144,9 @@ export default function NotificationsScreen() {
               tone={unread ? 'accent' : 'plain'}
               className="flex flex-col gap-2 p-4"
               key={item.id}
-              onClick={unread ? () => markRead.mutate([item.id]) : undefined}
+              // A linked one is marked by the link's own click; handling it here
+              // too sent the same request twice.
+              onClick={unread && !item.link ? () => markRead.mutate([item.id]) : undefined}
             >
               <div className="flex items-center gap-2">
                 <Chip tone={KIND_TONE[item.kind] ?? 'neutral'}>{KIND_LABEL[item.kind] ?? 'Update'}</Chip>
