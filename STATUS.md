@@ -28,7 +28,6 @@ Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "ph
 ## Running sessions
 | Node | Session tag | pid | Last activity | Started |
 |---|---|---|---|---|
-| P08 | P08-impl | 990934 | 2026-11-26 08:40 IST | 2026-11-26 08:40 IST |
 | P09 | P09-impl | 991231 | 2026-11-26 08:41 IST | 2026-11-26 08:41 IST |
 | P10 | P10-impl | 991499 | 2026-11-26 08:41 IST | 2026-11-26 08:41 IST |
 

@@ -76,12 +76,7 @@
       "state": "implementing",
       "base": "integration/features",
       "base_sha": "4fa023bf9",
-      "running": {
-        "tag": "P08-impl",
-        "pid": 990934,
-        "started": "2026-11-26 08:40 IST",
-        "activity": "2026-11-26 08:40 IST"
-      }
+      "running": null
     },
     "P09": {
       "state": "implementing",
