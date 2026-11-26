@@ -86,4 +86,18 @@ All are minor. None blocks the PR.
 
 ## Final verification
 
-(filled in below after the final run)
+Run on branch head `aed39cb` (Node 22.23.5), from `shark-fitness/`.
+
+| Command | Result |
+|---|---|
+| `pnpm install --frozen-lockfile` | ok |
+| `pnpm typecheck` | pass |
+| `pnpm lint` | pass |
+| `pnpm test` | **1,801 tests in 151 files, all passing** (contracts 6/1, domain 284/13, member-pwa 131/18, admin-web 328/42, api 1,052/77) |
+| `pnpm -F @shark/api db:check-drift` | `migration_drift=none` |
+| `pnpm db:backup:verify` | `recoveryProof: passed`; media 2 of 2 files verified against the manifest and against the `media_objects` checksums; tampered archive refused; new scratch-restore media-dir assertions pass |
+| `pnpm build` | pass |
+| `SHARK_E2E_PORT=18520 SHARK_E2E_RAZORPAY_PORT=18521 pnpm e2e` | **8 of 8 passed**: client-error, console sign-in, member sign-in, reception-scan ×2, freestyle-offline @mobile, member-pass @mobile, member-payments @mobile |
+| Production single-origin smoke (port 18530, temp `SHARK_DB` and `SHARK_MEDIA_DIR`) | `/ready` ok; `permissions-policy` is `camera=(self)` on `/admin/` and `/admin/floor`, and `camera=()` on `/`, `/app/` and `/v1/health` |
+
+Before the review the same suite gave 1,783 passed and 1 failed (the scheduler timeout, #17), in 2 of 4 full runs. The 17 new tests (API +10, member +5, admin +2) are regression tests for the fixes above.

@@ -49,12 +49,7 @@
       "state": "reviewing",
       "base": "phase/P02-payments-razorpay",
       "base_sha": "2ffa5700a",
-      "running": {
-        "tag": "P05-review",
-        "pid": 561741,
-        "started": "2026-11-26 05:54 IST",
-        "activity": "2026-11-26 06:12 IST"
-      },
+      "running": null,
       "note": ""
     },
     "P07": {
@@ -65,7 +60,7 @@
         "tag": "P07-impl",
         "pid": 561744,
         "started": "2026-11-26 05:54 IST",
-        "activity": "2026-11-26 06:12 IST"
+        "activity": "2026-11-26 06:16 IST"
       }
     },
     "INT1": {
