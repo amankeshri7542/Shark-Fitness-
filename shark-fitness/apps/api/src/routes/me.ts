@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { validate } from '../middleware/validate.js';
 import { db, schema } from '../db/client.js';
 import { ctxOf } from '../middleware/index.js';
-import { listSessions, revokeSession, viewerFor } from '../services/auth.js';
+import { deviceLabel, listSessions, revokeOtherSessions, revokeSession, viewerFor } from '../services/auth.js';
 import { audit } from '../lib/audit.js';
 import { id } from '../lib/ids.js';
 import { now, relativeTime } from '../lib/time.js';
@@ -173,6 +173,8 @@ meRoutes.get('/sessions', (c) => {
 
 meRoutes.delete('/sessions/:id', (c) => {
   const ctx = ctxOf(c);
+  // Same rule as "sign out everywhere else": the devices belong to the account holder.
+  if (ctx.impersonatorId) throw forbidden('A support session cannot sign the account holder out of their devices.');
   const sessionId = c.req.param('id');
   const session = db.select().from(schema.sessions).where(eq(schema.sessions.id, sessionId)).get();
   if (!session || session.userId !== ctx.userId || session.tenantId !== ctx.tenantId) throw notFound('That session');
@@ -182,9 +184,24 @@ meRoutes.delete('/sessions/:id', (c) => {
     action: 'session.revoked',
     entityType: 'session',
     entityId: sessionId,
-    entityLabel: session.userAgent,
+    entityLabel: deviceLabel(session.userAgent),
   });
   return c.json({ ok: true });
+});
+
+/** "Sign out everywhere else": ends every other session, keeps this one. */
+meRoutes.post('/sessions/sign-out-others', (c) => {
+  const ctx = ctxOf(c);
+  if (ctx.impersonatorId) throw forbidden('A support session cannot sign the account holder out of their devices.');
+  const revoked = revokeOtherSessions(ctx.userId, ctx.tenantId, ctx.sessionId);
+  audit(ctx, {
+    action: 'session.revoked_all_others',
+    entityType: 'user',
+    entityId: ctx.userId,
+    entityLabel: ctx.name,
+    after: { sessionsEnded: revoked },
+  });
+  return c.json({ ok: true, revoked });
 });
 
 meRoutes.get('/notifications', (c) => {

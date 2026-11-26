@@ -143,6 +143,11 @@ else
   echo "1/3 Synthetic recovery proof skipped."
 fi
 
+# The live key, so the restored copy can read its own two-step sign-in
+# secrets; a fresh one if the server has none (the drill still boots).
+mfa_key=$(sed -n 's/^SHARK_MFA_ENCRYPTION_KEY=//p' "$SHARK_HOME/shark.env" 2>/dev/null | tail -n 1)
+[ -n "$mfa_key" ] || mfa_key=$(openssl rand -base64 32 | tr -d '\n')
+
 echo "2/3 Restoring $backup"
 install -m 600 -o 1000 -g 1000 -t "$drill/in" "$backup" "$backup.manifest.json"
 docker run --rm --network none -v "$drill:/drill" --entrypoint pnpm "$image" \
@@ -150,6 +155,7 @@ docker run --rm --network none -v "$drill:/drill" --entrypoint pnpm "$image" \
 docker run -d --name "$name" --network none -v "$drill:/drill" \
   -e SHARK_DB=/drill/shark.db \
   -e SHARK_PASS_SECRET="$(openssl rand -base64 48 | tr -d '\n')" \
+  -e SHARK_MFA_ENCRYPTION_KEY="$mfa_key" \
   -e SHARK_PUBLIC_ORIGIN=http://127.0.0.1:8787 \
   -e SHARK_DISABLE_JOBS=true \
   -e SHARK_SERVE_STATIC=false \
@@ -204,8 +210,13 @@ if [ -n "$gym" ]; then
       console.log("owner_sign_in=" + signIn.status);
       if (!signIn.ok) process.exit(1);
       const session = signIn.headers.get("set-cookie")?.match(/shark_session=([^;,]+)/)?.[1];
-      const dashboard = await fetch(origin + "/v1/admin/dashboard", { headers: { cookie: "shark_session=" + session, origin } });
-      console.log("owner_dashboard=" + dashboard.status);
+      const mfa = (await signIn.json()).mfa?.state ?? "none";
+      console.log("owner_mfa=" + mfa);
+      // An owner with two-step sign-in is asked for a code the drill cannot
+      // give; the password check and a live (partial) session are the proof.
+      const probe = mfa === "challenge" || mfa === "enrol" ? "/v1/auth/mfa" : "/v1/admin/dashboard";
+      const dashboard = await fetch(origin + probe, { headers: { cookie: "shark_session=" + session, origin } });
+      console.log("owner_session=" + dashboard.status);
       if (!dashboard.ok) process.exit(1);
     })().catch((error) => { console.error(error.message); process.exit(1); });
   ' "$gym" "$email"

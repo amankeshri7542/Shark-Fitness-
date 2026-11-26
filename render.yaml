@@ -27,6 +27,10 @@ services:
       - key: SHARK_PASS_SECRET
         # At least 48 bytes; Render's generated 256-bit value is only 44 base64 characters.
         sync: false
+      # AES-256-GCM key for TOTP and webhook secrets: Render's generated value
+      # is 256 random bits, base64 — exactly what the app requires.
+      - key: SHARK_MFA_ENCRYPTION_KEY
+        generateValue: true
       - key: SHARK_ECHO_OTP
         value: "false"
       - key: SHARK_ALLOW_BEARER_AUTH

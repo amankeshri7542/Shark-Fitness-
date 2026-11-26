@@ -9,6 +9,7 @@ import { emit } from '../../lib/events.js';
 import { notFound } from '../../lib/errors.js';
 import { issuePassBatch, PASS_WINDOW_SECONDS } from '../../lib/pass-token.js';
 import { HOUR, MINUTE, isoDate, localMinutes, now, relativeTime } from '../../lib/time.js';
+import { emitIntegrationEvent } from '../../services/integration-events.js';
 
 export const passRoutes = new Hono();
 
@@ -215,6 +216,12 @@ passRoutes.post('/check-out', (c) => {
     channel: channels.branch(open.branchId),
     topic: 'attendance.checked_out',
     payload: { memberId, checkInId: open.id },
+  });
+  emitIntegrationEvent({
+    tenantId: ctx.tenantId,
+    branchId: open.branchId,
+    type: 'attendance.checked_out',
+    data: { checkInId: open.id, memberId, branchId: open.branchId },
   });
   return c.json({
     ok: true,

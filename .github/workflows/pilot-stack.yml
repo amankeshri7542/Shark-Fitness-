@@ -66,6 +66,7 @@ jobs:
           sudo cp -r "$GITHUB_WORKSPACE" /srv/shark-fitness/src
           sudo bash "$PILOT/provision.sh" --skip-system localhost
           sudo grep -Eq '^SHARK_PASS_SECRET=.{64}$' /srv/shark-fitness/shark.env
+          sudo grep -Eq '^SHARK_MFA_ENCRYPTION_KEY=.{44}$' /srv/shark-fitness/shark.env
           test "$(sudo stat -c %a /srv/shark-fitness/shark.env)" = 600
           systemctl is-enabled shark-backup.timer
 

@@ -384,7 +384,8 @@ its credentials, an unknown provider or reporter name, a non-numeric OTP limit
 or a malformed DSN is refused in every environment.
 
 Production additionally requires an explicit database path, a pass secret of
-at least 48 bytes and at least one configured public/allowed/platform origin,
+at least 48 bytes, a 32-byte `SHARK_MFA_ENCRYPTION_KEY` (TOTP and webhook
+secrets at rest; keep it with the backup key, docs/SECURITY.md "Key custody") and at least one configured public/allowed/platform origin,
 an HTTPS error DSN, and a metrics token of at least 32 characters when one is
 set.
 Origins and the optional error collector must use HTTPS except for explicit

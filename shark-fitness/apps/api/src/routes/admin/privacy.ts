@@ -1,4 +1,8 @@
 import { Hono } from 'hono';
+import { and, eq } from 'drizzle-orm';
+import { db, schema } from '../../db/client.js';
+import { requirePermission } from '../../lib/context.js';
+import { requireFreshAuth } from '../../lib/step-up.js';
 import { z } from 'zod';
 import { validate } from '../../middleware/validate.js';
 import { ctxOf } from '../../middleware/index.js';
@@ -54,14 +58,28 @@ const ReviewBody = z.object({
   note: z.string().trim().min(4).max(500),
 });
 
-privacyRoutes.post('/requests/:id/review', validate('json', ReviewBody), (c) =>
-  c.json(reviewPrivacyRequest(ctxOf(c), c.req.param('id'), c.req.valid('json'))),
-);
+privacyRoutes.post('/requests/:id/review', validate('json', ReviewBody), (c) => {
+  const ctx = ctxOf(c);
+  const body = c.req.valid('json');
+  // Accepting a deletion request is the approval to erase someone (PRD 01 §2.4).
+  if (body.decision === 'accept') {
+    requirePermission(ctx, 'settings.manage');
+    const request = db
+      .select({ kind: schema.privacyRequests.kind })
+      .from(schema.privacyRequests)
+      .where(and(eq(schema.privacyRequests.id, c.req.param('id')), eq(schema.privacyRequests.tenantId, ctx.tenantId)))
+      .get();
+    if (request?.kind === 'deletion') requireFreshAuth(ctx, 'privacy.deletion_approve');
+  }
+  return c.json(reviewPrivacyRequest(ctx, c.req.param('id'), body));
+});
 
 /** Builds the package into `privacy_artifacts`. Sends nothing anywhere, and
  *  says so in the response. */
 privacyRoutes.post('/requests/:id/export', (c) => {
   const ctx = ctxOf(c);
+  requirePermission(ctx, 'settings.manage');
+  requireFreshAuth(ctx, 'privacy.export');
   const requestId = c.req.param('id');
   const response = runIdempotently(
     ctx,
@@ -73,12 +91,19 @@ privacyRoutes.post('/requests/:id/export', (c) => {
   return c.json(response, 201);
 });
 
-privacyRoutes.get('/requests/:id/export', (c) => c.json(readExportPackage(ctxOf(c), c.req.param('id'))));
+privacyRoutes.get('/requests/:id/export', (c) => {
+  const ctx = ctxOf(c);
+  requirePermission(ctx, 'settings.manage');
+  requireFreshAuth(ctx, 'privacy.export');
+  return c.json(readExportPackage(ctx, c.req.param('id')));
+});
 
 /** Executes the anonymisation plan. Refused while a legal hold or the tenant's
  *  own retention window is in the way, with the reason. */
 privacyRoutes.post('/requests/:id/erase', (c) => {
   const ctx = ctxOf(c);
+  requirePermission(ctx, 'settings.manage');
+  requireFreshAuth(ctx, 'privacy.erase');
   const requestId = c.req.param('id');
   const response = runIdempotently(
     ctx,

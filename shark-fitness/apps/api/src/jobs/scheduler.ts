@@ -7,6 +7,7 @@ import { runtimeConfig } from '../lib/config.js';
 import { emit } from '../lib/events.js';
 import { processDueDeliveries, runDueAutomations } from '../services/automations.js';
 import { pruneOperationalData } from '../services/maintenance.js';
+import { runWebhookDispatch } from '../services/webhooks.js';
 import { expireChallengeInvitations } from '../services/engagement-admin.js';
 import { extendActiveSeries } from '../services/schedule-series.js';
 import { runDueDunning } from '../services/dunning.js';
@@ -267,16 +268,21 @@ const JOBS: Job[] = [
   { name: 'extend-class-series', everyMs: 6 * HOUR, run: extendSeriesHorizon },
   { name: 'prune-operational-data', everyMs: DAY, run: pruneOperationalRows },
   { name: 'reconcile-payments', everyMs: 6 * HOUR, run: reconcileProviderPayments },
+  /* Outbound webhooks (PF-INT-003): fan out new integration events, then send
+     what is due. Asynchronous — it waits on receivers — and never overlaps
+     itself; a slow receiver delays the next tick rather than doubling up. */
+  { name: 'deliver-webhooks', everyMs: 30_000, run: () => runWebhookDispatch() },
 ];
 
 /** The fixed job names: the only values the `job` metric label takes. */
 export const SCHEDULED_JOB_NAMES: readonly string[] = JOBS.map((job) => job.name);
 
 /**
- * Run one job and record it in `job_runs`. Synchronous jobs finish before this
- * returns, as they always have. A job that returns a promise (one that talks
- * to a provider, like `reconcile-payments`) is recorded when it settles, and
- * this returns that promise.
+ * Runs one job and records it in `job_runs`. Synchronous jobs finish before
+ * this returns, as they always have. A job may return a promise (one that
+ * talks to a provider, like `reconcile-payments`, or the webhook dispatcher
+ * waiting on receivers); the run is then recorded when it settles, and the
+ * returned promise rejects if the job did.
  */
 export function executeJob(job: Job, clock: () => number = now): void | Promise<void> {
   const runId = id('jobr');
@@ -319,6 +325,7 @@ export function executeJob(job: Job, clock: () => number = now): void | Promise<
       summary,
     });
   };
+
   const fail = (error: unknown): never => {
     const finishedAt = clock();
     const errorCategory = categoryFor(error);
@@ -346,16 +353,26 @@ export function executeJob(job: Job, clock: () => number = now): void | Promise<
     throw error;
   };
 
-  // Recording success sits inside the failure handling on purpose: if the
-  // bookkeeping itself fails, the run is marked failed rather than left
-  // "running" for ever.
+  // Recording success can itself fail (a full disk, a constraint); that is a
+  // failed run too, and must land in job_runs as one.
+  const settle = (value: unknown): void => {
+    try {
+      succeed(value);
+    } catch (error) {
+      fail(error);
+    }
+  };
+
+  let result: unknown;
   try {
-    const result = job.run();
-    if (result instanceof Promise) return result.then(succeed).then(undefined, fail);
-    succeed(result);
+    result = job.run();
   } catch (error) {
     fail(error);
   }
+  if (result && typeof (result as Promise<unknown>).then === 'function') {
+    return (result as Promise<unknown>).then(settle, fail);
+  }
+  settle(result);
 }
 
 function safeSummary(value: unknown): JobSummary {
@@ -381,6 +398,8 @@ function safeErrorMessage(error: unknown): string {
 
 /** One scheduled tick: run the job, and report a failure once, tagged with
  *  the job's name. executeJob has already recorded it in job_runs. */
+const inFlight = new Set<string>();
+
 export function runScheduledJob(job: Job, clock: () => number = now): void {
   // An async job still running from the previous tick is left to finish.
   if (inFlight.has(job.name)) return;
@@ -396,8 +415,6 @@ export function runScheduledJob(job: Job, clock: () => number = now): void {
     reportException(err, { job: job.name, source: 'scheduler' });
   }
 }
-
-const inFlight = new Set<string>();
 
 export function startScheduler(): void {
   if (runtimeConfig.disableJobs) {

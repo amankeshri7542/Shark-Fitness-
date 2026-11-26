@@ -51,6 +51,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       SHARK_ALLOWED_ORIGINS: baseURL,
       // Test-only secret, new every run.
       SHARK_PASS_SECRET: randomBytes(48).toString('base64'),
+      SHARK_MFA_ENCRYPTION_KEY: randomBytes(32).toString('base64'),
       SHARK_DISABLE_JOBS: 'true',
       // Each test presents its own client address (support/fixtures.ts), so
       // the per-IP sign-in limit protects production without throttling a
@@ -73,8 +74,18 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       SHARK_ANDROID_CERT_SHA256: E2E_ANDROID.fingerprint,
     };
 
-    for (const script of ['src/db/migrate.ts', 'src/db/seed.ts']) {
-      const result = spawnSync(process.execPath, ['--import', 'tsx', script], { cwd: API_ROOT, env, encoding: 'utf8' });
+    // The demo owner must use two-step sign-in. Enrol it with a secret made
+    // for this run, so specs can generate its codes (support/totp.ts). Other
+    // owners stay unenrolled, which is how the enrolment-gate spec meets the
+    // gate. The secret never leaves this machine's temp state.
+    const ownerTotpSecret = base32(randomBytes(20));
+    const scripts: string[][] = [
+      ['src/db/migrate.ts'],
+      ['src/db/seed.ts'],
+      ['src/db/mfa-fixture.ts', '--secret', ownerTotpSecret, '--email', 'owner@sharkfitness.in'],
+    ];
+    for (const [script, ...args] of scripts) {
+      const result = spawnSync(process.execPath, ['--import', 'tsx', script!, ...args], { cwd: API_ROOT, env, encoding: 'utf8' });
       if (result.status !== 0) throw new Error(`${script} failed:\n${result.stdout}\n${result.stderr}`);
     }
 
@@ -87,7 +98,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     });
     closeSync(logFd);
     server.unref();
-    const state: RunState = { pid: server.pid!, tempDir, baseURL, serverLog };
+    const state: RunState = { pid: server.pid!, tempDir, baseURL, serverLog, database, ownerTotpSecret };
     mkdirSync(dirname(STATE_FILE), { recursive: true });
     writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
 
@@ -97,6 +108,8 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
 
     process.env.SHARK_E2E_BASE_URL = baseURL;
     process.env.SHARK_E2E_SERVER_LOG = serverLog;
+    process.env.SHARK_E2E_DATABASE = database;
+    process.env.SHARK_E2E_OWNER_TOTP_SECRET = ownerTotpSecret;
     process.env.SHARK_E2E_PUSH_ORIGIN = push.origin;
     process.env.SHARK_E2E_VAPID_PUBLIC_KEY = vapid.publicKey;
     // For the payment specs (support/razorpay.ts), which run in worker processes.
@@ -129,6 +142,23 @@ async function chosenPort(): Promise<number> {
     throw new Error(`SHARK_E2E_PORT must be a port number between 1 and 65535, not "${pinned}".`);
   }
   return port;
+}
+
+function base32(bytes: Buffer): string {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = 0;
+  let value = 0;
+  let out = '';
+  for (const byte of bytes) {
+    value = (value << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      out += alphabet[(value >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+  }
+  if (bits > 0) out += alphabet[(value << (5 - bits)) & 31];
+  return out;
 }
 
 function freePort(): Promise<number> {

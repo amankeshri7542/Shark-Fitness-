@@ -4,6 +4,7 @@ import { app } from '../app.js';
 import { db, schema } from '../db/client.js';
 import { isoDate, now } from '../lib/time.js';
 import { branchTimeZone } from '../lib/branch-time.js';
+import { signInRequest } from './helpers/mfa.js';
 
 /* ============================================================================
    The whole business, end to end.
@@ -35,7 +36,7 @@ async function signIn(email: string, tenantSlug = 'shark'): Promise<Session> {
   const key = `${tenantSlug}:${email}`;
   const cached = cache.get(key);
   if (cached) return cached;
-  const response = await app.request('/v1/auth/password', {
+  const response = await signInRequest( {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin: 'http://localhost:5173' },
     body: JSON.stringify({ tenantSlug, email, password: 'shark1234' }),

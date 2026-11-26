@@ -16,6 +16,7 @@ export default {
     './src/db/schema/invoice-tax-documents.ts',
     './src/db/schema/payments.ts',
     './src/db/schema/push.ts',
+    './src/db/schema/security.ts',
   ],
   out: '../../infrastructure/migrations',
   dialect: 'sqlite',

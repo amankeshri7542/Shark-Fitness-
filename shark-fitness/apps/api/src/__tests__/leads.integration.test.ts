@@ -4,6 +4,7 @@ import { app } from '../app.js';
 import { db, schema } from '../db/client.js';
 import { id, initialsOf, normalizeEmail } from '../lib/ids.js';
 import { now } from '../lib/time.js';
+import { signInRequest } from './helpers/mfa.js';
 
 interface BrowserSession {
   cookie: string;
@@ -20,7 +21,7 @@ async function signIn(email = 'reception@sharkfitness.in'): Promise<BrowserSessi
   const cached = sessionCache.get(email);
   if (cached) return cached;
 
-  const response = await app.request('/v1/auth/password', {
+  const response = await signInRequest( {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin: 'http://localhost:5173' },
     body: JSON.stringify({ tenantSlug: 'shark', email, password: 'shark1234' }),

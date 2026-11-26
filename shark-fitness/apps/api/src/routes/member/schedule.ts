@@ -35,6 +35,7 @@ import {
   type EligibilityContext,
   type SessionRow,
 } from '../../services/booking.js';
+import { emitIntegrationEvent } from '../../services/integration-events.js';
 
 /**
  * Explore and Book (UX-M04, PF-SCH).
@@ -562,6 +563,12 @@ scheduleRoutes.delete('/booking/:id', (c) => {
       channel: channels.branch(session.branchId),
       topic: 'booking.cancelled',
       payload: { bookingId: booking.id, sessionId: session.id, memberId, state: outcome.state },
+    });
+    emitIntegrationEvent({
+      tenantId: ctx.tenantId,
+      branchId: session.branchId,
+      type: 'class.cancelled',
+      data: { bookingId: booking.id, classSessionId: session.id, memberId, cancelledBy: 'member', lateCancel: outcome.state === 'late_cancelled' },
     });
 
     return promoteWaitlist(ctx, session, atMs, tz);

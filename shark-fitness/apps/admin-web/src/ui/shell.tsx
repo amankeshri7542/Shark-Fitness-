@@ -180,15 +180,22 @@ export function StatusStrip({ alertCount = 0 }: { alertCount?: number }) {
       {viewer?.userId && viewer.role !== 'owner' ? null : null}
 
       <div className="flex items-center gap-2 border-l border-line pl-3">
-        <span className="grid h-7 w-7 place-items-center border border-line-strong font-utility text-[10px] font-semibold">
-          {viewer?.initials ?? '··'}
-        </span>
-        <div className="hidden leading-tight lg:block">
-          <div className="text-[12px]">{viewer?.name}</div>
-          <div className="font-utility text-[9px] uppercase tracking-[0.12em] text-foam-35">
-            {viewer?.role.replace(/_/g, ' ')}
-          </div>
-        </div>
+        {/* Your account: two-step sign-in and devices, for every role. */}
+        <Link
+          to="/account"
+          aria-label={`Your account${viewer?.name ? ` (${viewer.name})` : ''}`}
+          className="flex min-h-8 items-center gap-2 hover:text-sonar"
+        >
+          <span className="grid h-7 w-7 place-items-center border border-line-strong font-utility text-[10px] font-semibold">
+            {viewer?.initials ?? '··'}
+          </span>
+          <span className="hidden leading-tight lg:block">
+            <span className="block text-[12px]">{viewer?.name}</span>
+            <span className="block font-utility text-[9px] uppercase tracking-[0.12em] text-foam-35">
+              {viewer?.role.replace(/_/g, ' ')}
+            </span>
+          </span>
+        </Link>
         <Button
           variant="ghost"
           onClick={() => {

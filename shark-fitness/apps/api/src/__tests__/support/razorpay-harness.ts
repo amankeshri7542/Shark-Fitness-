@@ -9,6 +9,7 @@ import { now } from '../../lib/time.js';
 import { resetRateLimitsForTest } from '../../middleware/index.js';
 import { createRazorpayProvider } from '../../services/payments/razorpay.js';
 import { startFakeRazorpay, webhookBody, webhookSignature, type FakeRazorpay, type WebhookEntities } from '../../testing/razorpay-fake.js';
+import { signInRequest } from '../helpers/mfa.js';
 
 /**
  * Shared set-up for the Razorpay integration tests.
@@ -92,7 +93,8 @@ export async function startHarness(options: { timeoutMs?: number } = {}): Promis
 
 export async function signIn(email: string): Promise<Session> {
   resetRateLimitsForTest();
-  const response = await app.request('/v1/auth/password', {
+  // Owners must use MFA (P06): the helper completes the TOTP challenge.
+  const response = await signInRequest({
     method: 'POST',
     headers: { origin: ORIGIN, 'content-type': 'application/json' },
     body: JSON.stringify({ tenantSlug: 'shark', email, password: 'shark1234' }),

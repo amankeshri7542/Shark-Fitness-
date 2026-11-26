@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { app } from '../app.js';
 import { db, schema } from '../db/client.js';
+import { signInRequest } from './helpers/mfa.js';
 
 describe('member home branch calendar', () => {
   afterEach(() => {
@@ -19,7 +20,7 @@ describe('member home branch calendar', () => {
 
     db.update(schema.branches).set({ timezone: 'America/New_York' }).where(eq(schema.branches.id, branch.id)).run();
     try {
-      const signIn = await app.request('/v1/auth/password', {
+      const signIn = await signInRequest( {
         method: 'POST',
         headers: { 'content-type': 'application/json', origin: 'http://localhost:5173' },
         body: JSON.stringify({ tenantSlug: 'shark', email: 'aman@sharkfitness.in', password: 'shark1234' }),

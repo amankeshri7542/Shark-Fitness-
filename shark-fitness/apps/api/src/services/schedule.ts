@@ -13,6 +13,7 @@ import { LIVE_BOOKING_STATES, LIVE_WAITLIST_STATES, claimSeat, claimSeatOverride
 import { loadMemberInScope } from './members.js';
 import { branchTimeZone } from '../lib/branch-time.js';
 import { notifyUser } from './notifications.js';
+import { emitIntegrationEvent } from './integration-events.js';
 
 /**
  * Class operations from the console (PF-SCH, UX-A09).
@@ -716,6 +717,12 @@ export function cancelSessions(
         topic: 'session.cancelled',
         payload: { sessionId: session.id, reason, released: bookings.length },
       });
+      emitIntegrationEvent({
+        tenantId: ctx.tenantId,
+        branchId: session.branchId,
+        type: 'class.cancelled',
+        data: { bookingId: null, classSessionId: session.id, memberId: null, cancelledBy: 'gym', bookingsReleased: bookings.length },
+      });
 
       result.cancelled.push(session.id);
     }
@@ -849,6 +856,12 @@ export function releaseBooking(ctx: RequestContext, bookingId: string, reason: s
       topic: 'booking.cancelled',
       payload: { bookingId: booking.id, sessionId: session.id, memberId: booking.memberId, state: outcome.state },
     });
+    emitIntegrationEvent({
+      tenantId: ctx.tenantId,
+      branchId: session.branchId,
+      type: 'class.cancelled',
+      data: { bookingId: booking.id, classSessionId: session.id, memberId: booking.memberId, cancelledBy: 'staff', lateCancel: outcome.state === 'late_cancelled' },
+    });
 
     return promoteFromWaitlist(ctx, session, atMs);
   });
@@ -952,6 +965,12 @@ export function promoteFromWaitlist(
     channel: channels.branch(session.branchId),
     topic: 'waitlist.promoted',
     payload: { sessionId: session.id, memberId: plan.offer.memberId },
+  });
+  emitIntegrationEvent({
+    tenantId: ctx.tenantId,
+    branchId: session.branchId,
+    type: 'class.waitlist_promoted',
+    data: { classSessionId: session.id, memberId: plan.offer.memberId, offerExpiresAt: new Date(offerExpiresAt).toISOString() },
   });
 
   return { memberId: plan.offer.memberId, offerExpiresAt: new Date(offerExpiresAt).toISOString() };

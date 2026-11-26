@@ -6,6 +6,7 @@ import { ctxOf } from '../../middleware/index.js';
 import { branchScope, isAllBranches, requirePermission } from '../../lib/context.js';
 import { addDays, DAY, HOUR, isoDate, localDayRange, now, relativeTime, startOfLocalDay } from '../../lib/time.js';
 import { branchTimeZone } from '../../lib/branch-time.js';
+import { disabledEndpointCount } from '../../services/webhooks.js';
 
 export const dashboardRoutes = new Hono();
 
@@ -423,6 +424,22 @@ dashboardRoutes.get('/', (c) => {
       count: slaBreaches?.n ?? 0,
       actionLabel: 'Open support',
       actionTo: '/support',
+    });
+  }
+
+  // A receiver that failed for long enough to be switched off (PF-INT-003).
+  // Only the people who can fix it — the integration lives in Settings.
+  const integrationsDown = ctx.permissions.includes('settings.manage') ? disabledEndpointCount(ctx.tenantId) : 0;
+  if (integrationsDown > 0) {
+    alerts.push({
+      id: 'integration_down',
+      severity: 'warning',
+      kind: 'integration_down',
+      title: `${integrationsDown} webhook endpoint${integrationsDown === 1 ? '' : 's'} turned off`,
+      detail: 'Repeated delivery failures stopped events reaching a connected system. Fix the receiver, then turn it back on.',
+      count: integrationsDown,
+      actionLabel: 'Open integrations',
+      actionTo: '/settings?tab=integrations',
     });
   }
 

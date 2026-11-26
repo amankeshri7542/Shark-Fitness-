@@ -1,4 +1,5 @@
 import { expect, type Page } from '@playwright/test';
+import { nextOwnerCode } from './totp';
 
 /** The seeded demo gym (apps/api/src/db/seed.ts). */
 export const DEMO = {
@@ -15,13 +16,22 @@ export const E2E_ANDROID = {
   fingerprint: '14:6D:E9:83:C5:73:06:50:D8:EE:B9:95:2F:34:FC:64:16:A0:83:42:E6:1D:BE:A8:8A:04:96:B2:3F:CF:44:E5',
 } as const;
 
-export async function signInToConsole(page: Page): Promise<void> {
-  await page.goto('/admin/');
+/** Password, then the owner's authenticator code (two-step sign-in is mandatory for owners). */
+export async function signInToConsole(page: Page, path = '/admin/'): Promise<void> {
+  await page.goto(path);
+  await completeConsoleSignIn(page);
+  await expect(page.getByRole('heading', { level: 1, name: 'Command' })).toBeVisible();
+}
+
+/** Fills the sign-in screen already on the page and answers the code prompt. */
+export async function completeConsoleSignIn(page: Page): Promise<void> {
   await page.getByLabel('Gym code').fill(DEMO.gym);
   await page.getByLabel('Work email').fill(DEMO.owner.email);
   await page.getByLabel('Password').fill(DEMO.owner.password);
   await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Command' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Enter your code' })).toBeVisible();
+  await page.getByLabel('Authenticator code').fill(await nextOwnerCode());
+  await page.getByRole('button', { name: 'Verify' }).click();
 }
 
 export async function signInToMemberApp(page: Page, account: { email: string; password: string } = DEMO.member): Promise<void> {

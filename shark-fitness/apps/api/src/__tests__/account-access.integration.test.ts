@@ -5,6 +5,7 @@ import { db, schema } from '../db/client.js';
 import { hashPassword, hashToken } from '../lib/crypto.js';
 import { id } from '../lib/ids.js';
 import { now } from '../lib/time.js';
+import { signInRequest } from './helpers/mfa.js';
 
 const ORIGIN = 'http://localhost:5173';
 const PASSWORD = 'account-access-password';
@@ -74,7 +75,7 @@ function makeAccount(options: {
 }
 
 async function signIn(email: string, password = PASSWORD): Promise<Session> {
-  const response = await app.request('/v1/auth/password', {
+  const response = await signInRequest( {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin: ORIGIN },
     body: JSON.stringify({ tenantSlug: 'shark', email, password }),

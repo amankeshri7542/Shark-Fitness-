@@ -20,7 +20,9 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
-  timeout: 30_000,
+  // An owner sign-in may wait up to one 30-second TOTP step for a code the
+  // server has not seen yet (support/totp.ts), so a spec gets 60 s.
+  timeout: 60_000,
   expect: { timeout: 10_000 },
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : [['list']],
   use: {

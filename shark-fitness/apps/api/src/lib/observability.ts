@@ -3,7 +3,7 @@ import { captureException, type ErrorReportContext } from './error-reporting.js'
 import { redactSensitiveText } from './redaction.js';
 
 type Level = 'info' | 'warn' | 'error';
-const SENSITIVE = /password|token|secret|authorization|cookie|otp|pass|phone|email|payload/i;
+const SENSITIVE = /password|token|secret|authorization|cookie|otp|pass|phone|email|payload|recovery|signature/i;
 
 function safeValue(value: unknown, key = ''): unknown {
   if (SENSITIVE.test(key)) return '[redacted]';

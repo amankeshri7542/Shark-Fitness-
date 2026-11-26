@@ -1,20 +1,17 @@
 import { Hono } from 'hono';
-import { getCookie, setCookie } from 'hono/cookie';
 import { VerifyOtpInput } from '@shark/contracts';
 import { validate } from '../middleware/validate.js';
 import { clientIp, rateLimit } from '../middleware/index.js';
-import { verifyOtp, viewerFor } from '../services/auth.js';
-import { runtimeConfig } from '../lib/config.js';
-import { DAY } from '../lib/time.js';
-import {
-  CSRF_COOKIE,
-  SESSION_COOKIE,
-  clearCsrfCookie,
-  issueCsrfCookie,
-} from '../lib/security.js';
+import { verifyOtp } from '../services/auth.js';
+import { signedIn } from './auth.js';
 
 export const authStabilizationRoutes = new Hono();
 
+/**
+ * The only `POST /otp/verify`. It is mounted before `authRoutes`; the copy that
+ * used to live in auth.ts never ran and was removed in P06. Staff who use MFA
+ * get a partial session here exactly as they do from password sign-in.
+ */
 authStabilizationRoutes.post(
   '/otp/verify',
   rateLimit(20, 60_000),
@@ -27,20 +24,6 @@ authStabilizationRoutes.post(
       ip: clientIp(c),
       userAgent: c.req.header('user-agent') ?? '',
     });
-
-    setCookie(c, SESSION_COOKIE, result.token, {
-      httpOnly: true,
-      sameSite: 'Lax',
-      path: '/',
-      maxAge: (30 * DAY) / 1000,
-      secure: runtimeConfig.isProduction,
-    });
-    if (getCookie(c, CSRF_COOKIE)) clearCsrfCookie(c);
-    const csrfToken = issueCsrfCookie(c);
-
-    return c.json({
-      viewer: viewerFor(result.viewer.userId),
-      csrfToken,
-    });
+    return c.json(signedIn(c, result));
   },
 );

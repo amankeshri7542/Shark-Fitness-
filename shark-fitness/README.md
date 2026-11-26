@@ -27,6 +27,8 @@ docs/
   ADR-001-runtime.md  Why this deviates from the PRD's Cloudflare/Expo stack.
   ADR-002-member-mobile-app.md  The mobile app: PWA + Android TWA, Expo deferred.
   MOBILE-APP.md   Install, push, Play Console, asset links, iOS, Data safety draft.
+  ADR-004-mfa-totp.md TOTP two-step sign-in now, passkeys later.
+  SECURITY.md         Sessions, MFA, step-up, CSP, webhooks (with a verification snippet).
   PILOT-HOSTING.md    One-server pilot: deploy, backups (encrypted off-site), drills.
   OPERATIONS-ALERTS.md  Error reporting, /metrics and the alert rules.
   WEBSITE.md      The public website: content, forms and leads, SEO switches, budgets.
@@ -70,6 +72,15 @@ SLA, an overdue safety work order.
 
 Password for all: `shark1234`. Members can also sign in by OTP; in a dev build the
 code is echoed to the API log and prefilled.
+
+Owners (and regional managers and platform staff) must use **two-step sign-in**.
+On a fresh database `owner@sharkfitness.in` is asked to set it up after the
+password: scan the QR code with any authenticator app (Google Authenticator,
+Microsoft Authenticator, 1Password…), enter the code, keep the recovery codes.
+The other demo staff accounts are not asked unless the gym turns on
+Settings → Security → "Require two-step sign-in for all staff". Lost the
+authenticator on a dev database? `pnpm db:reset` starts over. Details in
+`docs/SECURITY.md`.
 
 The console changes shape per role — that is the point, not a detail. Sign in as
 reception and then as owner to see it.

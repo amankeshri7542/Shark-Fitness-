@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { ctxOf } from '../../middleware/index.js';
 import { changing, validate } from '../../middleware/validate.js';
 import { requirePermission } from '../../lib/context.js';
+import { requireFreshAuth } from '../../lib/step-up.js';
 import { runIdempotently } from '../../lib/idempotency.js';
 import {
   adjustStock,
@@ -252,6 +253,8 @@ storeRoutes.post('/orders', validate('json', CheckoutBody), (c) => {
 
 storeRoutes.post('/orders/:orderId/refund', validate('json', ReturnBody), (c) => {
   const ctx = ctxOf(c);
+  requirePermission(ctx, 'inventory.manage');
+  requireFreshAuth(ctx, 'store.refund');
   const orderId = c.req.param('orderId');
   const body = c.req.valid('json');
   const result = runIdempotently(ctx, 'store.return', c.req.header('idempotency-key'), { orderId, ...body }, () =>

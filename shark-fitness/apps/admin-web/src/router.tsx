@@ -37,6 +37,7 @@ const ReportsScreen = lazyRouteComponent(() => import('./screens/Reports'));
 const SupportScreen = lazyRouteComponent(() => import('./screens/Support'));
 const SettingsScreen = lazyRouteComponent(() => import('./screens/Settings'));
 const PlatformScreen = lazyRouteComponent(() => import('./screens/Platform'));
+const AccountScreen = lazyRouteComponent(() => import('./screens/Account'));
 
 /** Shown while a screen chunk is in flight, inside the console shell so the
  *  rail and status strip stay put instead of the pane going blank. */
@@ -73,11 +74,27 @@ function ConsoleLayout() {
 
 const rootRoute = createRootRoute({ component: Outlet });
 
-function requireStaff(): void {
-  if (useAdmin.getState().status === 'signed-out') throw redirect({ to: '/sign-in' });
+function requireStaff({ location }: { location: { href: string } }): void {
+  if (useAdmin.getState().status === 'signed-out') {
+    // A deep link opened while signed out comes back to itself after sign-in.
+    const href = location.href.replace(/^\/admin(?=\/|$)/, '') || '/';
+    throw redirect({ to: '/sign-in', search: href !== '/' ? { redirect: href } : {} });
+  }
 }
 
-const signInRoute = createRoute({ getParentRoute: () => rootRoute, path: '/sign-in', component: SignInScreen });
+export interface SignInSearch {
+  /** A console path to return to after signing in (session expired). */
+  redirect?: string;
+}
+const signInRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/sign-in',
+  component: SignInScreen,
+  validateSearch: (search: Record<string, unknown>): SignInSearch =>
+    typeof search.redirect === 'string' && search.redirect.startsWith('/') && !search.redirect.startsWith('//')
+      ? { redirect: search.redirect.slice(0, 500) }
+      : {},
+});
 const consoleRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: 'console',
@@ -264,7 +281,7 @@ const supportRoute = createRoute({
     ...(typeof search.ticket === 'string' && search.ticket.length > 0 ? { ticket: search.ticket } : {}),
   }),
 });
-const SETTINGS_TABS = ['business', 'branches', 'privacy', 'setup'] as const;
+const SETTINGS_TABS = ['business', 'branches', 'privacy', 'security', 'integrations', 'setup'] as const;
 type SettingsSearch = { tab: (typeof SETTINGS_TABS)[number] };
 
 const settingsRoute = createRoute({
@@ -286,6 +303,9 @@ const platformRoute = createRoute({
     tab: PLATFORM_TABS.includes(search.tab as never) ? (search.tab as PlatformSearch['tab']) : 'tenants',
   }),
 });
+
+/** Your own sign-in: two-step and devices. Every role can open it. */
+const accountRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/account', component: AccountScreen });
 
 const routeTree = rootRoute.addChildren([
   signInRoute,
@@ -310,6 +330,7 @@ const routeTree = rootRoute.addChildren([
     supportRoute,
     settingsRoute,
     platformRoute,
+    accountRoute,
   ]),
 ]);
 

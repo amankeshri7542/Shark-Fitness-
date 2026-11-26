@@ -239,7 +239,7 @@ It asks for the owner's password (hidden), then:
 2. Restores the given copy with `pnpm db:restore` into `drill/<time>/`, checked against its manifest. It boots the deployed image on that copy with no network and the scheduler off, so it cannot message or bill anyone.
 3. Checks that `/ready` reports ready, prints row counts, signs in as the owner and reads the dashboard.
 
-A pass ends with `synthetic_proof=passed`, `owner_sign_in=200`, `owner_dashboard=200` and `drill=passed`; any failure exits non-zero. The drill copy is deleted afterwards (`--keep` keeps it). Record the output under [Evidence](#evidence).
+A pass ends with `synthetic_proof=passed`, `owner_sign_in=200`, `owner_mfa=…` (the owner's two-step state; `challenge` once they use it), `owner_session=200` and `drill=passed`; any failure exits non-zero. The drill copy is deleted afterwards (`--keep` keeps it). Record the output under [Evidence](#evidence).
 
 **Drilling an off-site copy.** This is the one that proves the droplet can be lost. Copy the private key into memory on the server for the drill only, run it, and delete the key:
 
@@ -316,6 +316,7 @@ These override anything in `shark.env`.
 | Variable | Required | Pilot value | Notes |
 | --- | --- | --- | --- |
 | `SHARK_DOMAIN` | yes | your hostname, e.g. `pilot.example.com` | Read by Compose for Caddy and `SHARK_PUBLIC_ORIGIN`; set by `provision.sh` |
+| `SHARK_MFA_ENCRYPTION_KEY` | yes | 44 characters from `openssl rand -base64 32` | Exactly 32 bytes or startup fails. Encrypts staff two-step sign-in secrets and webhook signing secrets. Set by `provision.sh` (added to an older `shark.env` on the next run); keep a copy with the backup key — without it every staff member must set up two-step sign-in again and webhook secrets must be rotated |
 | `SHARK_PASS_SECRET` | yes | 64 characters from `openssl rand -base64 48` | At least 48 bytes or startup fails. Signs members' rotating entry passes and roster-import confirmations. Set by `provision.sh`; keep a copy in a password manager |
 | `SHARK_ERROR_REPORTING_ENDPOINT` | no | `https://ntfy.sh/shark-pilot-<random>` | HTTPS only. Receives redacted JSON for unexpected errors |
 | `SHARK_BACKUP_PING_URL` | no | `https://hc-ping.com/<uuid>` | Read by `backup.sh` (nightly runs only) |

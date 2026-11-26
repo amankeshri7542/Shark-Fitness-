@@ -7,10 +7,12 @@ import { allowedOrigins, csrfProtection, securityHeaders } from './lib/security.
 
 import { accountRecoveryRoutes } from './routes/account-recovery.js';
 import { clientErrorRoutes } from './routes/client-errors.js';
+import { cspReportRoutes } from './routes/csp-reports.js';
 import { metricsRoutes } from './routes/metrics.js';
 import { webhookRoutes } from './routes/webhooks.js';
 import { authRoutes } from './routes/auth.js';
 import { authStabilizationRoutes } from './routes/auth-stabilization.js';
+import { mfaRoutes } from './routes/mfa.js';
 import { meRoutes } from './routes/me.js';
 import { pushSubscriptionRoutes } from './routes/push-subscriptions.js';
 import { assetLinksRoutes } from './routes/asset-links.js';
@@ -50,6 +52,8 @@ import { settingsRoutes } from './routes/admin/settings.js';
 import { automationRoutes } from './routes/admin/automations.js';
 import { platformRoutes } from './routes/platform.js';
 import { supportRoutes } from './routes/admin/support.js';
+import { securityRoutes } from './routes/admin/security.js';
+import { integrationRoutes } from './routes/admin/integrations.js';
 
 export const app = new Hono();
 export const PROTECTED_API_IP_MAX = 2_000;
@@ -122,7 +126,9 @@ app.route('/.well-known/assetlinks.json', assetLinksRoutes);
 app.route('/v1/client-errors', clientErrorRoutes);
 app.use('/v1/webhooks/*', webhookIpLimit);
 app.route('/v1/webhooks', webhookRoutes);
+app.route('/v1/csp-reports', cspReportRoutes);
 
+app.route('/v1/auth/mfa', mfaRoutes);
 app.route('/v1/auth', authStabilizationRoutes);
 app.route('/v1/auth', accountRecoveryRoutes);
 app.route('/v1/auth', authRoutes);
@@ -171,6 +177,8 @@ app.route('/v1/admin/support', supportRoutes);
 app.route('/v1/admin/automations', automationRoutes);
 app.route('/v1/admin/engagement', adminEngagementRoutes);
 app.route('/v1/admin/privacy', privacyRoutes);
+app.route('/v1/admin/security', securityRoutes);
+app.route('/v1/admin/integrations', integrationRoutes);
 
 /* Platform administration (PF-PLAT). `staffOnly` is not enough here and is not
    used: each route carries `platformOnly`, which refuses an impersonated

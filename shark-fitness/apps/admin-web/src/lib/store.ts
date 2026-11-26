@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { create } from 'zustand';
 import type { Branch, ImpersonationBanner, Viewer } from '@shark/contracts';
 import { can, type Permission } from '@shark/domain';
-import { api, auth } from './api';
+import { ApiError, api, auth } from './api';
 
 interface AdminState {
   viewer: Viewer | null;
@@ -22,6 +22,14 @@ interface AdminState {
   density: 'comfortable' | 'compact';
   theme: 'dark' | 'light';
   status: 'loading' | 'signed-in' | 'signed-out';
+  /**
+   * Set when a signed-in console learns its session is over (idle, expired,
+   * revoked). The console stays on screen behind a "Session expired" dialog
+   * until the person signs in again, then returns to `returnTo`.
+   */
+  sessionEnded: { reason: string | null; message: string; returnTo: string } | null;
+  /** The session still owes a TOTP code (`challenge`) or an enrolment. */
+  mfaPending: 'challenge' | 'enrol' | null;
   paletteOpen: boolean;
   setViewer: (viewer: Viewer | null) => void;
   setActiveBranch: (branchId: string | null) => void;
@@ -30,6 +38,8 @@ interface AdminState {
   togglePalette: (open?: boolean) => void;
   bootstrap: () => Promise<void>;
   signOut: () => Promise<void>;
+  endSession: (reason: string | null, message: string, returnTo: string) => void;
+  setMfaPending: (state: 'challenge' | 'enrol' | null) => void;
 }
 
 const BRANCH_KEY = 'shark.branch';
@@ -42,9 +52,21 @@ export const useAdmin = create<AdminState>((set, get) => ({
   density: (localStorage.getItem('shark.density') as 'compact') ?? 'comfortable',
   theme: (localStorage.getItem('shark.theme') as 'light') ?? 'dark',
   status: 'loading',
+  sessionEnded: null,
+  mfaPending: null,
   paletteOpen: false,
 
   setViewer: (viewer) => set({ viewer, status: viewer ? 'signed-in' : 'signed-out' }),
+
+  endSession: (reason, message, returnTo) => {
+    // Only a console that was signed in can have its session end; a failed
+    // sign-in or a page that never booted is not "expired".
+    if (get().status !== 'signed-in' || get().sessionEnded) return;
+    auth.clear();
+    set({ sessionEnded: { reason, message, returnTo } });
+  },
+
+  setMfaPending: (mfaPending) => set({ mfaPending }),
 
   setActiveBranch: (activeBranchId) => {
     // Remembered so a desk that reloads the console stays on its own branch
@@ -90,6 +112,8 @@ export const useAdmin = create<AdminState>((set, get) => ({
         viewer,
         impersonation: impersonation ?? null,
         status: 'signed-in',
+        sessionEnded: null,
+        mfaPending: null,
         branches: branches.items,
         // Null means "all branches I can see" — a regional view, not a default
         // to one location that quietly hides the rest.
@@ -98,9 +122,14 @@ export const useAdmin = create<AdminState>((set, get) => ({
             ? (branches.items[0]?.id ?? null)
             : (branches.items.find((b) => b.id === localStorage.getItem(BRANCH_KEY))?.id ?? null),
       });
-    } catch {
-      auth.clear();
-      set({ viewer: null, impersonation: null, status: 'signed-out' });
+    } catch (error) {
+      // A reload in the middle of two-step sign-in: the session is real but
+      // still owes a code or an enrolment, and sign-in picks up where it was.
+      const pending = error instanceof ApiError && error.code === 'MFA_REQUIRED'
+        ? ((error.details as { state?: 'challenge' | 'enrol' } | undefined)?.state ?? 'challenge')
+        : null;
+      if (!pending) auth.clear();
+      set({ viewer: null, impersonation: null, status: 'signed-out', mfaPending: pending, sessionEnded: null });
     }
   },
 
@@ -112,7 +141,7 @@ export const useAdmin = create<AdminState>((set, get) => ({
     }
     auth.clear();
     localStorage.removeItem(BRANCH_KEY);
-    set({ viewer: null, impersonation: null, branches: [], activeBranchId: null, status: 'signed-out' });
+    set({ viewer: null, impersonation: null, branches: [], activeBranchId: null, status: 'signed-out', sessionEnded: null, mfaPending: null });
   },
 }));
 

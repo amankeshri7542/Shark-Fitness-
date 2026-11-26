@@ -8,6 +8,7 @@ import { id } from '../lib/ids.js';
 import { now, isoDate, addDays } from '../lib/time.js';
 import { reconcileMembershipDates } from '../services/membership-dates.js';
 import { membershipStanding } from '../services/booking.js';
+import { signInRequest } from './helpers/mfa.js';
 
 it('downloads a scoped payment receipt and refuses unverified UPI references', async () => {
   const owner = await signIn('owner@sharkfitness.in');
@@ -47,7 +48,7 @@ function sharkTenantId(): string {
 async function signIn(email: string): Promise<Session> {
   const cached = cache.get(email);
   if (cached) return cached;
-  const response = await app.request('/v1/auth/password', {
+  const response = await signInRequest( {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin: 'http://localhost:5173' },
     body: JSON.stringify({ tenantSlug: 'shark', email, password: 'shark1234' }),

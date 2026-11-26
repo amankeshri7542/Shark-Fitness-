@@ -65,12 +65,81 @@ export interface RequestOptions {
   branchId?: string | null;
   idempotencyKey?: string;
   signal?: AbortSignal;
+  /** The step-up and MFA calls themselves: never re-enter the session handlers. */
+  skipSessionHandlers?: boolean;
+}
+
+/* — Session handlers ————————————————————————————————————————————
+
+   Three server answers are about the session, not about the request, and one
+   place in the console deals with each (ui/SessionGuard.tsx):
+
+   - `STEP_UP_REQUIRED`: a high-risk action needs a fresh password (and TOTP)
+     check. The handler opens the re-check dialog and resolves once it
+     succeeds; the original request is then sent again *unchanged* — same
+     body, same Idempotency-Key — so a refund cannot be recorded twice.
+   - `UNAUTHENTICATED` on a signed-in console: the session ended (idle,
+     expired, revoked). The handler shows "Session expired" and keeps the URL.
+   - `MFA_REQUIRED`: the session still owes a code or an enrolment. */
+
+export interface StepUpChallenge {
+  mfa: boolean;
+  action: string;
+}
+
+export interface SessionHandlers {
+  stepUp?: (challenge: StepUpChallenge) => Promise<void>;
+  sessionEnded?: (reason: string | null, message: string) => void;
+  mfaRequired?: (state: 'challenge' | 'enrol') => void;
+}
+
+let handlers: SessionHandlers = {};
+
+export function setSessionHandlers(next: SessionHandlers): () => void {
+  handlers = next;
+  return () => {
+    if (handlers === next) handlers = {};
+  };
+}
+
+/** Paths whose 401 is part of signing in, not a session that ended. */
+function isAuthPath(path: string): boolean {
+  return path.startsWith('/auth/');
+}
+
+/** Runs `attempt`; on a step-up answer, asks for the re-check and runs it once more. */
+async function withSessionHandling<T>(path: string, options: { skipSessionHandlers?: boolean }, attempt: () => Promise<T>): Promise<T> {
+  try {
+    return await attempt();
+  } catch (error) {
+    if (!(error instanceof ApiError) || options.skipSessionHandlers) throw error;
+    if (error.code === 'STEP_UP_REQUIRED' && handlers.stepUp) {
+      const details = (error.details ?? {}) as Partial<StepUpChallenge>;
+      try {
+        await handlers.stepUp({ mfa: details.mfa === true, action: String(details.action ?? '') });
+      } catch {
+        // Dismissed: the action did not happen, and the screen says so.
+        throw error;
+      }
+      return attempt();
+    }
+    if (error.code === 'MFA_REQUIRED' && handlers.mfaRequired) {
+      handlers.mfaRequired((error.details as { state?: 'challenge' | 'enrol' } | undefined)?.state ?? 'challenge');
+    } else if (error.status === 401 && error.code === 'UNAUTHENTICATED' && !isAuthPath(path) && handlers.sessionEnded) {
+      handlers.sessionEnded(((error.details as { reason?: string } | undefined)?.reason) ?? null, error.message);
+    }
+    throw error;
+  }
 }
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const CSRF_EXEMPT = new Set(['/auth/password', '/auth/otp/start', '/auth/otp/verify', '/auth/activation/redeem', '/auth/recovery/redeem']);
 
 export async function api<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  return withSessionHandling(path, options, () => request<T>(path, options));
+}
+
+async function request<T>(path: string, options: RequestOptions): Promise<T> {
   const method = options.method ?? 'GET';
   const guarded = !SAFE_METHODS.has(method) && !CSRF_EXEMPT.has(path);
   if (guarded && !csrf.get()) await refreshCsrf();
@@ -120,7 +189,8 @@ async function send<T>(path: string, options: RequestOptions, method: string): P
   const payload = text ? (JSON.parse(text) as unknown) : null;
 
   if (!response.ok) {
-    if (response.status === 401) csrf.clear();
+    // A step-up or MFA answer leaves the session (and its token) in place.
+    if (response.status === 401 && (payload as ErrorEnvelope | null)?.error?.code === 'UNAUTHENTICATED') csrf.clear();
     throw new ApiError(response.status, payload as ErrorEnvelope);
   }
   if (payload && typeof payload === 'object' && 'csrfToken' in payload && typeof payload.csrfToken === 'string') {
@@ -162,6 +232,13 @@ export async function apiDownload(
   path: string,
   options: { body: unknown; branchId?: string | null },
 ): Promise<{ blob: Blob; filename: string | null }> {
+  return withSessionHandling(path, {}, () => download(path, options));
+}
+
+async function download(
+  path: string,
+  options: { body: unknown; branchId?: string | null },
+): Promise<{ blob: Blob; filename: string | null }> {
   if (!csrf.get()) await refreshCsrf();
 
   const attempt = async (): Promise<Response> => {
@@ -192,8 +269,9 @@ export async function apiDownload(
 
   if (!response.ok) {
     const text = await response.text();
-    if (response.status === 401) csrf.clear();
-    throw new ApiError(response.status, (text ? JSON.parse(text) : null) as ErrorEnvelope);
+    const envelope = (text ? JSON.parse(text) : null) as ErrorEnvelope;
+    if (response.status === 401 && envelope?.error?.code === 'UNAUTHENTICATED') csrf.clear();
+    throw new ApiError(response.status, envelope);
   }
 
   const disposition = response.headers.get('content-disposition') ?? '';

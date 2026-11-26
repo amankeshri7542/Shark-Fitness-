@@ -3,6 +3,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { app } from '../app.js';
 import { db, schema } from '../db/client.js';
 import { now } from '../lib/time.js';
+import { signInRequest } from './helpers/mfa.js';
 
 const origin = 'http://localhost:5173';
 const unique = (scope: string) => `${scope}-${crypto.randomUUID()}`;
@@ -12,7 +13,7 @@ let reception: Session;
 let trainer: Session;
 let memberSession: Session;
 async function login(email: string): Promise<Session> {
-  const res = await app.request('/v1/auth/password', { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify({ tenantSlug: 'shark', email, password: 'shark1234' }) });
+  const res = await signInRequest( { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify({ tenantSlug: 'shark', email, password: 'shark1234' }) });
   expect(res.status).toBe(200);
   const body = await res.json() as { csrfToken: string };
   return { cookie: `shark_session=${res.headers.get('set-cookie')?.match(/shark_session=([^;,]+)/)?.[1]}; shark_csrf=${body.csrfToken}`, csrf: body.csrfToken };

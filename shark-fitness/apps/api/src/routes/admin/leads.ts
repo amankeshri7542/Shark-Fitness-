@@ -23,6 +23,7 @@ import {
   leadSlaBreached,
   loadLeadInScope,
 } from '../../services/leads.js';
+import { emitIntegrationEvent } from '../../services/integration-events.js';
 
 export const leadsRoutes = new Hono();
 
@@ -492,6 +493,12 @@ leadsRoutes.post('/', validate('json', CreateBody), (c) => {
       .run();
 
     audit(ctx, { action: 'lead.created', entityType: 'lead', entityId: leadId, entityLabel: body.name, branchId: body.branchId });
+    emitIntegrationEvent({
+      tenantId: ctx.tenantId,
+      branchId: body.branchId,
+      type: 'lead.created',
+      data: { leadId, branchId: body.branchId, source: body.source, stage: 'new', duplicateOfId: duplicate?.id ?? null },
+    });
   });
 
   return c.json({ id: leadId, duplicateOfId: duplicate?.id ?? null }, 201);
@@ -724,6 +731,7 @@ leadsRoutes.post('/:leadId/convert', (c) => {
       entityLabel: lead.name,
       after: { convertedMemberId: memberId, memberNo },
     });
+    emitIntegrationEvent({ tenantId: ctx.tenantId, branchId: lead.branchId, type: 'lead.converted', data: { leadId, memberId, memberNo } });
     return { memberId, memberNo };
   });
   const { memberId, memberNo } = result;

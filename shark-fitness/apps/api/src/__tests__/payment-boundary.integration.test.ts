@@ -5,6 +5,7 @@ import { app } from '../app.js';
 import { db, schema, sqlite, transact } from '../db/client.js';
 import { resolveSession } from '../services/auth.js';
 import { applyPaymentToInvoice } from '../services/billing.js';
+import { signInRequest } from './helpers/mfa.js';
 
 const origin = 'http://localhost:5173';
 type Session = { cookie: string; 'x-csrf-token': string };
@@ -16,7 +17,7 @@ let invoiceTemplate: typeof schema.invoices.$inferSelect;
 let membershipTemplate: typeof schema.memberships.$inferSelect;
 
 async function signIn(email: string): Promise<Session> {
-  const response = await app.request('/v1/auth/password', {
+  const response = await signInRequest( {
     method: 'POST', headers: { origin, 'content-type': 'application/json' },
     body: JSON.stringify({ tenantSlug: 'shark', email, password: 'shark1234' }),
   });

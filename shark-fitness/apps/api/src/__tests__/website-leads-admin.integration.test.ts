@@ -4,6 +4,7 @@ import type { PublicClasses, PublicSite } from '@shark/contracts';
 import { app } from '../app.js';
 import { db, schema } from '../db/client.js';
 import { resetRateLimitsForTest } from '../middleware/index.js';
+import { signInRequest } from './helpers/mfa.js';
 
 /**
  * The console's side of the website: publishing a plan, seeing website leads
@@ -20,7 +21,7 @@ const sessions = new Map<string, BrowserSession>();
 async function signIn(email: string): Promise<BrowserSession> {
   const cached = sessions.get(email);
   if (cached) return cached;
-  const response = await app.request('/v1/auth/password', {
+  const response = await signInRequest({
     method: 'POST',
     headers: { 'content-type': 'application/json', origin: ORIGIN },
     body: JSON.stringify({ tenantSlug: 'shark', email, password: 'shark1234' }),

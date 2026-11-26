@@ -4,8 +4,24 @@ import { getCookie, setCookie } from 'hono/cookie';
 import { runtimeConfig } from './config.js';
 import { AppError } from './errors.js';
 import { token } from './ids.js';
+import { CSP_REPORT_PATH, cspFor, cspHeaderName, permissionsPolicyFor, surfaceForPath } from './csp.js';
 
 export const SESSION_COOKIE = 'shark_session';
+
+/**
+ * The only place the session cookie is written: sign-in (routes/auth.ts
+ * `setBrowserSession`) and a member session sliding forward (middleware).
+ * Both must carry exactly the same flags.
+ */
+export function setSessionCookie(c: Context, rawToken: string, maxAgeMs: number): void {
+  setCookie(c, SESSION_COOKIE, rawToken, {
+    httpOnly: true,
+    sameSite: 'Lax',
+    path: '/',
+    maxAge: Math.floor(maxAgeMs / 1000),
+    secure: runtimeConfig.isProduction,
+  });
+}
 export const CSRF_COOKIE = 'shark_csrf';
 
 const CONFIGURED_ORIGINS = new Set(runtimeConfig.allowedOrigins);
@@ -96,6 +112,14 @@ function isPublicSitePath(path: string): boolean {
 }
 
 /**
+ * Browsers send CSP violation reports themselves: no CSRF token, often no
+ * Origin (or `null`), sometimes with cookies. The route stores nothing and
+ * acts on no session, is rate-limited and size-capped, so neither check
+ * applies (routes/csp-reports.ts).
+ */
+const CSRF_EXEMPT_PATHS = new Set([CSP_REPORT_PATH]);
+
+/**
  * Rejects cross-origin unsafe requests and requires a double-submit token for
  * browser sessions. Login endpoints do not have a session cookie yet, so the
  * strict Origin check is their CSRF boundary.
@@ -107,7 +131,7 @@ export const csrfProtection: MiddlewareHandler = async (c, next) => {
     return;
   }
 
-  if (c.req.path.startsWith(WEBHOOK_PATH_PREFIX)) {
+  if (c.req.path.startsWith(WEBHOOK_PATH_PREFIX) || CSRF_EXEMPT_PATHS.has(c.req.path)) {
     await next();
     return;
   }
@@ -137,12 +161,21 @@ export const csrfProtection: MiddlewareHandler = async (c, next) => {
   await next();
 };
 
+/** Where Reporting API (`report-to`) reports go. Needs an absolute URL, so it
+ *  is only sent when the public origin is configured. */
+const REPORTING_ENDPOINTS = runtimeConfig.allowedOrigins[0] && runtimeConfig.isProduction
+  ? `csp="${new URL(CSP_REPORT_PATH, runtimeConfig.allowedOrigins[0]).toString()}"`
+  : null;
+
 export const securityHeaders: MiddlewareHandler = async (c, next) => {
   await next();
+  const surface = surfaceForPath(c.req.path);
+  c.header(cspHeaderName(), cspFor(surface));
+  if (REPORTING_ENDPOINTS && surface !== 'api') c.header('reporting-endpoints', REPORTING_ENDPOINTS);
   c.header('x-content-type-options', 'nosniff');
   c.header('x-frame-options', 'DENY');
   c.header('referrer-policy', 'strict-origin-when-cross-origin');
-  c.header('permissions-policy', 'camera=(), microphone=(), geolocation=()');
+  c.header('permissions-policy', permissionsPolicyFor(surface));
   c.header('cross-origin-opener-policy', 'same-origin');
   c.header('cross-origin-resource-policy', 'same-site');
   if (runtimeConfig.isProduction) {

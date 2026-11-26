@@ -12,9 +12,13 @@ First time on a machine: `pnpm -F @shark/e2e exec playwright install chromium`.
 
 ## What a run does
 
-`global-setup.ts` creates a temporary directory, migrates and seeds a new SQLite database there (the demo gyms from `apps/api/src/db/seed.ts`), and starts the API with `NODE_ENV=production` on a free port (or `SHARK_E2E_PORT`, when the machine reserves a port range) with a pass secret generated for that run, scheduled jobs off and errors reported to the server log. It never reads or writes `apps/api/data/shark.db`, and it passes the server only the variables it sets, so nothing in your shell can point it elsewhere. `global-teardown.ts` stops the server and deletes the directory. The server's process id is recorded in `e2e/.state/run.json` (git-ignored) while a run is in progress.
+`global-setup.ts` creates a temporary directory, migrates and seeds a new SQLite database there (the demo gyms from `apps/api/src/db/seed.ts`), and starts the API with `NODE_ENV=production` on a free port (or `SHARK_E2E_PORT`, when the machine reserves a port range) with a pass secret and an MFA encryption key generated for that run, scheduled jobs off and errors reported to the server log. It never reads or writes `apps/api/data/shark.db`, and it passes the server only the variables it sets, so nothing in your shell can point it elsewhere. `global-teardown.ts` stops the server and deletes the directory. The server's process id is recorded in `e2e/.state/run.json` (git-ignored) while a run is in progress.
 
 Specs read the base URL from Playwright's `baseURL` and the server log from `SHARK_E2E_SERVER_LOG`. Shared sign-in steps live in `support/demo.ts`.
+
+**Two-step sign-in.** Owners must use TOTP. Global setup enrols the demo owner (`owner@sharkfitness.in`) with a secret generated for the run (`apps/api/src/db/mfa-fixture.ts`) and passes it to the workers as `SHARK_E2E_OWNER_TOTP_SECRET`; `support/totp.ts` generates the owner's codes. The server accepts each 30-second code once, so the helper waits for a fresh step when a spec signs the owner in twice inside one (specs that do that get a 120 s timeout). Reef Athletic's owner is left unenrolled, which is how `console-two-step` meets the enrolment gate.
+
+**Content-Security-Policy.** Every spec imports `test` from `support/fixtures.ts`, which listens for `securitypolicyviolation` (and Chromium's "Refused to …" console errors) on every page and fails the spec on any violation.
 
 ## Specs
 
@@ -22,6 +26,10 @@ Specs read the base URL from Playwright's `baseURL` and the server log from `SHA
 | --- | --- |
 | `console-sign-in` | The owner signs in at `/admin/` and lands on Command Center with live data |
 | `member-sign-in` | A member signs in at `/app/` and lands on Home |
+| `console-two-step` | Reef's owner meets the enrolment gate, enrols from the setup key, keeps recovery codes, and next time signs in with a recovery code |
+| `console-session` | "Your devices" signs another session out; that session gets 401 `revoked`, shows "Session expired" and returns to the same URL after signing in |
+| `console-step-up` | An export five minutes after sign-in opens "Confirm it's you" and completes with the same request; an owner adds a webhook endpoint (secret shown once) and a metadata address is refused |
+| `security-headers` | Per-surface enforced CSP and Permissions-Policy on `/admin/`, `/` and `/v1` |
 | `client-error` | A screen whose code chunk fails to load becomes the "Something went wrong." recovery screen with a reference, the report reaches `POST /v1/client-errors` once (checked in the server's own log), and a reload does not report it again |
 
 | `responsive` | No sideways scroll or clipped content on any member screen at 360×800, 390×844, 768×1024 and 1024×768; screenshots to `SHARK_E2E_SCREENSHOT_DIR` |

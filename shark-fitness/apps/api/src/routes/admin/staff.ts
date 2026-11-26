@@ -5,6 +5,7 @@ import { validate } from '../../middleware/validate.js';
 import { Role } from '@shark/contracts';
 import { db, schema } from '../../db/client.js';
 import { requirePermission } from '../../lib/context.js';
+import { requireFreshAuth } from '../../lib/step-up.js';
 import { ctxOf } from '../../middleware/index.js';
 import {
   assignmentsForTrainer,
@@ -61,6 +62,8 @@ const CreateBody = z.object({
 staffRoutes.post('/', validate('json', CreateBody), (c) => {
   const ctx = ctxOf(c);
   requirePermission(ctx, 'staff.manage');
+  // A new account is a role grant (PRD 01 §2.4 "role changes").
+  requireFreshAuth(ctx, 'staff.create');
   const body = c.req.valid('json');
   const response = runIdempotently(ctx, '/admin/staff', c.req.header('idempotency-key'), body, () => {
     const staff = createStaffMember(ctx, body);
@@ -141,6 +144,11 @@ staffRoutes.patch('/:staffId', validate('json', PatchBody), (c) => {
   // someone is paid.
   if (body.commissionRules !== undefined || body.hourlyRateMinor !== undefined) {
     requirePermission(ctx, 'staff.commission');
+  }
+  // Role, branch access and whether the account may sign in at all are access
+  // changes; a phone number or a specialty is not.
+  if (body.role !== undefined || body.branchIds !== undefined || body.accountState !== undefined) {
+    requireFreshAuth(ctx, 'staff.access_change');
   }
   const staff = updateEmployment(ctx, c.req.param('staffId'), body);
   return c.json({ staff: { id: staff.id, employmentStatus: staff.employmentStatus } });

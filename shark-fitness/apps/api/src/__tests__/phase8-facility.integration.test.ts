@@ -8,6 +8,7 @@ import { id } from '../lib/ids.js';
 import { now } from '../lib/time.js';
 import type { RequestContext } from '../lib/context.js';
 import { returnEquipmentToService } from '../services/facility.js';
+import { signInRequest } from './helpers/mfa.js';
 
 interface Session {
   cookie: string;
@@ -32,7 +33,7 @@ let uniqueCounter = 0;
 async function signIn(email: string): Promise<Session> {
   const cached = cache.get(email);
   if (cached) return cached;
-  const response = await app.request('/v1/auth/password', {
+  const response = await signInRequest( {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin: 'http://localhost:5173' },
     body: JSON.stringify({ tenantSlug: 'shark', email, password: 'shark1234' }),

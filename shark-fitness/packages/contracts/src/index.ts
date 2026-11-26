@@ -18,3 +18,4 @@ export * from './schemas/member-operations.js';
 export * from './schemas/credit-account.js';
 export * from './schemas/client-errors.js';
 export * from './schemas/public-site.js';
+export * from './schemas/security.js';

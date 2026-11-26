@@ -5,6 +5,7 @@ import { db, schema } from '../db/client.js';
 import { id } from '../lib/ids.js';
 import { now } from '../lib/time.js';
 import { csvCell, normalizeTag } from '../services/member-bulk.js';
+import { signInRequest } from './helpers/mfa.js';
 
 interface BrowserSession {
   cookie: string;
@@ -17,7 +18,7 @@ const sessionCache = new Map<string, BrowserSession>();
 async function signIn(email: string): Promise<BrowserSession> {
   const cached = sessionCache.get(email);
   if (cached) return cached;
-  const response = await app.request('/v1/auth/password', {
+  const response = await signInRequest( {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin: 'http://localhost:5173' },
     body: JSON.stringify({ tenantSlug: 'shark', email, password: 'shark1234' }),

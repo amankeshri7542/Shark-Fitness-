@@ -8,6 +8,7 @@ import { applyFreeze, canTransition, formatMoney, levelFor } from '@shark/domain
 import { db, schema, transact } from '../../db/client.js';
 import { ctxOf, rateLimit } from '../../middleware/index.js';
 import { branchScope, requireAssignedMember, requirePermission } from '../../lib/context.js';
+import { requireFreshAuth } from '../../lib/step-up.js';
 import { audit } from '../../lib/audit.js';
 import { emit } from '../../lib/events.js';
 import { conflict, notFound, precondition } from '../../lib/errors.js';
@@ -24,6 +25,7 @@ import {
 import { loadMemberInScope } from '../../services/members.js';
 import { branchTimeZone } from '../../lib/branch-time.js';
 import { readCreditAccount } from '../../services/credit-account.js';
+import { emitIntegrationEvent } from '../../services/integration-events.js';
 
 export const membersRoutes = new Hono();
 
@@ -284,6 +286,7 @@ membersRoutes.post('/bulk/export', validate('json', z.object({ memberIds: Member
   // The desk exports the people it manages (member.edit); finance exports
   // for reporting (report.export). Trainers have neither.
   if (!ctx.permissions.includes('member.edit')) requirePermission(ctx, 'report.export');
+  requireFreshAuth(ctx, 'member.export');
   const { filename, csv } = exportMembersCsv(ctx, c.req.valid('json').memberIds);
   return c.body(csv, 200, {
     'content-type': 'text/csv; charset=utf-8',
@@ -787,6 +790,11 @@ membersRoutes.post('/:memberId/cancel', validate('json', CancelBody), (c) => {
       reason,
       before: { state: membership.state, autoRenew: membership.autoRenew },
       after: { state: target, cancelEffectiveOn: effectiveOn },
+    });
+    emitIntegrationEvent({
+      tenantId: ctx.tenantId,
+      type: 'membership.cancelled',
+      data: { membershipId: membership.id, memberId, immediate, state: target, effectiveOn },
     });
   });
 

@@ -29,6 +29,7 @@ import { emit } from '../../lib/events.js';
 import { id as newId } from '../../lib/ids.js';
 import { DAY, HOUR, addDays, isoDate, now, relativeTime, startOfWeek } from '../../lib/time.js';
 import { conflict, forbidden, notFound, precondition } from '../../lib/errors.js';
+import { emitIntegrationEvent } from '../../services/integration-events.js';
 
 /**
  * Member training (UX-M07, PF-WORK).
@@ -1720,6 +1721,14 @@ trainingRoutes.post('/workouts', validate('json', WorkoutDraft), (c) => {
         totalSets: draft.sets.length,
       },
     });
+    if (draft.state === 'completed') {
+      emitIntegrationEvent({
+        tenantId: scope.tenantId,
+        branchId: draft.branchId ?? scope.branchId,
+        type: 'workout.completed',
+        data: { workoutId, memberId: scope.memberId, totalSets: draft.sets.length },
+      });
+    }
 
     for (const pr of newRecords) {
       emit({

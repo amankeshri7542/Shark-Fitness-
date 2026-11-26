@@ -8,7 +8,10 @@ import { useAdmin } from './lib/store';
 import { ApiError } from './lib/api';
 import { connectRealtime, disconnectRealtime } from './lib/realtime';
 import { installGlobalErrorListeners } from './lib/error-reporting';
+import { recoverFromRootServiceWorker } from './lib/sw-recovery';
 import { AppErrorBoundary } from './ui/ErrorBoundary';
+import { SessionGuard, safeReturnPath } from './ui/SessionGuard';
+import { TwoStepGate } from './ui/TwoStep';
 import './styles.css';
 
 /** Installable console: a shell-only worker scoped to /admin/ (src/sw/sw.ts). */
@@ -37,6 +40,7 @@ function Boot() {
   const status = useAdmin((s) => s.status);
   const bootstrap = useAdmin((s) => s.bootstrap);
   const viewer = useAdmin((s) => s.viewer);
+  const mfaPending = useAdmin((s) => s.mfaPending);
 
   useEffect(() => {
     void bootstrap();
@@ -72,9 +76,38 @@ function Boot() {
     );
   }
 
-  return <RouterProvider router={router} />;
+  // A session that still owes a code or an enrolment sees only that.
+  if (mfaPending) {
+    return (
+      <TwoStepGate
+        state={mfaPending}
+        onComplete={() => {
+          const returnTo = safeReturnPath(new URLSearchParams(window.location.search).get('redirect'));
+          void useAdmin
+            .getState()
+            .bootstrap()
+            .then(() => router.navigate({ href: returnTo ?? '/' }));
+        }}
+      />
+    );
+  }
+
+  return (
+    <>
+      <RouterProvider router={router} />
+      <SessionGuard
+        onSignIn={(returnTo) => {
+          // Clear the dead session locally, then sign in and come back here.
+          useAdmin.setState({ viewer: null, impersonation: null, status: 'signed-out', sessionEnded: null });
+          queryClient.clear();
+          void router.navigate({ to: '/sign-in', search: { redirect: returnTo } });
+        }}
+      />
+    </>
+  );
 }
 
+recoverFromRootServiceWorker();
 installGlobalErrorListeners();
 
 createRoot(document.getElementById('root')!).render(

@@ -4,6 +4,7 @@ import { bootstrapGym } from '../db/bootstrap.js';
 import { sqlite } from '../db/client.js';
 import { verifyPassword } from '../lib/crypto.js';
 import { app } from '../app.js';
+import { signInRequest } from './helpers/mfa.js';
 
 describe('operator gym bootstrap', () => {
   it('creates an empty gym with a usable owner and rejects duplicate or invalid provisioning atomically', async () => {
@@ -23,7 +24,7 @@ describe('operator gym bootstrap', () => {
     expect(() => bootstrapGym({ ...input, slug: `${input.slug}-bad`, owner: { ...input.owner, password: 'weak' } })).toThrow();
     expect(sqlite.prepare('select count(*) as n from tenants where slug = ?').get(`${input.slug}-bad`)).toEqual({ n: 0 });
     expect(sqlite.prepare('select count(*) as n from users where tenant_id = ?').get(result.tenantId)).toEqual({ n: 1 });
-    const signIn = await app.request('/v1/auth/password', {
+    const signIn = await signInRequest( {
       method: 'POST', headers: { 'content-type': 'application/json', origin: 'http://localhost:5173' },
       body: JSON.stringify({ tenantSlug: input.slug, email: input.owner.email, password: input.owner.password }),
     });

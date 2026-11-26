@@ -20,6 +20,8 @@ const environments: Record<'development' | 'test' | 'production', Record<string,
     SHARK_DB: '/var/lib/shark/shark.db',
     SHARK_PASS_SECRET: STRONG_SECRET,
     SHARK_PUBLIC_ORIGIN: 'https://fitness.example',
+    // Production also requires the MFA key since P06 (test value).
+    SHARK_MFA_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'),
   },
 };
 
