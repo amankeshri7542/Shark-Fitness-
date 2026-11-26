@@ -66,13 +66,17 @@ rewrite. The deviation is noted in `db/client.ts`.
   `SHARK_MEDIA_DIR` (else `media/` beside the database) as
   `<copy>.media.tar` and lists every file's SHA-256 in the manifest (version
   2). `pnpm db:restore` checks the archive and each file before anything
-  moves, restores media beside the restored database (or into
-  `SHARK_MEDIA_DIR`), and refuses to overwrite a non-empty media directory
+  moves, restores media into `SHARK_MEDIA_DIR` only when the target is
+  `SHARK_DB` (any other target, such as a scratch or drill copy, gets `media/`
+  beside it, so the live photos are never touched), and refuses to overwrite a non-empty media directory
   without both destructive flags. `pnpm db:backup:verify` restores media too,
   compares it with the snapshot and with the `media_objects` checksums, and
   proves a tampered archive is refused. A photo uploaded between the database
-  snapshot and the archive restores as an orphan file, which is harmless; the
-  reverse (a row without its file) cannot happen.
+  snapshot and the archive restores as an orphan file, which is harmless. A
+  photo deleted (by the member, the retention purge or an erasure) in that
+  same window restores as a live row without its file; the restore drill
+  reports it as a missing media file. Re-run the backup if a drill fails that
+  way.
 - **No point-in-time recovery.** WAL gives crash consistency, not history. A
   bad migration or a wrong `DELETE` is permanent.
 - **The file must be on a real disk.** On a platform with an ephemeral

@@ -141,7 +141,9 @@ export async function createBackup(source, destination, { mediaDir } = {}) {
       probe.close();
     }
     // Media after the database snapshot: a photo uploaded in between has a
-    // file and no row, which restores harmlessly; the reverse cannot happen.
+    // file and no row, which restores harmlessly. A photo deleted in between
+    // has a live row and no file; the restore drill reports it (documented in
+    // PRODUCTION-READINESS).
     let media;
     if (mediaDir !== undefined) {
       media =
