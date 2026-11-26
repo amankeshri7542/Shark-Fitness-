@@ -371,7 +371,8 @@ function DayGrid() {
   const fill = totals.seats > 0 ? Math.round((totals.booked / totals.seats) * 100) : 0;
 
   return (
-    <Page title="Schedule" kicker={`${branchName} · ${day.data.dateLabel}`}>
+    // An empty branch scope comes back with no date and no label.
+    <Page title="Schedule" kicker={day.data.dateLabel ? `${branchName} · ${day.data.dateLabel}` : branchName}>
       {notice ? (
         <Panel tone="good" className="border-b border-line">
           <div className="flex items-center gap-3 px-3.5 py-2.5">
