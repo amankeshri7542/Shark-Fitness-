@@ -97,7 +97,13 @@
     "P10": {
       "state": "implementing",
       "base": "integration/features",
-      "base_sha": "4fa023bf9"
+      "base_sha": "4fa023bf9",
+      "running": {
+        "tag": "P10-impl",
+        "pid": 991499,
+        "started": "2026-11-26 08:41 IST",
+        "activity": "2026-11-26 08:41 IST"
+      }
     },
     "INT2": {
       "state": "pending"
@@ -117,7 +123,8 @@
     "phase/P03-public-website": "41af417 at 2026-11-26 00:51 IST",
     "phase/P05-member-core-gaps": "aed39cb at 2026-11-26 06:13 IST",
     "phase/P07-engagement-ops-modules": "05bd3d6 at 2026-11-26 06:44 IST",
-    "integration/features": "4fa023b at 2026-11-26 08:17 IST"
+    "integration/features": "4fa023b at 2026-11-26 08:17 IST",
+    "phase/P08-test-suite": "4fa023b at 2026-11-26 08:42 IST"
   },
   "blockers": []
 }
