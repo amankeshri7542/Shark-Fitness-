@@ -6,6 +6,6 @@ TODO:
 - DONE 6465651 credits eligibility + refund key
 - DONE fd71809+3c670ab ScanPass camera; DONE 0146347 PhotosSection
 - DONE b5a1762 UI minors
-- media minor: files unlinked inside transaction
+- DONE f5429a4 media unlink after commit
 - credits minors: refund idem key not checked against pack; others record only
 - then: full gates, build, e2e, db:backup:verify, write P05-review.md + PR section
