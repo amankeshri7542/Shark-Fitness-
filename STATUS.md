@@ -1,6 +1,6 @@
 # Shark Fitness build status
 
-Updated 2026-11-26 08:40 IST by runner.py v3 (parallel). Model: `claude-opus-5-5` (Claude Code CLI, effort high).
+Updated 2026-11-26 08:41 IST by runner.py v3 (parallel). Model: `claude-opus-5-5` (Claude Code CLI, effort high).
 Concurrency cap: 4 Shark sessions (and at most 6 `claude -p` processes on the box in total); stall timeout 30 min.
 
 Runner: `/workspace/shark-fitness-orchestration/runner.py`, log `/workspace/shark-fitness-orchestration/logs/runner.log`, per-session logs `/workspace/shark-fitness-orchestration/logs/<tag>-<n>.json`. Worktrees: `/workspace/sf-wt/<ID>` (P01: `/workspace/shark-fitness-repo`).
@@ -19,8 +19,8 @@ Last pushes: {"phase/P01-prod-readiness": "2c15353 at 2026-11-25 09:56 IST", "ph
 | P07 | Messaging channels, member messaging, community moderation, tasks, coaching, broadcasts | done | `phase/P07-engagement-ops-modules` | `phase/P06-staff-security` | https://github.com/amankeshri7542/Shark-Fitness-/pull/34 | typecheck:pass lint:pass test:pass build:pass e2e:pass |  |
 | INT1 | Integrate feature phases P01-P07 | done | `integration/features` | `phase/P01-prod-readiness` | https://github.com/amankeshri7542/Shark-Fitness-/pull/35 | typecheck:pass lint:pass test:pass build:pass e2e:pass |  |
 | P08 | Full test pass: route coverage, critical scenarios, Playwright E2E for every app | implementing | `phase/P08-test-suite` | `integration/features` |  |  |  |
-| P09 | Code review and fixes: security, correctness, performance, consistency | pending | `phase/P09-code-review` | `integration/features` |  |  |  |
-| P10 | UI/UX and accessibility audit of every app (findings report) | pending | `phase/P10-ux-audit` | `` |  |  |  |
+| P09 | Code review and fixes: security, correctness, performance, consistency | implementing | `phase/P09-code-review` | `integration/features` |  |  |  |
+| P10 | UI/UX and accessibility audit of every app (findings report) | pending | `phase/P10-ux-audit` | `integration/features` |  |  |  |
 | INT2 | Integrate test, review and audit phases P08-P10 | pending | `integration/qa` | `` |  |  |  |
 | P11 | Implement the UI/UX audit fixes and gate accessibility in CI | pending | `phase/P11-ux-fixes` | `` |  |  |  |
 | P12 | Release candidate verification and client handover | pending | `phase/P12-release-handover` | `` |  |  |  |
