@@ -46,11 +46,12 @@
       "pr": "https://github.com/amankeshri7542/Shark-Fitness-/pull/30"
     },
     "P05": {
-      "state": "verifying",
+      "state": "pr",
       "base": "phase/P02-payments-razorpay",
       "base_sha": "2ffa5700a",
       "running": null,
-      "note": ""
+      "note": "",
+      "checks": "typecheck:pass lint:pass test:pass build:pass e2e:pass"
     },
     "P07": {
       "state": "implementing",
@@ -60,7 +61,7 @@
         "tag": "P07-impl",
         "pid": 561744,
         "started": "2026-11-26 05:54 IST",
-        "activity": "2026-11-26 06:16 IST"
+        "activity": "2026-11-26 06:21 IST"
       }
     },
     "INT1": {
