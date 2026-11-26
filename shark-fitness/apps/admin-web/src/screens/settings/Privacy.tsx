@@ -348,7 +348,18 @@ function RequestDetailPane({
   });
 
   if (detail.isLoading) return <Skeleton className="h-40" />;
-  if (!detail.data) return null;
+  // A failed read used to render nothing, so "Open" looked like it did nothing.
+  if (detail.error || !detail.data) {
+    return (
+      <div className="border-t border-line">
+        <ErrorState
+          title="This request could not be read"
+          body={detail.error instanceof ApiError ? detail.error.message : 'The server did not answer.'}
+          onRetry={() => void detail.refetch()}
+        />
+      </div>
+    );
+  }
 
   const { request, legalHold, retention, plan, artifact } = detail.data;
 

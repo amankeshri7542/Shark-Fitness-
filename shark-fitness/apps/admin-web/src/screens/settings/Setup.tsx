@@ -96,8 +96,11 @@ function Group({ title, items }: { title: string; items: SetupChecklist['items']
             {item.done ? (
               <span className="font-utility text-[10px] uppercase tracking-[0.1em] text-kelp">Done</span>
             ) : (
+              // The step's tab rides in its query string (`/settings?tab=branches`).
+              // Dropping it landed every settings step on the Business tab.
               <Link
                 to={item.to.split('?')[0]!}
+                search={Object.fromEntries(new URLSearchParams(item.to.split('?')[1] ?? ''))}
                 className="font-utility text-[11px] font-semibold uppercase tracking-[0.12em] text-sonar hover:text-foam"
               >
                 Do it
