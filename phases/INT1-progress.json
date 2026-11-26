@@ -35,8 +35,8 @@
     {
       "id": 6,
       "text": "Merge phase/P07-engagement-ops-modules",
-      "status": "todo",
-      "evidence": ""
+      "status": "done",
+      "evidence": "Merge commit 013d6ab. 16 conflicted files resolved. 0019_engagement_ops -> 0023 (drizzle-kit SQL identical bar P07's hand-written backfill). frozen install ok; typecheck ok; lint ok; drift none; pnpm test: contracts 28, domain 300, website 16 (+9 pre-build skips), member-pwa 191, admin-web 411, api 1295 \u2014 all pass."
     },
     {
       "id": 7,
