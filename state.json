@@ -119,9 +119,11 @@
     "phase/P05-member-core-gaps": "aed39cb at 2026-11-26 06:13 IST",
     "phase/P07-engagement-ops-modules": "05bd3d6 at 2026-11-26 06:44 IST",
     "integration/features": "4fa023b at 2026-11-26 08:17 IST",
-    "phase/P08-test-suite": "a9b5f92 at 2026-11-26 11:39 IST",
+    "phase/P08-test-suite": "ffc8074 at 2026-11-26 11:40 IST",
     "phase/P09-code-review": "013d249 at 2026-11-26 11:33 IST",
     "phase/P10-ux-audit": "1420717 at 2026-11-26 11:35 IST"
   },
-  "blockers": []
+  "blockers": [
+    "Claude usage limit hit (latest during P09-impl); new sessions paused, retrying every 30 min"
+  ]
 }
