@@ -6,12 +6,12 @@ import { branches, branchExtra, brand, hoursSummary } from '../content/site';
 <footer class="site-footer">
   <div class="wrap">
     <div class="footer-grid">
-      <div style="display:grid;gap:12px;align-content:start">
+      <div class="u-stack-12">
         <a class="wordmark" href="/" aria-label={`${brand.name} home`}><Mark />{brand.name}</a>
         <p class="muted">{brand.promise}</p>
       </div>
       <div>
-        <h2 class="label" style="font-family:var(--sf-font-utility);margin-bottom:12px">Branches</h2>
+        <h2 class="label u-footer-label">Branches</h2>
         <ul>
           {
             branches.map((b) => (
@@ -21,12 +21,12 @@ import { branches, branchExtra, brand, hoursSummary } from '../content/site';
             ))
           }
         </ul>
-        <p class="muted" style="margin-top:8px">
+        <p class="muted u-mt-8">
           {branches[0] ? hoursSummary(branches[0]).map((r) => `${r.days} ${r.hours}`).join(' · ') : null}
         </p>
       </div>
       <div>
-        <h2 class="label" style="font-family:var(--sf-font-utility);margin-bottom:12px">Visit</h2>
+        <h2 class="label u-footer-label">Visit</h2>
         <ul>
           <li><a href="/free-trial">Free trial</a></li>
           <li><a href="/plans">Plans and prices</a></li>
@@ -36,7 +36,7 @@ import { branches, branchExtra, brand, hoursSummary } from '../content/site';
         </ul>
       </div>
       <div>
-        <h2 class="label" style="font-family:var(--sf-font-utility);margin-bottom:12px">Members</h2>
+        <h2 class="label u-footer-label">Members</h2>
         <ul>
           <li><a href="/app/">Member app sign in</a></li>
           <li><a href="/faq">FAQ</a></li>

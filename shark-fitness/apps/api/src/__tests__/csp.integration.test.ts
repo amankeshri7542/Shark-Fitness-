@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { app } from '../app.js';
-import { CSP_REPORT_PATH, PAYMENT_CHECKOUT_SOURCES, cspFor, cspHeaderName, surfaceForPath } from '../lib/csp.js';
+import { CSP_REPORT_PATH, PAYMENT_CHECKOUT_SOURCES, cspFor, cspHeaderName, inlineSourcesFromHtml, surfaceForPath } from '../lib/csp.js';
 import { setErrorReporterForTest, type ErrorReportContext } from '../lib/error-reporting.js';
 import { resetRateLimitsForTest } from '../middleware/index.js';
 
@@ -40,7 +40,8 @@ describe('per-surface Content-Security-Policy', () => {
     expect(surfaceForPath('/admin/')).toBe('admin');
     expect(surfaceForPath('/admin/members/mbr_1')).toBe('admin');
     expect(surfaceForPath('/app/')).toBe('member');
-    expect(surfaceForPath('/')).toBe('member'); // the website takes `/` in P03
+    expect(surfaceForPath('/')).toBe('website'); // the public website (P03); the member app is at /app/
+    expect(surfaceForPath('/plans/')).toBe('website');
     expect(surfaceForPath('/v1/me')).toBe('api');
     expect(surfaceForPath('/health')).toBe('api');
   });
@@ -58,7 +59,7 @@ describe('per-surface Content-Security-Policy', () => {
   });
 
   it('lets the member app load and frame Razorpay Checkout, and nothing else', async () => {
-    for (const path of ['/', '/app/billing']) {
+    for (const path of ['/app/', '/app/billing']) {
       const { csp, permissions } = await headersFor(path);
       const policy = directives(csp);
       for (const [name, values] of Object.entries(COMMON)) expect(policy.get(name), `${path} ${name}`).toEqual(values);
@@ -76,6 +77,40 @@ describe('per-surface Content-Security-Policy', () => {
     expect(policy.get('script-src')).toEqual(["'self'"]);
     expect(policy.get('connect-src')).toEqual(["'self'"]);
     expect(policy.get('frame-src')).toEqual(["'none'"]);
+  });
+
+  it('serves the website at / with the website policy and no camera', async () => {
+    const { csp, permissions } = await headersFor('/');
+    expect(csp).toBe(cspFor('website'));
+    expect(csp).not.toContain('razorpay');
+    expect(permissions).toBe('camera=(), microphone=(), geolocation=()');
+  });
+
+  it('allows a built page’s own inline scripts and <style> elements by hash, never JSON-LD or src scripts', () => {
+    const page = [
+      '<html><head><script>document.documentElement.dataset.theme="dark"</script>',
+      '<script type="application/ld+json">{"@type":"ExerciseGym"}</script>',
+      '<script type="module" src="/_astro/a.js"></script>',
+      '<style>body{margin:0}</style></head><body></body></html>',
+    ].join('');
+    const inline = inlineSourcesFromHtml([page, page]);
+    // Hashes of the exact text (checked with `openssl dgst -sha256 -binary | base64`).
+    expect(inline.scripts).toEqual(["'sha256-zTSXYZ/r74pY7Te+wyYtgDRsO/hpzo1oFZH8wmJQwSA='"]);
+    expect(inline.styles).toHaveLength(1);
+    const policy = directives(cspFor('website', { inline }));
+    expect(policy.get('script-src')).toEqual(["'self'", ...inline.scripts]);
+    expect(policy.get('style-src')).toEqual(["'self'", ...inline.styles]);
+    expect(cspFor('website', { inline })).not.toMatch(/unsafe-inline|unsafe-eval|unsafe-hashes|\*/);
+    // The member app keeps Razorpay after its own hashes.
+    expect(directives(cspFor('member', { inline })).get('script-src')).toEqual(["'self'", ...inline.scripts, 'https://checkout.razorpay.com']);
+  });
+
+  it('lets only the member app keep a link to popups it opens (Razorpay payment methods)', async () => {
+    const coop = async (path: string) => (await app.request(path)).headers.get('cross-origin-opener-policy');
+    expect(await coop('/app/billing')).toBe('same-origin-allow-popups');
+    expect(await coop('/admin/')).toBe('same-origin');
+    expect(await coop('/')).toBe('same-origin');
+    expect(await coop('/v1/auth/tenants')).toBe('same-origin');
   });
 
   it('makes API responses inert', async () => {

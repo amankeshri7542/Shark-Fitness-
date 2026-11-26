@@ -37,10 +37,10 @@ const forward = `(function(){var h=location.hash;if(/[#&](activationId|recoveryI
         <a class="btn" href="/plans">See plans and prices</a>
       </div>
       <dl class="seam seam--4 facts">
-        <div class="fact"><dt class="label">Branches</dt><dd style="margin:0"><strong>{branches.length}</strong></dd></div>
-        <div class="fact"><dt class="label">Open weekdays</dt><dd style="margin:0"><strong class="num">5 am–11 pm</strong></dd></div>
-        <div class="fact"><dt class="label">Classes a week, each gym</dt><dd style="margin:0"><strong class="num">{perBranch}+</strong></dd></div>
-        <div class="fact"><dt class="label">First week</dt><dd style="margin:0"><strong>Free</strong></dd></div>
+        <div class="fact"><dt class="label">Branches</dt><dd class="u-m0"><strong>{branches.length}</strong></dd></div>
+        <div class="fact"><dt class="label">Open weekdays</dt><dd class="u-m0"><strong class="num">5 am–11 pm</strong></dd></div>
+        <div class="fact"><dt class="label">Classes a week, each gym</dt><dd class="u-m0"><strong class="num">{perBranch}+</strong></dd></div>
+        <div class="fact"><dt class="label">First week</dt><dd class="u-m0"><strong>Free</strong></dd></div>
       </dl>
     </div>
   </section>
@@ -77,7 +77,7 @@ const forward = `(function(){var h=location.hash;if(/[#&](activationId|recoveryI
       <div class="seam seam--3">
         {headline.map((plan) => <PlanCard plan={plan} featured={plan.id === featuredId} />)}
       </div>
-      <p style="margin-top:20px"><a href="/plans">All plans, class packs and passes</a></p>
+      <p class="u-mt-20"><a href="/plans">All plans, class packs and passes</a></p>
     </div>
   </section>
 
@@ -98,7 +98,7 @@ const forward = `(function(){var h=location.hash;if(/[#&](activationId|recoveryI
           ))
         }
       </div>
-      <p style="margin-top:20px"><a href="/classes">This week’s timetable</a></p>
+      <p class="u-mt-20"><a href="/classes">This week’s timetable</a></p>
     </div>
   </section>
 
@@ -130,7 +130,7 @@ const forward = `(function(){var h=location.hash;if(/[#&](activationId|recoveryI
           ))
         }
       </div>
-      <p style="margin-top:20px"><a href="/coaches">Meet the coaches</a></p>
+      <p class="u-mt-20"><a href="/coaches">Meet the coaches</a></p>
     </div>
   </section>
 

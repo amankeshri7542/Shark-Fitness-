@@ -56,15 +56,15 @@ const crumbs = [{ name: 'Classes and timetable', path: '/classes' }];
         <p class="muted">The next seven days at one branch, and which classes are filling up.</p>
       </div>
       <div data-live-classes hidden>
-        <div style="display:grid;gap:20px">
-        <div class="field" style="max-width:360px">
+        <div class="u-stack-20">
+        <div class="field u-maxw-360">
           <label for="live-branch">Branch</label>
           <select class="select" id="live-branch">
             {branches.map((b) => <option value={b.id}>{branchExtra(b).area}</option>)}
           </select>
         </div>
         <p class="muted" data-live-state aria-live="polite"></p>
-        <div class="seam seam--3" data-live-output style="min-height:200px"></div>
+        <div class="seam seam--3 u-minh-200" data-live-output></div>
         </div>
       </div>
       <noscript><p class="muted">Turn on JavaScript to see this week’s dates and spaces. The weekly timetable above is current.</p></noscript>

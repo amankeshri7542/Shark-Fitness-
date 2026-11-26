@@ -894,3 +894,33 @@ fieldset {
     scroll-behavior: auto;
   }
 }
+
+/* Utilities for what used to be inline style="…" attributes. The site's
+   Content-Security-Policy allows no inline styles except hashed <style>
+   elements (apps/api/src/lib/csp.ts), so declarations live here.
+   `!important` keeps the precedence the inline attribute had. */
+.u-h32-mb12 { font-size:32px !important;margin-bottom:12px !important; }
+.u-mt-12 { margin-top:12px !important; }
+.u-stack-12 { display:grid !important;gap:12px !important;align-content:start !important; }
+.u-footer-label { font-family:var(--sf-font-utility) !important;margin-bottom:12px !important; }
+.u-mt-8 { margin-top:8px !important; }
+.u-no-underline { text-decoration:none !important; }
+.u-hours-list { margin:0 !important;display:grid !important;gap:4px !important; }
+.u-row-12 { display:flex !important;gap:12px !important; }
+.u-minw-72 { min-width:72px !important; }
+.u-m0 { margin:0 !important; }
+.u-h28 { font-size:28px !important; }
+.u-maxw-880 { max-width:880px !important; }
+.u-mt-24 { margin-top:24px !important; }
+.u-mt-20 { margin-top:20px !important; }
+.u-h-fluid { font-size:clamp(28px,4vw,40px) !important; }
+.u-stack-20 { display:grid !important;gap:20px !important; }
+.u-maxw-360 { max-width:360px !important; }
+.u-minh-200 { min-height:200px !important; }
+.u-py-20 { padding-block:20px !important; }
+.u-h32 { font-size:32px !important; }
+.u-not-italic { font-style:normal !important; }
+.u-table { border-collapse:collapse !important;width:100% !important; }
+.u-row-rule { border-bottom:1px solid var(--sf-line) !important; }
+.u-th-day { text-align:left !important;font-weight:400 !important;padding:8px 0 !important; }
+.u-td-hours { text-align:right !important;padding:8px 0 !important; }

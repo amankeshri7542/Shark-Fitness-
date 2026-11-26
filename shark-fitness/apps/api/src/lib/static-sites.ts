@@ -1,8 +1,9 @@
 import { serveStatic } from '@hono/node-server/serve-static';
 import type { Context, Hono } from 'hono';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { relative, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
+import { inlineSourcesFromHtml, setInlineSources, type Surface } from './csp.js';
 
 /**
  * The three front ends on one origin (single-origin hosting, PRD 05 §5):
@@ -48,7 +49,32 @@ export const LEGACY_MEMBER_PATHS = [
 
 const IMMUTABLE = 'public, max-age=31536000, immutable';
 
+/** Every built HTML document under a dist folder (an absent folder has none). */
+function htmlDocuments(root: string): string[] {
+  if (!existsSync(root)) return [];
+  const out: string[] = [];
+  for (const entry of readdirSync(root, { withFileTypes: true, recursive: true })) {
+    if (entry.isFile() && entry.name.endsWith('.html')) out.push(readFileSync(join(entry.parentPath, entry.name), 'utf8'));
+  }
+  return out;
+}
+
+/**
+ * The Content-Security-Policy allows each surface's own inline scripts and
+ * styles by hash (lib/csp.ts), read from the very files served here, so a
+ * rebuilt front end never needs a hand-edited hash list.
+ */
+export function registerInlineSourceHashes(roots: Pick<StaticSiteRoots, 'websiteDist' | 'memberDist' | 'adminDist'>): void {
+  const surfaces: Array<[Surface, string]> = [
+    ['website', roots.websiteDist],
+    ['member', roots.memberDist],
+    ['admin', roots.adminDist],
+  ];
+  for (const [surface, dist] of surfaces) setInlineSources(surface, inlineSourcesFromHtml(htmlDocuments(dist)));
+}
+
 export function mountStaticSites(app: Hono, roots: StaticSiteRoots): void {
+  registerInlineSourceHashes(roots);
   // @hono/node-server 1.13.x does not support absolute serveStatic roots.
   // Resolve absolutely for correctness, then hand it a path relative to the
   // process working directory used by pnpm/Render/Docker.

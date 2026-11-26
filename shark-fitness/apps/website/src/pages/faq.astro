@@ -16,7 +16,7 @@ const crumbs = [{ name: 'FAQ', path: '/faq' }];
 >
   <PageHero title="Questions, answered" lede="The things people ask us most. Anything else, ask us directly." crumbs={crumbs} />
   <section class="section" aria-label="Questions">
-    <div class="wrap faq" style="max-width:880px">
+    <div class="wrap faq u-maxw-880">
       {
         faqs.map((faq) => (
           <details>
@@ -25,7 +25,7 @@ const crumbs = [{ name: 'FAQ', path: '/faq' }];
           </details>
         ))
       }
-      <p style="margin-top:24px"><a href="/contact">Ask us something else</a></p>
+      <p class="u-mt-24"><a href="/contact">Ask us something else</a></p>
     </div>
   </section>
   <CtaBand />

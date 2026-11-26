@@ -141,9 +141,9 @@ const submitLabel = trial ? 'Request my free trial' : 'Send my question';
   </form>
 
   <div class="notice notice--good" data-form-done hidden tabindex="-1" aria-labelledby="done-title">
-    <h2 id="done-title" style="font-size:32px;margin-bottom:12px">{trial ? 'Request received' : 'Message received'}</h2>
+    <h2 class="u-h32-mb12" id="done-title">{trial ? 'Request received' : 'Message received'}</h2>
     <p data-done-message>Thanks. Someone from the team will call you, usually within a few hours of opening.</p>
-    <p class="muted" style="margin-top:12px">
+    <p class="muted u-mt-12">
       We do not send automatic texts or emails. If you need us sooner, call <a href={`tel:${brand.phone.replace(/\s/g, '')}`}>{brand.phone}</a>.
     </p>
   </div>

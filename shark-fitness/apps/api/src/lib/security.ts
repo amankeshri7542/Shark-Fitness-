@@ -176,7 +176,11 @@ export const securityHeaders: MiddlewareHandler = async (c, next) => {
   c.header('x-frame-options', 'DENY');
   c.header('referrer-policy', 'strict-origin-when-cross-origin');
   c.header('permissions-policy', permissionsPolicyFor(surface));
-  c.header('cross-origin-opener-policy', 'same-origin');
+  // Razorpay Checkout opens a window for some methods (UPI apps, net banking,
+  // wallets) and reports back through `window.opener`; `same-origin` would cut
+  // that link and the payment would never confirm. Only the member app takes
+  // payments, so only it relaxes to allow popups it opens (P02/P06).
+  c.header('cross-origin-opener-policy', surface === 'member' ? 'same-origin-allow-popups' : 'same-origin');
   c.header('cross-origin-resource-policy', 'same-site');
   if (runtimeConfig.isProduction) {
     c.header('strict-transport-security', 'max-age=31536000; includeSubDomains');

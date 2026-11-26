@@ -150,6 +150,12 @@ describe.skipIf(!built)('built website', () => {
     }
   });
 
+  it('writes no style="" attributes: the Content-Security-Policy allows inline styles only as hashed <style> elements', () => {
+    for (const { route, doc } of pages) {
+      expect(doc.querySelectorAll('[style]').length, route).toBe(0);
+    }
+  });
+
   it('ships the 1200×630 Open Graph image every page points at', () => {
     const png = readFileSync(join(dist, 'og.png'));
     expect(png.subarray(1, 4).toString()).toBe('PNG');

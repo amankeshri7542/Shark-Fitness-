@@ -11,14 +11,14 @@ const extra = branchExtra(branch);
 
 <article class="cell">
   <p class="label label--accent">{branch.name}</p>
-  <h3><a href={`/locations/${branch.slug}`} style="text-decoration:none">{extra.area}</a></h3>
+  <h3><a class="u-no-underline" href={`/locations/${branch.slug}`}>{extra.area}</a></h3>
   <p class="muted">{branch.addressLine}, {branch.city} {extra.postalCode}</p>
-  <dl style="margin:0;display:grid;gap:4px">
+  <dl class="u-hours-list">
     {
       hoursSummary(branch).map((row) => (
-        <div style="display:flex;gap:12px">
-          <dt class="num" style="min-width:72px">{row.days}</dt>
-          <dd class="num" style="margin:0">{row.hours}</dd>
+        <div class="u-row-12">
+          <dt class="num u-minw-72">{row.days}</dt>
+          <dd class="num u-m0">{row.hours}</dd>
         </div>
       ))
     }

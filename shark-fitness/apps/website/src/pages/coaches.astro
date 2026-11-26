@@ -27,7 +27,7 @@ const crumbs = [{ name: 'Coaches', path: '/coaches' }];
           coaches.map((coach) => (
             <article class="cell" aria-labelledby={`coach-${coach.name}`}>
               <p class="label label--accent">{coach.role}</p>
-              <h2 id={`coach-${coach.name}`} style="font-size:clamp(28px,4vw,40px)">
+              <h2 class="u-h-fluid" id={`coach-${coach.name}`}>
                 {coach.name} {coach.surname}
               </h2>
               <p>{coach.bio}</p>
@@ -59,7 +59,7 @@ const crumbs = [{ name: 'Coaches', path: '/coaches' }];
           ))
         }
       </div>
-      <p class="muted" style="margin-top:20px">Personal training is booked directly with a coach. Ask at reception or on your trial call.</p>
+      <p class="muted u-mt-20">Personal training is booked directly with a coach. Ask at reception or on your trial call.</p>
     </div>
   </section>
 

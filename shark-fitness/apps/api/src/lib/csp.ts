@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { runtimeConfig } from './config.js';
 
 /* ============================================================================
@@ -28,11 +29,54 @@ export const PAYMENT_CHECKOUT_SOURCES = {
 } as const;
 
 /**
- * What `/` serves. On this branch it is the member app; when the public
- * website lands at `/` (P03) and the member app moves to `/app/`, this
- * becomes `'website'` — the one line the integration has to change.
+ * What `/` serves: the public website (P03). The member app lives at `/app/`
+ * (P03/P04) and the console at `/admin/`.
  */
-export const ROOT_SURFACE: Surface = 'member';
+export const ROOT_SURFACE: Surface = 'website';
+
+/* ——— Inline sources, allowed by hash ————————————————————————————————
+   A few inline sources are deliberate: the member app's theme boot script
+   (P04: paints the right theme before the bundle loads), the website's theme
+   and legacy-link scripts and its inlined CSS (P03), and the offline pages'
+   styles. Instead of `'unsafe-inline'`, each is allowed by its SHA-256,
+   computed from the built HTML when the static sites are mounted
+   (lib/static-sites.ts). A changed or injected inline source has another hash
+   and is refused. `style="…"` attributes are not allowed at all (that would
+   need `'unsafe-hashes'`); the website keeps its styles in classes. */
+
+export interface InlineSources {
+  scripts: string[];
+  styles: string[];
+}
+
+const inlineSources = new Map<Surface, InlineSources>();
+
+/** Registers a surface's inline-source hashes (null clears; tests). */
+export function setInlineSources(surface: Surface, sources: InlineSources | null): void {
+  if (sources) inlineSources.set(surface, sources);
+  else inlineSources.delete(surface);
+}
+
+const hashOf = (text: string): string => `'sha256-${createHash('sha256').update(text, 'utf8').digest('base64')}'`;
+
+/** Hashes of every inline script (not JSON data blocks) and `<style>` element
+ *  in these HTML documents, de-duplicated and sorted. */
+export function inlineSourcesFromHtml(documents: readonly string[]): InlineSources {
+  const scripts = new Set<string>();
+  const styles = new Set<string>();
+  for (const html of documents) {
+    for (const match of html.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/gi)) {
+      const attributes = match[1] ?? '';
+      if (/\ssrc\s*=/i.test(attributes)) continue;
+      const type = /\stype\s*=\s*["']?([^"'\s>]+)/i.exec(attributes)?.[1]?.toLowerCase();
+      // Data blocks (JSON-LD) are never executed, so CSP does not apply.
+      if (type && type !== 'module' && type !== 'text/javascript' && type !== 'application/javascript') continue;
+      scripts.add(hashOf(match[2] ?? ''));
+    }
+    for (const match of html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)) styles.add(hashOf(match[1] ?? ''));
+  }
+  return { scripts: [...scripts].sort(), styles: [...styles].sort() };
+}
 
 export const CSP_REPORT_PATH = '/v1/csp-reports';
 
@@ -54,6 +98,8 @@ function socketOrigins(origins: readonly string[]): string[] {
 
 export interface CspOptions {
   origins?: readonly string[];
+  /** Overrides the registered inline-source hashes (tests). */
+  inline?: InlineSources;
 }
 
 export function cspFor(surface: Surface, options: CspOptions = {}): string {
@@ -64,10 +110,11 @@ export function cspFor(surface: Surface, options: CspOptions = {}): string {
   }
   const payments = surface === 'member';
   const sockets = surface === 'website' ? [] : socketOrigins(options.origins ?? runtimeConfig.allowedOrigins);
+  const inline = options.inline ?? inlineSources.get(surface) ?? { scripts: [], styles: [] };
   const directives: Array<[string, string[]]> = [
     ['default-src', ["'self'"]],
-    ['script-src', ["'self'", ...(payments ? PAYMENT_CHECKOUT_SOURCES.script : [])]],
-    ['style-src', ["'self'"]],
+    ['script-src', ["'self'", ...inline.scripts, ...(payments ? PAYMENT_CHECKOUT_SOURCES.script : [])]],
+    ['style-src', ["'self'", ...inline.styles]],
     ['img-src', ["'self'", 'data:', 'blob:']],
     ['font-src', ["'self'"]],
     ['connect-src', ["'self'", ...sockets, ...(payments ? PAYMENT_CHECKOUT_SOURCES.connect : [])]],
