@@ -205,6 +205,29 @@ function candidatesFor(tenantId: string, atMs: number): Candidate[] {
   return out;
 }
 
+/**
+ * A generated task goes to the person its source names (lead owner, coach,
+ * work-order assignee) only if they can still act on it: an active account at
+ * that branch. Otherwise it waits unassigned in the open queue, where a
+ * manager sees it, instead of under the "My tasks" of someone who has left.
+ */
+function canHoldTask(tenantId: string, branchId: string, staffId: string | null): boolean {
+  if (!staffId) return false;
+  const row = db
+    .select({ branchIds: schema.staff.branchIds, employment: schema.staff.employmentStatus, state: schema.users.accountState, role: schema.users.role })
+    .from(schema.staff)
+    .innerJoin(schema.users, eq(schema.users.id, schema.staff.userId))
+    .where(and(eq(schema.staff.id, staffId), eq(schema.staff.tenantId, tenantId)))
+    .get();
+  return Boolean(
+    row &&
+      row.state === 'active' &&
+      row.employment === 'active' &&
+      row.branchIds.includes(branchId) &&
+      !['platform_admin', 'platform_support'].includes(row.role),
+  );
+}
+
 /** The scheduler job. Idempotent: the unique generation key refuses repeats. */
 export function generateTasks(atMs = now()): { created: number; considered: number } {
   let created = 0;
@@ -217,6 +240,7 @@ export function generateTasks(atMs = now()): { created: number; considered: numb
     transact(() => {
       for (const c of candidates) {
         const taskId = id('tsk');
+        const assigneeStaffId = canHoldTask(c.tenantId, c.branchId, c.assigneeStaffId) ? c.assigneeStaffId : null;
         const result = db
           .insert(schema.tasks)
           .values({
@@ -232,7 +256,7 @@ export function generateTasks(atMs = now()): { created: number; considered: numb
             memberId: c.memberId,
             leadId: c.leadId,
             link: c.link,
-            assigneeStaffId: c.assigneeStaffId,
+            assigneeStaffId,
             createdByUserId: null,
             priority: c.priority,
             status: 'open',
@@ -247,7 +271,7 @@ export function generateTasks(atMs = now()): { created: number; considered: numb
           .run();
         if (result.changes > 0) {
           created += 1;
-          notifyAssignee(c.tenantId, c.branchId, c.assigneeStaffId, taskId, c.title, null, atMs);
+          notifyAssignee(c.tenantId, c.branchId, assigneeStaffId, taskId, c.title, null, atMs);
         }
       }
     });
@@ -408,7 +432,11 @@ export function assignableStaff(ctx: RequestContext, branchId: string) {
 }
 
 function assertAssignable(ctx: RequestContext, branchId: string, staffId: string | null): void {
-  if (!staffId) return;
+  if (!staffId) {
+    // Unassigning drops a task off everyone's "My tasks": a manager's call.
+    if (!canManage(ctx)) throw forbidden('Only a manager can leave a task with nobody.');
+    return;
+  }
   if (!canManage(ctx) && staffId !== ctx.staffId) throw forbidden('Only a manager can give a task to someone else.');
   const ok = assignableStaff(ctx, branchId).items.some((s) => s.staffId === staffId);
   if (!ok) throw invalid('That person does not work at this branch.');

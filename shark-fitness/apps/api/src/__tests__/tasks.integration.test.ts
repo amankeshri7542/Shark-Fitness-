@@ -140,6 +140,42 @@ describe('generated from operational alerts', () => {
   });
 });
 
+describe('who a generated task goes to (review fix)', () => {
+  it('leaves it unassigned when the person its source names cannot act at that branch', () => {
+    const orderId = id('wko');
+    db.insert(schema.workOrders)
+      .values({
+        id: orderId,
+        tenantId: TENANT,
+        branchId: 'br_ind',
+        reference: 'WO-P07-B',
+        equipmentId: null,
+        title: 'Loose bench bolt',
+        description: '',
+        severity: 'safety',
+        state: 'assigned',
+        reportedById: null,
+        reportedByName: 'Test',
+        reportedByKind: 'staff',
+        // Reception works at Koramangala only: they cannot fix Indiranagar's bench.
+        assigneeId: staffIdFor('reception@sharkfitness.in'),
+        costMinor: 0,
+        duplicateOfId: null,
+        openedAt: now() - DAY,
+        closedAt: null,
+      })
+      .run();
+    try {
+      generateTasks();
+      const [task] = generatedFor(orderId);
+      expect(task).toMatchObject({ source: 'safety_work_order', branchId: 'br_ind', assigneeStaffId: null });
+    } finally {
+      db.delete(schema.tasks).where(eq(schema.tasks.sourceId, orderId)).run();
+      db.delete(schema.workOrders).where(eq(schema.workOrders.id, orderId)).run();
+    }
+  });
+});
+
 describe('branch scope', () => {
   it('404s a task outside the caller’s branches, for reads and writes', async () => {
     const indTask = generatedFor(workOrderId)[0]!;
@@ -170,6 +206,9 @@ describe('branch scope', () => {
       assigneeStaffId: staffIdFor('reception@sharkfitness.in'),
     });
     expect(handOff.status).toBe(403);
+    // Nor drop their own task off everyone's list.
+    const ownId = createdTaskIds[createdTaskIds.length - 1]!;
+    expect((await call(trainer, 'PATCH', `/v1/admin/tasks/${ownId}`, { assigneeStaffId: null })).status).toBe(403);
     const mine = await json<{ items: Array<{ title: string }> }>(await call(trainer, 'GET', '/v1/admin/tasks?view=open'));
     expect(mine.items.map((t) => t.title)).toContain('P07 test: plan for Aman');
     expect(mine.items.some((t) => t.title.startsWith('Payment failed'))).toBe(false);
