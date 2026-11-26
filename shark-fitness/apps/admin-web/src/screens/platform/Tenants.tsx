@@ -178,8 +178,16 @@ function TenantDialog({ tenantId, canAdminister, onClose }: { tenantId: string; 
         </Button>
       }
     >
-      {detail.isLoading || !tenant ? (
+      {detail.isLoading ? (
         <Skeleton className="h-64" />
+      ) : detail.error || !tenant ? (
+        // A failed read is not a slow one: without this the dialog sat on a
+        // skeleton for ever and the operator had no way to ask again.
+        <ErrorState
+          title="This customer could not be read"
+          body={detail.error instanceof ApiError ? detail.error.message : 'The server did not answer.'}
+          onRetry={() => void detail.refetch()}
+        />
       ) : (
         <div className="flex flex-col">
           <div className="flex flex-wrap items-start gap-x-5 gap-y-2 border-b border-line px-4 py-3">
