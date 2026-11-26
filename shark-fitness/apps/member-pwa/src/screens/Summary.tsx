@@ -49,7 +49,9 @@ interface Summary {
   coachNote: string | null;
   personalRecords: Array<{ exerciseName: string; kind: string; value: number; label?: string }>;
   muscleVolume: Array<{ muscle: string; label: string; sets: number; share: number }>;
-  volumeWarning: { level: string; message: string } | null;
+  /** The server sends the sentence itself (domain volumeWarning); the
+   *  object form is accepted too. */
+  volumeWarning: string | { level: string; message: string } | null;
   byExercise: Array<{
     exerciseId: string;
     exerciseName: string;
@@ -189,6 +191,8 @@ export default function SummaryScreen() {
   }
 
   const s = data.summary;
+  const volumeWarning =
+    typeof s.volumeWarning === 'string' ? { level: 'warn', message: s.volumeWarning } : s.volumeWarning;
 
   return (
     <Frame share={shareText(s.title, s.volumeKg, s.durationSec, units)}>
@@ -250,10 +254,10 @@ export default function SummaryScreen() {
         ) : null}
 
         {/* Safety signal — plain register, always. */}
-        {s.volumeWarning ? (
-          <Panel tone={s.volumeWarning.level === 'high' ? 'bad' : 'warn'} className="flex flex-col gap-1.5 p-4">
+        {volumeWarning ? (
+          <Panel tone={volumeWarning.level === 'high' ? 'bad' : 'warn'} className="flex flex-col gap-1.5 p-4">
             <Label>Load check</Label>
-            <p className="text-[13px] leading-relaxed text-foam-65">{s.volumeWarning.message}</p>
+            <p className="text-[13px] leading-relaxed text-foam-65">{volumeWarning.message}</p>
           </Panel>
         ) : null}
 
