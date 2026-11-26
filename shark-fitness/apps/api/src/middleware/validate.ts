@@ -24,6 +24,14 @@ export function changing<T extends z.AnyZodObject>(schema: T) {
   });
 }
 
+/** The schema behind each validator `validate()` built, so a test can walk a
+ *  route's chain and check what its body is allowed to carry. */
+const validators = new WeakMap<object, { target: keyof ValidationTargets; schema: ZodSchema }>();
+
+export function validatorSchemaOf(handler: unknown): { target: keyof ValidationTargets; schema: ZodSchema } | undefined {
+  return typeof handler === 'function' ? validators.get(handler) : undefined;
+}
+
 /**
  * `zValidator` with our error envelope.
  *
@@ -40,7 +48,7 @@ export function validate<T extends ZodSchema, Target extends keyof ValidationTar
   target: Target,
   schema: T,
 ) {
-  return honoZValidator(target, schema, (result) => {
+  const validator = honoZValidator(target, schema, (result) => {
     if (result.success) return;
 
     const fields = result.error.errors.map((issue) => ({
@@ -51,6 +59,8 @@ export function validate<T extends ZodSchema, Target extends keyof ValidationTar
 
     throw new AppError('VALIDATION_FAILED', friendlyMessage(fields), { fields });
   });
+  validators.set(validator, { target, schema });
+  return validator;
 }
 
 /** One clear sentence for the banner; the per-field detail sits in `fields`. */

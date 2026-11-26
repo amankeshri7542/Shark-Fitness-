@@ -92,7 +92,18 @@ authRoutes.post('/activation/redeem', rateLimit(10, 60_000), validate('json', z.
   return c.json(signedIn(c, result));
 });
 
-authRoutes.get('/tenants', (c) => {
+/**
+ * Every route here is reachable without a full session, so each runs a limiter
+ * (P09: proved for the whole route table by security-route-enumeration).
+ * Gym Wi-Fi puts a whole floor behind one address, so the per-IP budgets for
+ * routes a page load calls are wide; the credential routes keep their tight
+ * ones.
+ */
+const gymListLimit = rateLimit(60, 60_000, { identity: 'ip', bucket: 'auth-tenants' });
+const sessionBootLimit = rateLimit(600, 60_000, { identity: 'ip', bucket: 'auth-session-boot' });
+const signOutLimit = rateLimit(120, 60_000, { identity: 'ip', bucket: 'auth-sign-out' });
+
+authRoutes.get('/tenants', gymListLimit, (c) => {
   const rows = db
     .select({ slug: schema.tenants.slug, displayName: schema.tenants.displayName, currency: schema.tenants.currency })
     .from(schema.tenants)
@@ -132,12 +143,12 @@ authRoutes.post('/password', rateLimit(10, 60_000), validate('json', PasswordSig
   return c.json(signedIn(c, result));
 });
 
-authRoutes.get('/csrf', authenticatePartial, (c) => {
+authRoutes.get('/csrf', sessionBootLimit, authenticatePartial, (c) => {
   const csrfToken = csrfTokenFrom(c) ?? issueCsrfCookie(c);
   return c.json({ csrfToken });
 });
 
-authRoutes.post('/sign-out', authenticatePartial, (c) => {
+authRoutes.post('/sign-out', signOutLimit, authenticatePartial, (c) => {
   revokeSession(ctxOf(c).sessionId);
   deleteCookie(c, SESSION_COOKIE, { path: '/' });
   clearCsrfCookie(c);

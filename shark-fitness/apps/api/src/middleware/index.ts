@@ -355,6 +355,14 @@ function identityFor(c: Context, identity: NonNullable<RateLimitOptions['identit
   return clientIp(c, trustedProxyHops);
 }
 
+/** Every handler `rateLimit()` has built, so a test can walk a route's
+ *  middleware chain and prove an unauthenticated route is limited. */
+const rateLimiters = new WeakSet<MiddlewareHandler>();
+
+export function isRateLimiter(handler: unknown): boolean {
+  return typeof handler === 'function' && rateLimiters.has(handler as MiddlewareHandler);
+}
+
 export function rateLimit(max: number, windowMs: number, options: RateLimitOptions = {}): MiddlewareHandler {
   if (!Number.isInteger(max) || max < 1) throw new RangeError('Rate-limit max must be a positive integer.');
   if (!Number.isFinite(windowMs) || windowMs < 1) throw new RangeError('Rate-limit window must be positive.');
@@ -365,7 +373,7 @@ export function rateLimit(max: number, windowMs: number, options: RateLimitOptio
   const store: RateLimitStore = { buckets: new Map(), overflow: null, requestsSinceCleanup: 0 };
   rateLimitStores.add(store);
 
-  return async (c: Context, next: Next) => {
+  const limiter: MiddlewareHandler = async (c: Context, next: Next) => {
     const nowMs = Date.now();
     store.requestsSinceCleanup += 1;
     if (store.requestsSinceCleanup >= RATE_LIMIT_CLEANUP_INTERVAL) {
@@ -406,6 +414,8 @@ export function rateLimit(max: number, windowMs: number, options: RateLimitOptio
     }
     await next();
   };
+  rateLimiters.add(limiter);
+  return limiter;
 }
 
 /** Reset/introspection for deterministic integration tests only. */

@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { Hono } from 'hono';
 import { runtimeConfig } from '../lib/config.js';
 import { renderMetrics } from '../lib/metrics.js';
+import { rateLimit } from '../middleware/index.js';
 import { collectScrapeGauges } from '../services/metrics.js';
 
 /**
@@ -16,7 +17,8 @@ export const metricsRoutes = new Hono();
 
 const digest = (value: string) => createHash('sha256').update(value).digest();
 
-metricsRoutes.get('/', (c) => {
+// A scraper calls every 15–60 s; the limiter caps token guessing (P09).
+metricsRoutes.get('/', rateLimit(60, 60_000, { identity: 'ip', bucket: 'metrics' }), (c) => {
   const token = runtimeConfig.metricsToken;
   if (!token) {
     return c.json(

@@ -36,7 +36,7 @@ function currentUser(userId: string, tenantId: string) {
   return user;
 }
 
-mfaRoutes.get('/', authenticatePartial, (c) => {
+mfaRoutes.get('/', rateLimit(120, 60_000, { identity: 'ip', bucket: 'mfa-status' }), authenticatePartial, (c) => {
   const ctx = ctxOf(c);
   if (ctx.impersonatorId) throw forbidden('Two-step sign-in belongs to the account holder, not a support session.');
   const user = currentUser(ctx.userId, ctx.tenantId);
