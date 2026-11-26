@@ -9,3 +9,5 @@ TODO:
 - DONE f5429a4 media unlink after commit
 - credits minors: refund idem key not checked against pack; others record only
 - then: full gates, build, e2e, db:backup:verify, write P05-review.md + PR section
+- DONE 6323c4d share needs current consent; 97ccd6f pass wake lock/sweep tests
+- investigating scheduler-observability timeout (run excluding P05 tests in bg -> /tmp/p05rev/noP05.log)
