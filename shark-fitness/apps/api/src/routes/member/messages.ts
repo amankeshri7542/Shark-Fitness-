@@ -1048,9 +1048,17 @@ messagesRoutes.get('/:conversationId', validate('query', ThreadQuery), (c) => {
     nextCursor: hasMore && window.length > 0 ? String(window[window.length - 1]!.createdAt) : null,
     total,
     unread: unreadCount(conversation.id, ctx.userId),
-    attachments: attachmentPolicy(),
+    attachments: attachmentPolicyFor(conversation.kind),
   });
 });
+
+/** Files go to the coach or the desk, who can open them. In other threads
+ *  (support tickets) nobody on the staff side could, so none are taken. */
+function attachmentPolicyFor(kind: string) {
+  if (kind === 'coach' || kind === 'reception') return attachmentPolicy();
+  return { enabled: false, maxSizeMb: 0, accept: [] as string[], reason: NO_FILES_HERE };
+}
+const NO_FILES_HERE = 'Photos and files can be sent in a conversation with your coach or the front desk.';
 
 /* ============================================================================
    POST /:conversationId — send
@@ -1310,8 +1318,9 @@ messagesRoutes.post(
       .get();
     if (!conversation) throw notFound('That conversation');
     if (conversation.state === 'closed') throw precondition('This conversation is closed.');
+    if (conversation.kind !== 'coach' && conversation.kind !== 'reception') throw invalid(NO_FILES_HERE);
     const { member } = memberAndBranch(memberId);
-    if (conversation.kind === 'coach' || conversation.kind === 'reception') assertMinorRule(member);
+    assertMinorRule(member);
 
     const form = await c.req.parseBody().catch(() => null);
     const file = form?.file;

@@ -288,6 +288,21 @@ describe('attachments', () => {
     expect((await call(coach, 'GET', staffUrl)).status).toBe(200);
   });
 
+  it('takes files only in coach and desk threads, where staff can open them', async () => {
+    const opened = await call(aman, 'POST', '/v1/member/messages/tickets', { category: 'app', subject: 'Attachment test ticket', body: 'The app froze.' });
+    expect(opened.status).toBe(201);
+    const { conversationId, ticket } = await json<{ conversationId: string; ticket: { id: string } }>(opened);
+    created.push(conversationId);
+    try {
+      const thread = await json<{ attachments: { enabled: boolean; reason: string } }>(await call(aman, 'GET', `/v1/member/messages/${conversationId}`));
+      expect(thread.attachments.enabled).toBe(false);
+      const refused = await upload(aman, conversationId, jpegWithGps(), 'screen.jpg', 'image/jpeg');
+      expect(refused.status).toBe(422);
+    } finally {
+      db.delete(schema.tickets).where(eq(schema.tickets.id, ticket.id)).run();
+    }
+  });
+
   it('refuses everyone else, even with a valid link', async () => {
     expect((await call(rohit, 'GET', jpegUrl)).status).toBe(404);
     expect((await call(desk, 'GET', jpegUrl)).status).toBe(404);
