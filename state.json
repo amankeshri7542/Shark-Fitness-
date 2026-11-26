@@ -58,12 +58,7 @@
       "state": "reviewing",
       "base": "phase/P06-staff-security",
       "base_sha": "d9e656c7d",
-      "running": {
-        "tag": "P07-review",
-        "pid": 658143,
-        "started": "2026-11-26 06:26 IST",
-        "activity": "2026-11-26 06:43 IST"
-      },
+      "running": null,
       "note": ""
     },
     "INT1": {
