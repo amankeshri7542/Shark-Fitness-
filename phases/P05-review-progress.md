@@ -3,7 +3,7 @@ Done (committed): 530ec77 waitlist stale-offer leak; d52d428 media JPEG trailing
 Baseline gates before fixes: install/typecheck/lint OK; tests contracts 6, domain 284, member-pwa 126, admin-web 326, api 1041/1042 (scheduler-observability 5s timeout flake, passed on rerun).
 TODO:
 - DONE 4ca1955 backup scratch restore + streaming
-- credit packs: sellableProduct ignores product.eligibility (major)
+- DONE 6465651 credits eligibility + refund key
 - UI: ScanPass camera leak on unmount/stop during start (major); PhotosSection hides photos after consent withdrawn (major)
 - UI minors: exercise library cache not cleared on signOut; rest-day no Log a workout; Book offer countdown aria-live
 - media minor: files unlinked inside transaction
