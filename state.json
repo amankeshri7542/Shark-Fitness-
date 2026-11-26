@@ -80,19 +80,14 @@
         "tag": "P08-impl",
         "pid": 1088609,
         "started": "2026-11-26 11:18 IST",
-        "activity": "2026-11-26 11:38 IST"
+        "activity": "2026-11-26 11:39 IST"
       }
     },
     "P09": {
       "state": "implementing",
       "base": "integration/features",
       "base_sha": "4fa023bf9",
-      "running": {
-        "tag": "P09-impl",
-        "pid": 1088612,
-        "started": "2026-11-26 11:18 IST",
-        "activity": "2026-11-26 11:39 IST"
-      }
+      "running": null
     },
     "P10": {
       "state": "implementing",
@@ -102,7 +97,7 @@
         "tag": "P10-impl",
         "pid": 1088608,
         "started": "2026-11-26 11:18 IST",
-        "activity": "2026-11-26 11:38 IST"
+        "activity": "2026-11-26 11:39 IST"
       }
     },
     "INT2": {
