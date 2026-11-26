@@ -199,7 +199,10 @@ interface RawItem {
 }
 
 interface RawDay {
-  id: string;
+  /** GET /member/training/plan sends `today.programDayId`; `id` is the
+   *  ProgramDay contract's name for it. Either identifies the day. */
+  programDayId?: string | null;
+  id?: string;
   dayIndex?: number;
   label?: string;
   focus?: string;
@@ -225,6 +228,10 @@ interface PlanPayload {
     reviewedByName?: string | null;
     newLoadKg?: number | null;
   } | null;
+}
+
+function dayIdOf(day: RawDay | null): string | null {
+  return day?.programDayId ?? day?.id ?? null;
 }
 
 function todayOf(payload: PlanPayload): RawDay | null {
@@ -323,6 +330,10 @@ export default function WorkoutScreen() {
   const [substituting, setSubstituting] = useState(false);
   const [planChanged, setPlanChanged] = useState(false);
   const [lastLogged, setLastLogged] = useState<string | null>(null);
+  /** Set once the session is saved or discarded. Clearing the store re-renders
+   *  this screen before the router has left it, and without this the seed
+   *  effect below started a fresh, phantom session from today's plan. */
+  const ended = useRef(false);
 
   const resuming = active.clientId !== null;
   const search = useSearch({ strict: false }) as { mode?: string };
@@ -347,7 +358,7 @@ export default function WorkoutScreen() {
   /* Seed a new session from today's plan. Never touches a session already in
      progress — that is what makes the resume path safe. */
   useEffect(() => {
-    if (active.clientId || !data || freestyle) return;
+    if (ended.current || active.clientId || !data || freestyle) return;
     const day = todayOf(data);
     if (!day || day.isRest) return;
     const exercises = normaliseExercises(day);
@@ -358,7 +369,7 @@ export default function WorkoutScreen() {
       clientId,
       title: day.label ?? 'Training session',
       assignmentId: data.assignment?.id ?? null,
-      programDayId: day.id,
+      programDayId: dayIdOf(day),
       branchId: data.branchId ?? null,
       startedAt: Date.now(),
       pausedMs: 0,
@@ -446,7 +457,8 @@ export default function WorkoutScreen() {
   useEffect(() => {
     if (!data || !session || !active.clientId) return;
     const day = todayOf(data);
-    if (day && session.programDayId && day.id !== session.programDayId) setPlanChanged(true);
+    const dayId = dayIdOf(day);
+    if (dayId && session.programDayId && dayId !== session.programDayId) setPlanChanged(true);
   }, [data, session, active.clientId]);
 
   const save = useCallback((next: SessionPlan) => {
@@ -467,9 +479,11 @@ export default function WorkoutScreen() {
   const buildDraft = useCallback(
     (plan: SessionPlan, sets: ActiveSet[], notes: string, sessionRpe: number | null, finished: boolean) => ({
       clientId: plan.clientId,
-      assignmentId: plan.assignmentId,
-      programDayId: plan.programDayId,
-      branchId: plan.branchId,
+      // Required keys on the server (nullable, never absent): a session saved
+      // before programDayId was read correctly holds undefined here.
+      assignmentId: plan.assignmentId ?? null,
+      programDayId: plan.programDayId ?? null,
+      branchId: plan.branchId ?? null,
       title: plan.title,
       startedAt: new Date(plan.startedAt).toISOString(),
       finishedAt: finished ? new Date().toISOString() : null,
@@ -675,6 +689,7 @@ export default function WorkoutScreen() {
     // Nothing logged — there is no session to keep. Discard rather than write
     // an empty record the member will have to explain to their coach.
     if (logged.length === 0) {
+      ended.current = true;
       try {
         localStorage.removeItem(PLAN_KEY);
       } catch {
@@ -720,6 +735,7 @@ export default function WorkoutScreen() {
 
     queueDraft(`${session.clientId}:finish`, true);
 
+    ended.current = true;
     const clientId = session.clientId;
     try {
       localStorage.removeItem(PLAN_KEY);
