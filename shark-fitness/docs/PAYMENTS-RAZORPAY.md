@@ -141,8 +141,22 @@ If Razorpay does not answer a refund request (timeout) the refund stays pending
 with no Razorpay id; the console retries with the same key while the refund
 sheet is open, and after 15 minutes the `reconcile-payments` job asks Razorpay
 again with the same idempotency key, so a refund is never lost and never doubled.
-Manual (desk) payments keep the manual refund path. Credit-pack refunds stay
-refused until P05.
+Manual (desk) payments keep the manual refund path. A credit pack is refunded
+only from the member's credits (`POST /v1/admin/billing/credit-packs/:id/refund`),
+which applies decision 11 (unused: everything paid; part used: unused credits ×
+the pack's unit price, with a reason; expired: refused) and takes the credits
+back in the same transaction as the refund record. For a Razorpay-paid pack
+that is the pending refund; if Razorpay then fails the refund, the credits are
+returned to the pack. The generic refund endpoints refuse pack invoices.
+
+### Credit packs
+
+A member buys a pack from Billing (`POST /v1/member/billing/credit-packs`);
+staff sell one from the member record. Either way the result is an invoice the
+member pays like any other (Checkout here, or at reception). Credits are
+allocated inside the settlement transaction once the invoice is paid in full —
+`payment.captured` webhook, verified Checkout confirmation, reconciliation or a
+desk payment alike — never on a partial payment.
 
 ### Payment links
 

@@ -31,6 +31,11 @@ Specs read the base URL from Playwright's `baseURL` and the server log from `SHA
 | `console-step-up` | An export five minutes after sign-in opens "Confirm it's you" and completes with the same request; an owner adds a webhook endpoint (secret shown once) and a metadata address is refused |
 | `security-headers` | Per-surface enforced CSP and Permissions-Policy on `/admin/`, `/` and `/v1` |
 | `client-error` | A screen whose code chunk fails to load becomes the "Something went wrong." recovery screen with a reference, the report reaches `POST /v1/client-errors` once (checked in the server's own log), and a reload does not report it again |
+| `member-pass` (@mobile) | On a phone, the pass QR is replaced by a new token before its countdown ends (page clock driven by the test), and offline the pass shows the member number with "Reception can check you in with this number." |
+| `reception-scan` | Reception types a member's code into Floor → Scan pass (as a USB scanner does) and sees Admitted, then "Already checked in"; a blocked camera falls back to the code box; `camera=(self)` only on `/admin/` |
+| `freestyle-offline` (@mobile) | With the service worker allowed, a member builds a workout from the library, logs 2 exercises × 3 sets offline, reloads offline into the same session, and on reconnect exactly 6 sets reach the server once |
+
+Ports: the API takes a free port unless `SHARK_E2E_PORT` pins it (and `SHARK_E2E_RAZORPAY_PORT` the fake Razorpay), for machines where parallel runs keep to their own range. Specs tagged `@payments` or `@mobile` run on the Pixel 7 project.
 
 | `responsive` | No sideways scroll or clipped content on any member screen at 360×800, 390×844, 768×1024 and 1024×768; screenshots to `SHARK_E2E_SCREENSHOT_DIR` |
 | `pwa/apps-and-scopes` | Built manifests, icons and screenshots at their sizes; asset links; the console's offline page; member (`/app/`) and console (`/admin/`) workers never control each other; an old root worker retires itself; `/` keeps activation fragments |

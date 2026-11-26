@@ -226,7 +226,7 @@ describe('Phase 5 — classes, schedule and waitlists', () => {
     expect(session?.booked).toBe(1);
   });
 
-  it('refuses to shrink a class below the people already in it', async () => {
+  it('shrinking a class below the people already in it cancels nobody and reports the excess', async () => {
     const manager = await signIn('manager@sharkfitness.in');
     const created = await createSession(manager, { capacity: 3 });
     const member = idleMember('br_kor');
@@ -262,8 +262,16 @@ describe('Phase 5 — classes, schedule and waitlists', () => {
       capacity: 1,
       version: current.version,
     });
-    expect(shrink.status).toBe(409);
-    expect(((await shrink.json()) as { error: { message: string } }).error.message).toContain('already booked');
+    // P05: the Compliance PRD edge case is now handled by keeping everyone
+    // booked and raising it for staff (dashboard alert + audit), rather than
+    // refusing the edit. The waitlist suite covers the alert itself.
+    expect(shrink.status).toBe(200);
+    const shrunk = (await shrink.json()) as { capacity: { overbookedBy: number; message: string } };
+    expect(shrunk.capacity.overbookedBy).toBe(1);
+    expect(shrunk.capacity.message).toContain('Nobody was cancelled');
+    expect(
+      db.select().from(schema.bookings).where(eq(schema.bookings.sessionId, created2.id)).all().filter((b) => b.state === 'confirmed'),
+    ).toHaveLength(2);
   });
 
   it('rejects an edit made against a stale version', async () => {
@@ -396,7 +404,7 @@ describe('Phase 5 — classes, schedule and waitlists', () => {
     expect(row?.attendedAt).toBeNull();
   });
 
-  it('releases a seat without promising an unreserved waitlist offer', async () => {
+  it('releasing a seat offers it to the waitlist and holds it for them', async () => {
     const manager = await signIn('manager@sharkfitness.in');
     const created = await createSession(manager, { capacity: 1 });
     const seated = idleMember('br_kor');
@@ -426,18 +434,21 @@ describe('Phase 5 — classes, schedule and waitlists', () => {
     const response = await post(manager, `/v1/admin/schedule/booking/${booking.id}/release`, { reason: 'Injury' });
     expect(response.status).toBe(200);
 
+    // P05 re-enabled waitlists: the freed seat is offered and held (counted
+    // in `booked`) for the first member in line, never left unreserved.
     const body = (await response.json()) as { promoted: { memberId: string } | null };
-    expect(body.promoted).toBeNull();
+    expect(body.promoted?.memberId).toBe(waiting.id);
 
     const entry = db
       .select()
       .from(schema.waitlistEntries)
       .where(eq(schema.waitlistEntries.id, `wtl_test_${created.id}`))
       .get();
-    expect(entry?.state).toBe('waiting');
+    expect(entry?.state).toBe('offered');
+    expect(entry?.offerExpiresAt).toBeGreaterThan(now());
 
     const session = db.select().from(schema.classSessions).where(eq(schema.classSessions.id, created.id)).get();
-    expect(session?.booked).toBe(0);
+    expect(session?.booked).toBe(1);
   });
 
   it('hides a class at another branch behind a 404', async () => {

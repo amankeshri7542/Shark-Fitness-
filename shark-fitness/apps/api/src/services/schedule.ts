@@ -1,7 +1,6 @@
-import { WAITLIST_AVAILABLE } from './booking.js';
-import { and, asc, eq, gt, inArray, lt, ne, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, lt, ne, sql } from 'drizzle-orm';
 import { channels } from '@shark/contracts';
-import { classifyCancellation, planPromotion, type WaitlistCandidate } from '@shark/domain';
+import { classifyCancellation } from '@shark/domain';
 import { db, schema, transact } from '../db/client.js';
 import { branchScope, type RequestContext } from '../lib/context.js';
 import { audit } from '../lib/audit.js';
@@ -9,7 +8,8 @@ import { emit } from '../lib/events.js';
 import { conflict, invalid, notFound, precondition, staleVersion } from '../lib/errors.js';
 import { id } from '../lib/ids.js';
 import { MINUTE, isoDate, localTime, now } from '../lib/time.js';
-import { LIVE_BOOKING_STATES, LIVE_WAITLIST_STATES, claimSeat, claimSeatOverride, runClaim, sessionById } from './booking.js';
+import { LIVE_BOOKING_STATES, LIVE_WAITLIST_STATES, claimSeat, claimSeatOverride, restoreBookingCredits, runClaim, sessionById } from './booking.js';
+import { applyCapacityChange, offerFreedSeats, type CapacityOutcome } from './waitlist.js';
 import { loadMemberInScope } from './members.js';
 import { branchTimeZone } from '../lib/branch-time.js';
 import { notifyUser } from './notifications.js';
@@ -28,8 +28,6 @@ import { emitIntegrationEvent } from './integration-events.js';
  */
 
 export { LIVE_BOOKING_STATES, LIVE_WAITLIST_STATES };
-
-const OFFER_WINDOW_MIN = 15;
 
 export interface SessionRow {
   id: string;
@@ -405,15 +403,11 @@ export function updateSession(ctx: RequestContext, sessionId: string, patch: Ses
     capacity,
   });
 
-  // Shrinking a class below the people already in it would silently strand
-  // someone with a seat that no longer exists (Compliance PRD edge case
-  // "Class capacity is reduced below current bookings").
-  const live = liveBookingCount(session.id);
-  if (capacity < live) {
-    throw conflict(
-      `${live} ${live === 1 ? 'person is' : 'people are'} already booked. Move them first, or keep at least ${live} ${live === 1 ? 'seat' : 'seats'}.`,
-    );
-  }
+  // Shrinking a class below the people already in it is allowed and cancels
+  // nobody (Compliance PRD edge case "Class capacity is reduced below current
+  // bookings"): live seat offers that no longer fit are withdrawn, and any
+  // excess of confirmed bookings is recorded and raised on the dashboard until
+  // a person moves someone. See `applyCapacityChange`.
 
   const clashes = detectClashes(ctx.tenantId, {
     branchId: session.branchId,
@@ -436,7 +430,7 @@ export function updateSession(ctx: RequestContext, sessionId: string, patch: Ses
 
   const tz = branchTimeZone(ctx.tenantId, session.branchId);
 
-  transact(() => {
+  const capacityOutcome = transact((): CapacityOutcome => {
     db.update(schema.classSessions)
       .set({
         startsAt,
@@ -494,9 +488,14 @@ export function updateSession(ctx: RequestContext, sessionId: string, patch: Ses
       topic: 'session.updated',
       payload: { sessionId: session.id, moved, roomChanged },
     });
+
+    return capacity === session.capacity
+      ? { offered: [], withdrawnOffers: 0, overbookedBy: 0 }
+      : applyCapacityChange(ctx, session.id, session.capacity, capacity, atMs);
   });
 
-  return db.select().from(schema.classSessions).where(eq(schema.classSessions.id, session.id)).get()!;
+  const updated = db.select().from(schema.classSessions).where(eq(schema.classSessions.id, session.id)).get()!;
+  return Object.assign(updated, { capacityOutcome });
 }
 
 /* ============================================================================
@@ -659,23 +658,7 @@ export function cancelSessions(
           .run();
         result.bookingsReleased += 1;
 
-        if (booking.creditsUsed > 0) {
-          db.insert(schema.credits)
-            .values({
-              id: id('crd'),
-              tenantId: ctx.tenantId,
-              memberId: booking.memberId,
-              kind: 'class',
-              delta: booking.creditsUsed,
-              reason: 'Class cancelled by the gym',
-              refType: 'booking',
-              refId: booking.id,
-              expiresOn: null,
-              createdAt: atMs,
-            })
-            .run();
-          result.creditsReturned += booking.creditsUsed;
-        }
+        result.creditsReturned += restoreBookingCredits(ctx.tenantId, booking, 'Class cancelled by the gym', atMs);
       }
 
       // Nobody is waiting for a class that is not running.
@@ -822,22 +805,7 @@ export function releaseBooking(ctx: RequestContext, bookingId: string, reason: s
       .where(eq(schema.classSessions.id, session.id))
       .run();
 
-    if (outcome.refundCredit && booking.creditsUsed > 0) {
-      db.insert(schema.credits)
-        .values({
-          id: id('crd'),
-          tenantId: ctx.tenantId,
-          memberId: booking.memberId,
-          kind: 'class',
-          delta: booking.creditsUsed,
-          reason: 'Booking cancelled at the desk',
-          refType: 'booking',
-          refId: booking.id,
-          expiresOn: null,
-          createdAt: atMs,
-        })
-        .run();
-    }
+    if (outcome.refundCredit) restoreBookingCredits(ctx.tenantId, booking, 'Booking cancelled at the desk', atMs);
 
     audit(ctx, {
       action: outcome.state === 'late_cancelled' ? 'booking.late_cancelled' : 'booking.cancelled',
@@ -863,117 +831,10 @@ export function releaseBooking(ctx: RequestContext, bookingId: string, reason: s
       data: { bookingId: booking.id, classSessionId: session.id, memberId: booking.memberId, cancelledBy: 'staff', lateCancel: outcome.state === 'late_cancelled' },
     });
 
-    return promoteFromWaitlist(ctx, session, atMs);
+    return offerFreedSeats(ctx, session.id, atMs)[0] ?? null;
   });
 
   return { state: outcome.state, creditsReturned: outcome.refundCredit ? booking.creditsUsed : 0, promoted };
-}
-
-/**
- * Waitlist promotion. Re-checks eligibility from scratch, so someone whose
- * membership lapsed while they waited is skipped rather than promoted into a
- * booking that cannot work (PF-SCH-002).
- *
- * The offer is announced on the branch channel as well as the member's own.
- * The scheduler publishes `waitlist.promoted` to `channels.session(...)`, which
- * no client is authorised to subscribe to, so a console listening for seat
- * movement would never hear it.
- */
-export function promoteFromWaitlist(
-  ctx: RequestContext,
-  session: { id: string; branchId: string; creditsRequired: number },
-  atMs: number,
-): { memberId: string; offerExpiresAt: string } | null {
-  if (!WAITLIST_AVAILABLE) return null;
-  const queue = db
-    .select()
-    .from(schema.waitlistEntries)
-    .where(and(eq(schema.waitlistEntries.sessionId, session.id), eq(schema.waitlistEntries.state, 'waiting')))
-    .orderBy(asc(schema.waitlistEntries.position))
-    .all();
-  if (queue.length === 0) return null;
-
-  const candidates: WaitlistCandidate[] = queue.map((entry) => {
-    const membership = db
-      .select({ state: schema.memberships.state })
-      .from(schema.memberships)
-      .where(
-        and(eq(schema.memberships.memberId, entry.memberId), sql`${schema.memberships.state} in ('active','grace')`),
-      )
-      .get();
-
-    return {
-      id: entry.id,
-      memberId: entry.memberId,
-      position: entry.position,
-      eligible: Boolean(membership),
-      skipReason: membership ? null : 'Membership no longer covers bookings',
-    };
-  });
-
-  const plan = planPromotion(candidates, OFFER_WINDOW_MIN);
-
-  for (const skip of plan.skipped) {
-    db.update(schema.waitlistEntries)
-      .set({ state: 'expired', resolvedAt: atMs })
-      .where(eq(schema.waitlistEntries.id, skip.id))
-      .run();
-  }
-  if (!plan.offer) return null;
-
-  const offerExpiresAt = atMs + plan.offerWindowMin * MINUTE;
-  db.update(schema.waitlistEntries)
-    .set({ state: 'offered', offeredAt: atMs, offerExpiresAt })
-    .where(eq(schema.waitlistEntries.id, plan.offer.id))
-    .run();
-
-  const member = db
-    .select({ userId: schema.members.userId })
-    .from(schema.members)
-    .where(eq(schema.members.id, plan.offer.memberId))
-    .get();
-
-  if (member?.userId) {
-    notifyUser(
-      {
-        tenantId: ctx.tenantId,
-        userId: member.userId,
-        branchId: session.branchId,
-        kind: 'waitlist_offer',
-        title: 'A seat opened up',
-        body: `The seat is held for you for ${plan.offerWindowMin} minutes, then it goes to the next person.`,
-        link: '/book',
-        templateCode: 'waitlist.offered',
-        // Pointless once the hold has lapsed, quiet hours or not.
-        push: { category: 'booking', dedupeKey: `waitlist_offer:${plan.offer.id}:${atMs}`, expiresAt: offerExpiresAt },
-      },
-      atMs,
-    );
-  }
-
-  emit({
-    tenantId: ctx.tenantId,
-    branchId: session.branchId,
-    channel: channels.member(plan.offer.memberId),
-    topic: 'waitlist.offered',
-    payload: { sessionId: session.id, offerExpiresAt: new Date(offerExpiresAt).toISOString() },
-  });
-
-  emit({
-    tenantId: ctx.tenantId,
-    branchId: session.branchId,
-    channel: channels.branch(session.branchId),
-    topic: 'waitlist.promoted',
-    payload: { sessionId: session.id, memberId: plan.offer.memberId },
-  });
-  emitIntegrationEvent({
-    tenantId: ctx.tenantId,
-    branchId: session.branchId,
-    type: 'class.waitlist_promoted',
-    data: { classSessionId: session.id, memberId: plan.offer.memberId, offerExpiresAt: new Date(offerExpiresAt).toISOString() },
-  });
-
-  return { memberId: plan.offer.memberId, offerExpiresAt: new Date(offerExpiresAt).toISOString() };
 }
 
 /**

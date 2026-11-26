@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { Branch, Viewer } from '@shark/contracts';
-import { PREDATOR_COPY, type CopyKey, type Register, registerFor } from '@shark/design-tokens';
+import { forgetPassCards } from './pass';
+import { PREDATOR_COPY, type CopyKey, type CopySurface, type Register, registerFor } from '@shark/design-tokens';
 import { ApiError, OfflineError, api, auth, onSessionExpired } from './api';
 import { queryClient } from './query-client';
 import {
@@ -10,6 +11,7 @@ import {
   ownerOf,
   rememberLastOwner,
   restoreSnapshot,
+  saveSnapshot,
 } from './persisted-cache';
 import { hasMemberSessionHint } from './session-hint';
 
@@ -110,13 +112,18 @@ export const useSession = create<SessionState>((set, get) => ({
       if (snapshot) restoreSnapshot(queryClient, snapshot);
       set({ viewer, status: 'signed-in', offlineStart: false, sessionEnded: false });
       const branches = await api<{ items: Branch[]; activeBranchId: string | null }>('/me/branches');
+      const activeBranchId = branches.activeBranchId ?? viewer.homeBranchId ?? branches.items[0]?.id ?? null;
       set({
         branches: branches.items,
         // The member's own gym, not whichever branch the tenant lists first.
         // `activeBranchId` from the server means "a branch this request
         // selected", which for a fresh session is nothing at all.
-        activeBranchId: branches.activeBranchId ?? viewer.homeBranchId ?? branches.items[0]?.id ?? null,
+        activeBranchId,
       });
+      // Save who is signed in right away, not only once a screen's data has
+      // loaded: an offline reload a moment after signing in must still open
+      // the app (P05 D19, PF-WORK-005). Later saves add the screens' data.
+      void saveSnapshot(queryClient, get()).catch(() => undefined);
     } catch (error) {
       // No network: open on the saved snapshot of whoever was signed in last.
       // The cookie is untouched; the next request online proves the session.
@@ -140,6 +147,10 @@ export const useSession = create<SessionState>((set, get) => ({
       const ended = error instanceof ApiError && error.status === 401 && hasMemberSessionHint();
       const owner = lastOwner();
       if (ended && owner) rememberReturnRoute(owner, currentAppRoute());
+      // The server refused the session: its saved screens must not open the
+      // app offline later (P05). The outbox and an active workout stay, as
+      // in expire(), for the same person to send after signing back in.
+      if (owner) await deleteSnapshot(owner);
       set({ viewer: null, branches: [], activeBranchId: null, status: 'signed-out', sessionEnded: ended });
     }
   },
@@ -151,6 +162,11 @@ export const useSession = create<SessionState>((set, get) => ({
       /* signing out locally matters more than the round trip succeeding */
     }
     auth.clear();
+    // Things this member left on the phone outside the query cache: the
+    // reception card behind the pass, and the offline exercise library with
+    // their own last weights and reps (P05).
+    forgetPassCards();
+    forgetExerciseLibrary();
     set({ viewer: null, branches: [], activeBranchId: null, status: 'signed-out', offlineStart: false, sessionEnded: false });
   },
 
@@ -181,6 +197,16 @@ function currentAppRoute(): string {
 
 onSessionExpired(() => useSession.getState().expire());
 
+/** The offline exercise library (FreestylePicker) carries this member's own
+ *  last weights and reps; the next person on this phone must not see them. */
+function forgetExerciseLibrary(): void {
+  try {
+    localStorage.removeItem('shark.exercise.library');
+  } catch {
+    /* nothing stored */
+  }
+}
+
 export const useViewer = (): Viewer | null => useSession((s) => s.viewer);
 
 export function useActiveBranch(): Branch | null {
@@ -194,8 +220,13 @@ export function useActiveBranch(): Branch | null {
  * the plain register is forced regardless of preference. See the note in
  * packages/design-tokens/src/tone.ts.
  */
-export function useCopy(surface?: string): (key: CopyKey) => string {
+export function useCopy(surface: CopySurface): (key: CopyKey) => string {
   const preference = (useSession((s) => s.viewer?.preferences.register) ?? 'predator') as Register;
+  return copyFor(preference, surface);
+}
+
+/** The pure half of `useCopy`, so the plain-only rule is testable without React. */
+export function copyFor(preference: Register, surface: CopySurface): (key: CopyKey) => string {
   const register = registerFor(preference, surface);
   return (key: CopyKey) => PREDATOR_COPY[key][register];
 }

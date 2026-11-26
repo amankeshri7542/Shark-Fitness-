@@ -32,6 +32,9 @@ services:
       PORT: "8787"
       SHARK_SERVE_STATIC: "true"
       SHARK_DB: /var/lib/shark-fitness/shark.db
+      # Private uploads (progress photos): on the same persistent volume, never
+      # under the static web root, and archived with every backup.
+      SHARK_MEDIA_DIR: /var/lib/shark-fitness/media
       SHARK_SEED_DEMO: "false"
       SHARK_ECHO_OTP: "false"
       SHARK_ALLOW_BEARER_AUTH: "false"

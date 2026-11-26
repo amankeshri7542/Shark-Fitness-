@@ -1,3 +1,5 @@
+import { expireWaitlistOffers as expireOffersAndAdvance } from '../services/waitlist.js';
+import { purgeWithdrawnPhotos } from '../services/progress-photos.js';
 import { reconcileMembershipDates } from '../services/membership-dates.js';
 import { and, eq, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import { channels } from '@shark/contracts';
@@ -100,34 +102,10 @@ function closeStaleCheckIns(atMs = now()): JobSummary {
   return { checkInsClosed };
 }
 
-/** A waitlist offer that is not taken up inside its window passes on. */
+/** A waitlist offer that is not taken up inside its window passes on: the
+ *  held seat is released and offered to the next eligible member. */
 function expireWaitlistOffers(): JobSummary {
-  const stale = db
-    .select()
-    .from(schema.waitlistEntries)
-    .where(
-      and(
-        eq(schema.waitlistEntries.state, 'offered'),
-        isNotNull(schema.waitlistEntries.offerExpiresAt),
-        lt(schema.waitlistEntries.offerExpiresAt, now()),
-      ),
-    )
-    .all();
-
-  for (const entry of stale) {
-    db.update(schema.waitlistEntries)
-      .set({ state: 'expired', resolvedAt: now() })
-      .where(eq(schema.waitlistEntries.id, entry.id))
-      .run();
-
-    emit({
-      tenantId: entry.tenantId,
-      channel: channels.session(entry.sessionId),
-      topic: 'waitlist.promoted',
-      payload: { sessionId: entry.sessionId, expiredEntryId: entry.id },
-    });
-  }
-  return { offersExpired: stale.length };
+  return expireOffersAndAdvance();
 }
 
 /** Holds do not occupy a seat once they lapse. */
@@ -272,6 +250,7 @@ const JOBS: Job[] = [
      what is due. Asynchronous — it waits on receivers — and never overlaps
      itself; a slow receiver delays the next tick rather than doubling up. */
   { name: 'deliver-webhooks', everyMs: 30_000, run: () => runWebhookDispatch() },
+  { name: 'purge-withdrawn-photos', everyMs: HOUR, run: () => purgeWithdrawnPhotos() },
 ];
 
 /** The fixed job names: the only values the `job` metric label takes. */

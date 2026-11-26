@@ -98,7 +98,7 @@ interface FeedPost {
 const rupees = (minor: number): string => `₹${(minor / 100).toLocaleString('en-IN')}`;
 
 export default function PackScreen() {
-  const copy = useCopy();
+  const copy = useCopy('community');
   const queryClient = useQueryClient();
   const [composerOpen, setComposerOpen] = useState(false);
   const [draft, setDraft] = useState('');

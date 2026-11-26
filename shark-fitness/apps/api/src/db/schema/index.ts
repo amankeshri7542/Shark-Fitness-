@@ -10,3 +10,4 @@ export * from './invoice-tax-documents.js';
 export * from './payments.js';
 export * from './push.js';
 export * from './security.js';
+export * from './member-core.js';

@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { and, desc, eq, gte, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { validate } from '../../middleware/validate.js';
 import { WorkoutDraft, type MuscleGroup, type PrescribedSet } from '@shark/contracts';
@@ -747,6 +747,54 @@ trainingRoutes.get('/plan', (c) => {
 /* ============================================================================
    GET /exercise/:exerciseId — technique, prescription, alternatives, history.
    ========================================================================= */
+
+/* ============================================================================
+   GET /exercises — the library, for a session the member builds themselves
+   (P05, PF-WORK-004). Each entry carries what the logger needs offline:
+   equipment, muscles, rest and the member's own last working set.
+   ========================================================================= */
+
+trainingRoutes.get('/exercises', (c) => {
+  const ctx = ctxOf(c);
+  const scope = scopeOf(ctx);
+  const rows = db
+    .select()
+    .from(schema.exercises)
+    .where(and(eq(schema.exercises.archived, false), sql`(${schema.exercises.tenantId} is null or ${schema.exercises.tenantId} = ${scope.tenantId})`))
+    .orderBy(asc(schema.exercises.name))
+    .all();
+
+  // The most recent working set per exercise, from one read.
+  const last = new Map<string, { weightKg: number; reps: number }>();
+  for (const set of db
+    .select({ exerciseId: schema.workoutSets.exerciseId, weightKg: schema.workoutSets.weightKg, reps: schema.workoutSets.reps })
+    .from(schema.workoutSets)
+    .where(and(eq(schema.workoutSets.memberId, scope.memberId), eq(schema.workoutSets.isWarmup, false), gt(schema.workoutSets.reps, 0)))
+    .orderBy(desc(schema.workoutSets.doneAt))
+    .limit(2000)
+    .all()) {
+    if (!last.has(set.exerciseId)) last.set(set.exerciseId, { weightKg: set.weightKg, reps: set.reps });
+  }
+
+  return c.json({
+    items: rows.map((row) => {
+      const previous = last.get(row.id);
+      return {
+        id: row.id,
+        name: row.name,
+        aliases: row.aliases,
+        equipment: row.equipment,
+        usesBarbell: row.usesBarbell,
+        primaryMuscles: row.primaryMuscles,
+        secondaryMuscles: row.secondaryMuscles,
+        defaultRestSec: row.defaultRestSec,
+        lastPerformance: previous
+          ? { ...previous, label: previous.weightKg > 0 ? `${previous.weightKg} kg × ${previous.reps}` : `${previous.reps} reps` }
+          : null,
+      };
+    }),
+  });
+});
 
 trainingRoutes.get('/exercise/:exerciseId', (c) => {
   const ctx = ctxOf(c);

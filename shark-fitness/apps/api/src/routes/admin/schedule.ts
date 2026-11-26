@@ -327,6 +327,7 @@ scheduleRoutes.get('/session/:id', (c) => {
       id: session.id,
       branchId: session.branchId,
       branchName: branch?.name ?? '',
+      timezone: tz,
       name: classType?.name ?? 'Class',
       category: classType?.category ?? 'other',
       roomId: session.roomId,
@@ -454,7 +455,18 @@ scheduleRoutes.patch('/session/:id', validate('json', PatchBody), (c) => {
     ...(body.version !== undefined ? { version: body.version } : {}),
   });
 
-  return c.json({ session: { id: session.id, version: session.version } });
+  return c.json({
+    session: { id: session.id, version: session.version },
+    capacity: {
+      overbookedBy: session.capacityOutcome.overbookedBy,
+      withdrawnOffers: session.capacityOutcome.withdrawnOffers,
+      offersMade: session.capacityOutcome.offered.length,
+      message:
+        session.capacityOutcome.overbookedBy > 0
+          ? `${session.capacityOutcome.overbookedBy} more ${session.capacityOutcome.overbookedBy === 1 ? 'person is' : 'people are'} booked than the class now seats. Nobody was cancelled. Move someone to another class or raise the capacity again.`
+          : null,
+    },
+  });
 });
 
 const CancelBody = z.object({

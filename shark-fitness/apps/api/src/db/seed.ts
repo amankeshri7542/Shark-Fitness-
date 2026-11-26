@@ -86,11 +86,13 @@ db.insert(schema.tenants)
     branding: { accent: '#46c8dd', wordmark: 'SHARK' },
     policy: {
       graceDays: 7,
+      photoRetentionDaysAfterWithdrawal: 30,
       graceAllowsEntry: false,
       antiPassbackSeconds: 90,
       quietHoursFrom: '21:00',
       quietHoursTo: '08:00',
-      waitlistOfferMinutes: 15,
+      waitlistOfferMinutes: 30,
+      waitlistOfferCutoffMinutes: 60,
       holdSeconds: 120,
       /** PF-POS-004. Off by default: a shop that never decided has not
        *  consented to selling stock it does not have. */

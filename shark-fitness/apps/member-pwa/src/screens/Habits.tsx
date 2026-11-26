@@ -77,7 +77,7 @@ interface Payload {
 const GLASS_ML = 250;
 
 export default function HabitsScreen() {
-  const copy = useCopy();
+  const copy = useCopy('habits');
   const queryClient = useQueryClient();
   const [pending, setPending] = useState<Record<string, number>>({});
 

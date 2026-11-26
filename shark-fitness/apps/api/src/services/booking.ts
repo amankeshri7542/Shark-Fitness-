@@ -1,6 +1,5 @@
-// Waitlists stay unavailable until offers reserve capacity and expiry advances the queue.
-export const WAITLIST_AVAILABLE = false;
 import { reconcileMembershipDates } from './membership-dates.js';
+import { creditBalance, restoreSpend, spendCredits } from './credit-ledger.js';
 import { and, desc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { channels, type BranchState } from '@shark/contracts';
 import { branchTrades, evaluateEligibility, holdIsLive, isEntitled } from '@shark/domain';
@@ -160,14 +159,10 @@ export function membershipStanding(memberId: string): MembershipStanding {
   };
 }
 
-/** Class credits on hand. Expired grants drop out; spends never do. */
+/** Class credits a member can spend today: unexpired lots, net of spends
+ *  (services/credit-ledger.ts, decision 11). */
 export function classCreditsHeld(memberId: string, today: string): number {
-  return db
-    .select({ delta: schema.credits.delta, expiresOn: schema.credits.expiresOn })
-    .from(schema.credits)
-    .where(and(eq(schema.credits.memberId, memberId), eq(schema.credits.kind, 'class')))
-    .all()
-    .reduce((total, row) => total + (row.expiresOn !== null && row.expiresOn < today ? 0 : row.delta), 0);
+  return creditBalance(memberId, 'class', today).usable;
 }
 
 /** A held seat whose hold has lapsed is not a seat. `booked` is denormalised,
@@ -241,6 +236,73 @@ export function myWaitlistFor(memberId: string, sessionId: string) {
     .get();
 }
 
+/** This member's offer for this class, if it is still inside its deadline. */
+export function liveOfferFor(memberId: string, sessionId: string, atMs: number) {
+  const offer = db
+    .select()
+    .from(schema.waitlistEntries)
+    .where(
+      and(
+        eq(schema.waitlistEntries.memberId, memberId),
+        eq(schema.waitlistEntries.sessionId, sessionId),
+        eq(schema.waitlistEntries.state, 'offered'),
+      ),
+    )
+    .get();
+  return offer && offer.offerExpiresAt !== null && offer.offerExpiresAt > atMs ? offer : null;
+}
+
+/** Takes class credits for a booking, earliest-expiring lot first. */
+export function spendClassCredits(
+  tenantId: string,
+  memberId: string,
+  units: number,
+  ref: { reason: string; refType: string; refId: string },
+  today: string,
+  atMs: number,
+): void {
+  spendCredits(tenantId, memberId, 'class', units, ref, today, atMs);
+}
+
+/** Gives back the credits a booking spent, to the lots they came from (so
+ *  they keep their original expiry). Returns the units restored. */
+export function restoreBookingCredits(
+  tenantId: string,
+  booking: { id: string; memberId: string; creditsUsed: number },
+  reason: string,
+  atMs: number,
+): number {
+  if (booking.creditsUsed <= 0) return 0;
+  const ref = { refType: 'booking', refId: booking.id };
+  const touched = db
+    .select({ id: schema.credits.id })
+    .from(schema.credits)
+    .where(and(eq(schema.credits.memberId, booking.memberId), eq(schema.credits.refType, ref.refType), eq(schema.credits.refId, ref.refId)))
+    .get();
+  if (touched) return restoreSpend(tenantId, booking.memberId, ref, reason, atMs);
+
+  // A booking from before the ledger recorded its spend (seeded or legacy
+  // data) has nothing to point back to: return the units as they were always
+  // returned, without an expiry, rather than silently keeping them.
+  db.insert(schema.credits)
+    .values({
+      id: id('crd'),
+      tenantId,
+      memberId: booking.memberId,
+      kind: 'class',
+      delta: booking.creditsUsed,
+      reason,
+      refType: 'booking',
+      refId: booking.id,
+      expiresOn: null,
+      createdAt: atMs,
+      lotId: null,
+      packId: null,
+    })
+    .run();
+  return booking.creditsUsed;
+}
+
 /** Every other seat this member holds anywhere near the given window. Branch
  *  does not matter — a person cannot be in two rooms at once. */
 export function myBookingsAround(memberId: string, fromMs: number, toMs: number) {
@@ -306,7 +368,7 @@ export function eligibilityFor(
     alreadyBooked: mine.booked,
     onWaitlist: mine.waitlisted,
     conflictsWithSessionId: overlapWith(session, scope.otherBookings),
-    waitlistEnabled: WAITLIST_AVAILABLE && session.waitlistEnabled,
+    waitlistEnabled: session.waitlistEnabled,
     timeZone: branchTimeZone(session.branchId),
   });
 }
@@ -419,11 +481,18 @@ export function claimSeat(ctx: RequestContext, input: ClaimSeatInput): ClaimSeat
       .map((row) => row.branchId);
     const permittedBranchIds = [...new Set([member.homeBranchId, ...extraBranchIds])];
 
+    // A live waitlist offer is a seat already counted in `booked` and held for
+    // this member alone. Taking it converts the hold; it never claims a second
+    // seat. An offer past its deadline is not theirs any more: the expiry job
+    // (or the accept path) hands it on, and until then it still occupies the
+    // seat, so it cannot be double-counted here either.
+    const heldOffer = liveOfferFor(memberId, fresh.id, input.atMs);
+
     const standing = membershipStanding(memberId);
     const creditsHeld = classCreditsHeld(memberId, input.today);
     const eligibility = eligibilityFor(
       fresh,
-      fresh.booked,
+      heldOffer ? fresh.booked - 1 : fresh.booked,
       {
         atMs: input.atMs,
         today: input.today,
@@ -432,7 +501,7 @@ export function claimSeat(ctx: RequestContext, input: ClaimSeatInput): ClaimSeat
         creditsHeld,
         otherBookings: myBookingsAround(memberId, fresh.startsAt - DAY, fresh.endsAt + DAY),
       },
-      { booked: false, waitlisted: myWaitlistFor(memberId, fresh.id) !== null },
+      { booked: false, waitlisted: !heldOffer && Boolean(myWaitlistFor(memberId, fresh.id)) },
     );
 
     if (eligibility.action !== 'book' && eligibility.action !== 'pay') throw refuse(eligibility, fresh);
@@ -444,22 +513,36 @@ export function claimSeat(ctx: RequestContext, input: ClaimSeatInput): ClaimSeat
       throw new AppError('PAYMENT_REQUIRED', eligibility.reason, { details: { dropInPriceMinor: fresh.dropInPriceMinor } });
     }
 
-    // The claim. Conditional on capacity, so two claims racing for the last
-    // seat produce one winner and one CAPACITY_EXHAUSTED — the trigger behind
-    // this is a backstop, not the mechanism (PF-SCH-003).
-    const claim = db
-      .update(schema.classSessions)
-      .set({ booked: sql`${schema.classSessions.booked} + 1`, updatedAt: input.atMs, version: sql`${schema.classSessions.version} + 1` })
-      .where(
-        and(
-          eq(schema.classSessions.id, fresh.id),
-          eq(schema.classSessions.tenantId, ctx.tenantId),
-          sql`${schema.classSessions.booked} < ${schema.classSessions.capacity}`,
-          sql`${schema.classSessions.state} != 'cancelled'`,
-        ),
-      )
-      .run();
-    if (claim.changes === 0) throw capacityExhausted();
+    if (heldOffer) {
+      // The held seat becomes the booking. The entry leaves `offered` before
+      // the booking row exists, so the database's seat count (live bookings
+      // plus live offers) never sees the same seat twice.
+      db.update(schema.waitlistEntries)
+        .set({ state: 'confirmed', resolvedAt: input.atMs })
+        .where(and(eq(schema.waitlistEntries.id, heldOffer.id), eq(schema.waitlistEntries.state, 'offered')))
+        .run();
+      db.update(schema.classSessions)
+        .set({ updatedAt: input.atMs, version: sql`${schema.classSessions.version} + 1` })
+        .where(eq(schema.classSessions.id, fresh.id))
+        .run();
+    } else {
+      // The claim. Conditional on capacity, so two claims racing for the last
+      // seat produce one winner and one CAPACITY_EXHAUSTED — the trigger behind
+      // this is a backstop, not the mechanism (PF-SCH-003).
+      const claim = db
+        .update(schema.classSessions)
+        .set({ booked: sql`${schema.classSessions.booked} + 1`, updatedAt: input.atMs, version: sql`${schema.classSessions.version} + 1` })
+        .where(
+          and(
+            eq(schema.classSessions.id, fresh.id),
+            eq(schema.classSessions.tenantId, ctx.tenantId),
+            sql`${schema.classSessions.booked} < ${schema.classSessions.capacity}`,
+            sql`${schema.classSessions.state} != 'cancelled'`,
+          ),
+        )
+        .run();
+      if (claim.changes === 0) throw capacityExhausted();
+    }
 
     const seatNo =
       db.select({ booked: schema.classSessions.booked }).from(schema.classSessions).where(eq(schema.classSessions.id, fresh.id)).get()
@@ -467,7 +550,13 @@ export function claimSeat(ctx: RequestContext, input: ClaimSeatInput): ClaimSeat
 
     const creditsUsed = payingCash ? 0 : fresh.creditsRequired;
     const chargeMinor = payingCash ? (fresh.dropInPriceMinor ?? 0) : 0;
-    const cameFromWaitlist = myWaitlistFor(memberId, fresh.id) !== null;
+    // Only a place still waiting in line converts here. An offer whose deadline
+    // passed but which the expiry job has not reached yet still holds its own
+    // seat in `booked`; it is left `offered` so that expiry releases that seat
+    // and passes it on. Confirming it here would strand the held seat for good.
+    const waitingEntry = heldOffer ? null : myWaitlistFor(memberId, fresh.id);
+    const stillWaiting = waitingEntry?.state === 'waiting' ? waitingEntry : null;
+    const cameFromWaitlist = heldOffer !== null || stillWaiting !== null;
 
     const bookingId = id('bkg');
     db.insert(schema.bookings)
@@ -490,28 +579,23 @@ export function claimSeat(ctx: RequestContext, input: ClaimSeatInput): ClaimSeat
       .run();
 
     if (creditsUsed > 0) {
-      db.insert(schema.credits)
-        .values({
-          id: id('crd'),
-          tenantId: ctx.tenantId,
-          memberId,
-          kind: 'class',
-          delta: -creditsUsed,
-          reason: `Booked ${fresh.name}`,
-          refType: 'booking',
-          refId: bookingId,
-          expiresOn: null,
-          createdAt: input.atMs,
-        })
-        .run();
+      spendClassCredits(ctx.tenantId, memberId, creditsUsed, { reason: `Booked ${fresh.name}`, refType: 'booking', refId: bookingId }, input.today, input.atMs);
     }
 
-    // A waitlist offer that has been taken up is resolved, not left hanging.
+    // A member who was waiting and booked a seat directly (one opened after
+    // the offer cut-off) leaves the queue as confirmed rather than hanging on.
+    if (stillWaiting) {
+      db.update(schema.waitlistEntries).set({ state: 'confirmed', resolvedAt: input.atMs }).where(eq(schema.waitlistEntries.id, stillWaiting.id)).run();
+    }
     if (cameFromWaitlist) {
-      const waiting = myWaitlistFor(memberId, fresh.id);
-      if (waiting) {
-        db.update(schema.waitlistEntries).set({ state: 'confirmed', resolvedAt: input.atMs }).where(eq(schema.waitlistEntries.id, waiting.id)).run();
-      }
+      audit(ctx, {
+        action: 'waitlist.confirmed',
+        entityType: 'waitlist_entry',
+        entityId: heldOffer?.id ?? stillWaiting?.id ?? bookingId,
+        entityLabel: fresh.name,
+        branchId: fresh.branchId,
+        after: { bookingId, fromOffer: heldOffer !== null },
+      });
     }
 
     audit(ctx, {

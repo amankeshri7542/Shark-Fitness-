@@ -35,10 +35,11 @@ export default defineConfig({
   },
   projects: [
     // Console, website and cross-app specs on a desktop browser, service
-    // workers off. Payment specs (tagged @payments) run on a phone instead.
-    { name: 'chromium', testIgnore: ['mobile/**', 'pwa/**'], grepInvert: /@payments/, use: { ...devices['Desktop Chrome'] } },
-    // Payment specs (tagged @payments) run on a phone, where members pay.
-    { name: 'mobile-chromium', testIgnore: ['mobile/**', 'pwa/**'], grep: /@payments/, use: { ...devices['Pixel 7'] } },
+    // workers off. Payment specs (tagged @payments) and member flows tagged
+    // @mobile (the pass at the door, logging a workout on the floor) run on
+    // a phone instead.
+    { name: 'chromium', testIgnore: ['mobile/**', 'pwa/**'], grepInvert: /@payments|@mobile/, use: { ...devices['Desktop Chrome'] } },
+    { name: 'mobile-chromium', testIgnore: ['mobile/**', 'pwa/**'], grep: /@payments|@mobile/, use: { ...devices['Pixel 7'] } },
     // The public website's flows again on a phone (P03): same server, mobile viewport and touch.
     { name: 'website-mobile', use: { ...devices['Pixel 7'] }, testMatch: /website-.*\.spec\.ts$/ },
     // The installable apps with their service workers live (PWA, offline,

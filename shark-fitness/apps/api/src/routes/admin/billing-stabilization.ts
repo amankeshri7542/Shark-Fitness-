@@ -5,6 +5,7 @@ import { taxInvoiceFilename, taxInvoiceHtml, taxInvoiceRecord, taxInvoiceText } 
 import { readCreditAccount } from '../../services/credit-account.js';
 import { runIdempotently } from '../../lib/idempotency.js';
 import { Hono } from 'hono';
+import { can } from '@shark/domain';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { RecordPaymentInput } from '@shark/contracts';
@@ -23,6 +24,7 @@ import { loadInvoiceInScope } from '../../services/billing.js';
 import { loadMemberInScope } from '../../services/members.js';
 import { requireIdempotencyKey } from '../../services/payments/checkout.js';
 import { requestProviderRefund } from '../../services/payments/refunds.js';
+import { recordPtSession, refundCreditPack, sellCreditPack } from '../../services/credit-packs.js';
 
 export const billingStabilizationRoutes = new Hono();
 
@@ -31,8 +33,63 @@ billingStabilizationRoutes.get('/members/:memberId/credits', (c) => {
   requirePermission(ctx, 'member.view');
   const member = loadMemberInScope(ctx, c.req.param('memberId'));
   requireAssignedMember(ctx, member.trainerId);
-  return c.json(readCreditAccount(member));
+  const account = readCreditAccount(member, 'staff');
+  // A coach sees how many credits a member has and their history; what packs
+  // cost, their invoices and refund amounts are billing information (P05).
+  if (!can(ctx.role, 'billing.view')) return c.json({ ...account, packs: undefined, offers: undefined, saleAvailable: false });
+  return c.json(account);
 });
+
+/* ——— Credit packs (P05, decision 11) ——————————————————————————— */
+
+billingStabilizationRoutes.post(
+  '/members/:memberId/credit-packs',
+  validate('json', z.object({ productId: z.string().min(1) })),
+  (c) => {
+    const ctx = ctxOf(c);
+    requirePermission(ctx, 'billing.record_payment');
+    const member = loadMemberInScope(ctx, c.req.param('memberId'));
+    const sale = sellCreditPack(ctx, {
+      memberId: member.id,
+      productId: c.req.valid('json').productId,
+      idempotencyKey: `staff:${requireIdempotencyKey(c.req.header('idempotency-key'))}`,
+      soldBy: 'staff',
+    });
+    return c.json({
+      ...sale,
+      message: sale.creditsAllocated
+        ? 'The pack is on the account and its credits are ready to use.'
+        : 'Invoice raised. The credits appear as soon as it is paid in full.',
+    });
+  },
+);
+
+billingStabilizationRoutes.post(
+  '/credit-packs/:packId/refund',
+  validate('json', z.object({ reason: z.string().trim().min(4).max(280) })),
+  async (c) => {
+    const ctx = ctxOf(c);
+    requirePermission(ctx, 'billing.refund');
+    return c.json(
+      await refundCreditPack(ctx, c.req.param('packId'), {
+        reason: c.req.valid('json').reason,
+        idempotencyKey: `pack:${requireIdempotencyKey(c.req.header('idempotency-key'))}`,
+      }),
+    );
+  },
+);
+
+billingStabilizationRoutes.post(
+  '/members/:memberId/pt-sessions',
+  validate('json', z.object({ note: z.string().trim().max(280).nullable().default(null), trainerId: z.string().min(1).nullable().default(null) })),
+  (c) => {
+    const ctx = ctxOf(c);
+    const key = requireIdempotencyKey(c.req.header('idempotency-key'));
+    if (!/^[A-Za-z0-9:_-]{8,120}$/.test(key)) throw invalid('That request key is not valid.');
+    const body = c.req.valid('json');
+    return c.json(recordPtSession(ctx, c.req.param('memberId'), { idempotencyKey: key.replace(/[^A-Za-z0-9_-]/g, '_'), note: body.note, trainerId: body.trainerId }));
+  },
+);
 
 billingStabilizationRoutes.post(
   '/invoices/:invoiceId/payments',

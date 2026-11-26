@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, idempotencyKey } from '../lib/api';
 import { ApiError } from '../lib/api';
@@ -51,7 +51,22 @@ interface Session {
   eligibility: Eligibility;
 }
 
+export interface SeatOffer {
+  waitlistId: string;
+  sessionId: string;
+  name: string;
+  trainerName: string;
+  localDate: string;
+  dateLabel: string;
+  localTime: string;
+  offerExpiresAt: string;
+  creditsRequired: number;
+  dropInPriceMinor: number | null;
+}
+
 interface SchedulePayload {
+  serverNow?: string;
+  offers?: SeatOffer[];
   branch: { id: string; name: string };
   date: string;
   dateLabel: string;
@@ -60,7 +75,7 @@ interface SchedulePayload {
   categories: Array<{ value: string; label: string; count: number }>;
   membership: { entitled: boolean; reason: string | null; productName: string };
   credits: { class: number };
-  waitlist: { available: boolean; offerWindowMin: number; message: string };
+  waitlist: { available: boolean; offerWindowMin: number; cutoffBeforeStartMin?: number; message: string };
   items: Session[];
 }
 
@@ -74,6 +89,11 @@ export default function BookScreen() {
   /** A drop-in is money: it is confirmed with its amount and terms first. */
   const [dropIn, setDropIn] = useState<Session | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  /** The seat offer being answered, by waitlist id. */
+  const [answering, setAnswering] = useState<string | null>(null);
+  /** Server clock minus device clock, so a countdown is the server's. */
+  const [clockOffset, setClockOffset] = useState(0);
 
   const query = new URLSearchParams();
   if (date) query.set('date', date);
@@ -81,7 +101,11 @@ export default function BookScreen() {
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['schedule', date, category],
-    queryFn: () => api<SchedulePayload>(`/member/schedule${query.toString() ? `?${query}` : ''}`),
+    queryFn: async () => {
+      const payload = await api<SchedulePayload>(`/member/schedule${query.toString() ? `?${query}` : ''}`);
+      if (payload.serverNow) setClockOffset(Date.parse(payload.serverNow) - Date.now());
+      return payload;
+    },
   });
 
   const refresh = (): void => {
@@ -126,8 +150,40 @@ export default function BookScreen() {
   });
 
   const leaveWaitlist = useMutation({
-    mutationFn: (waitlistId: string) => api(`/member/schedule/waitlist/${waitlistId}`, { method: 'DELETE' }),
-    onSuccess: refresh,
+    mutationFn: (waitlistId: string) => api<{ message: string }>(`/member/schedule/waitlist/${waitlistId}`, { method: 'DELETE' }),
+    onMutate: () => {
+      setActionError(null);
+      setNotice(null);
+    },
+    onSuccess: (result) => {
+      setAnswering(null);
+      setNotice(result.message);
+      refresh();
+    },
+    onError: (e) => setActionError(e instanceof ApiError ? e.message : 'That did not go through. Try again.'),
+  });
+
+  /* Taking a held seat waits for the server, like any last-seat claim. */
+  const acceptOffer = useMutation({
+    mutationFn: (offer: SeatOffer) =>
+      api<{ message: string }>(`/member/schedule/waitlist/${offer.waitlistId}/accept`, {
+        method: 'POST',
+        body: { idempotencyKey: idempotencyKey('accept', offer.waitlistId), acceptDropInCharge: offer.dropInPriceMinor !== null },
+      }),
+    onMutate: () => {
+      setActionError(null);
+      setNotice(null);
+    },
+    onSuccess: (result) => {
+      setAnswering(null);
+      setNotice(result.message);
+      refresh();
+    },
+    onError: (e) => {
+      setAnswering(null);
+      setActionError(e instanceof ApiError ? e.message : 'That did not go through. The seat is still held until the time shown. Try again.');
+      refresh();
+    },
   });
 
   if (isLoading) return <BookSkeleton />;
@@ -146,7 +202,9 @@ export default function BookScreen() {
     );
   }
 
-  const busy = book.isPending || cancel.isPending || joinWaitlist.isPending;
+  const busy = book.isPending || cancel.isPending || joinWaitlist.isPending || acceptOffer.isPending || leaveWaitlist.isPending;
+  const offers = data.offers ?? [];
+  const offerBeingAnswered = offers.find((offer) => offer.waitlistId === answering) ?? null;
 
   return (
     <ScreenBody>
@@ -161,6 +219,23 @@ export default function BookScreen() {
           </div>
 
           {!data.waitlist.available ? <p className="text-[13px] text-foam-50">{data.waitlist.message}</p> : null}
+
+          {offers.map((offer) => (
+            <OfferCard
+              key={offer.waitlistId}
+              offer={offer}
+              clockOffset={clockOffset}
+              busy={busy}
+              onAnswer={() => setAnswering(offer.waitlistId)}
+              onLapsed={refresh}
+            />
+          ))}
+
+          {notice ? (
+            <Panel tone="good" className="p-3" role="status">
+              <p className="text-[13px] leading-relaxed text-foam-80">{notice}</p>
+            </Panel>
+          ) : null}
 
           {!data.membership.entitled ? (
             <Panel tone="warn" className="p-3.5">
@@ -256,6 +331,7 @@ export default function BookScreen() {
                   onCancel={() => session.myBooking && cancel.mutate(session.myBooking.id)}
                   onWaitlist={() => setSheet(session)}
                   onLeaveWaitlist={() => session.myWaitlist && leaveWaitlist.mutate(session.myWaitlist.id)}
+                  onAnswerOffer={() => session.myWaitlist && setAnswering(session.myWaitlist.id)}
                 />
               ))}
             </div>
@@ -276,6 +352,18 @@ export default function BookScreen() {
         />
       ) : null}
 
+      {offerBeingAnswered ? (
+        <OfferSheet
+          offer={offerBeingAnswered}
+          clockOffset={clockOffset}
+          accepting={acceptOffer.isPending}
+          declining={leaveWaitlist.isPending}
+          onAccept={() => acceptOffer.mutate(offerBeingAnswered)}
+          onDecline={() => leaveWaitlist.mutate(offerBeingAnswered.waitlistId)}
+          onClose={() => setAnswering(null)}
+        />
+      ) : null}
+
       {sheet ? (
         <WaitlistSheet
           session={sheet}
@@ -289,13 +377,14 @@ export default function BookScreen() {
   );
 }
 
-function SessionRow({ session, busy, onBook, onCancel, onWaitlist, onLeaveWaitlist }: {
+function SessionRow({ session, busy, onBook, onCancel, onWaitlist, onLeaveWaitlist, onAnswerOffer }: {
   session: Session;
   busy: boolean;
   onBook: () => void;
   onCancel: () => void;
   onWaitlist: () => void;
   onLeaveWaitlist: () => void;
+  onAnswerOffer: () => void;
 }) {
   const { eligibility: e } = session;
   const cancelled = session.state === 'cancelled';
@@ -337,13 +426,26 @@ function SessionRow({ session, busy, onBook, onCancel, onWaitlist, onLeaveWaitli
               cancelled ? 'text-chum' : e.action === 'pay' ? 'text-flare' : mine ? 'text-sonar' : 'text-foam-45',
             )}
           >
-            {cancelled ? (session.cancelledReason ?? 'This class was cancelled.') : e.reason}
+            {cancelled
+              ? (session.cancelledReason ?? 'This class was cancelled.')
+              : session.myWaitlist?.state === 'offered'
+                ? 'A seat is held for you. Take it or let it go.'
+                : e.reason}
           </p>
+          {!cancelled && !mine && e.creditsRequired > 0 && (e.action === 'book' || e.action === 'waitlist') ? (
+            <p className="mt-1 text-[11px] leading-snug text-foam-65">
+              Uses {e.creditsRequired} class {e.creditsRequired === 1 ? 'credit' : 'credits'} · you have {e.creditsHeld}
+            </p>
+          ) : null}
         </div>
 
         <div className="flex-none">
           {cancelled ? (
             <Chip tone="bad">Cancelled</Chip>
+          ) : session.myWaitlist?.state === 'offered' ? (
+            <Button variant="cta" size="sm" onClick={onAnswerOffer} disabled={busy}>
+              Seat held
+            </Button>
           ) : session.myWaitlist ? (
             <div className="flex flex-col items-end gap-1.5">
               <Chip tone="warn" glyph={false}>
@@ -428,41 +530,132 @@ function WaitlistSheet({ session, offerWindowMin, busy, onConfirm, onClose }: {
   onClose: () => void;
 }) {
   return (
-    <div
-      className="fixed inset-0 z-30 flex items-end bg-scrim"
-      onClick={onClose}
-      role="presentation"
-    >
-      <div
-        className="sf-sheet sf-safe-bottom w-full border-t border-line-strong bg-overlay p-4 pb-6 animate-rise"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Join the waitlist"
-      >
-        <Display size="sm" as="h2">
-          Join the waitlist?
-        </Display>
-        <p className="mt-2.5 text-[14px] leading-relaxed text-pretty text-foam-80">
-          {session.name} · {session.localTime} · {session.trainerName}. You would be number{' '}
-          {session.waitlistCount + 1} in line.
+    <Sheet label="Join the waitlist" onClose={onClose}>
+      <Display size="sm" as="h2">
+        Join the waitlist?
+      </Display>
+      <p className="mt-2.5 text-[14px] leading-relaxed text-pretty text-foam-80">
+        {session.name} · {session.localTime} · {session.trainerName}. You would be number{' '}
+        {session.waitlistCount + 1} in line.
+      </p>
+      <Panel className="mt-3 p-3">
+        <p className="text-[12px] leading-relaxed text-foam-65">
+          No credit is taken now. If a seat opens, it is held for you for up to {offerWindowMin} minutes and we let you
+          know. Take it in that time or it passes to the next person.
         </p>
-        <Panel className="mt-3 p-3">
-          <p className="text-[12px] leading-relaxed text-foam-50">
-            No credit is taken now. If a seat opens you get {offerWindowMin} minutes to confirm before it passes to the
-            next person.
-          </p>
-        </Panel>
-        <div className="mt-3.5 flex gap-2.5">
-          <Button variant="cta" size="lg" className="flex-1" onClick={onConfirm} disabled={busy}>
-            {busy ? 'Joining…' : 'Join waitlist'}
-          </Button>
-          <Button variant="outline" size="lg" onClick={onClose}>
-            Not now
-          </Button>
-        </div>
+      </Panel>
+      <div className="mt-3.5 flex gap-2.5">
+        <Button variant="cta" size="lg" className="flex-1" onClick={onConfirm} disabled={busy}>
+          {busy ? 'Joining…' : 'Join waitlist'}
+        </Button>
+        <Button variant="outline" size="lg" onClick={onClose}>
+          Not now
+        </Button>
       </div>
-    </div>
+    </Sheet>
+  );
+}
+
+/** Seconds left on an offer, read through the server's clock. Ticks once a
+ *  second; reports 0 once the deadline has passed. */
+export function useSecondsLeft(deadlineIso: string, clockOffset: number): number {
+  const compute = () => Math.max(0, Math.floor((Date.parse(deadlineIso) - (Date.now() + clockOffset)) / 1000));
+  const [left, setLeft] = useState(compute);
+  useEffect(() => {
+    setLeft(compute());
+    const timer = window.setInterval(() => setLeft(compute()), 1000);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deadlineIso, clockOffset]);
+  return left;
+}
+
+export function formatCountdown(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function offerCost(offer: SeatOffer): string {
+  if (offer.dropInPriceMinor !== null) return `Drop-in fee ${rupees(offer.dropInPriceMinor)}, paid at reception`;
+  if (offer.creditsRequired > 0) return `Uses ${offer.creditsRequired} class ${offer.creditsRequired === 1 ? 'credit' : 'credits'}`;
+  return 'Included in your membership';
+}
+
+function OfferCard({ offer, clockOffset, busy, onAnswer, onLapsed }: {
+  offer: SeatOffer;
+  clockOffset: number;
+  busy: boolean;
+  onAnswer: () => void;
+  onLapsed: () => void;
+}) {
+  const left = useSecondsLeft(offer.offerExpiresAt, clockOffset);
+  useEffect(() => {
+    if (left === 0) onLapsed();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [left === 0]);
+
+  return (
+    // Not a live region: the countdown changes every second and a screen
+    // reader would read it out every second.
+    <Panel tone="accent" className="p-3.5">
+      <Label className="text-sonar">A seat is held for you</Label>
+      <p className="mt-1.5 text-[14px] leading-relaxed text-foam">
+        {offer.name} · {offer.dateLabel} · {offer.localTime}
+      </p>
+      <p className="mt-1 text-[12px] text-foam-65">{offerCost(offer)}</p>
+      <div className="mt-2.5 flex items-center gap-3">
+        <span className="font-display text-[22px] tabular-nums leading-none" aria-label={`${Math.ceil(left / 60)} minutes left to answer`}>
+          {left > 0 ? formatCountdown(left) : '0:00'}
+        </span>
+        <span className="text-[11px] leading-snug text-foam-50">
+          {left > 0 ? 'left to answer. After that it goes to the next person.' : 'This offer has run out.'}
+        </span>
+        <span className="flex-1" />
+        <Button variant="cta" size="sm" onClick={onAnswer} disabled={busy || left === 0}>
+          Answer
+        </Button>
+      </div>
+    </Panel>
+  );
+}
+
+export function OfferSheet({ offer, clockOffset, accepting, declining, onAccept, onDecline, onClose }: {
+  offer: SeatOffer;
+  clockOffset: number;
+  accepting: boolean;
+  declining: boolean;
+  onAccept: () => void;
+  onDecline: () => void;
+  onClose: () => void;
+}) {
+  const left = useSecondsLeft(offer.offerExpiresAt, clockOffset);
+  const busy = accepting || declining;
+  return (
+    <Sheet label="A seat is held for you" onClose={onClose}>
+      <Display size="sm" as="h2">
+        Take the seat?
+      </Display>
+      <p className="mt-2.5 text-[14px] leading-relaxed text-pretty text-foam-80">
+        {offer.name} with {offer.trainerName} · {offer.dateLabel} at {offer.localTime}.
+      </p>
+      <Panel className="mt-3 p-3">
+        <Label>Held for you for</Label>
+        <div className="mt-1 font-display text-[28px] tabular-nums leading-none">{left > 0 ? formatCountdown(left) : '0:00'}</div>
+        <p className="mt-2 text-[12px] leading-relaxed text-foam-65">
+          {offerCost(offer)}. Nothing is taken unless you take the seat. If you let it go, it passes to the next person in
+          line.
+        </p>
+      </Panel>
+      <div className="mt-3.5 flex gap-2.5">
+        <Button variant="cta" size="lg" className="flex-1" onClick={onAccept} disabled={busy || left === 0}>
+          {accepting ? 'Taking the seat…' : 'Take the seat'}
+        </Button>
+        <Button variant="outline" size="lg" onClick={onDecline} disabled={busy}>
+          {declining ? 'Letting it go…' : 'Let it go'}
+        </Button>
+      </div>
+    </Sheet>
   );
 }
 

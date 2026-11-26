@@ -3,6 +3,7 @@ import type { Product } from '@shark/contracts';
 import { channels } from '@shark/contracts';
 import { canTransition, invoiceStateFor, totalsFor } from '@shark/domain';
 import { stopDunning } from './dunning.js';
+import { allocatePackForInvoice } from './credit-ledger.js';
 import { db, schema } from '../db/client.js';
 import { audit } from '../lib/audit.js';
 import { conflict, invalid, notFound, precondition } from '../lib/errors.js';
@@ -105,7 +106,7 @@ export function createInvoiceForProduct(input: CreateInvoiceInput): { invoiceId:
       taxRateBp: product.taxRateBp,
       taxMinor: totals.taxMinor,
       totalMinor: totals.totalMinor,
-      productId: refType === 'membership' ? product.id : null,
+      productId: refType === 'membership' || refType === 'credit_pack' ? product.id : null,
     })
     .run();
 
@@ -328,13 +329,17 @@ export function settleInvoicePayment(input: SettleInvoicePaymentInput): ApplyPay
     }
   }
 
+  // A credit pack's credits exist from the moment its invoice is paid in full,
+  // and not a moment before (decision 11) — same transaction, either path.
+  const creditsAllocated = newPaidMinor >= invoice.totalMinor ? allocatePackForInvoice(ctx, invoice, now()) : false;
+
   audit(ctx, {
     action: source === 'provider' ? 'payment.settled_by_provider' : 'payment.recorded',
     entityType: 'invoice',
     entityId: invoiceId,
     entityLabel: invoice.number,
     before: { paidMinor: invoice.paidMinor, state: invoice.state },
-    after: { paidMinor: newPaidMinor, state: newState, ...(provider ? { provider, providerRef } : {}) },
+    after: { paidMinor: newPaidMinor, state: newState, ...(provider ? { provider, providerRef } : {}), ...(creditsAllocated ? { creditsAllocated } : {}) },
   });
   emit({
     tenantId: ctx.tenantId,
@@ -367,6 +372,8 @@ export interface ApplyRefundInput {
   reason: string;
   entitlementReversed: boolean;
   actorName: string;
+  /** Set only by the credit-pack refund, which takes the credits back itself. */
+  creditPackRefund?: boolean;
 }
 
 /** Reversing entitlements is a separate decision from refunding money
@@ -384,7 +391,7 @@ export function applyRefund(input: ApplyRefundInput): { refundId: string; invoic
     .get();
   if (!payment) throw notFound('That payment');
   const invoice = loadInvoiceInScope(ctx, payment.invoiceId ?? '');
-  assertRefundableProduct(ctx, invoice);
+  assertRefundableProduct(ctx, invoice, input.creditPackRefund === true);
   if (payment.state !== 'succeeded') throw conflict('Only a succeeded payment can be refunded.');
 
   const refundableMinor = refundableBalance(payment);
@@ -459,16 +466,23 @@ export function retireStaleOnlineAttempts(tenantId: string, invoiceId: string, s
     .run();
 }
 
-/** Credit products are refused until the gym approves a refund policy for
- *  them (PHASE-PLAN decision 11 lands in P05). Shared by the manual and the
- *  provider refund paths. */
-export function assertRefundableProduct(ctx: { tenantId: string }, invoice: typeof schema.invoices.$inferSelect): void {
+/** A credit pack is refunded only through the pack refund
+ *  (services/credit-packs.ts), which applies decision 11 and takes the
+ *  credits back in the same transaction; the generic refund paths refuse it
+ *  so money can never leave without the credits following. Shared by the
+ *  manual and the provider refund paths; the pack refund passes
+ *  `creditPackRefund` to say it has done its part. */
+export function assertRefundableProduct(ctx: { tenantId: string }, invoice: typeof schema.invoices.$inferSelect, creditPackRefund = false): void {
+  if (creditPackRefund && invoice.refType === 'credit_pack') return;
   const creditKinds = new Set(['class_pack', 'pt_credits']);
   const referencedProduct = invoice.refType === 'product' && invoice.refId ? db.select().from(schema.products).where(and(eq(schema.products.id, invoice.refId), eq(schema.products.tenantId, ctx.tenantId))).get() : undefined;
   const membership = invoice.refType === 'membership' && invoice.refId ? db.select().from(schema.memberships).where(and(eq(schema.memberships.id, invoice.refId), eq(schema.memberships.tenantId, ctx.tenantId))).get() : undefined;
   const productLines = db.select({ kind: schema.products.kind }).from(schema.invoiceLines).innerJoin(schema.products, eq(schema.products.id, schema.invoiceLines.productId)).where(and(eq(schema.invoiceLines.invoiceId, invoice.id), eq(schema.products.tenantId, ctx.tenantId))).all();
+  if (invoice.refType === 'credit_pack') {
+    throw precondition("Refund a credit pack from the member's credits, where the pack refund policy works out what comes back. No money or credits were changed.");
+  }
   if (['credits', 'credit_purchase', 'class_pack', 'pt_credits'].includes(invoice.refType ?? '') || (referencedProduct && creditKinds.has(referencedProduct.kind)) || (membership && creditKinds.has(membership.productSnapshot.kind)) || productLines.some((product) => creditKinds.has(product.kind))) {
-    throw precondition('Credit-product refunds are unavailable until the gym approves allocation, consumed/expired-credit and cancellation rules. No money or credit units were changed.');
+    throw precondition('This invoice is for credits sold before credit packs had a refund policy. Refund it by agreement and adjust the credits with support. No money or credits were changed.');
   }
 }
 

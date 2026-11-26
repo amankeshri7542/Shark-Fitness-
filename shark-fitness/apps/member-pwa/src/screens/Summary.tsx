@@ -73,7 +73,7 @@ function minutes(sec: number): string {
 
 export default function SummaryScreen() {
   const { workoutId } = useParams({ from: '/bare/workout/summary/$workoutId' });
-  const copy = useCopy();
+  const copy = useCopy('workout');
   const units = useUnits();
 
   const { data, isLoading, error, refetch } = useQuery({

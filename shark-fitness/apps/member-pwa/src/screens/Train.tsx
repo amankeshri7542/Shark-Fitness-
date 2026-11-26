@@ -95,7 +95,7 @@ interface PlanPayload {
 }
 
 export default function TrainScreen() {
-  const copy = useCopy();
+  const copy = useCopy('train');
   const units = useUnits();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -148,8 +148,8 @@ export default function TrainScreen() {
                     Ask for a plan
                   </Button>
                 </Link>
-                <Button variant="outline" size="sm" onClick={() => void navigate({ to: '/workout' })}>
-                  Log a session
+                <Button variant="outline" size="sm" onClick={() => void navigate({ to: '/workout', search: { mode: 'freestyle' } })}>
+                  Log a workout
                 </Button>
               </div>
             }
@@ -320,11 +320,16 @@ export default function TrainScreen() {
                 title="Rest day"
                 body="Nothing scheduled. Recovery is when the work you already did turns into progress — come in for mobility if you want to move."
                 action={
-                  <Link to="/habits">
-                    <Button variant="outline" size="sm">
-                      Log today's habits
+                  <div className="flex flex-wrap gap-2">
+                    <Link to="/habits">
+                      <Button variant="outline" size="sm">
+                        Log today's habits
+                      </Button>
+                    </Link>
+                    <Button variant="outline" size="sm" onClick={() => void navigate({ to: '/workout', search: { mode: 'freestyle' } })}>
+                      Log a workout
                     </Button>
-                  </Link>
+                  </div>
                 }
               />
             ) : (
@@ -401,6 +406,9 @@ export default function TrainScreen() {
 
                 <Button variant="cta" size="lg" full className="mt-1.5" onClick={() => void navigate({ to: '/workout' })}>
                   {today.done ? 'Log another session' : copy('startSession')}
+                </Button>
+                <Button variant="ghost" size="md" full onClick={() => void navigate({ to: '/workout', search: { mode: 'freestyle' } })}>
+                  Log a workout of your own
                 </Button>
               </div>
             )}

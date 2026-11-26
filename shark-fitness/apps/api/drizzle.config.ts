@@ -17,6 +17,7 @@ export default {
     './src/db/schema/payments.ts',
     './src/db/schema/push.ts',
     './src/db/schema/security.ts',
+    './src/db/schema/member-core.ts',
   ],
   out: '../../infrastructure/migrations',
   dialect: 'sqlite',

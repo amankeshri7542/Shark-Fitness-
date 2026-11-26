@@ -55,6 +55,11 @@ export function tone(register: Register) {
 export const PLAIN_ONLY_SURFACES = [
   'billing',
   'payment',
+  'refund',
+  // The entry pass and everything a member sees at the door. A member being
+  // turned away, or showing a code to reception, is an access moment.
+  'pass',
+  'access',
   'access-denied',
   'membership-issue',
   'injury',
@@ -67,10 +72,24 @@ export const PLAIN_ONLY_SURFACES = [
 
 export type PlainOnlySurface = (typeof PLAIN_ONLY_SURFACES)[number];
 
+/** Surfaces where the member's register preference applies — the training
+ *  floor. Everything a screen renders is one of these or a plain-only one. */
+export const TRAINING_SURFACES = ['home', 'train', 'workout', 'progress', 'community', 'habits', 'shell'] as const;
+
+export type TrainingSurface = (typeof TRAINING_SURFACES)[number];
+
+/** Every caller of copy names where it renders, so a plain-only screen cannot
+ *  reach the predator register by forgetting to say so. */
+export type CopySurface = PlainOnlySurface | TrainingSurface;
+
+export function isPlainOnly(surface: string): surface is PlainOnlySurface {
+  return (PLAIN_ONLY_SURFACES as readonly string[]).includes(surface);
+}
+
 export function registerFor(
   preference: Register,
   surface?: string,
 ): Register {
-  if (surface && (PLAIN_ONLY_SURFACES as readonly string[]).includes(surface)) return 'plain';
+  if (surface && isPlainOnly(surface)) return 'plain';
   return preference;
 }

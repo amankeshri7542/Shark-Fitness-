@@ -309,6 +309,12 @@ export const progressPhotos = sqliteTable(
     pending: integer('pending', { mode: 'boolean' }).notNull().default(true),
     createdAt: integer('created_at').notNull(),
     deletedAt: integer('deleted_at'),
+    /** The stored file (P05). Null until an upload lands. */
+    mediaId: text('media_id'),
+    /** The photo-consent version in force when this was uploaded. */
+    consentVersion: text('consent_version'),
+    /** Set when consent is withdrawn: the file is destroyed after this. */
+    deleteAfter: integer('delete_after'),
   },
   (t) => ({ byMember: index('photos_member_idx').on(t.memberId, t.takenOn) }),
 );

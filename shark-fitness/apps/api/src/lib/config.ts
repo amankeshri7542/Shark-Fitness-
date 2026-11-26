@@ -1,3 +1,4 @@
+import { dirname, resolve as resolvePath } from 'node:path';
 import { z } from 'zod';
 
 const LOCAL_ORIGINS = [
@@ -270,6 +271,8 @@ const RuntimeEnvironmentShape = z.object({
     SHARK_READER_KEYS_JSON: ReaderKeys,
     SHARK_DEMO_READER_KEY: z.string().min(1).optional(),
     SHARK_MEDIA_BUCKET: z.string().transform((value) => value.trim()).optional(),
+    SHARK_MEDIA_DIR: z.preprocess(blankAsUnset, z.string().trim().min(1).optional()),
+    SHARK_MEDIA_QUOTA_MB: z.preprocess(blankAsUnset, boundedInteger('SHARK_MEDIA_QUOTA_MB', 1, 1_000_000).optional()),
     SHARK_ERROR_REPORTING_ENDPOINT: HttpEndpoint.optional(),
     SHARK_ERROR_REPORTER: providerName('SHARK_ERROR_REPORTER', ERROR_REPORTERS),
     SHARK_ERROR_DSN: Dsn.optional(),
@@ -556,6 +559,11 @@ export interface RuntimeConfig {
   readerKeys: Record<string, ReaderConfig>;
   demoReaderKey: string;
   mediaBucket: string | null;
+  /** Where private uploads (progress photos) live, outside every static root.
+   *  Null in production unless SHARK_MEDIA_DIR is set: uploads are then off. */
+  mediaDir: string | null;
+  /** Fallback per-tenant upload quota when the tenant row has none. */
+  mediaQuotaMb: number;
   errorReportingEndpoint: string | null;
   errorDsn: ErrorDsn | null;
   /** The reporter `auto` resolved to: DSN, then endpoint, then console in
@@ -609,6 +617,27 @@ export interface OtpConfig {
   limits: { resendCooldownMs: number; perDestinationPerDay: number; perIpPerHour: number };
 }
 
+/**
+ * Private media directory. Outside development it must be stated: a guess in
+ * production could land photos somewhere a backup, or a static server, does
+ * not expect. In development and tests it sits beside the database.
+ */
+function resolveMediaDir(configured: string | undefined, databasePath: string, production: boolean): string | null {
+  if (configured) {
+    const absolute = resolvePath(configured);
+    const appsRoot = resolvePath(import.meta.dirname, '../../..');
+    for (const staticRoot of ['member-pwa/dist', 'admin-web/dist', 'website/dist']) {
+      const root = resolvePath(appsRoot, staticRoot);
+      if (absolute === root || absolute.startsWith(`${root}/`)) {
+        throw new Error(`SHARK_MEDIA_DIR must not be inside a static web root (${root}). Private photos would be served to anyone.`);
+      }
+    }
+    return absolute;
+  }
+  if (production) return null;
+  return resolvePath(dirname(resolvePath(databasePath)), 'media');
+}
+
 export function parseRuntimeConfig(environment: Record<string, string | undefined>): RuntimeConfig {
   const parsed = RuntimeEnvironment.parse(environment);
   const nodeEnv = parsed.NODE_ENV ?? 'development';
@@ -634,6 +663,8 @@ export function parseRuntimeConfig(environment: Record<string, string | undefine
     readerKeys: parsed.SHARK_READER_KEYS_JSON,
     demoReaderKey: parsed.SHARK_DEMO_READER_KEY ?? 'demo-reader-secret-change-me',
     mediaBucket: parsed.SHARK_MEDIA_BUCKET || null,
+    mediaDir: resolveMediaDir(parsed.SHARK_MEDIA_DIR, parsed.SHARK_DB ?? 'data/shark.db', nodeEnv === 'production'),
+    mediaQuotaMb: parsed.SHARK_MEDIA_QUOTA_MB ?? 2_048,
     errorReportingEndpoint: parsed.SHARK_ERROR_REPORTING_ENDPOINT ?? null,
     errorDsn: parsed.SHARK_ERROR_DSN ?? null,
     errorReporter: resolveErrorReporter(parsed.SHARK_ERROR_REPORTER ?? 'auto', {

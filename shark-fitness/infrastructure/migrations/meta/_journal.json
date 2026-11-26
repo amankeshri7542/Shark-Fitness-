@@ -155,6 +155,13 @@
       "when": 1795581853249,
       "tag": "0021_staff_security",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1795635646347,
+      "tag": "0022_p05_member_core",
+      "breakpoints": true
     }
   ]
 }

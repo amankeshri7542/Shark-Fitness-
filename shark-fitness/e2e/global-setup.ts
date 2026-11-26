@@ -72,6 +72,8 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       SHARK_PUSH_EXTRA_ENDPOINT_ORIGINS: push.origin,
       SHARK_ANDROID_PACKAGE: E2E_ANDROID.packageName,
       SHARK_ANDROID_CERT_SHA256: E2E_ANDROID.fingerprint,
+      // Private uploads (progress photos) live in this run's directory.
+      SHARK_MEDIA_DIR: join(tempDir, 'media'),
     };
 
     // The demo owner must use two-step sign-in. Enrol it with a secret made

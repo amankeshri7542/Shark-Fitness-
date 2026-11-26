@@ -165,8 +165,17 @@ export const credits = sqliteTable(
     refId: text('ref_id'),
     expiresOn: text('expires_on'),
     createdAt: integer('created_at').notNull(),
+    /** The grant (lot) this row draws on or returns to. Null on a grant row
+     *  itself, and on legacy rows written before lots existed (P05). */
+    lotId: text('lot_id'),
+    /** The credit pack a grant came from. */
+    packId: text('pack_id'),
   },
-  (t) => ({ byMember: index('credits_member_idx').on(t.memberId, t.kind) }),
+  (t) => ({
+    byMember: index('credits_member_idx').on(t.memberId, t.kind),
+    byLot: index('credits_lot_idx').on(t.lotId),
+    byRef: index('credits_ref_idx').on(t.refType, t.refId),
+  }),
 );
 
 export const leads = sqliteTable(

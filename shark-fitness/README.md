@@ -7,6 +7,26 @@ operations console, built to the four PRDs in the parent directory. One origin s
 all three: the website at `/`, the member app at `/app/`, the console at `/admin/`,
 the API at `/v1/`.
 
+**Member core (P05, November 2026), all on by default:**
+
+- **Entry pass.** A rotating, single-use QR code on the member's phone (with a
+  member-number fallback offline), scanned at reception from the console's
+  camera, a USB scanner or a typed code, through the same decision as the door.
+- **Waitlists.** Join a full class; a freed seat is offered to the first
+  eligible member and held for them (30 minutes, or until an hour before
+  class), then passes on. Nobody else can take a held seat.
+- **Credit packs.** Class and PT packs sold at the desk or bought in the app
+  (Razorpay test mode, or pay at reception). Credits appear when the invoice is
+  paid in full, are used earliest expiry first, come back with their original
+  expiry on a timely cancellation, and are refunded by a stated rule (unused:
+  in full; part used: unused credits at the pack's unit price; expired: not
+  refundable).
+- **Progress photos.** Stored privately (metadata stripped, five-minute signed
+  links), only with consent, shared with the assigned coach only if the member
+  chooses, compared side by side, and deleted after consent is withdrawn.
+- **Log a workout of your own** from the exercise library, offline included,
+  with the same PRs, XP and summary as a coached session.
+
 ```
 apps/
   api/            Hono + SQLite (D1-compatible) + Drizzle. 94 tables, migrations, seed.

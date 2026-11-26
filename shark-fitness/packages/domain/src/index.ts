@@ -1,5 +1,6 @@
 export * from './membership.js';
 export * from './booking.js';
+export * from './credits.js';
 export * from './access.js';
 export * from './training.js';
 export * from './gamification.js';

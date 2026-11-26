@@ -1,3 +1,4 @@
+import { erasePhotosOf, photosForExport } from './progress-photos.js';
 import { createHash } from 'node:crypto';
 import { and, asc, desc, eq, isNull, ne } from 'drizzle-orm';
 import { db, schema, transact } from '../db/client.js';
@@ -614,6 +615,8 @@ export function generateExportPackage(ctx: RequestContext, requestId: string) {
       .from(schema.workouts)
       .where(eq(schema.workouts.memberId, member.id))
       .all();
+    // What photos are held (and which were deleted), never the images.
+    payload.progressPhotos = photosForExport(member.id);
   }
 
   // Stated inside the package, so the document itself is honest about what it
@@ -807,6 +810,8 @@ export function applyErasure(ctx: RequestContext, requestId: string): ErasureRes
         .set(memberPatch)
         .where(eq(schema.members.id, request.subjectMemberId))
         .run();
+      // Photos are not anonymisable: they are destroyed (tombstones stay).
+      applied += erasePhotosOf(request.subjectMemberId, atMs);
     }
 
     // Every session goes. An erased account must not stay signed in anywhere.
