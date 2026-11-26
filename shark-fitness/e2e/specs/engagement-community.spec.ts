@@ -4,7 +4,7 @@ import { STAFF, signInToConsoleAs, signInToMemberApp } from '../support/demo';
 /** Report in the member feed → staff removes it from the Community queue (P07 AC3/AC9). */
 test('a reported post reaches the moderation queue and a manager removes it with a reason', async ({ page, context }) => {
   await signInToMemberApp(page);
-  await page.goto('/pack');
+  await page.goto('/app/pack');
   const post = page.getByRole('article').filter({ has: page.getByRole('button', { name: 'Report' }) }).first();
   await expect(post).toBeVisible();
   const body = (await post.locator('p').nth(0).textContent())?.trim() ?? '';

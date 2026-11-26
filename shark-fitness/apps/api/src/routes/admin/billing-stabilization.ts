@@ -70,6 +70,8 @@ billingStabilizationRoutes.post(
   async (c) => {
     const ctx = ctxOf(c);
     requirePermission(ctx, 'billing.refund');
+    // Money back, like every other refund (P06 step-up, P05 integration note).
+    requireFreshAuth(ctx, 'billing.refund');
     return c.json(
       await refundCreditPack(ctx, c.req.param('packId'), {
         reason: c.req.valid('json').reason,

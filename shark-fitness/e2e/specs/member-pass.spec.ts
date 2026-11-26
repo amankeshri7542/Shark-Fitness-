@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../support/fixtures';
 import { DEMO, signInToMemberApp } from '../support/demo';
 
 /**
@@ -11,7 +11,7 @@ import { DEMO, signInToMemberApp } from '../support/demo';
 test('the QR code changes to a new token before its countdown runs out; offline it shows the member number @mobile', async ({ page, context }) => {
   await page.clock.install();
   await signInToMemberApp(page, DEMO.member);
-  await page.goto('/pass');
+  await page.goto('/app/pass');
 
   const qr = page.locator('svg[data-qr-value]');
   await expect(qr).toBeVisible();

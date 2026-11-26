@@ -77,6 +77,8 @@ High-risk routes call `requireFreshAuth(ctx, action)` (`apps/api/src/lib/step-up
 | Action | Route(s) | `action` |
 | --- | --- | --- |
 | Refund a payment | `POST /v1/admin/billing/payments/:id/refund` | `billing.refund` |
+| Refund a credit pack (P05) | `POST /v1/admin/billing/credit-packs/:id/refund` | `billing.refund` |
+| Resolve or ignore a payment reconciliation exception (P02) | `POST /v1/admin/billing/reconciliation/:id/resolve` | `billing.reconcile` |
 | Refund a store sale | `POST /v1/admin/store/orders/:id/refund` | `store.refund` |
 | Write off (void) an invoice | `POST /v1/admin/billing/invoices/:id/void` | `billing.write_off` |
 | Create a staff account (a role grant) | `POST /v1/admin/staff` | `staff.create` |

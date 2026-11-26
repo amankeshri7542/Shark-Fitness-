@@ -134,7 +134,15 @@ const conversationRoute = createRoute({
   path: '/messages/$conversationId',
   component: ConversationScreen,
 });
-const billingRoute = createRoute({ getParentRoute: () => tabsRoute, path: '/billing', component: BillingScreen });
+const billingRoute = createRoute({
+  getParentRoute: () => tabsRoute,
+  path: '/billing',
+  component: BillingScreen,
+  // `plan=<productId>`: the public website's "Buy or renew in the app" link
+  // (P03) opens the plan sheet with that plan chosen (P02's purchase flow).
+  validateSearch: (search: Record<string, unknown>): { plan?: string } =>
+    typeof search.plan === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(search.plan) ? { plan: search.plan } : {},
+});
 const libraryRoute = createRoute({ getParentRoute: () => tabsRoute, path: '/library', component: LibraryScreen });
 const profileRoute = createRoute({ getParentRoute: () => tabsRoute, path: '/profile', component: ProfileScreen });
 const notificationsRoute = createRoute({

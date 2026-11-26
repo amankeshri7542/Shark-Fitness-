@@ -10,7 +10,7 @@ test('a member writes to the front desk, reception replies from the Inbox, the m
   const words = `Is the steam room open on Sunday? (${Date.now()})`;
 
   await signInToMemberApp(page);
-  await page.goto('/messages/new');
+  await page.goto('/app/messages/new');
   await page.getByRole('radio', { name: /front desk/i }).check();
   await page.getByLabel('About').selectOption('facilities');
   await page.getByLabel('Message').fill(words);

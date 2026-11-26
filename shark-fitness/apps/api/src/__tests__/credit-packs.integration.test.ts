@@ -3,6 +3,8 @@ import { and, eq } from 'drizzle-orm';
 import { db, schema, sqlite } from '../db/client.js';
 import { id } from '../lib/ids.js';
 import { now } from '../lib/time.js';
+import { hashToken } from '../lib/crypto.js';
+import { testTotp } from './helpers/mfa.js';
 import {
   TENANT,
   createClassSession,
@@ -275,6 +277,23 @@ describe('refunds (decision 11)', () => {
     const invoice = db.select().from(schema.invoices).where(eq(schema.invoices.id, sale.body.invoiceId)).get()!;
     expect(invoice.refundedMinor).toBe(6_000_00);
     expect(db.select().from(schema.auditLog).where(and(eq(schema.auditLog.entityId, sale.body.packId), eq(schema.auditLog.action, 'credit_pack.refunded'))).get()?.reason).toBe('Moving cities');
+  });
+
+  it('a pack refund needs a recent re-authentication, like every other refund (P06 step-up)', async () => {
+    const member = createMember({ firstName: 'RefundStepUp' });
+    const sale = await sell(member.memberId, packProduct({ credits: 2, expireDays: 90, priceMinor: 200_00 }));
+    await payAtDesk(sale.body.invoiceId, sale.body.totalMinor);
+    const token = owner.cookie.match(/shark_session=([^;]+)/)![1]!;
+    db.update(schema.sessions).set({ reauthenticatedAt: now() - 6 * 60_000 }).where(eq(schema.sessions.tokenHash, hashToken(token))).run();
+
+    const refused = await refund(sale.body.packId, 'Moving cities');
+    expect(refused.status).toBe(401);
+    expect(refused.body).toMatchObject({ error: { code: 'STEP_UP_REQUIRED', details: { action: 'billing.refund' } } });
+    expect(db.select().from(schema.creditPacks).where(eq(schema.creditPacks.id, sale.body.packId)).get()!.state).not.toBe('refunded');
+
+    const ownerId = db.select().from(schema.users).where(and(eq(schema.users.tenantId, TENANT), eq(schema.users.email, 'owner@sharkfitness.in'))).get()!.id;
+    expect((await post(owner, '/v1/auth/step-up', { password: 'shark1234', code: testTotp(ownerId) })).status).toBe(200);
+    expect((await refund(sale.body.packId, 'Moving cities')).status).toBe(200);
   });
 
   it('a refund key replays only for its own pack; reused on another pack it is refused', async () => {

@@ -33,13 +33,22 @@ const term = (days: number | null) => (days === null ? 'No fixed end date' : day
  * invoice exists: price, GST, total, term and cancellation terms. Confirming
  * creates the invoice and opens payment for it.
  */
-export function PlanSheet({ onClose, onConfirm }: { onClose: () => void; onConfirm: (plan: PlanOption) => void }) {
+export function PlanSheet({
+  onClose,
+  onConfirm,
+  preferredProductId = null,
+}: {
+  onClose: () => void;
+  onConfirm: (plan: PlanOption) => void;
+  /** A plan to start on (the website's link); ignored if it is not on offer. */
+  preferredProductId?: string | null;
+}) {
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['billing', 'plans'],
     queryFn: () => api<PlanOptions>('/member/billing/plans'),
   });
   const [chosen, setChosen] = useState<string | null>(null);
-  const selected = data?.plans.find((plan) => plan.productId === (chosen ?? data.previousProductId)) ?? data?.plans[0] ?? null;
+  const selected = data?.plans.find((plan) => plan.productId === (chosen ?? preferredProductId ?? data.previousProductId)) ?? data?.plans.find((plan) => plan.productId === data.previousProductId) ?? data?.plans[0] ?? null;
   const title = data?.mode === 'renew' ? 'Renew your plan' : 'Choose a plan';
 
   return (

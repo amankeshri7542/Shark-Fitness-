@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../support/fixtures';
 import { DEMO, signInToMemberApp } from '../support/demo';
 
 /**
@@ -19,7 +19,7 @@ test('2 exercises × 3 sets logged offline, reloaded, then synced once @mobile',
   await page.reload();
   await expect.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller))).toBe(true);
 
-  await page.goto('/workout?mode=freestyle');
+  await page.goto('/app/workout?mode=freestyle');
   await expect(page.getByRole('heading', { name: 'Build your session' })).toBeVisible();
   const library = page.getByRole('list', { name: 'Exercise library' }).getByRole('button');
   await expect(library.first()).toBeVisible();

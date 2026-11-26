@@ -222,6 +222,30 @@ it('chooses a plan with its full price and terms before anything is invoiced', a
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 });
 
+it('a link from the website (?plan=) opens the plan sheet with that plan chosen, before anything is invoiced', async () => {
+  window.history.replaceState(null, '', '/app/billing?plan=prd_quarter');
+  server['GET /member/billing'] = () => billing({ membership: null, invoices: [], outstandingMinor: 0, outstandingLabel: '₹0' });
+  server['GET /member/billing/plans'] = () => ({
+    onlinePayment: true, mode: 'purchase', unavailableReason: null, previousProductId: null,
+    plans: [
+      { productId: 'prd_month', name: 'Depot Monthly', description: '', kind: 'membership', durationDays: 30, priceLabel: '₹2,500', taxLabel: '₹450', totalMinor: 295000, totalLabel: '₹2,950', cancellation: '', freezeAllowed: true },
+      { productId: 'prd_quarter', name: 'Depot Quarterly', description: '', kind: 'membership', durationDays: 90, priceLabel: '₹6,500', taxLabel: '₹1,170', totalMinor: 767000, totalLabel: '₹7,670', cancellation: '', freezeAllowed: true },
+    ],
+  });
+  try {
+    renderBilling();
+    const dialog = await screen.findByRole('dialog', { name: 'Choose a plan' });
+    expect(await within(dialog).findByRole('radio', { name: /Depot Quarterly/ })).toBeChecked();
+    expect(dialog).toHaveTextContent('Total today₹7,670');
+    expect(api.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(window.location.search).toBe('');
+  } finally {
+    window.history.replaceState(null, '', '/');
+  }
+});
+
 it('the plan sheet closes on Escape and keeps focus inside while open', async () => {
   server['GET /member/billing'] = () => billing({ membership: { ...billing().membership, state: 'expired' } });
   server['GET /member/billing/plans'] = () => ({ onlinePayment: true, mode: 'renew', unavailableReason: null, previousProductId: 'prd_month', plans: [

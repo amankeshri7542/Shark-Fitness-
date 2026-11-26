@@ -5,6 +5,8 @@ import { jobsForTest, SCHEDULED_JOB_NAMES } from '../jobs/scheduler.js';
 import { db, schema } from '../db/client.js';
 import { setPaymentProviderForTests } from '../lib/payment-provider.js';
 import { now } from '../lib/time.js';
+import { hashToken } from '../lib/crypto.js';
+import { testTotp } from './helpers/mfa.js';
 import type { RequestContext } from '../lib/context.js';
 import { listReconciliationExceptions } from '../services/payments/reconciliation.js';
 import {
@@ -109,6 +111,15 @@ describe('reconcile-payments', () => {
     expect((await resolve({ action: 'resolve', reason: '  ' })).status).toBe(422);
     const reception = await signIn('reception@sharkfitness.in');
     expect((await resolve({ action: 'resolve', reason: 'Refunded the ₹1 test' }, reception)).status).toBe(403);
+    // Closing a money mismatch needs a recent re-authentication (P06 step-up).
+    const token = owner.cookie.match(/shark_session=([^;]+)/)![1]!;
+    db.update(schema.sessions).set({ reauthenticatedAt: now() - 6 * 60_000 }).where(eq(schema.sessions.tokenHash, hashToken(token))).run();
+    const stale = await resolve({ action: 'resolve', reason: 'Refunded the ₹1 test payment from the Dashboard' });
+    expect(stale.status).toBe(401);
+    expect(await stale.json()).toMatchObject({ error: { code: 'STEP_UP_REQUIRED', details: { action: 'billing.reconcile' } } });
+    expect(exceptionsFor(mismatched.invoiceId)[0]).toMatchObject({ state: 'open' });
+    const ownerId = db.select().from(schema.users).where(eq(schema.users.email, 'owner@sharkfitness.in')).get()!.id;
+    expect((await request('POST', '/auth/step-up', owner, { password: 'shark1234', code: testTotp(ownerId) }, null)).status).toBe(200);
     const done = await resolve({ action: 'resolve', reason: 'Refunded the ₹1 test payment from the Dashboard' });
     expect(done.status).toBe(200);
     expect(exceptionsFor(mismatched.invoiceId)[0]).toMatchObject({ state: 'resolved', resolutionReason: 'Refunded the ₹1 test payment from the Dashboard', resolvedByName: expect.any(String) });

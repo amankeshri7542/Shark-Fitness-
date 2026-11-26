@@ -58,9 +58,23 @@ const MEMBERSHIP_TONE: Record<string, Tone> = {
   suspended: 'bad',
 };
 
+function requestedPlanFromUrl(): string | null {
+  const plan = new URLSearchParams(window.location.search).get('plan');
+  return plan && /^[A-Za-z0-9_-]{1,64}$/.test(plan) ? plan : null;
+}
+
 export default function BillingScreen() {
   const checkout = useCheckout();
-  const [choosingPlan, setChoosingPlan] = useState(false);
+  // Arriving from the website with `?plan=<productId>` opens the plan sheet
+  // with that plan chosen; the sheet still shows price, GST and terms first.
+  // (router.tsx validates it; read here so the screen also works on its own.)
+  const [requestedPlan] = useState(requestedPlanFromUrl);
+  const [choosingPlan, setChoosingPlan] = useState(requestedPlan !== null);
+  const closePlans = () => {
+    setChoosingPlan(false);
+    // Once dealt with, a reload should not open the sheet again.
+    if (requestedPlan && window.location.search) window.history.replaceState(window.history.state, '', window.location.pathname);
+  };
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['billing'],
@@ -226,9 +240,10 @@ export default function BillingScreen() {
       </Stack>
       {choosingPlan ? (
         <PlanSheet
-          onClose={() => setChoosingPlan(false)}
+          preferredProductId={requestedPlan}
+          onClose={closePlans}
           onConfirm={(plan) => {
-            setChoosingPlan(false);
+            closePlans();
             void checkout.pay({ kind: 'plan', productId: plan.productId, label: plan.name });
           }}
         />

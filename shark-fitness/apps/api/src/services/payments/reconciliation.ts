@@ -10,6 +10,7 @@ import { DAY, HOUR, MINUTE, now } from '../../lib/time.js';
 import { applyProviderPayment, captureOrRefetch } from './checkout.js';
 import { submitProviderRefund } from './refunds.js';
 import { openReconciliationException, razorpayContext, type IntentRow } from './settlement.js';
+import { requireFreshAuth } from '../../lib/step-up.js';
 
 /**
  * `reconcile-payments` (every 6 hours; scheduler, durable `job_runs`).
@@ -243,6 +244,9 @@ export function listReconciliationExceptions(ctx: RequestContext, state: 'open' 
  *  payments have their own audited paths; this records what staff decided. */
 export function resolveReconciliationException(ctx: RequestContext, exceptionId: string, action: 'resolve' | 'ignore', reason: string) {
   requirePermission(ctx, 'billing.refund');
+  // Closing a money mismatch can hide a missing or extra payment: a recent
+  // password (and code) first, like refunds and write-offs (P06 step-up).
+  requireFreshAuth(ctx, 'billing.reconcile');
   return transact(() => {
     const row = db
       .select()

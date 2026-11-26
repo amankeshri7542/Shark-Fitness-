@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../support/fixtures';
 import { DEMO, signInToMemberApp } from '../support/demo';
 import { razorpay, stubCheckout } from '../support/razorpay';
 

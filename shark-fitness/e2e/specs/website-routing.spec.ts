@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../support/fixtures';
 
 /**
  * The member app moved from / to /app/ when the website took /. Links and
