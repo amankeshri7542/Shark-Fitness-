@@ -8,7 +8,7 @@ import { MEMBER_MANIFEST } from './manifest.config';
 /** Route chunks left out of the precache. Home, Train, Workout, Summary,
  *  Exercise, Book, Profile, Pass, Help and Sign-in stay in: they work offline
  *  from the saved snapshot or local state. */
-const ONLINE_ONLY_SCREENS = ['Pack', 'Challenge', 'Library', 'Billing', 'Progress', 'Notifications', 'Messages', 'Conversation', 'Habits'];
+const ONLINE_ONLY_SCREENS = ['Pack', 'Challenge', 'Library', 'Billing', 'Progress', 'Notifications', 'Messages', 'Conversation', 'NewMessage', 'Habits'];
 
 /** Ports stay overridable for machines that run several copies at once. */
 const DEV_PORT = Number(process.env.SHARK_MEMBER_DEV_PORT ?? 5173);

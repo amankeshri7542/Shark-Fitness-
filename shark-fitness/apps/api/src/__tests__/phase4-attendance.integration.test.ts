@@ -115,6 +115,10 @@ function idleEntitledMember(branchId: string): { id: string; memberNo: string } 
             and recent.decision = 'granted'
             and recent.entered_at > ${antiPassbackCutoff}
         )`,
+        // Only a member of this branch alone: other suites' fixtures (P05's
+        // scan tests) leave members here with extra branch grants, and the
+        // file order decides whether they exist yet.
+        sql`not exists (select 1 from member_branches mb where mb.member_id = ${schema.members.id})`,
       ),
     )
     .all();
