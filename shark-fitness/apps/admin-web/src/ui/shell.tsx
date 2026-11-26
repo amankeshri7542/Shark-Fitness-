@@ -1,10 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
 import { api } from '../lib/api';
 import { navFor } from '@shark/domain';
 import { Button, Chip, LiveDot, cx } from './console';
-import { useFocusTrap } from './overlay';
 import { useAdmin, usePermission, useViewer } from '../lib/store';
 import { useConnection, useOnline } from '../lib/realtime';
 
@@ -321,101 +319,4 @@ export function Page({ title, kicker, actions, children }: {
   );
 }
 
-/**
- * ⌘K. Jumps to a module, filtered to what the role may open.
- *
- * It says "module" because that is all it does. The placeholder used to offer
- * members, invoices and classes, and the no-results line suggested trying a
- * member name — against an index that has only ever held the fifteen or so
- * modules in the rail. Typing a member's name returned "nothing matches",
- * which reads as "that member does not exist": a promise the console does not
- * keep, answered with a statement that is not true. Member and invoice search
- * live on their own screens and are reachable from here in one press; when
- * this palette can genuinely search them, the copy can say so again.
- */
-export function CommandPalette() {
-  const open = useAdmin((s) => s.paletteOpen);
-  const togglePalette = useAdmin((s) => s.togglePalette);
-  const viewer = useViewer();
-  const navigate = useNavigate();
-  const [query, setQuery] = useState('');
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const closePalette = () => togglePalette(false);
-  const panelRef = useFocusTrap(open, closePalette, inputRef);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        togglePalette();
-      }
-      if (e.key === 'Escape') togglePalette(false);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [togglePalette]);
-
-  if (!open || !viewer) return null;
-
-  const modules = navFor(viewer.role).filter((m) =>
-    m.label.toLowerCase().includes(query.toLowerCase()),
-  );
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-scrim pt-[12vh]"
-      onClick={() => togglePalette(false)}
-      role="presentation"
-    >
-      <div
-        ref={panelRef}
-        tabIndex={-1}
-        data-overlay-panel=""
-        className="w-[min(560px,92vw)] border border-line-strong bg-overlay"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Search and commands"
-      >
-        <input
-          ref={inputRef}
-          autoFocus
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Jump to a module"
-          className="w-full border-0 border-b border-line bg-transparent px-4 py-3.5 text-[15px] outline-none placeholder:text-foam-35"
-        />
-        <ul className="max-h-[50vh] overflow-y-auto">
-          {modules.map((m) => (
-            <li key={m.key}>
-              <button
-                type="button"
-                onClick={() => {
-                  togglePalette(false);
-                  setQuery('');
-                  void navigate({ to: m.to });
-                }}
-                className="flex w-full items-center gap-3 border-b border-line-10 px-4 py-2.5 text-left hover:bg-wash-sonar"
-              >
-                <span
-                  aria-hidden="true"
-                  className="h-2.5 w-2.5 flex-none bg-sonar"
-                  style={{ clipPath: MARKS[m.key] ?? MARKS.home }}
-                />
-                <span className="text-[13px]">{m.label}</span>
-              </button>
-            </li>
-          ))}
-          {modules.length === 0 ? (
-            <li className="px-4 py-4 text-[13px] text-foam-45">
-              No module matches “{query}”. Members and invoices are searched on their own screens.
-            </li>
-          ) : null}
-        </ul>
-        <div className="border-t border-line px-4 py-2 font-utility text-[9px] uppercase tracking-[0.12em] text-foam-35">
-          Modules your role can open
-        </div>
-      </div>
-    </div>
-  );
-}
+export { CommandPalette } from './CommandPalette';

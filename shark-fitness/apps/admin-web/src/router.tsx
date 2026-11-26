@@ -144,13 +144,21 @@ const membersRoute = createRoute({
 const memberDetailRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/members/$memberId', component: MemberDetailScreen });
 const plansRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/plans', component: PlansScreen });
 const INVOICE_STATES = ['', 'outstanding', 'open', 'partially_paid', 'overdue', 'paid', 'void', 'partially_refunded', 'refunded'] as const;
-type BillingSearch = { state?: (typeof INVOICE_STATES)[number] };
+type BillingSearch = {
+  state?: (typeof INVOICE_STATES)[number];
+  /** Open this invoice (command palette, search results). */
+  invoice?: string;
+  /** With `invoice`: open straight onto Record payment. */
+  pay?: 1;
+};
 const billingRoute = createRoute({
   getParentRoute: () => consoleRoute,
   path: '/billing',
   component: BillingScreen,
   validateSearch: (search: Record<string, unknown>): BillingSearch => ({
     state: INVOICE_STATES.includes(search.state as never) ? (search.state as BillingSearch['state']) : undefined,
+    ...(typeof search.invoice === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(search.invoice) ? { invoice: search.invoice } : {}),
+    ...(search.pay === 1 || search.pay === '1' ? { pay: 1 as const } : {}),
   }),
 });
 const floorRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/floor', component: FloorScreen });
@@ -160,6 +168,8 @@ const floorRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/flo
 const SCHEDULE_TABS = ['day', 'series'] as const;
 export interface ScheduleSearch {
   tab: (typeof SCHEDULE_TABS)[number];
+  /** Open the new-class form (command palette "Create class"). */
+  create?: 1;
 }
 const scheduleRoute = createRoute({
   getParentRoute: () => consoleRoute,
@@ -167,6 +177,7 @@ const scheduleRoute = createRoute({
   component: ScheduleScreen,
   validateSearch: (search: Record<string, unknown>): ScheduleSearch => ({
     tab: SCHEDULE_TABS.includes(search.tab as never) ? (search.tab as ScheduleSearch['tab']) : 'day',
+    ...(search.create === 1 || search.create === '1' ? { create: 1 as const } : {}),
   }),
 });
 const trainingRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/training', component: TrainingScreen });

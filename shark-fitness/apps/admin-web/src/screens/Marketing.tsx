@@ -199,7 +199,7 @@ export default function MarketingScreen() {
 function PreviewPanel({ preview }: { preview: Preview }) {
   const excluded = Object.entries(preview.chosen.excluded).filter(([, n]) => n > 0);
   return (
-    <Panel className="flex flex-col gap-2 p-3" aria-label="Who it reaches">
+    <section aria-label="Who it reaches" className="flex flex-col gap-2 border border-line p-3">
       <Label>Who it reaches</Label>
       <p className="text-[14px]">
         <strong>{preview.chosen.recipients}</strong> of {preview.segmentSize} people in this group will get it by {preview.chosen.label}.
@@ -242,7 +242,7 @@ function PreviewPanel({ preview }: { preview: Preview }) {
           More than {preview.approvalThreshold} people: an owner has to approve this before it sends.
         </p>
       ) : null}
-    </Panel>
+    </section>
   );
 }
 
@@ -432,7 +432,7 @@ function BroadcastDrawer({ broadcastId, online, onClose }: { broadcastId: string
           ) : null}
 
           {detail.data.report ? (
-            <Panel className="p-3" aria-label="Delivery report">
+            <section aria-label="Delivery report" className="border border-line p-3">
               <Label>What happened</Label>
               <dl className="mt-2 grid grid-cols-3 gap-2 text-[12px]">
                 {['sent', 'logged', 'queued', 'deferred', 'suppressed', 'failed'].map((k) => (
@@ -451,7 +451,7 @@ function BroadcastDrawer({ broadcastId, online, onClose }: { broadcastId: string
                   ))}
                 </ul>
               ) : null}
-            </Panel>
+            </section>
           ) : null}
 
           {b.state !== 'sent' && b.state !== 'cancelled' ? (
